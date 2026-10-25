@@ -1,7 +1,7 @@
 """
 Tests of the building blocks of vision_training/models/components and of the backbone: squeeze and excitation, inception
 convolution, input normalization strategies, convolution block keys, residual shortcuts in their original and
-pre-activation placements, backbone shapes and receptive field.
+pre-activation placements with the module names the summaries show, backbone shapes and receptive field.
 """
 
 import pytest
@@ -183,7 +183,8 @@ def test_pre_activation_convolution_block_layers() -> None:
     """
     Verifies the layers of a pre-activation block with batch normalization: every layer normalizes its input channels
     before its activation and convolution, the block ends with the normalization of its output channels, the summary
-    names the pre-activation shortcuts, and the placement is refused without the residual shortcuts.
+    names its pre-activation layers (its two layers changing the channels from 3 to 16 add no shortcut), and the
+    placement is refused without the residual shortcuts.
     """
     convolution_block = ConvolutionBlock(input_channels=3, output_channels=16, bias=True, number_layers=2,
                                          kernel_size=3, stride=1, padding=1, feature_map_normalization="batch",
@@ -197,7 +198,7 @@ def test_pre_activation_convolution_block_layers() -> None:
                                                                               "MaxPool2d"]
     assert (convolution_block.block[0].num_features, convolution_block.block[3].num_features) == (3, 16)
     assert convolution_block.output_normalization.num_features == 16
-    assert convolution_block.get_active_module_names() == ["Pre-Activation Residual Shortcuts"]
+    assert convolution_block.get_active_module_names() == ["Pre-Activation Layers"]
     output_tensor = convolution_block(input_tensor=torch.randn(size=(2, 3, 8, 8)))
     assert output_tensor.shape == (2, 16, 4, 4)
 
@@ -207,6 +208,70 @@ def test_pre_activation_convolution_block_layers() -> None:
                          padding=1, feature_map_normalization="batch", batch_normalization_momentum=0.1,
                          activation=True, dropout_rate=0.0, add_pooling=False, device=DEVICE, dtype=DTYPE,
                          squeeze_and_excite=False, residual=False, pre_activation=True, inception=False)
+
+
+def build_residual_test_block(input_channels: int, number_layers: int, residual: bool,
+                              pre_activation: bool) -> ConvolutionBlock:
+    """
+    Builds the small convolution block, without normalization nor pooling, compared with and without its residual
+    shortcuts by the test of the summary names, the channels ending at 8.
+
+    Args:
+        input_channels (int): The channels of the block input, 8 (equal to the output) or 3 (changing).
+        number_layers (int): The convolution layers of the block.
+        residual (bool): Whether the block has the residual shortcuts.
+        pre_activation (bool): Whether the shortcuts use the pre-activation placement.
+
+    Returns:
+        ConvolutionBlock: The block, in evaluation mode.
+    """
+    return ConvolutionBlock(input_channels=input_channels, output_channels=8, bias=True, number_layers=number_layers,
+                            kernel_size=3, stride=1, padding=1, feature_map_normalization="none",
+                            batch_normalization_momentum=0.1, activation=True, dropout_rate=0.0, add_pooling=False,
+                            device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=residual,
+                            pre_activation=pre_activation, inception=False).eval()
+
+
+@pytest.mark.parametrize(argnames=("input_channels", "number_layers", "expected_additions"),
+                         argvalues=[(8, 1, 0), (8, 2, 1), (8, 4, 2), (3, 2, 0), (3, 3, 1), (3, 5, 2)])
+def test_summary_names_the_shortcuts_of_blocks_adding_one(input_channels: int, number_layers: int,
+                                                          expected_additions: int) -> None:
+    """
+    Verifies that the summaries list the residual shortcuts of a block only when it adds one, the count of
+    count_residual_additions being checked against the computation itself: with the same weights, the block gives the
+    output of the block without shortcuts exactly when it adds none. A block whose first layer changes the channel
+    count (3 to 8) closes its first pair at its third layer, so with two layers it adds none, like the blocks 2, 4 and 6
+    of the synthetic configurations, that the summaries listed with residual shortcuts. A pre-activation block adding
+    none is listed by its pre-activation layers.
+
+    Args:
+        input_channels (int): The channels of the block input, 8 (equal to the output) or 3 (changing).
+        number_layers (int): The convolution layers of the block.
+        expected_additions (int): The shortcut additions the block makes.
+    """
+    torch.manual_seed(seed=0)
+    residual_block = build_residual_test_block(input_channels=input_channels, number_layers=number_layers,
+                                               residual=True, pre_activation=False)
+    plain_block = build_residual_test_block(input_channels=input_channels, number_layers=number_layers,
+                                            residual=False, pre_activation=False)
+    plain_block.load_state_dict(state_dict=residual_block.state_dict())
+
+    # The count matches the computation: the outputs of the two blocks differ exactly when a shortcut is added
+    input_tensor = torch.randn(size=(2, input_channels, 6, 6))
+    with torch.no_grad():
+        outputs_equal = torch.equal(input=residual_block(input_tensor=input_tensor),
+                                    other=plain_block(input_tensor=input_tensor))
+    assert residual_block.count_residual_additions() == expected_additions
+    assert plain_block.count_residual_additions() == 0
+    assert outputs_equal == (expected_additions == 0)
+
+    # The names follow the count, in the original and pre-activation placements
+    pre_activation_block = build_residual_test_block(input_channels=input_channels, number_layers=number_layers,
+                                                     residual=True, pre_activation=True)
+    assert residual_block.get_active_module_names() == (["Residual Shortcuts"] if expected_additions else [])
+    assert plain_block.get_active_module_names() == []
+    assert pre_activation_block.get_active_module_names() == (
+        ["Pre-Activation Residual Shortcuts"] if expected_additions else ["Pre-Activation Layers"])
 
 
 def test_backbone_pre_activation_starts_at_the_second_block() -> None:

@@ -1,0 +1,40 @@
+# Series of the tutorial videos, in the order of the index page and of a full build. Every series has its storyboards
+# in storyboards/<name>/ (one YAML file per chapter, numbered), its figure scripts in figures/<name>/ when it has
+# figures of its own, and its videos in <output folder>/<name>/.
+#   - name: folder of the series, also its name on the command line (--series)
+#   - title: name of the series in the title bar of its videos and on the index page
+#   - description: what the series teaches, shown on the index page
+series:
+  - name: foundations
+    title: "Foundations"
+    description: "What every task shares: the repository and a first run, the configuration and the training loop, the data pipeline, the backbone and its modules, the optimization, the evaluation and the deployment."
+  - name: classification
+    title: "Image Classification (CLS)"
+    description: "One class per image, or several: the head, the output modes, the losses and their options, and how to read a classification evaluation."
+  - name: object_detection
+    title: "Object Detection (DET)"
+    description: "Boxes with their class and score: the COCO data, the anchors and region proposals on several backbone levels, the RoI Align detection heads, their targets and losses, the postprocessing and the box mAP."
+  - name: instance_segmentation
+    title: "Instance Segmentation (INS)"
+    description: "The detector of DET with a mask for every object: the mask heads, their targets and loss, the mask mAP."
+  - name: keypoint_detection
+    title: "Keypoint Detection (KPT)"
+    description: "Objects found by their keypoints: the high resolution network, the heatmaps and tags, the focal and embedding losses, the grouping of the keypoints into objects."
+  - name: semantic_segmentation
+    title: "Semantic Segmentation (SEG)"
+    description: "One class per pixel: the backbone as the encoder of a U-Net decoder, the losses and the intersection over union."
+  - name: sequence_classification
+    title: "Sequence Classification (M2O)"
+    description: "One class per sequence of frames: the sequence data, the backbone on every frame, the temporal module and the head."
+  - name: sequence_labelling
+    title: "Sequence Labelling (M2M)"
+    description: "One class per frame of a sequence: the per-frame labels and head, the class balance and the metrics per frame."
+  - name: sequence_comparison
+    title: "Sequence Comparison (CMP)"
+    description: "One class per pair of sequences: the before and after members, their padding and fusion."
+  - name: frame_selection
+    title: "Frame Selection (SEL)"
+    description: "The frames of every wanted class in a sequence: the selection problem, the Hungarian and greedy decoding, the ranking and selection metrics."
+  - name: self_supervised
+    title: "Self-Supervised Learning (SSL)"
+    description: "A backbone learnt without labels from two views of every image: SimCLR and Barlow Twins, the projection head, the k-NN evaluation and the transfer to the other tasks."

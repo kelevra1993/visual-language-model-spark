@@ -6,7 +6,93 @@ The examples come from real runs on CPU, so that the GPU stayed free for another
 - **Stages 1 and 2**: `configurations/sequence_labelling/configuration_synthetic_sequences.yaml` (sequences of at most 50 frames fed whole, 512 pixel frames, batch size 16, a GRU), with the run folder redirected to a temporary folder.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts mostly `no_change` (71 classes: a first loss near ln 71 = 4.263), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
+## Read This First
+The sequence labeller gives one class to every frame of a sequence (many to many): every frame goes through the shared backbone and the global pooling of `ClassificationHead`, a temporal module keeping the time axis relates every frame vector to the frames it may see, and the classification head classifies every frame vector, trained with the cross entropy of the labelled frames. The labels are the `frame_category_ids` of `labels.json`, one category per frame, and every sequence is fed whole. Choose it when the answer is a class per frame (where something happens in the sequence); choose the sequence classification (M2O, `sequence_classification_workflow.md`) for one class per sequence, the sequence comparison (CMP) for a before and an after sequence, and the frame selection (SEL, `frame_selection_workflow.md`) when every sequence must give exactly `Selection.frames_per_class` frames of every wanted class, chosen by a decoding over the whole sequence.
+
+### The Task At A Glance
+```text
+<split>/data/<sequence>/000000.png ...   <split>/labels.json: {"frames": [...], "frame_category_ids": [1, 1, 48]}
+        │ SequenceDataset(label_type="frame"): one sample per whole sequence, an unmapped category gives -100
+        ▼
+sample  images [T, 3, 512, 512] uint8   sequence_mask [T] bool   labels [T] int64   (T at most 50 frames)
+        │ collate_padded_sequences(): black frames, mask False and label -100 up to the longest sequence
+        ▼
+batch   images [16, T, 3, 512, 512] (float32 after prepare_batch())   sequence_mask [16, T]   labels [16, T]
+        │ encode_frames(): Backbone on the real frames only [N, 64, 32, 32], average pooling, zeros on padding
+        ▼
+frames  [16, T, 64] ─> GRU 1x128, packed ─> [16, T, 128] ─> ClassificationHead [64] ─> class_logits [16, T, 71]
+        │ compute_sequence_labelling_loss(): cross entropy of the labelled frames only (ignore_index -100),
+        │ class_weights (class_weighting "none") and label_smoothing 0.0; batch metric compute_frame_accuracy()
+        ▼
+test    frame metrics: Accuracy, Balanced Accuracy, Macro F1, Top-2 Accuracy, Macro ROC AUC, Macro Average Precision
+        sequence metrics: Sequence Exact Match, Edit Score, Segment F1@10, Segment F1@25, Segment F1@50
+        ▼
+Evaluation/Iteration_<n>/   class_metrics.csv   class_thresholds.json   confusion_matrix.csv   predictions.csv
+                            confusion_matrix.png   roc_curves.png   precision_recall_curves.png   (per_class_report)
+                            Samples/<sequence>.png   Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<i>_<score>.png
+```
+
+### Files To Know
+| Role | File | Main functions or classes |
+|---|---|---|
+| Trainer | `vision_training/trainers/sequence_labelling_trainer.py`, on `sequence_classification_trainer.py` and `classification_trainer.py` | `SequenceLabellingTrainer`: `compute_batch_metrics`, `accumulate_evaluation_batch`, `dump_errors`, `build_sample_image`, `build_prediction_rows`, `compute_extra_headline_metrics`, `compute_segment_results` |
+| Dataset and loaders | `vision_training/data/sequence/sequence_dataset.py`, `vision_training/data/loaders.py` | `SequenceDataset` (`label_type="frame"`), `collate_padded_sequences`, `get_sequence_dataloaders` |
+| Model | `vision_training/models/sequence/sequence_labeller.py`, `sequence_model.py`, `frame_encoder.py`, `temporal_modules.py` | `SequenceLabeller`, `SequenceFrameModel`, `encode_frames`, `build_temporal_module`, `RecurrentTemporalModule` |
+| Head | `vision_training/models/classification/classification_head.py` | `ClassificationHead`, `build_global_pooling`, `compute_pooled_features` |
+| Loss | `vision_training/losses/sequence_losses.py`, `vision_training/losses/classification_losses.py` | `compute_sequence_labelling_loss`, `compute_balanced_class_weights` |
+| Metrics and evaluation | `vision_training/evaluation/sequence/sequence_metrics.py`, `segment_metrics.py`, `vision_training/evaluation/classification/` | `compute_frame_accuracy`, `compute_sequence_exact_matches`, `group_sequence_predictions`, `compute_segment_metrics`, `compute_class_score_curves`, `find_class_thresholds` |
+| Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_sequence_labelling_configuration`, `check_sequence_settings`, `check_temporal_model_configuration` |
+| Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_sections`, `build_temporal_tokens` |
+| Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_shape_change_sequence`, `CHANGE_CATEGORIES` |
+| Export | `vision_training/deployment/export_specifications.py`, `vision_training/models/sequence/inference_sequence_model.py` | `InferenceSequenceModel`: `sequence_labeller_<format>`, `images` [B, T, 3, S, S] to `class_probabilities` [B, T, K], no sequence mask |
+
+### Run It
+```bash
+# Dataset: set task = "sequence_labelling" in the main block of vision_training/data/synthetic/create_synthetic_dataset.py,
+# whose output_folders, image_sizes and split_sizes give synthetic_changing_shapes, 512 pixel frames, 250,000 / 50,000 /
+# 50,000 sequences of 2 to 12 frames
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset
+
+# Training, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
+uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"
+
+# Evaluation of the checkpoints of a run: set run_name, experiment_folder, iteration (None, a number or "all"),
+# test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder in its main block
+uv run python -m scripts.evaluation.evaluate_checkpoint
+```
+`scripts/data/create_sequence_split_subset.py` writes a fixed random subset of a split (`test_10000`, 10,000 of the 50,000 test sequences, seed 0), the test split of the `sequence_labelling/run-*.yaml` launches (`documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`).
+
+### Configuration Keys To Know First
+| Key | Value in the synthetic configuration | Effect |
+|---|---|---|
+| `ExperimentConfiguration.task` | `"sequence_labelling"` | `SequenceLabellingTrainer`, the M2M checks and the `M2M` run name code |
+| `Data.sequence_settings.maximum_sequence_length` | `50` | longest sequence fed whole, a longer one being left out with a red warning; `T50` token; positions of the transformer embedding |
+| `TemporalModel.type` | `"gru"` | `gru`, `lstm`, `transformer` or `temporal_convolution`; the poolings, which give one vector per sequence, are refused |
+| `TemporalModel.bidirectional`, `TemporalModel.causal` | `False`, `False` | a bidirectional GRU or LSTM also sees the frames after every frame (`-BI`, 256 features); `causal` (transformer, temporal convolution, `CAU`) only the frames before it; both together are refused |
+| `ClassificationHead.global_pooling` | `"average"` | frame vector of 64 features at any image size; `flatten` keeps the positions (64 x 32 x 32 = 65,536 features at 512 pixels) |
+| `ClassificationHead.class_weighting` | `"none"` | `"balanced"`: weight N / (K x n_c) of every class over the labelled training frames (`CWB` token) |
+| `ClassificationHead.label_smoothing` | `0.0` | smoothing of the per-frame cross entropy (`LS<rate>` token) |
+| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table and scalars, confusion matrix image, ROC and precision-recall curves |
+| `ExperimentConfiguration.evaluation.save_predictions` | `True` | `predictions.csv`, one row per labelled frame |
+| `ExperimentConfiguration.evaluation.error_dumps` | `activated: False`, `maximum_per_class_pair: 20` | one image per wrong frame in `Errors/<TRUE>-TO-<PREDICTED>/` |
+
+### What A Run Writes
+- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` table (column `Frames`) with `per_class_report`.
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (its `samples` are labelled frames), `class_thresholds.json`, `confusion_matrix.csv`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png`; `predictions.csv` with `save_predictions`, one row per labelled frame (`sequence`, `frame`, `true_class`, `predicted_class`, `correct`, `probability_<class>`).
+- `Samples/<sequence>.png`: the frame grid of 8 fixed test sequences, 4 frames per row, every frame captioned `true/predicted` and `X` on the wrong ones; `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, one image per wrong frame, with `error_dumps.activated`.
+- TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss` and `Accuracy` (of the labelled frames), `Train/` also `Learning Rate`; `Test/` the global metrics, the `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
+- `data.json` counts the `frames` of every class in every split.
+
+### Pitfalls
+- A run predicting `no_change` everywhere keeps a fair frame accuracy: the synthetic configuration trained 2000 iterations (README screenshots, `suggestions.md` K29) gives Accuracy 0.4697 (the share of `no_change` frames of `test_10000`), Balanced Accuracy 0.0141 (1/71), Macro F1 0.0090 and Sequence Exact Match 0.0589 (the 589 sequences without change). Its `predictions.csv` gives `no_change` a probability of 0.9999 on the 10,000 first frames, always `no_change`, and about 0.38 on the 59,918 others, their share of `no_change`: read the balanced accuracy, the macro F1 and the segment metrics.
+- The frames of unmapped categories get the label -100: they are left out of the loss and the metrics, and end a segment. Nothing checks that `frame_category_ids` holds one label per frame (`suggestions.md` L10), and a batch without labelled frame gives a NaN loss while the sequences without labelled frame count as exact matches (L11, `sequence_losses.py`, `compute_sequence_exact_matches()`).
+- A causal module (`causal: True`, or a GRU or LSTM that is not bidirectional) with `Backbone.normalization.feature_map_normalization: "sequence"` still uses the future frames: the statistics of every backbone layer are those of the whole sequence (`bug_standards.md` B8).
+- `label_smoothing` above 0 with `class_weighting: "balanced"` pulls every frame towards the rarest classes (`suggestions.md` C2); on the synthetic training split the balanced weight of `no_change` would be 0.030 against 1.82 to 1.89 for a change class (819,173 of the 1,749,690 frames, `data.json`).
+- `test_10000` holds a copy of the labels and a link to the frames of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without any error (`bug_standards.md` B2). The test split of the synthetic configuration holds all 50,000 test sequences, whose evaluation took 26 minutes at 256 pixels in the experiment plan.
+- `Data.sequence_settings` only takes `maximum_sequence_length`: a sequence is never cut into windows, a longer one is left out with a red warning (Step 2.8), and a step runs the backbone on up to `batch_size` x `maximum_sequence_length` frames (comment of `batch_size` in the configuration).
+
 ## Table of Contents
+- [Read This First](#read-this-first)
 - [Call Tree Overview](#call-tree-overview)
 - [Stage 1 — Entry Point and Configuration Loading](#stage-1--entry-point-and-configuration-loading)
 - [Stage 2 — Trainer Initialization](#stage-2--trainer-initialization)
@@ -66,6 +152,7 @@ main()
 │       │       └── class_weights buffer                         ones, or balanced on the labelled frames
 │       ├── initialise_pretrained_components() / build_optimizer() / MetricTracker(counts_frames=True)
 │       ├── print_experiment_information() -> describe_split() -> count_split_sequences()
+│       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       ├── view_input_batches() -> show_input_samples()   every frame captioned with its class
 │       └── restore_last_model()
 │
@@ -90,7 +177,8 @@ main()
         │   ├── validation pass
         │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
         │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
-        └── save_model() of the steps taken since the last checkpoint, if any, finish_experiment_tracking()
+        └── save_model() of the steps taken since the last checkpoint, if any; then run_training_loop() calls
+                finish_experiment_tracking(), whatever ended the loop
 
 run_test_evaluation(iteration)  [STAGE 4]
 ├── create_evaluation_accumulator()
@@ -99,19 +187,22 @@ run_test_evaluation(iteration)  [STAGE 4]
 ├── for each test batch:
 │   ├── prepare_batch() / predict_batch()
 │   ├── accumulate_evaluation_batch() -> compute_sequence_exact_matches()
-│   ├── dump_errors() -> build_frame_prediction_captions() + build_frame_grid()   one image per wrong frame
+│   │   └── dump_errors() -> build_frame_prediction_captions() + build_frame_grid()   one image per wrong frame
 │   └── save_sample_images() -> build_sample_image()   frame grid with true/predicted classes of every frame
 ├── compute_evaluation_results()
 │   ├── the frame metrics of the classification     confusion matrix, accuracy, balanced accuracy, macro F1, top-k,
-│   │                                               thresholds, class_metrics.csv
+│   │                                               thresholds; with per_class_report the ROC and precision-recall
+│   │                                               curves of every class (compute_class_score_curves()), with
+│   │                                               Macro ROC AUC and Macro Average Precision
 │   ├── compute_extra_headline_metrics()
 │   │   ├── Sequence Exact Match                    share of the sequences whose labelled frames are all right
 │   │   └── compute_segment_results()
 │   │       ├── group_sequence_predictions()        the labelled frames grouped sequence by sequence, in frame order
 │   │       └── compute_segment_metrics()           extract_segments(), compute_edit_distance(),
 │   │                                               count_segment_matches(): Edit Score, Segment F1@10/25/50
-│   ├── describe_extra_notes()                      the number of true and predicted segments
-│   └── write_predictions_file() -> build_prediction_rows()   one row per labelled frame
+│   ├── class_metrics.csv, confusion_matrix.png and save_score_curve_images() (the images with per_class_report)
+│   ├── write_predictions_file() -> build_prediction_rows()   one row per labelled frame
+│   └── describe_extra_notes()                      the number of true and predicted segments
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
@@ -243,8 +334,8 @@ As for every task (see `classification_workflow.md`, Step 2.6): a resumed run fi
 M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/
 ├── Tensorboard/
 ├── Weights/
-├── label_dictionary.json          the class index of every category of the run
-└── training_configuration.yaml    4,881 bytes
+├── label_dictionary.json          977 bytes      the class index of every category of the run
+└── training_configuration.yaml    30,689 bytes   the copy of the launched configuration file, comments included
 ```
 
 ### Step 2.7 — `build_dataloaders()` → `get_sequence_dataloaders(label_type="frame")` + `save_data_record()`
@@ -257,10 +348,13 @@ train        500 sequences -> 32 batches of 16 (one epoch = 32 iterations)
 validation    60 sequences ->  4 batches of 16
 test          60 sequences ->  4 batches of 16
 collate      functools.partial(<function collate_padded_sequences>, members_per_sample=1)
-data.json    151,989 bytes   keys ['created', 'class_names', 'splits']
-             splits['train'] = {'data_folder': '<datasets>/synthetic_changing_shapes/train', 'labels_sha256': 'e5172364...',
-                                'number_images': 3388, 'images': ['train_000000/000000.png', 'train_000000/000001.png', ...]}
+data.json    167,356 bytes   keys ['created', 'classes', 'splits']
+             classes[0] = {'class_index': 0, 'class_name': 'no_change', 'category_ids': [1],
+                           'frames': {'train': 1609, 'validation': 193, 'test': 231}}
+             splits['train'] = {'data_folder': '<generated dataset>/train', 'labels_sha256': '40ec1bf2...',
+                                'number_images': 3401, 'images': ['train_000000/000000.png', 'train_000000/000001.png', ...]}
 ```
+The record and the run folder of Step 2.6 were taken again with the current code on a dataset generated with the same settings (3,401 training frames instead of the 3,388 of Step 2.8): the first capture held the former `class_names` list instead of `classes`.
 
 ### Step 2.8 — `SequenceDataset.__init__(split_name=...)`
 The sequences are read as for the sequence classification (`sequence_classification_workflow.md`, Step 2.9), but every sequence gives `frame_category_ids`, one category per frame, and its record keeps the class of each of its frames, -100 for a frame of an unmapped category (ignored by the loss and the metrics). Every sequence is fed whole, so every frame is in exactly one sample. A sequence longer than `maximum_sequence_length` is left out of its split, with one red warning per sequence and a total; `split_name` names the split in these warnings.
@@ -298,7 +392,7 @@ len(loader) = 32   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin
 ```
 
 ### Step 2.10 — `get_test_sample_classes()` + `choose_sample_identifiers()`
-Every test sequence gives the classes of its labelled frames, and `choose_sample_identifiers()` groups it under its most frequent class (the lowest class index on a tie). Since about half of the frames are `no_change`, all 60 test sequences fall in the `no_change` group, so the 8 sample sequences are spread evenly over that group.
+Every test sequence gives the classes of its labelled frames, and `choose_sample_identifiers()` groups it under its most frequent class (the lowest class index on a tie), the groups receiving one sample each in turn, in class order. Every sequence starts with a `no_change` frame and seldom holds the same change twice, so all 60 test sequences of this dataset fall in the `no_change` group, and the 8 sample sequences are spread evenly over that group. A sequence holding one change more often than `no_change` forms a group of its own and gets a sample: in the dataset generated again for Step 2.7, `test_000030` (classes `[0, 32, 55, 43, 64, 11, 32, 34, 45, 46]`, `appearing_hollow_nonagon` twice) makes the samples `{0, 10, 19, 29, 30, 40, 49, 59}`.
 
 **Example output**
 ```text
@@ -315,11 +409,11 @@ The labeller has the parts of the sequence classifier (`sequence_classification_
 model.backbone                 Backbone                   183,648 parameters
 model.global_pooling           Sequential                       0 parameters
 model.temporal_module          RecurrentTemporalModule     74,496 parameters      GRU(64, 128, batch_first=True), output_features 128
-model.classification_head      ClassificationHead          12,871 parameters      Linear(128, 64) -> ReLU -> Linear(64, 71)
+model.classification_head      ClassificationHead          12,871 parameters      Dropout -> Linear(128, 64) -> ReLU -> Dropout -> Linear(64, 71)
 model.class_weights            buffer [71] torch.float32 [1.0, 1.0, 1.0, ...]
 total                                                     271,015 parameters
 ```
-The GRU reads the frames in order only (`bidirectional: False`): the vector of a frame then depends on the frames before it. A bidirectional GRU would give 256 features per frame, seeing the frames after it too.
+The GRU reads the frames in order only (`bidirectional: False`): the vector of a frame then depends on the frames before it. A bidirectional GRU would give 256 features per frame, seeing the frames after it too. The two dropout layers of the head (`dropout_rate: 0.2`) are built even at a rate of 0, so that the names of the weights do not depend on it.
 
 ### Step 2.12 — `initialise_pretrained_components()` + `build_optimizer()` + `get_tracked_metrics()`
 **Example output**
@@ -348,7 +442,18 @@ Every split line gives its sequences and frames, then the sequences kept and the
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence classification, the temporal module panel giving `Output Features : 128` and the head panel `Number Of Classes : 71`. With `view_input_images`, every frame of the grids is captioned with its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the sequence starts with the order of its classes (`get_sample_caption()`).
+The summary panels are those of the sequence classification (`sequence_classification_workflow.md`, Step 2.21), the temporal module panel giving `Output Features : 128` and the head panel `Input Features : 128` and `Number Of Classes : 71`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`, `suggestions.md` H4). With `view_input_images`, every frame of the grids is captioned with its number and its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the sequence starts with the order of its classes (`get_sample_caption()`).
+
+**Example: the modules and shapes of the backbone panel, and the model size panel** (the model rebuilt on the CPU)
+```text
+- Convolution Block 1   Modules : Squeeze-and-Excitation                       [1, 3, 512, 512]  -> [1, 16, 256, 256]
+- Convolution Block 2   Modules : Squeeze-and-Excitation                       [1, 16, 256, 256] -> [1, 32, 128, 128]
+- Convolution Block 3   Modules : Residual Shortcuts, Squeeze-and-Excitation   [1, 32, 128, 128] -> [1, 32, 64, 64]
+- Convolution Block 4   Modules : Squeeze-and-Excitation                       [1, 32, 64, 64]   -> [1, 64, 32, 32]
+- Convolution Block 5   Modules : Residual Shortcuts, Squeeze-and-Excitation   [1, 64, 32, 32]   -> [1, 64, 32, 32]
+Final Backbone output shape: [1, 64, 32, 32]
+Model Size: Backbone 183,648, Temporal Module 74,496, Classification Head 12,871, Total Model 271,015 parameters (1.09 MB)
+```
 
 **Example: the captions of the sequence of Step 2.8**
 ```text
@@ -404,6 +509,7 @@ Weights/Iteration_9/model_000009.pt   3,345,255 bytes      Weights/Iteration_12/
  'mlflow_run_id', 'pretrained_backbone', 'pretrained_temporal_module', 'pretrained_classification_head']
 model_state: 90 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'      format_version 2
 ```
+The file sizes were measured before the checkpoints held the label dictionary of the run (2026-10-21); the checkpoint of iteration 2000 of the README screenshot run of this configuration (`suggestions.md` K), the same 90 tensors with its label dictionary, its MLflow run identifier and the run name of 512 pixel frames, holds 3,348,821 bytes.
 
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
@@ -555,6 +661,7 @@ M2M_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/
 MLflow artifacts: metric_names.json, Results.txt, data/data.json, configuration/training_configuration.yaml,
                   evaluation/iteration_6/ and evaluation/iteration_12/ (class_metrics.csv, class_thresholds.json, confusion_matrix.png)
 ```
+This run was recorded before the ROC and precision-recall curves of the per-class report (2026-10-20): with `per_class_report`, every evaluation folder now also holds `roc_curves.png` and `precision_recall_curves.png`, sent to MLflow with the confusion matrix (`TRACKED_EVALUATION_FILES` of `base_trainer.py`; see Stage 4).
 
 
 ---
@@ -562,6 +669,8 @@ MLflow artifacts: metric_names.json, Results.txt, data/data.json, configuration/
 ## Stage 4 — Test Evaluation of a Checkpoint
 
 > The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 427 labelled frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `disappearing_hollow_ellipse` to every frame; the one of iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to the 120 others. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
+>
+> They were also captured before the ROC and precision-recall curves of the per-class report were added (2026-10-20). With `per_class_report`, the current code computes for every class, one against the others, its ROC and precision-recall curves on the labelled frames (`compute_class_score_curves()`, see `classification_workflow.md`, Steps 4.14 and 4.15): `Macro ROC AUC` and `Macro Average Precision` follow `Top-2 Accuracy` in the headline metrics, the per-class table, `class_metrics.csv` and the Test scalars gain the `ROC AUC` and `Average Precision` of every class, and `roc_curves.png` and `precision_recall_curves.png` are written and sent to TensorBoard and MLflow. Steps 4.7, 4.9, 4.13 and 5.5 give the differences next to the recorded outputs.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1).
@@ -596,7 +705,7 @@ class_probabilities   [4, 6, 71] torch.float32
 It keeps the probabilities and the labels of the labelled frames (`labels != -100`), with their sequence and position, and `compute_sequence_exact_matches()` tells for every sequence whether all its labelled frames are right. Then `dump_errors()` runs while the frames are still in the batch.
 
 ### Step 4.5 — `dump_errors()` → `build_frame_prediction_captions()` + `build_frame_grid()`
-Every wrong frame gives one image: the grid of its sequence, every real frame captioned `true/predicted` (with `X ` before a wrong frame, and `none` as the true class of an unlabelled frame), under a caption bar `frame <index> : <true> -> <predicted> <score>` naming the wrong frame, its classes and the probability of its predicted class. It is saved as `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, at most `maximum_per_class_pair` per pair.
+Every wrong frame gives one image: the grid of its sequence, every real frame captioned with its number and `true/predicted` (with `X ` before a wrong frame, e.g. `4 X disappearing_kite/no_change` in `README/sequence_labelling_sample.png`, and `none` as the true class of an unlabelled frame), under a caption bar `frame <index> : <true> -> <predicted> <score>` naming the wrong frame, its classes and the probability of its predicted class. It is saved as `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, at most `maximum_per_class_pair` per pair.
 
 **Example: the error images of the checkpoint of iteration 12**
 ```text
@@ -611,7 +720,7 @@ report line: "Error Images : 158 in 96 class pairs, at most 2 per pair"
 The checkpoint of iteration 6 gives 133 images in 68 class pairs.
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()`
-The labelling hook draws the frame grid of the sequence (`FRAME_GRID_COLUMNS = 4` frames per row), every real frame captioned `true/predicted` with `X ` before a wrong frame, under a caption bar giving the number of labelled frames that are right, in green when all are and in red otherwise.
+The labelling hook draws the frame grid of the sequence (`FRAME_GRID_COLUMNS = 4` frames per row), every real frame captioned with its number and `true/predicted`, with `X ` before a wrong frame, under a caption bar giving the number of labelled frames that are right, in green when all are and in red otherwise.
 
 **Example: the sample images of the checkpoint of iteration 12**
 ```text
@@ -626,9 +735,9 @@ TensorBoard: Samples/test_000000, ..., Samples/test_000059
 ```
 
 ### Step 4.7 — `compute_evaluation_results()`
-The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
+The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), with `per_class_report` their ROC and precision-recall curves, then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
 
-**Example: the results of iteration 12**
+**Example: the results of iteration 12** (recorded before the curves)
 ```text
 evaluated_samples = '60 Test Sequences, 427 Labelled Frames'
 metrics           = {'Accuracy': 0.2787, 'Balanced Accuracy': 0.0084, 'Macro F1': 0.0067, 'Top-2 Accuracy': 0.3466,
@@ -639,12 +748,13 @@ notes             = ['Segments : 355 true and 114 predicted in 60 test sequences
 headline_metric   = 'Accuracy'
 class_scalars     = 213 (71 classes x 3): Precision/no_change, Recall/no_change, F1/no_change, Precision/appearing_square, ...
 tables            = Per Class Metrics: Class, Frames, Precision, Recall, F1, Threshold @ P0.99, Recall @ P0.99
-files             = Results.txt, confusion_matrix.csv, class_thresholds.json, class_metrics.csv, confusion_matrix.png,
-                    predictions.csv, Errors, Samples
+files             = confusion_matrix.csv, class_thresholds.json, class_metrics.csv, confusion_matrix.png, predictions.csv,
+                    Errors, Samples          (Results.txt is printed as a link before them, by report_evaluation_results())
 ```
+With the current code, `metrics` holds `'Macro ROC AUC'` and `'Macro Average Precision'` right after `'Top-2 Accuracy'`, `class_scalars` the `ROC AUC/<class>` and `Average Precision/<class>` of every class having them (a class needs test frames for both, and frames of other classes for the ROC AUC), the table the `ROC AUC` and `Average Precision` columns after `F1`, and `files` `roc_curves.png` and `precision_recall_curves.png` after `confusion_matrix.png`. The README screenshot run of this configuration (2000 iterations, `test_10000`) gives `'Macro ROC AUC': 0.5826, 'Macro Average Precision': 0.0194` at iteration 2000, and 366 Test scalars (11 global, 5 for each of the 71 classes).
 
 ### Step 4.8 — the frame metrics: `compute_confusion_matrix()` + `compute_metrics_from_confusion_matrix()` + `compute_top_k_accuracy()`
-The metrics of the classification (see `classification_workflow.md`, Steps 4.8 to 4.11), every labelled frame of every sequence being one sample.
+The metrics of the classification (see `classification_workflow.md`, Steps 4.9 to 4.11), every labelled frame of every sequence being one sample.
 
 **Example: `Evaluation/Iteration_12/confusion_matrix.csv`** (71 x 71, shortened)
 ```text
@@ -677,6 +787,12 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 ...
 ```
 In `class_thresholds.json` (`target_precision` 0.99), `no_change` reaches a precision of 0.99 from a probability of 0.0201 (recall 0.0097) and `disappearing_hollow_semicircle` from 0.0142 (recall 0.25); most of the other classes are `null`.
+
+With `per_class_report`, the current header has two more columns, filled from the curves of every class:
+```text
+class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
+0,no_change,32843,0.469736,1.000000,0.639211,0.657150,0.712039,0.407468,0.307585        <- README screenshot run, iteration 2000
+```
 
 ### Step 4.10 — Sequence Exact Match
 The share of the test sequences whose labelled frames are all right, from the `exact_matches` of Step 4.4: the strictest metric of the task.
@@ -749,7 +865,31 @@ Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ─�
   - ...
 ```
 
-**Example: TensorBoard and MLflow after the two evaluations**
+**Example: the same block with the current code** (the README screenshot run of this configuration, 2000 iterations at 512 pixels, on `test_10000`; shortened)
+```text
+Iteration 2000 · 10000 Test Sequences, 69918 Labelled Frames · 2026-10-23 05:38 ────────────────────────────────────────
+  Accuracy               0.4697   Balanced Accuracy         0.0141
+  Macro F1               0.0090   Top-2 Accuracy            0.4774
+  Macro ROC AUC          0.5826   Macro Average Precision   0.0194
+  Sequence Exact Match   0.0589   Edit Score                0.2581
+  Segment F1@10          0.2822   Segment F1@25             0.1833
+  Segment F1@50          0.0711
+  Segments : 58133 true and 10000 predicted in 10000 test sequences, an unlabelled frame ending a segment
+  Sample Images : 8 fixed test sequences
+
+  Per Class Metrics
+                                                                                         Average   Threshold    Recall
+   Class                              Frames   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   appearing_square                      559      0.0000   0.0000   0.0000    0.5835      0.0099           —         —
+   ...
+   no_change                           32843      0.4697   1.0000   0.6392    0.6571      0.7120      0.4075    0.3076
+  Worst F1 first, ties in class order. — : no frames of the class, no negative for the ROC AUC, or the precision 0.99 is
+  never reached.
+```
+That run gives `no_change` to every frame (`suggestions.md` K29): its 10,000 predicted segments are one per sequence.
+
+**Example: TensorBoard and MLflow after the two evaluations** (recorded before the curves)
 ```text
 Tensorboard/Test: 222 scalars (9 global + 213 per class), 9 images (8 samples + Confusion Matrix)
     scalar Accuracy        6: 0.0047, 12: 0.2787
@@ -758,7 +898,7 @@ Tensorboard/Test: 222 scalars (9 global + 213 per class), 9 images (8 samples + 
 MLflow: 233 metrics: test/Accuracy, ..., test/Edit Score, test/Segment F1_at_10, test/Segment F1_at_25, test/Segment F1_at_50,
         test/Sequence Exact Match, test/best_Accuracy (steps 6, 12), 213 test_class/<metric>/<class>, train/*, validation/*, learning_rate
 ```
-MLflow only accepts letters, digits, `_`, `-`, `.`, `/` and spaces in a metric name, so `sanitise_metric_name()` writes `Segment F1@10` as `Segment F1_at_10` (the original names are kept in the `metric_names.json` artifact); TensorBoard and the console keep the `@`.
+MLflow only accepts letters, digits, `_`, `-`, `.`, `/` and spaces in a metric name, so `sanitise_metric_name()` writes `Segment F1@10` as `Segment F1_at_10` (the original names are kept in the `metric_names.json` artifact); TensorBoard and the console keep the `@`. With the current code, `Tensorboard/Test` also holds `Macro ROC AUC`, `Macro Average Precision`, `ROC AUC/<class>`, `Average Precision/<class>` and the `ROC Curves` and `Precision Recall Curves` images (366 scalars and 11 images in the README screenshot run), all sent to MLflow too.
 
 
 ---
@@ -796,7 +936,9 @@ MLflow Run Created In The Experiment 'sequence_labelling' : 0a6b17420e9b4be1a981
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
 **Example output** (iterations 9, 6 and 3 predict the same class everywhere and give the same row)
 ```text
+-------------------------------------------------------------
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
+-------------------------------------------------------------
   - Best Checkpoint : iteration 12 (Accuracy 0.2981)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Match,Edit Score,Segment F1@10,Segment F1@25,Segment F1@50, ...
@@ -805,10 +947,10 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Matc
 6,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
 3,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
 ```
-The file has 223 columns: the iteration, the 9 global metrics, then the precision, recall and F1 of the 71 classes. It is written in `evaluations/<run name>/Evaluation/`, next to the `Iteration_12`, `Iteration_9`, `Iteration_6` and `Iteration_3` folders of the evaluation.
+The file has 223 columns: the iteration, the 9 global metrics, then the precision, recall and F1 of the 71 classes. It is written in `evaluations/<run name>/Evaluation/`, next to the `Iteration_12`, `Iteration_9`, `Iteration_6` and `Iteration_3` folders of the evaluation. With the current code (Stage 4), `Macro ROC AUC` and `Macro Average Precision` follow `Top-2 Accuracy`, and the `ROC AUC` and `Average Precision` columns of every class having them follow its F1, the columns being all the scalars of the evaluation (`build_summary_columns()`).
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
-**Example output: the block of the checkpoint of iteration 12 on the 20 sequences** (shortened)
+**Example output: the block of the checkpoint of iteration 12 on the 20 sequences** (shortened, recorded before the curves of Stage 4)
 ```text
 Iteration 12 · 20 Test Sequences, 161 Labelled Frames · 2026-10-18 08:49 ───────────────────────────────────────────────
   Accuracy               0.2981   Balanced Accuracy   0.0131

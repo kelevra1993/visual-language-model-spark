@@ -1,0 +1,238 @@
+# Instance segmentation, chapter 1: what the task adds to the detector of the object detection series (which it does
+# not repeat), the masks of the COCO annotations and their loading, the mask head of every level, its targets and loss,
+# the comparison with Mask R-CNN, and the mask loss of the real run. Coordinates of the html scenes are in pixels of
+# the content area (1760 x 740); the figures figures:instance_segmentation/... and the facts {{instance_segmentation.*}}
+# are made by tutorials/figures/instance_segmentation from the INS run of tutorial_sources.yaml.
+series: instance_segmentation
+series_title: "Instance Segmentation (INS)"
+chapter: 1
+title: "From boxes to masks"
+output_name: instance_segmentation_01_from_boxes_to_masks
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [instance_segmentation]
+references:
+  - "vision_training/models/instance_segmentation/instance_segmenter.py · InstanceSegmenter.forward"
+  - "vision_training/data/detection/coco_masks.py · decode_run_length_encoding"
+  - "vision_training/data/detection/coco_dataset.py · CocoDetectionDataset.add_instance_masks"
+  - "vision_training/models/instance_segmentation/mask_head.py · count_mask_upsamplings"
+  - "vision_training/losses/instance_segmentation_losses.py · compute_mask_loss"
+  - "documentation/task workflows/instance_segmentation_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "From boxes to masks"
+    subheading: "The detector with a mask head on every level"
+    footnote: "Instance Segmentation · chapter 1"
+    narration:
+      - "Instance segmentation finds every object like the detector, with its box, class and score, and adds the pixel mask of every detection: choose it when the pixels of each object matter, for touching objects, areas or outlines."
+      - "Choose detection when boxes are enough or the masks are not annotated, and semantic segmentation when the class of every pixel is enough; this series builds on the object detection series and covers only what the masks add."
+
+  - kind: image
+    title: "What the instance segmenter returns"
+    code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.get_sample_masks"
+    image: "runs:readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_5000/Samples/test_014285.png"
+    highlights:
+      - {box: [0, 24, 512, 536], sentences: [0]}
+      - {box: [516, 24, 1028, 536], sentences: [1]}
+    narration:
+      - "The test image of the detection series, in a sample of the mask run: the ground truth masks and boxes on the left."
+      - "On the right, the {{instance_segmentation.predictions.detection_count}} detections of iteration {{instance_segmentation.run.checkpoint_iteration}} above 0.5, each with its mask filled in the color of its class; both nonagons are missed, and the square is found twice, once as a rectangle."
+
+  - kind: html
+    page: diagram
+    title: "A mask head on every level"
+    code_reference: "vision_training/models/instance_segmentation/instance_segmenter.py · InstanceSegmenter"
+    elements:
+      - {type: box, box: [20, 60, 1740, 220], fill: null, outline: border}
+      - {type: text, position: [50, 80], text: "the two-stage detector of the object detection series", font: diagram_bold, colour: dim}
+      - {type: text, position: [50, 135], text: "backbone · blocks 5, 6, 7 · region proposals · proposal filter · RoI heads · post-processing", font: diagram_text, colour: dim}
+      - {type: arrow, points: [[400, 220], [400, 300]], colour: blue, appear: 1}
+      - {type: box, box: [130, 305, 670, 425], text: "training: the positive sampled proposals\nwith their level and matched object", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1360, 220], [1360, 300]], colour: violet, appear: 2}
+      - {type: box, box: [1090, 305, 1630, 425], text: "evaluation: the final boxes, refined,\nat the level of their proposal", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[670, 365], [735, 470]], colour: blue, appear: 1}
+      - {type: arrow, points: [[1090, 365], [1025, 470]], colour: violet, appear: 2}
+      - {type: box, box: [740, 455, 1020, 575], text: "MaskHead\nof the level", font: diagram_bold, outline: magenta, appear: 1, highlight: [0, 3]}
+      - {type: arrow, points: [[880, 575], [520, 640]], colour: blue, appear: 1}
+      - {type: text, position: [120, 650], text: "mask_loss", font: diagram_monospace, appear: 1}
+      - {type: arrow, points: [[880, 575], [1240, 640]], colour: violet, appear: 2}
+      - {type: text, position: [1250, 650], text: "final_detection_masks [B, 100, 28, 28]", font: diagram_monospace_small, appear: 2}
+      - {type: text, position: [880, 600], text: "[R, {{instance_segmentation.model.number_classes}}, 28, 28] logits", font: diagram_monospace_small, anchor: ma, appear: 3}
+    narration:
+      - "The segmenter is the detector of the object detection series unchanged, plus one mask head per detection level, in the style of Mask R-CNN without feature pyramid."
+      - "In training, every level runs its mask head on its own positive sampled proposals, which gives the mask loss."
+      - "In evaluation, the mask heads run on the final boxes refined by the detection heads, each at the level of its proposal, which gives a hundred masks of 28 by 28 per image."
+      - "A head predicts one mask per class, and only the channel of the ground truth class, or of the detected class, is used."
+
+  - kind: html
+    page: diagram
+    title: "Masks in the COCO annotations"
+    code_reference: "vision_training/data/detection/coco_masks.py · decode_run_length_encoding"
+    elements:
+      - type: listing
+        box: [20, 15, 1740, 215]
+        font: diagram_monospace_small
+        source: {file: "figures:instance_segmentation/listings/run_length_encoding.txt"}
+        highlights:
+          - {match: "segmentation size", sentences: [0]}
+          - {match: "counts|values, sum|runs, column", sentences: [1]}
+          - {match: "decoded mask", sentences: [2, 3]}
+          - {match: "bbox", sentences: [3]}
+      - {type: image, path: "figures:instance_segmentation/masks/decoded_annotation.png", box: [20, 240, 1000, 730]}
+      - {type: box, box: [1060, 250, 1740, 370], text: "segmentation: polygons,\nuncompressed or compressed RLE", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [1060, 400, 1740, 520], text: "box = tight box of the mask\nat the network resolution", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: box, box: [1060, 550, 1740, 670], text: "mask emptied by the resize:\nobject dropped with its box", font: diagram_small, outline: red, appear: 4, highlight: [4]}
+    narration:
+      - "This task reads the segmentation of every annotation: polygons, or a run length encoding, uncompressed as a list as here, or compressed as a string."
+      - "The counts alternate background and object runs, column by column from the top left pixel: {{instance_segmentation.annotation.run_length_values}} values summing to the {{instance_segmentation.annotation.run_length_sum:,}} pixels of the image."
+      - "The loader decodes them into a mask at the network resolution, here the {{instance_segmentation.annotation.category}} of the first test image, {{instance_segmentation.annotation.mask_pixels:,}} pixels, its area in the manifest."
+      - "The box field of the annotation is not read: every box is the tight box of the mask at the network resolution, so that boxes and masks always agree and an annotation needs no box at all."
+      - "An object whose mask vanishes once resized is removed with its box, except in the evaluation at the original resolution."
+
+  - kind: html
+    page: diagram
+    title: "Masks through the loaders"
+    code_reference: "vision_training/data/detection/coco_dataset.py · CocoDetectionDataset.add_instance_masks"
+    elements:
+      - {type: text, position: [40, 40], text: "sample", font: diagram_bold}
+      - {type: text, position: [40, 95], text: "images [3, 512, 512] uint8 BGR\ninstance_masks [N, 512, 512] uint8\nbounding_boxes [N, 4] · labels [N]", font: diagram_monospace}
+      - {type: text, position: [960, 40], text: "batch of 64", font: diagram_bold}
+      - {type: text, position: [960, 95], text: "images [64, 3, 512, 512]\nmasks, boxes, labels:\nlists of 64 tensors", font: diagram_monospace}
+      - {type: box, box: [40, 340, 1720, 470], text: "geometric augmentations move the masks with the image (nearest)\nevery box recomputed from its moved mask · synthetic configuration: random haze only", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [40, 510, 1720, 640], text: "one full-size uint8 mask per object through the loaders\nMask R-CNN: optional 56 × 56 mini masks · audit L19", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+    narration:
+      - "A sample carries one full-size mask per object, 512 by 512, in 8-bit integers, next to its boxes and labels, and a batch keeps them as lists of 64 tensors."
+      - "The geometric augmentations move the masks with the image, and the box of every object is recomputed from its moved mask; the synthetic configuration only turns random haze on."
+      - "Full-size masks through the loaders cost memory where the reference design can keep small crops, audit item L19."
+
+  - kind: yaml
+    title: "The mask head in the configuration"
+    code_reference: "vision_training/models/instance_segmentation/mask_head.py · count_mask_upsamplings"
+    source:
+      file: vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml
+      keys: [DetectionLevels.5.mask_head, MaskHead.mask_resolution, MaskHead.upsampling, MaskHead.normalization, MaskHead.modules, MaskHead.inference]
+      comments: false
+    highlights:
+      - {match: "mask_head:", sentences: [0]}
+      - {match: "mask_resolution|upsampling:|residual_nets|squeeze_and_excite", sentences: [1]}
+      - {match: "mask_resolution", sentences: [2]}
+      - {match: "mask_threshold", sentences: [3]}
+    narration:
+      - "Every level configures its mask head in its Detection Levels entry: a ROI Align pool of 14, and a convolution block of three layers of 32 channels."
+      - "The Mask Head section sets what the levels share: masks of 28 pixels, a transposed convolution to double the pool, residual shortcuts and batch normalization, no squeeze and excitation."
+      - "The pool is doubled as many times as fits in the mask resolution, once from 14 to 28; a pool of 10 would be doubled to 20, then resized to 28."
+      - "The mask threshold of 0.5 serves the evaluation and the sample images; the export leaves it to the client."
+
+  - kind: html
+    page: diagram
+    title: "The mask head"
+    code_reference: "vision_training/models/instance_segmentation/mask_head.py · MaskHead.forward"
+    elements:
+      - {type: cuboid, box: [40, 110, 140, 210], depth: 26, fill: blue, label: "[64, 32, 16, 16]"}
+      - {type: text, position: [40, 50], text: "block 5", font: diagram_bold}
+      - {type: box, box: [40, 330, 240, 430], text: "boxes\n[R, 5]", font: diagram_small, outline: yellow}
+      - {type: arrow, points: [[190, 165], [285, 245]]}
+      - {type: arrow, points: [[240, 380], [285, 300]]}
+      - {type: box, box: [290, 205, 560, 345], text: "ROI Align 14 × 14\nscale of the level\naligned", font: diagram_small, outline: aqua, highlight: [0]}
+      - {type: arrow, points: [[560, 275], [615, 275]]}
+      - {type: cuboid, box: [620, 235, 700, 315], depth: 26, fill: aqua, label: "[R, 32, 14, 14]"}
+      - {type: arrow, points: [[730, 275], [785, 275]], appear: 1}
+      - {type: box, box: [790, 205, 1060, 345], text: "ConvolutionBlock\n[3, 32]\nresidual · BN", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1060, 275], [1115, 275]], appear: 1}
+      - {type: box, box: [1120, 205, 1390, 345], text: "ConvTranspose2d\n2 × 2, stride 2\nReLU", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1390, 275], [1445, 275]], appear: 2}
+      - {type: box, box: [1450, 205, 1730, 345], text: "1 × 1 conv\n{{instance_segmentation.model.number_classes}} channels", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: text, position: [1590, 370], text: "[R, {{instance_segmentation.model.number_classes}}, 28, 28]", font: diagram_monospace_small, anchor: ma, appear: 2}
+      - {type: text, position: [1255, 370], text: "[R, 32, 28, 28]", font: diagram_monospace_small, anchor: ma, appear: 1}
+      - {type: text, position: [40, 540], text: "{{instance_segmentation.model.mask_level_parameters:,}} parameters per level · {{instance_segmentation.model.mask_parameters:,}} for the three\nmodel: {{instance_segmentation.model.total_parameters:,}} parameters, the detector {{instance_segmentation.model.detector_parameters:,}}", font: diagram_text, appear: 3}
+    narration:
+      - "A mask head pools every box from the feature map of its level with ROI Align, 14 by 14, in half-pixel mode, at the spatial scale of the level, like the detection heads."
+      - "A convolution block of three layers of 32 channels with residual shortcuts processes it, and one transposed convolution of 2 by 2 and stride 2 with a rectified linear unit doubles it to 28 by 28."
+      - "A 1 by 1 convolution gives one map of scores per class, background included: {{instance_segmentation.model.number_classes}} channels of 28 by 28 for every box."
+      - "Each head has {{instance_segmentation.model.mask_level_parameters:,}} parameters, {{instance_segmentation.model.mask_parameters:,}} for the three levels, on top of the {{instance_segmentation.model.detector_parameters:,}} of the detector."
+
+  - kind: image
+    title: "The target of a proposal"
+    code_reference: "vision_training/models/instance_segmentation/mask_operations.py · build_mask_targets"
+    image: "figures:instance_segmentation/masks/mask_target.png"
+    highlights:
+      - {box: "{{instance_segmentation.target.panel_1_box}}", sentences: [0]}
+      - {box: "{{instance_segmentation.target.panel_2_box}}", sentences: [1]}
+      - {box: "{{instance_segmentation.target.panel_3_box}}", sentences: [2]}
+    narration:
+      - "The masks are learned on the positive sampled proposals only, the ground truth proposals included, every level on the positives of its own level; here a real proposal around the star, at an overlap of {{instance_segmentation.target.proposal_iou:.2f}}."
+      - "Its target is the matched ground truth mask cropped to the proposal and resized by ROI Align on the full-size mask, at a scale of one."
+      - "Cut at 0.5, the target is the part of the object inside the proposal, in the frame of the proposal, where the head predicts it: {{instance_segmentation.target.foreground_pixels}} of the 784 pixels."
+
+  - kind: code
+    title: "The mask loss"
+    code_reference: "vision_training/losses/instance_segmentation_losses.py · compute_mask_loss"
+    source:
+      file: vision_training/losses/instance_segmentation_losses.py
+      function: compute_mask_loss
+    highlights:
+      - {match: "class_logits = mask_logits\\[proposal_indices, labels\\]", sentences: [0]}
+      - {match: "binary_cross_entropy_with_logits", sentences: [0]}
+      - {match: "\\.float\\(\\)\\.sum\\(\\) \\* 0\\.0", sentences: [1]}
+    narration:
+      - "The loss is the binary cross entropy with logits of the channel of the ground truth class only, averaged over the pixels and the proposals: the classes never compete for a pixel, the detection head decides the class."
+      - "It is computed in float32, also under mixed precision, and a batch without any positive proposal gives a zero that keeps the mask heads in the graph."
+
+  - kind: text_panel
+    title: "Compared with Mask R-CNN"
+    columns:
+      - heading: "The same mask branch"
+        lines:
+          - "RoIAlign 14 x 14, 3 x 3 convolutions"
+          - "2 x 2 transposed convolution to 28 x 28"
+          - "one sigmoid mask per class"
+          - "BCE on the ground truth class"
+          - "masks predicted on the refined boxes"
+      - heading: "Different here"
+        lines:
+          - "no FPN: strides 32 and 64, not 4 to 32"
+          - "one mask head per level, not shared"
+          - "full-size ground truth masks (L19)"
+          - "ground truth boxes added to the proposals"
+          - "unscaled box targets, smooth L1 beta 1/9"
+    narration:
+      - "The mask branch is the design of that reference: ROI Align of 14, small convolutions, a transposed convolution to 28, one sigmoid mask per class, the loss on the ground truth class, and masks on the refined boxes."
+      - "What feeds it differs: no feature pyramid, so the masks are taken from strides of 32 and 64, one head per level, full-size ground truth masks, and the box choices of the detector."
+
+  - kind: image
+    title: "The mask loss of the run"
+    code_reference: "vision_training/models/instance_segmentation/instance_segmenter.py · InstanceSegmenter.compute_proposal_mask_loss"
+    image: "figures:instance_segmentation/training/loss_curves.png"
+    highlights:
+      - {box: "{{instance_segmentation.losses.panel_1_box}}", sentences: [1]}
+      - {box: "{{instance_segmentation.losses.panel_2_box}}", sentences: [0]}
+    narration:
+      - "In the run, the mask loss starts at {{instance_segmentation.losses.mask.first:.3f}}, the logarithm of two of logits at zero, and reaches {{instance_segmentation.losses.mask.last:.3f}} after {{instance_segmentation.losses.iterations:,}} iterations."
+      - "It falls with the four losses of the detector; the console adds its moving average, {{instance_segmentation.console.1000.mask_loss}} after one thousand iterations and {{instance_segmentation.console.5000.mask_loss}} after five thousand."
+
+  - kind: terminal
+    title: "Generate, train, evaluate"
+    code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
+    lines:
+      - {role: comment, text: "# The same data set as the detection: task = \"instance_segmentation\" in the main block"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# 2000 iterations as shipped, resumed to 5000 for this run"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml\""}
+      - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+    narration:
+      - "The task trains on the data set of the detection, every object segmented by an uncompressed run length encoding of its visible pixels."
+      - "Its synthetic configuration also stops at two thousand iterations; the run shown was resumed to five thousand, and the evaluation script evaluates any checkpoint again."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "The detector of DET, plus one mask head per level"}
+      - {text: "Segmentations: polygons or RLE; box = tight box of the mask"}
+      - {text: "Mask head: ROI Align 14, 3 convolutions, transposed convolution to 28, 21 masks"}
+      - {text: "Targets: the matched mask cropped to the positive proposal, 28 × 28, at 0.5"}
+      - {text: "BCE on the ground truth class channel, float32"}
+      - {text: "+{{instance_segmentation.model.mask_parameters:,}} parameters for the three mask heads"}
+    narration:
+      - "To recap: the detector is unchanged, every level gets a small mask head, and the masks are learned on the positive proposals against their cropped ground truth masks."
+      - "The next chapter scores the masks: their pasting, the mask overlap and mAP against the boxes, and the export."

@@ -1,0 +1,161 @@
+<!doctype html>
+<!--
+ Residual pairs of the backbone for the foundations chapter on the backbone: every block of the classification run as
+ a row of its convolution layers, the layer changing the channels outlined, then the shortcut of every pair closed by
+ the block (ConvolutionBlock.compute_layers: the pairs shift by one layer when the first layer changes the channels),
+ the blocks adding none dimmed, then a block of three layers changing the channels as an example. The blocks come from
+ the facts of the run (scene data: listings.block_table), so that the rows follow the configuration when the run is
+ trained again; the summary printed at launch is drawn by the engine of common/tutorial.js next to it.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Residual pairs</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        (function () {
+            "use strict";
+
+            // Geometry of the rows: the label, the layer tiles, the shortcut arcs above them and the note after them
+            const FIRST_ROW_Y = 78;
+            const ROW_SPACING = 88;
+            const EXAMPLE_ROW_Y = 662;
+            const TILES_LEFT = 250;
+            const TILE_WIDTH = 100;
+            const TILE_HEIGHT = 52;
+            const TILE_GAP = 40;
+            const ARC_RISE = 40;
+            const PLUS_RADIUS = 14;
+            const NOTE_LEFT = 700;
+
+            /* Left edge of the tile of a layer of a row. */
+            function tileLeft(layerIndex) {
+                return TILES_LEFT + layerIndex * (TILE_WIDTH + TILE_GAP);
+            }
+
+            /* Draws one block as a row: its label, its line, its layer tiles, the arc and sum of every pair, and its
+             * note when it adds no shortcut. Returns the parts the update shows or dims. */
+            function drawBlockRow(helpers, group, block, centreY, label) {
+                const rowGroup = helpers.createSvgElement("g", {}, group);
+                const changesChannels = block.input_channels !== block.output_channels;
+                const lastRight = tileLeft(block.layer_count - 1) + TILE_WIDTH;
+                const lineRight = block.pairs.length > 0 ? lastRight + 24 + 2 * PLUS_RADIUS + 20 : lastRight + 30;
+
+                // Label and the line of the feature map through the block
+                helpers.createText(rowGroup, label, 16, centreY, "lm", "diagram_small", "text");
+                helpers.createSvgElement("line", { x1: TILES_LEFT - 26, y1: centreY, x2: lineRight, y2: centreY,
+                                                   stroke: helpers.cssColour(helpers.COLOURS.border),
+                                                   "stroke-width": 3 }, rowGroup);
+
+                // One tile per convolution layer, the first one outlined in yellow when it changes the channels
+                for (let layerIndex = 0; layerIndex < block.layer_count; layerIndex++) {
+                    const outline = layerIndex === 0 && changesChannels ? helpers.COLOURS.yellow : helpers.COLOURS.blue;
+                    helpers.createSvgElement("rect", { x: tileLeft(layerIndex), y: centreY - TILE_HEIGHT / 2,
+                                                       width: TILE_WIDTH, height: TILE_HEIGHT, rx: 10,
+                                                       fill: helpers.cssColour(helpers.COLOURS.card),
+                                                       stroke: helpers.cssColour(outline), "stroke-width": 3 },
+                                             rowGroup);
+                    helpers.createText(rowGroup, `conv ${layerIndex + 1}`, tileLeft(layerIndex) + TILE_WIDTH / 2,
+                                       centreY, "mm", "diagram_tiny", "text");
+                }
+
+                // Shortcut of every pair: from the input of its first layer, over the pair, to the sum after its last
+                const arcs = [];
+                block.pairs.forEach(([startLayer, closingLayer]) => {
+                    const startX = startLayer === 0 ? TILES_LEFT - 20 : tileLeft(startLayer) - TILE_GAP / 2;
+                    const plusX = tileLeft(closingLayer) + TILE_WIDTH + 24 + PLUS_RADIUS;
+                    const points = [[startX, centreY], [startX, centreY - ARC_RISE], [plusX, centreY - ARC_RISE],
+                                    [plusX, centreY - PLUS_RADIUS]];
+                    const arc = helpers.createSvgElement("polyline", { points: helpers.formatPoints(points), fill: "none",
+                                                                       stroke: helpers.cssColour(helpers.COLOURS.aqua),
+                                                                       "stroke-width": 3 }, rowGroup);
+                    const plus = helpers.createSvgElement("g", {}, rowGroup);
+                    helpers.createSvgElement("circle", { cx: plusX, cy: centreY, r: PLUS_RADIUS,
+                                                         fill: helpers.cssColour(helpers.COLOURS.card),
+                                                         stroke: helpers.cssColour(helpers.COLOURS.aqua),
+                                                         "stroke-width": 3 }, plus);
+                    helpers.createText(plus, "+", plusX, centreY, "mm", "diagram_bold", "aqua");
+                    arcs.push({ arc: arc, plus: plus, length: helpers.polylineLength(points) });
+                });
+
+                // Note of a block adding no shortcut: the first block, or pairs shifted out of a short block
+                let note = null;
+                if (block.pairs.length === 0) {
+                    const noteText = block.number === 1 ? "first block: no shortcut" : "shifted pairs: none left";
+                    note = helpers.createText(rowGroup, noteText, NOTE_LEFT, centreY, "lm", "diagram_tiny", "dim");
+                }
+                return { group: rowGroup, arcs: arcs, note: note, addsShortcut: block.pairs.length > 0 };
+            }
+
+            /* Draws the legend, the rows of the blocks of the run and the example row, every part hidden until its
+             * sentence. */
+            function setupPairs(context) {
+                const helpers = context.helpers;
+                const data = context.scene.data;
+                const group = helpers.createSvgElement("g", {}, context.root);
+                helpers.createText(group, "yellow outline: the layer changing the channels · aqua: a shortcut", 16, 14,
+                                   "la", "diagram_tiny", "dim");
+                const rows = data.blocks.map((block, blockIndex) => drawBlockRow(
+                    helpers, group, block, FIRST_ROW_Y + blockIndex * ROW_SPACING,
+                    `block ${block.number} · ${block.input_channels} → ${block.output_channels}`));
+
+                // Example of a longer block changing the channels, below the blocks of the run
+                const exampleGroup = helpers.createSvgElement("g", {}, group);
+                const exampleY = EXAMPLE_ROW_Y;
+                helpers.createText(exampleGroup, data.example.caption, 16, exampleY - 62, "la", "diagram_tiny", "dim");
+                const exampleRow = drawBlockRow(helpers, exampleGroup, data.example, exampleY, data.example.label);
+                return { helpers: helpers, rows: rows, exampleGroup: exampleGroup, exampleRow: exampleRow };
+            }
+
+            /* Shows the arcs of a row grown from their start from a sentence, with their sums. Returns whether they
+             * still move. */
+            function showArcs(helpers, row, appearSentence, time) {
+                let moving = false;
+                row.arcs.forEach((record) => {
+                    const appearance = helpers.computeAppearance({ appear: appearSentence, type: "arrow" }, time);
+                    record.arc.setAttribute("stroke-dasharray", `${record.length} ${record.length}`);
+                    record.arc.setAttribute("stroke-dashoffset", record.length * (1 - appearance.growth));
+                    record.arc.setAttribute("opacity", appearance.opacity);
+                    record.plus.setAttribute("opacity", appearance.growth > 0.95 ? appearance.opacity : 0);
+                    moving = moving || appearance.moving;
+                });
+                return moving;
+            }
+
+            /* Draws the pairs at a time: the shortcuts and notes from the second sentence, the blocks adding none
+             * dimmed then, and the example row from the third sentence. */
+            function updatePairs(parts, time) {
+                const helpers = parts.helpers;
+                let moving = false;
+                parts.rows.forEach((row) => {
+                    moving = showArcs(helpers, row, 1, time) || moving;
+                    const dimmed = row.addsShortcut ? { value: 1, moving: false } :
+                        helpers.sentenceStateValue([1, 2, 3], time, 1, helpers.DIMMED_OPACITY, helpers.HIGHLIGHT_SECONDS);
+                    row.group.setAttribute("opacity", dimmed.value);
+                    if (row.note) {
+                        row.note.setAttribute("opacity", helpers.activeSentence(time) >= 1 ? 1 : 0);
+                    }
+                    moving = moving || dimmed.moving;
+                });
+                const example = helpers.computeAppearance({ appear: 2 }, time);
+                parts.exampleGroup.setAttribute("opacity", example.opacity);
+                parts.exampleGroup.style.display = example.opacity <= 0.001 ? "none" : "";
+                moving = showArcs(helpers, parts.exampleRow, 2, time) || moving || example.moving;
+                return moving;
+            }
+
+            /* Registers the pairs as the custom part of the scene, its update function bound to its parts. */
+            function registerPairs(context) {
+                const parts = setupPairs(context);
+                return updatePairs.bind(null, parts);
+            }
+
+            Tutorial.registerCustom(registerPairs);
+        })();
+    </script>
+</body>
+</html>

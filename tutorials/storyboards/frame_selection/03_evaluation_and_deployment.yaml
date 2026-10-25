@@ -1,0 +1,162 @@
+# Frame selection, chapter 3: the evaluation of the README run read file by file (Results.txt of iteration 1000, the
+# three wrong picks drawn again from the checkpoint run on the CPU, the chosen probabilities against the thresholds of
+# class_thresholds.json at iterations 1000 and 2000, the low confidence flags), the deployment as a network, a decoder
+# and an ensemble with the settings of the decoder, and the pitfalls of the task. Coordinates of the html scenes are in
+# pixels of the content area (1760 x 740, origin at its top left corner); the figures named figures:frame_selection/...
+# are made by tutorials/figures/frame_selection.
+series: frame_selection
+series_title: "Frame Selection (SEL)"
+chapter: 3
+title: "Evaluation and deployment"
+output_name: frame_selection_03_evaluation_and_deployment
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [frame_selection]
+references:
+  - "vision_training/evaluation/sequence/frame_selection_metrics.py · compute_ranking_metrics"
+  - "vision_training/evaluation/sequence/frame_selection_metrics.py · find_selection_thresholds"
+  - "vision_training/trainers/frame_selection_trainer.py · FrameSelectionTrainer.write_selections_file"
+  - "vision_training/deployment/frame_selection_decoder_backend.py · TritonPythonModel"
+  - "vision_training/deployment/frame_selection_deployment.py · export_frame_selection_decoding"
+  - "documentation/bug_standards.md"
+  - "documentation/suggestions.md"
+scenes:
+  - kind: title_card
+    heading: "Evaluation and deployment"
+    subheading: "Both decodings scored, doubtful picks flagged, the decoding next to the network"
+    footnote: "Frame Selection (SEL) · chapter 3"
+    narration:
+      - "This chapter reads the evaluation of the frame selection run: its report, its three wrong picks, and the confidence thresholds that flag them."
+      - "Then the deployment as a network, a decoder and an ensemble, and the pitfalls of the task."
+
+  - kind: html
+    page: diagram
+    title: "The report of iteration 1000"
+    code_reference: "vision_training/trainers/frame_selection_trainer.py · FrameSelectionTrainer.compute_evaluation_results"
+    elements:
+      - type: listing
+        box: [24, 20, 1736, 720]
+        font: diagram_monospace_small
+        source: {file: "figures:frame_selection/listings/results_block.txt"}
+        highlights:
+          - {match: "^Iteration", sentences: [0]}
+          - {match: "Hungarian Selection Accuracy|Greedy Selection Accuracy", sentences: [1]}
+          - {match: "Fully Right|Unselected Precision", sentences: [2]}
+          - {match: "Top-2 Selection", sentences: [3]}
+          - {match: "Frame Accuracy|Frame Macro F1", sentences: [4]}
+          - {match: "^   triangle", sentences: [5]}
+    narration:
+      - "The report gives the metrics of both decodings: here iteration one thousand, {{frame_selection.dataset.test_sequences}} test sequences, {{frame_selection.dataset.test_frames:,}} frames."
+      - "The selection accuracy is the share of the true frames chosen for their class: {{frame_selection.evaluation.hungarian_selection_accuracy:.3f}} for both decodings, all but {{frame_selection.decodings.iteration_1000_hungarian_wrong}} of the {{frame_selection.decodings.iteration_1000_rows}} true frames."
+      - "Fully right sequences is the share of sequences with every choice right, {{frame_selection.evaluation.hungarian_fully_right_sequences:.3f}}, and the unselected precision and recall score the frames left unchosen, {{frame_selection.evaluation.hungarian_unselected_precision:.4f}} each, every decoding choosing as many frames as there are true ones."
+      - "The top-2 selection accuracy and the mean true frame rank score the probabilities before any decoding: every true frame is among the two most probable of its class, and the mean rank is {{frame_selection.evaluation.mean_true_frame_rank:.3f}}."
+      - "The frame metrics take the most probable class of every frame, before decoding: a frame accuracy of {{frame_selection.evaluation.frame_accuracy:.4f}}."
+      - "The per-class table puts the worst class first, the triangle; at iteration two thousand, every selection metric is {{frame_selection.evaluation.iteration_2000.hungarian_selection_accuracy:.0f}}."
+
+  - kind: image
+    title: "The three wrong picks of iteration 1000"
+    code_reference: "vision_training/utilities/visualization.py · build_frame_selection_image"
+    image: "figures:frame_selection/selection/wrong_picks.png"
+    views:
+      - {box: "{{frame_selection.picks.test_000004.box}}", from_sentence: 1}
+      - {box: "{{frame_selection.picks.test_000134.box}}", from_sentence: 3}
+      - {box: "{{frame_selection.picks.test_000052.box}}", from_sentence: 4}
+    narration:
+      - "These are the three wrong picks of iteration one thousand, drawn by the selection image of the repository from the checkpoint run again on the CPU."
+      - "A solid green border marks a frame chosen for its true class, a red one a frame chosen for a class it does not hold, dashed yellow a true frame left unchosen, and the heat map below gives the probability of every frame for every wanted class."
+      - "In test sequence four, the true triangle, frame {{frame_selection.picks.test_000004.true_frame}}, has a probability of {{frame_selection.picks.test_000004.true_probability:.3f}}, and the model prefers frame {{frame_selection.picks.test_000004.chosen_frame}} at {{frame_selection.picks.test_000004.chosen_probability:.3f}}: no frame looks like a triangle to it."
+      - "In sequence 134, the same: {{frame_selection.picks.test_000134.true_probability:.3f}} for the true frame against {{frame_selection.picks.test_000134.chosen_probability:.3f}}."
+      - "In sequence 52, the wrong choice is confident: {{frame_selection.picks.test_000052.chosen_probability:.2f}}, against {{frame_selection.picks.test_000052.true_probability:.2f}} for the true frame."
+
+  - kind: image
+    title: "Confidence thresholds"
+    code_reference: "vision_training/evaluation/sequence/frame_selection_metrics.py · find_selection_thresholds"
+    image: "figures:frame_selection/evaluation/thresholds.png"
+    highlights:
+      - {box: "{{frame_selection.thresholds.iteration_1000_panel_box}}", sentences: [1, 2, 3]}
+      - {box: "{{frame_selection.thresholds.iteration_2000_panel_box}}", sentences: [4]}
+    narration:
+      - "The confidence threshold of a class is the lowest probability from which the chosen frames of the class reach the target precision, {{frame_selection.thresholds.target_precision}}, written in the class thresholds json file with the share of the true frames kept."
+      - "At iteration one thousand, every circle and star choice is right, so their thresholds are their lowest chosen probabilities, {{frame_selection.thresholds.iteration_1000_circle_threshold:.2f}} and {{frame_selection.thresholds.iteration_1000_star_threshold:.2f}}, with a recall of one."
+      - "Triangle gets {{frame_selection.thresholds.iteration_1000_triangle_threshold:.2f}}: from there on, its choices reach 0.99 with the third wrong pick still among them, a recall of {{frame_selection.thresholds.iteration_1000_triangle_recall:.3f}}."
+      - "So the two doubtful wrong picks fall under it and are flagged low confidence, while the third, at {{frame_selection.picks.test_000052.chosen_probability:.2f}}, goes through unflagged."
+      - "At iteration two thousand, every choice is right and the thresholds become {{frame_selection.thresholds.iteration_2000_circle_threshold:.2f}}, {{frame_selection.thresholds.iteration_2000_triangle_threshold:.2f}} and {{frame_selection.thresholds.iteration_2000_star_threshold:.2f}}; a class never reaching the target precision would get a null threshold, every frame chosen for it flagged."
+
+  - kind: code
+    title: "The low confidence flags"
+    code_reference: "vision_training/models/sequence/frame_selection_decoding.py · flag_low_confidence"
+    source:
+      file: vision_training/models/sequence/frame_selection_decoding.py
+      function: flag_low_confidence
+    highlights:
+      - {match: "NO_FRAME|class_threshold is None|< class_threshold", sentences: [0]}
+    narration:
+      - "flag low confidence applies them in the deployed decoder: a missing frame, a frame below the threshold of its class, or any frame of a class without threshold."
+      - "The selections file of every evaluation gives the same flags, one row per sequence and class, with the true frames, their probabilities and ranks, and the picks of both decodings."
+
+  - kind: html
+    page: diagram
+    title: "Network, decoder, ensemble"
+    code_reference: "vision_training/deployment/frame_selection_deployment.py · write_frame_selection_ensemble"
+    elements:
+      - {type: box, box: [20, 300, 300, 440], text: "images\n[B, T, 3, 256, 256]", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[300, 370], [375, 370]]}
+      # The ensemble the clients query, chaining the network and the decoder
+      - {type: box, box: [380, 60, 1320, 700], fill: null, outline: yellow, appear: 4, highlight: [4]}
+      - {type: text, position: [850, 92], text: "frame_selector_<format>_ensemble", font: diagram_monospace, colour: value, anchor: mm, appear: 4}
+      - {type: box, box: [420, 140, 1280, 300], text: "frame_selector_torchscript, frame_selector_onnx\nthe network alone: class_probabilities [B, T, 4]\nno sequence mask, no decoding", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[850, 300], [850, 375]], appear: 2}
+      - {type: box, box: [420, 380, 1280, 660], text: "frame_selector_decoder\nPython backend on the CPU, numpy and scipy\n\nmodel.py · frame_selection_decoding.py (a copy)\ndecoding_settings.json: decoding, frames_per_class,\nunselected class, thresholds, class names", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1280, 520], [1375, 520]], appear: 3}
+      - {type: box, box: [1380, 200, 1740, 640], text: "selected_frames [B, 3, 1]\nselected_probabilities\nlow_confidence\n\ncandidate_frames [B, 3, 2]\ncandidate_probabilities", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: text, position: [160, 520], text: "one T for all\nthe sequences\nof a request", font: diagram_small, colour: dim, anchor: ma, appear: 5}
+    narration:
+      - "The export writes three kinds of Triton models for a frame selection run."
+      - "frame selector Torch Script or ONNX is the network alone: images of B by T by three by 256 by 256 in, class probabilities of B by T by four out, without sequence mask and without decoding."
+      - "frame selector decoder is a Python backend model run on the CPU: its folder holds a copy of the decoding file of the evaluation, and a decoding settings json file with the decoding, the frames per class, the unselected class, the thresholds and the class names."
+      - "It gives the selected frames with their probabilities and low confidence flags, three by one per sequence here, and the top-k candidate frames of every class with their probabilities, k being the top k of the evaluation, two."
+      - "frame selector Torch Script ensemble, or ONNX ensemble, chains the two: the model the clients query."
+      - "Without a mask, the sequences of one request share their number of frames, from one to the maximum sequence length."
+
+  - kind: code
+    title: "The settings of the decoder"
+    code_reference: "vision_training/deployment/frame_selection_deployment.py · build_decoding_settings"
+    source:
+      file: vision_training/deployment/frame_selection_deployment.py
+      function: build_decoding_settings
+      start: "# Thresholds of the evaluation"
+      end: "class_thresholds = \\[0.0\\]"
+    highlights:
+      - {match: "thresholds_path =|thresholds_path.exists", sentences: [0]}
+      - {match: "class_thresholds = \\[0.0\\]|class_names = \\[str", sentences: [1]}
+      - {match: "thresholds_path =", sentences: [2]}
+    narration:
+      - "The decoding settings read the class thresholds file of the evaluation of the exported iteration."
+      - "Export a checkpoint that was never evaluated, and every threshold is zero, nothing is ever flagged, and the wanted classes are named by their indices: evaluate before exporting."
+      - "And an export of the moving average of the weights still reads the thresholds of the trained weights, issue B 17 of the audit."
+
+  - kind: html
+    page: diagram
+    title: "Pitfalls"
+    elements:
+      - {type: box, box: [40, 40, 1720, 170], text: "A sequence without exactly frames_per_class frames of every wanted class stops the launch", font: diagram_text, outline: red, highlight: [0]}
+      - {type: box, box: [40, 200, 1720, 330], text: "Hungarian: the most probable labelling, not the largest number of right frames", font: diagram_text, outline: violet, highlight: [0]}
+      - {type: box, box: [40, 360, 1720, 520], text: "Tied probabilities take the best rank: equal probabilities on every frame\nscore a top-k selection accuracy and a mean true frame rank of 1  (B52)", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [40, 550, 1720, 710], text: "The synthetic task is solved: the README sample shows no wrong pick  (K34)\nthe checkpoint of iteration 1000 shows three", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
+    narration:
+      - "To recap the pitfalls: a sequence without exactly frames per class frames of every wanted class stops the launch, and the Hungarian decoding maximizes the labeling, not the right frames."
+      - "Equal probabilities give every equal frame the best rank, so a model giving the same probability to every frame scores a top-k accuracy and a mean rank of one: read them with the selection accuracy."
+      - "And the synthetic task is solved by iteration two thousand, so its README sample shows no wrong pick; the checkpoint of iteration one thousand shows three."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Selection accuracy of both decodings, the run's one first"}
+      - {text: "Top-k and mean rank: the probabilities before decoding"}
+      - {text: "Thresholds at the target precision flag the doubtful picks"}
+      - {text: "selections.csv: one row per sequence and wanted class"}
+      - {text: "Network, CPU decoder, ensemble: the clients query the ensemble"}
+      - {text: "Evaluate the exported iteration, or nothing is flagged"}
+    narration:
+      - "To recap: both decodings scored, the thresholds of the target precision flagging the doubtful picks, and a deployment that keeps the decoding of the evaluation next to the network."
+      - "The next series, self-supervised learning, trains the backbone without labels from two views of every image: SimCLR and Barlow Twins, the projection head, and the nearest neighbor evaluation."

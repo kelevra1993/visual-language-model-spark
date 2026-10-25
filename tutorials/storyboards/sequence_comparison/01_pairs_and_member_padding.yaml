@@ -1,0 +1,195 @@
+# Sequence comparison, chapter 1: what the task is for, its pairs on disk, its configuration keys, how the pair
+# dataset pads the shorter member, and how the collate pads every member of a batch to its longest member before the
+# trainer splits the batch into the before and after members. Coordinates of the html scenes are in pixels of the
+# content area (1760 x 740); the figures are made by tutorials/figures/sequence_comparison.
+series: sequence_comparison
+series_title: "Sequence Comparison (CMP)"
+chapter: 1
+title: "Pairs and member padding"
+output_name: sequence_comparison_01_pairs_and_member_padding
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [sequence_comparison]
+references:
+  - "vision_training/trainers/sequence_comparison_trainer.py · SequenceComparisonTrainer"
+  - "vision_training/data/sequence/sequence_pair_dataset.py · SequencePairDataset"
+  - "vision_training/data/sequence/sequence_pair_dataset.py · split_pair_members"
+  - "vision_training/data/sequence/pair_list_manifests.py"
+  - "vision_training/data/synthetic/create_synthetic_dataset.py · generate_object_loss_pair"
+  - "documentation/task workflows/sequence_comparison_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "Pairs and member padding"
+    subheading: "One class for a before and an after sequence"
+    footnote: "Sequence Comparison (CMP) · chapter 1"
+    narration:
+      - "The sequence comparator, CMP, gives one class to a pair of sequences: a before member and an after member, for instance two visits of the same place."
+      - "This chapter covers the pairs on disk, the configuration, and how two members of their own lengths become one padded batch."
+
+  - kind: html
+    page: diagram
+    title: "When to choose it"
+    code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · generate_object_loss_pair"
+    elements:
+      - {type: text, position: [40, 14], text: "train_000000 · {{sequence_comparison.dataset.train_000000.class}}", font: diagram_bold}
+      - {type: text, position: [40, 74], text: "before", font: diagram_small, colour: aqua}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_00.png", box: [130, 58, 240, 168], border: aqua}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_01.png", box: [250, 58, 360, 168], border: aqua}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_02.png", box: [370, 58, 480, 168], border: aqua}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_03.png", box: [490, 58, 600, 168], border: aqua}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_04.png", box: [610, 58, 720, 168], border: aqua}
+      - {type: text, position: [40, 200], text: "after", font: diagram_small, colour: magenta}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_00.png", box: [130, 184, 240, 294], border: magenta}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_01.png", box: [250, 184, 360, 294], border: magenta}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_02.png", box: [370, 184, 480, 294], border: magenta}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_03.png", box: [490, 184, 600, 294], border: magenta}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_04.png", box: [610, 184, 720, 294], border: magenta}
+      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_05.png", box: [730, 184, 840, 294], border: magenta}
+      - {type: text, position: [920, 14], text: "test_000003 · {{sequence_comparison.dataset.test_000003.class}}", font: diagram_bold, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_00.png", box: [920, 58, 1030, 168], border: aqua, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_01.png", box: [1040, 58, 1150, 168], border: aqua, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_02.png", box: [1160, 58, 1270, 168], border: aqua, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_03.png", box: [1280, 58, 1390, 168], border: aqua, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_04.png", box: [1400, 58, 1510, 168], border: aqua, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_05.png", box: [1520, 58, 1630, 168], border: aqua, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_00.png", box: [920, 184, 1030, 294], border: magenta, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_01.png", box: [1040, 184, 1150, 294], border: magenta, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_02.png", box: [1160, 184, 1270, 294], border: magenta, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_03.png", box: [1280, 184, 1390, 294], border: magenta, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_04.png", box: [1400, 184, 1510, 294], border: magenta, appear: 1}
+      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_05.png", box: [1520, 184, 1630, 294], border: magenta, appear: 1}
+      - {type: box, box: [40, 380, 560, 520], text: "M2O\none sequence, one class", font: diagram_small, outline: blue, appear: 2}
+      - {type: box, box: [620, 380, 1140, 520], text: "CMP\ntwo sequences of their own lengths,\none class for their comparison", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [1200, 380, 1720, 520], text: "M2M · SEL\na class or a choice per frame", font: diagram_small, outline: violet, appear: 2}
+      - {type: box, box: [40, 580, 1720, 700], text: "SequenceComparisonTrainer: the SequenceClassificationTrainer with LABEL_TYPE \"pair\", MEMBERS_PER_SAMPLE 2", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
+    narration:
+      - "In the synthetic object loss pairs, the before member shows two to six objects in independent views, and the after member shows the same objects, or loses one of them."
+      - "No single member gives the class, only their comparison: here a pair keeping its objects, and a test pair that lost its small dark rectangle."
+      - "Choose it rather than the sequence classifier when the class compares two separately recorded sequences, each with its own length."
+      - "Its trainer is the sequence classification trainer with pairs: two members per sample, and the loss and evaluation of the classification, computed per pair."
+
+  - kind: html
+    page: diagram
+    title: "The pairs on disk"
+    code_reference: "vision_training/data/sequence/sequence_pair_dataset.py · SequencePairDataset"
+    elements:
+      - type: listing
+        box: [40, 40, 720, 340]
+        font: diagram_monospace
+        source: {file: "figures:sequence_comparison/listings/split_tree.txt"}
+        highlights:
+          - {match: "before/|after/", sentences: [0]}
+      - type: listing
+        box: [760, 30, 1740, 600]
+        font: diagram_monospace_small
+        source: {file: "figures:sequence_comparison/listings/labels_entry.txt"}
+        highlights:
+          - {match: "\"before\"|\"after\"|train_000000\", \"category_id\"", sentences: [0]}
+          - {match: "label_mapping.json|\"id\": \\d, \"name\"", sentences: [1]}
+      - {type: text, position: [60, 420], text: "{{sequence_comparison.dataset.train_pairs:,}} training, {{sequence_comparison.dataset.validation_pairs}} validation\nand {{sequence_comparison.dataset.test_pairs}} test pairs", font: diagram_bold, appear: 2}
+      - {type: text, position: [60, 520], text: "members of {{sequence_comparison.lengths.minimum_member}} to {{sequence_comparison.lengths.maximum_member}} frames of 128 pixels, read at 512\ntest: {{sequence_comparison.dataset.test.loss_of_object}} loss_of_object, {{sequence_comparison.dataset.test.same_number_of_objects}} same_number_of_objects", font: diagram_small, colour: dim, appear: 2}
+    narration:
+      - "Every pair folder holds a before and an after folder of frames, and the labels file lists, for every pair, the frames of both members in order and one category."
+      - "The label mapping turns the two categories, loss of object and same number of objects, into the class indices zero and one."
+      - "The data set on this machine has {{sequence_comparison.dataset.train_pairs:,}} training, {{sequence_comparison.dataset.validation_pairs}} validation and {{sequence_comparison.dataset.test_pairs}} test pairs, with members of {{sequence_comparison.lengths.minimum_member_words}} to {{sequence_comparison.lengths.maximum_member_words}} frames, and {{sequence_comparison.dataset.test.loss_of_object}} loss pairs against {{sequence_comparison.dataset.test.same_number_of_objects}} in its test split."
+
+  - kind: terminal
+    title: "Generate, convert, train"
+    code_reference: "vision_training/data/sequence/pair_list_manifests.py · create_pair_list_manifests"
+    lines:
+      - {role: comment, text: "# Synthetic pairs: task sequence_comparison and output folder in the main block"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# Real pairs: one pair list file per split, converted to labels.json manifests"}
+      - {role: command, text: "uv run python -m vision_training.data.sequence.pair_list_manifests"}
+      - {role: comment, text: "# The training"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml\""}
+    narration:
+      - "The generator writes such pairs with the comparison task in its main block, now with members of two to twelve frames of 512 pixels."
+      - "Real pairs described by pair list files are converted by the pair list manifests script, its data folder a link to the source frames, and the training takes the synthetic pairs configuration."
+
+  - kind: yaml
+    title: "The keys of the task"
+    code_reference: "vision_training/configuration_processing/sequence_checks.py · check_fusion_configuration"
+    source:
+      file: vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml
+      keys: [Data.image_settings.size, Data.sequence_settings, Data.data_augmentation.types.random_left_right_flip,
+             TemporalModel.type, Fusion, ClassificationHead.global_pooling]
+      comments: false
+    highlights:
+      - {match: "^Fusion:", sentences: [0]}
+      - {match: "maximum_sequence_length", sentences: [1]}
+      - {match: "size: 512|type: \"mean_pooling\"|type: \"difference\"", sentences: [2]}
+      - {match: "global_pooling|random_left_right_flip", sentences: [3]}
+      - {match: "number_heads|dropout_rate: 0.0|sequence_normalization_scope", sentences: [4]}
+    narration:
+      - "The comparator reads the keys of the sequence classifier, and a Fusion section."
+      - "The maximum length applies to every member: a pair with a longer member is left out of its split, with a red warning naming the pair."
+      - "This configuration reads the frames at 512 pixels, averages the frame vectors of a member with a mean pooling, and fuses the two members with their difference."
+      - "Average pooling is right here, since the class is a count of objects, not a position, the opposite of the moving shapes; and the flips are on, since a mirrored pair keeps its objects."
+      - "The number of heads, the dropout and the normalization scope of the fusion are required for every fusion type, even when it does not read them."
+
+  - kind: code
+    title: "A pair, one sample"
+    code_reference: "vision_training/data/sequence/sequence_pair_dataset.py · SequencePairDataset.__getitem__"
+    source:
+      file: vision_training/data/sequence/sequence_pair_dataset.py
+      function: SequencePairDataset.__getitem__
+    highlights:
+      - {match: "member_length = max", sentences: [0]}
+      - {match: "read_sequence_frames|number_frames=member_length", sentences: [0]}
+      - {match: "torch.cat\\(tensors=member_frames|torch.cat\\(tensors=member_masks", sentences: [1]}
+    narration:
+      - "The pair data set reads both members whole, and pads the shorter one with black frames to the length of the longer one."
+      - "A sample is one tensor of 2T frames, the before member then the after member, so that the augmentation, the input viewer and the evaluation handle a pair as one sequence, and both members get the same augmentation draw."
+
+  - kind: html
+    page: sequence_comparison/pair_batches
+    title: "A batch of pairs"
+    code_reference: "vision_training/data/sequence/sequence_dataset.py · collate_padded_sequences"
+    data:
+      layout: "figures:sequence_comparison/animations/pair_batch.json"
+      phases: [{name: members, sentence: -1}, {name: pair_padded, sentence: 1}, {name: batch, sentence: 2}, {name: split, sentence: 3}]
+    elements:
+      - {type: text, position: [880, 700], text: "Four consecutive training pairs, read at 512 pixels by the pair dataset and batched by the collate of the loaders", font: diagram_small, colour: dim, anchor: ma}
+    narration:
+      - "Four consecutive training pairs, with members of {{sequence_comparison.batch.pair_0.before_words}} and {{sequence_comparison.batch.pair_0.after_words}} frames, {{sequence_comparison.batch.pair_1.before_words}} and {{sequence_comparison.batch.pair_1.after_words}}, {{sequence_comparison.batch.pair_2.before_words}} and {{sequence_comparison.batch.pair_2.after_words}}, and {{sequence_comparison.batch.pair_3.before_words}} and {{sequence_comparison.batch.pair_3.after_words}}."
+      - "The pair data set pads every shorter member to the longer member of its pair."
+      - "The collate, with two members per sample, then pads every member to the longest member of the batch, {{sequence_comparison.batch.longest_member_words}} frames: one row of 2T frames per pair, the before member first."
+      - "Just before the model, split pair members cuts the frame axis into two halves: the before and after images, each with its mask."
+
+  - kind: html
+    page: diagram
+    title: "One training batch"
+    code_reference: "vision_training/trainers/sequence_comparison_trainer.py · SequenceComparisonTrainer.split_pair_batch"
+    elements:
+      - {type: text, position: [60, 22], text: "sequence_mask of a training batch of {{sequence_comparison.run.batch_size}} pairs", font: diagram_bold}
+      - {type: grid, box: [300, 110, 1140, 690], values: "{{sequence_comparison.mask.values}}", minimum: 0, maximum: 1, high_colour: aqua, low_colour: box}
+      - {type: text, position: [510, 98], text: "before", font: diagram_small, colour: aqua, anchor: md}
+      - {type: text, position: [930, 98], text: "after", font: diagram_small, colour: magenta, anchor: md}
+      - {type: text, position: [1200, 200], text: "longest member: {{sequence_comparison.mask.longest_member}} frames\n\npadding in this batch: {{sequence_comparison.mask.padding_share:.0%}}\n\nover the training split: {{sequence_comparison.lengths.padding_share:.0%}}", font: diagram_text, appear: 1}
+    narration:
+      - "One training batch of the run, as the loaders build it: {{sequence_comparison.run.batch_size_words}} pairs padded to their longest member of {{sequence_comparison.mask.longest_member_words}} frames, the before members on the left and the after members on the right, the real frames in green."
+      - "{{sequence_comparison.mask.padding_share:.0%}} of its frames are padding, and {{sequence_comparison.lengths.padding_share:.0%}} over the batches of the training split: they are transferred, but never encoded."
+
+  - kind: image
+    title: "Lengths do not give the class away"
+    image: "figures:sequence_comparison/dataset/member_lengths.png"
+    highlights:
+      - {box: "{{sequence_comparison.lengths.panel_0_box}}", sentences: [0]}
+      - {box: "{{sequence_comparison.lengths.panel_1_box}}", sentences: [0]}
+    narration:
+      - "Both classes draw their member lengths alike: the after member is longer than the before member by {{sequence_comparison.lengths.loss_of_object.mean_difference:.2f}} frames on average for the loss pairs, and by {{sequence_comparison.lengths.same_number_of_objects.mean_difference:.2f}} for the others."
+      - "So the padding, which follows the lengths, carries nothing of the class, and the model has to count the objects."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "A pair: a before and an after member, one category"}
+      - {text: "maximum_sequence_length: per member, the pair left out"}
+      - {text: "Sample: both members padded to the longer one, [2T, 3, H, W]"}
+      - {text: "Batch: every member padded to the longest member, [B, 2T]"}
+      - {text: "split_pair_members: two halves, before then after"}
+      - {text: "Fusion keys required for every fusion type"}
+    narration:
+      - "To recap: a pair is two members of their own lengths, padded to the longer member in the sample, to the longest member in the batch, and cut in two halves before the model."
+      - "The next chapter follows the two members through the comparator: the shared encoder, the temporal module and the fusion."

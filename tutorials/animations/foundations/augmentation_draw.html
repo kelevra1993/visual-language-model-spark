@@ -1,0 +1,96 @@
+<!doctype html>
+<!--
+ Draw of the augmentation of one training image for the foundations chapter on the data pipeline: the activated types
+ of the classification run in their order of application (DataAugmenter.augment_sample: the geometric types first,
+ then the photometric ones), each with its probability, appearing with the second sentence of the scene as the column
+ every augmented image goes through. The types come from the facts of the run (scene data: data.activated_types), so
+ that the column follows the configuration when the run is trained again; the image, the first draw and the result are
+ drawn by the engine of common/tutorial.js.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Augmentation draw</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        (function () {
+            "use strict";
+
+            // Column of the types: its horizontal extent, the vertical room it shares between its boxes, the group
+            // labels on its right and the sentence it appears with
+            const COLUMN_LEFT = 650;
+            const COLUMN_RIGHT = 1150;
+            const COLUMN_TOP = 205;
+            const COLUMN_BOTTOM = 690;
+            const BOX_HEIGHT = 56;
+            const MAXIMUM_SPACING = 80;
+            const GROUP_LABEL_LEFT = 1170;
+            const APPEAR_SENTENCE = 1;
+
+            /* Draws one box of the column: the type and its probability, outlined by its group. */
+            function drawTypeBox(helpers, group, activatedType, top) {
+                const outline = activatedType.geometric ? helpers.COLOURS.blue : helpers.COLOURS.aqua;
+                const box = helpers.createSvgElement("rect", { x: COLUMN_LEFT, y: top, width: COLUMN_RIGHT - COLUMN_LEFT,
+                                                               height: BOX_HEIGHT, rx: 12,
+                                                               fill: helpers.cssColour(helpers.COLOURS.card),
+                                                               stroke: helpers.cssColour(outline), "stroke-width": 3 },
+                                               group);
+                helpers.createText(group, `${activatedType.name} · ${activatedType.probability}`,
+                                   (COLUMN_LEFT + COLUMN_RIGHT) / 2, top + BOX_HEIGHT / 2, "mm",
+                                   "diagram_monospace_small", "text");
+                return box;
+            }
+
+            /* Draws the column of the activated types and the label of each group beside it, hidden until its
+             * sentence. */
+            function setupColumn(context) {
+                const helpers = context.helpers;
+                const activatedTypes = context.scene.data.activated_types;
+                const group = helpers.createSvgElement("g", {}, context.root);
+                const spacing = Math.min(MAXIMUM_SPACING, (COLUMN_BOTTOM - COLUMN_TOP) / Math.max(activatedTypes.length, 1));
+                const boxes = activatedTypes.map((activatedType, typeIndex) =>
+                    drawTypeBox(helpers, group, activatedType, COLUMN_TOP + typeIndex * spacing));
+
+                // Label of the geometric and photometric groups, centred on their boxes
+                const groups = [{ geometric: true, text: "geometric,\napplied first" },
+                                { geometric: false, text: "photometric" }];
+                groups.forEach((groupLabel) => {
+                    const indices = activatedTypes.map((activatedType, typeIndex) => typeIndex)
+                        .filter((typeIndex) => activatedTypes[typeIndex].geometric === groupLabel.geometric);
+                    if (indices.length === 0) {
+                        return;
+                    }
+                    const centre = COLUMN_TOP + (indices[0] + indices[indices.length - 1]) * spacing / 2 + BOX_HEIGHT / 2;
+                    helpers.createText(group, groupLabel.text, GROUP_LABEL_LEFT, centre, "lm", "diagram_small", "dim");
+                });
+                return { helpers: helpers, group: group, boxes: boxes };
+            }
+
+            /* Shows the column from its sentence, the boxes tinted while it is spoken. Returns whether it moves. */
+            function updateColumn(parts, time) {
+                const helpers = parts.helpers;
+                const appearance = helpers.computeAppearance({ appear: APPEAR_SENTENCE }, time);
+                parts.group.setAttribute("opacity", appearance.opacity);
+                parts.group.style.display = appearance.opacity <= 0.001 ? "none" : "";
+                const highlight = helpers.sentenceStateValue([APPEAR_SENTENCE], time, 0, 1, helpers.HIGHLIGHT_SECONDS);
+                const fill = helpers.cssColour(helpers.mixColour(helpers.COLOURS.card, helpers.COLOURS.accent,
+                                                                 0.18 * highlight.value));
+                parts.boxes.forEach((box) => box.setAttribute("fill", fill));
+                return appearance.moving || highlight.moving;
+            }
+
+            /* Registers the column as the custom part of the scene, its update function bound to its parts. */
+            function registerColumn(context) {
+                const parts = setupColumn(context);
+                return updateColumn.bind(null, parts);
+            }
+
+            Tutorial.registerCustom(registerColumn);
+        })();
+    </script>
+</body>
+</html>

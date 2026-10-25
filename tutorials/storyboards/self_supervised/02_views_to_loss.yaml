@@ -1,0 +1,254 @@
+# Self-supervised learning, chapter 2: the two views of a batch through the network in one pass (representation and
+# embedding, with the shapes of the run), the InfoNCE loss of SimCLR (its code and its matrix on the real embeddings of
+# four sample images), the Barlow Twins loss, the embedding standard deviation watching the collapse, the training
+# curves of the run, the colour cue both views share and the console summary. Coordinates of the html scenes are in
+# pixels of the content area (1760 x 740, origin at its top left corner); the figures named figures:self_supervised/...
+# are made by tutorials/figures/self_supervised from the SimCLR run of tutorial_sources.yaml (key self_supervised).
+series: self_supervised
+series_title: "Self-Supervised Learning (SSL)"
+chapter: 2
+title: "From views to a loss"
+output_name: self_supervised_02_views_to_loss
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [self_supervised]
+references:
+  - "vision_training/trainers/self_supervised_trainer.py · SelfSupervisedTrainer.forward_pass"
+  - "vision_training/models/self_supervised/self_supervised_model.py · SelfSupervisedModel.encode"
+  - "vision_training/models/self_supervised/projection_head.py · ProjectionHead"
+  - "vision_training/losses/self_supervised_losses.py · compute_feature_cross_correlation"
+  - "vision_training/trainers/self_supervised_trainer.py · METHOD_TRACKED_METRICS"
+  - "documentation/task workflows/self_supervised_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "From views to a loss"
+    subheading: "Representations, embeddings, InfoNCE and Barlow Twins"
+    footnote: "Self-Supervised Learning (SSL) · chapter 2"
+    narration:
+      - "The two views of a batch go through the network together, and the loss of the method compares their embeddings."
+      - "This chapter follows them through the model, then reads the two losses, the collapse watch and the training curves of the run."
+
+  - kind: html
+    page: diagram
+    title: "Two views in one pass"
+    code_reference: "vision_training/trainers/self_supervised_trainer.py · SelfSupervisedTrainer.forward_pass"
+    elements:
+      # The batch and its two views
+      - {type: cuboid, box: [50, 270, 210, 430], depth: 18, fill: blue, label: "images\n[128, 3, 256, 256]", highlight: [0]}
+      - {type: arrow, points: [[250, 320], [340, 210]], colour: dim, label: "create_views", label_position: [300, 350], label_font: diagram_monospace_tiny}
+      - {type: arrow, points: [[250, 380], [340, 490]], colour: dim}
+      - {type: cuboid, box: [350, 120, 470, 240], depth: 16, fill: blue, label: "first views", highlight: [0]}
+      - {type: cuboid, box: [350, 460, 470, 580], depth: 16, fill: violet, label: "second views", highlight: [0]}
+      # One batch of 2N views through the backbone
+      - {type: arrow, points: [[500, 200], [590, 300]], colour: dim, appear: 1}
+      - {type: arrow, points: [[500, 500], [590, 400]], colour: dim, appear: 1}
+      - {type: cuboid, box: [600, 270, 760, 430], depth: 26, fill: aqua, label: "[256, 3, 256, 256]", appear: 1, highlight: [1]}
+      - {type: arrow, points: [[800, 350], [880, 350]], colour: dim, appear: 1, label: "backbone", label_position: [840, 315]}
+      - {type: cuboid, box: [890, 320, 950, 380], depth: 58, fill: aqua, label: "[256, 128, 8, 8]", appear: 1, highlight: [1]}
+      # Pooling to the representation, the head to the embedding
+      - {type: arrow, points: [[1010, 350], [1070, 350]], colour: dim, appear: 2, label: "average\npooling", label_position: [1040, 290]}
+      - {type: box, box: [1080, 290, 1290, 410], text: "representations\n[256, 128]", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
+      - {type: text, position: [1185, 430], text: "evaluated, exported,\ntransferred", font: diagram_small, colour: blue, anchor: ma, align: center, appear: 2}
+      - {type: arrow, points: [[1300, 350], [1340, 350]], colour: dim, appear: 3}
+      - {type: box, box: [1350, 60, 1740, 250], text: "projection head\nLinear 128 → 512 · BatchNorm\nReLU · Linear 512 → 128", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: box, box: [1350, 290, 1740, 410], text: "embeddings\n[256, 128]", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1545, 255], [1545, 285]], colour: dim, appear: 3, head: none}
+      # Split back into the two views for the loss
+      - {type: arrow, points: [[1545, 420], [1545, 500]], colour: dim, appear: 4}
+      - {type: box, box: [1350, 510, 1740, 690], text: "split at N\nfirst [128, 128] · second [128, 128]\n→ loss of the method", font: diagram_small, outline: yellow, appear: 4, highlight: [4]}
+      - {type: text, position: [600, 640], text: "the loss is computed on the embedding, so that\nthe representation keeps what the views remove", font: diagram_small, colour: dim, appear: 4}
+    narration:
+      - "The trainer reads a batch of {{self_supervised.run.batch_size}} images, and create views turns it into two batches of {{self_supervised.run.batch_size}} views."
+      - "Both go through the backbone as one batch of {{self_supervised.curves.view_count}}, so that its batch normalization sees the two views together; the backbone gives a map of 128 channels by 8 by 8."
+      - "The average pooling gives the representation, 128 values per image: the vector the evaluation compares, the export returns and the other tasks build on."
+      - "The projection head maps it to the embedding: a linear layer to 512, batch normalization, ReLU, then a linear layer to 128, without normalization or activation, so that the embedding can point in any direction."
+      - "The embeddings are split back into the first and the second views for the loss; computing it on the embedding lets the representation before the head keep what the views remove."
+
+  - kind: code
+    title: "The forward pass of the model"
+    code_reference: "vision_training/models/self_supervised/self_supervised_model.py · SelfSupervisedModel.forward"
+    source:
+      file: vision_training/models/self_supervised/self_supervised_model.py
+      function: SelfSupervisedModel.forward
+    highlights:
+      - {match: "if second_view_tensor is None|return self.encode\\(images=input_tensor\\)", sentences: [0]}
+      - {match: "torch.cat|\\[:number_images\\]|\\[number_images:\\]", sentences: [1]}
+      - {match: "compute_method_loss|compute_embedding_standard_deviation", sentences: [2]}
+    narration:
+      - "Without second views, the forward pass of the model only encodes the images, as the evaluation and the export do."
+      - "With them, it concatenates both views, encodes them in one pass and splits the embeddings at N."
+      - "Then it computes the loss of the method, and adds the standard deviation of the first embeddings, which watches the collapse."
+
+  - kind: code
+    title: "InfoNCE"
+    code_reference: "vision_training/losses/self_supervised_losses.py · compute_info_nce_loss"
+    source:
+      file: vision_training/losses/self_supervised_losses.py
+      function: compute_info_nce_loss
+    highlights:
+      - {match: "normalize\\(|similarity_logits = embeddings", sentences: [0]}
+      - {match: "masked_fill|partner_indices = torch.cat", sentences: [1]}
+      - {match: "cross_entropy", sentences: [2]}
+      - {match: "positive_pair_accuracy = ", sentences: [3]}
+    narration:
+      - "InfoNCE, the loss of SimCLR, normalizes the two N embeddings and divides their cosine similarities by the temperature."
+      - "Every view then faces a classification among the two N minus 1 other views, its own similarity masked, the right answer being its partner, N places away."
+      - "The loss is the cross entropy of these two N classifications: random embeddings give the logarithm of two N minus 1, {{self_supervised.curves.random_info_nce:.2f}} for a batch of {{self_supervised.run.batch_size}} images."
+      - "The positive pair accuracy, tracked with it, is the share of the views whose most similar view is their partner, one in {{self_supervised.curves.other_view_count}} by chance."
+
+  - kind: html
+    page: diagram
+    title: "Four images, eight views"
+    code_reference: "vision_training/losses/self_supervised_losses.py · compute_info_nce_loss"
+    elements:
+      # The eight views along the columns and the rows, the first views first
+      - {type: image, path: "figures:self_supervised/views/test_000000_view_1.png", box: [312, 6, 372, 66], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000006_view_1.png", box: [382, 6, 442, 66], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000012_view_1.png", box: [452, 6, 512, 66], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000008_view_1.png", box: [522, 6, 582, 66], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000000_view_2.png", box: [592, 6, 652, 66], border: violet}
+      - {type: image, path: "figures:self_supervised/views/test_000006_view_2.png", box: [662, 6, 722, 66], border: violet}
+      - {type: image, path: "figures:self_supervised/views/test_000012_view_2.png", box: [732, 6, 792, 66], border: violet}
+      - {type: image, path: "figures:self_supervised/views/test_000008_view_2.png", box: [802, 6, 862, 66], border: violet}
+      - {type: image, path: "figures:self_supervised/views/test_000000_view_1.png", box: [232, 86, 292, 146], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000006_view_1.png", box: [232, 156, 292, 216], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000012_view_1.png", box: [232, 226, 292, 286], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000008_view_1.png", box: [232, 296, 292, 356], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000000_view_2.png", box: [232, 366, 292, 426], border: violet}
+      - {type: image, path: "figures:self_supervised/views/test_000006_view_2.png", box: [232, 436, 292, 496], border: violet}
+      - {type: image, path: "figures:self_supervised/views/test_000012_view_2.png", box: [232, 506, 292, 566], border: violet}
+      - {type: image, path: "figures:self_supervised/views/test_000008_view_2.png", box: [232, 576, 292, 636], border: violet}
+      - {type: text, position: [30, 140], text: "first views:\nstar, circle,\ntriangle,\nsquare", font: diagram_tiny, colour: blue}
+      - {type: text, position: [30, 420], text: "second views,\nsame order", font: diagram_tiny, colour: violet}
+      # Cosine similarities of the embeddings, the partners outlined
+      - type: grid
+        box: [302, 76, 862, 636]
+        values: "{{self_supervised.matrix.cosines}}"
+        show_values: true
+        decimals: 2
+        font: diagram_monospace_tiny
+        minimum: -0.4
+        maximum: 1.0
+        high_colour: blue
+        marks:
+          - {row: 0, column: 4, sentences: [1, 2]}
+          - {row: 1, column: 5, sentences: [1]}
+          - {row: 2, column: 6, sentences: [1]}
+          - {row: 3, column: 7, sentences: [1]}
+          - {row: 4, column: 0, sentences: [1]}
+          - {row: 5, column: 1, sentences: [1]}
+          - {row: 6, column: 2, sentences: [1]}
+          - {row: 7, column: 3, sentences: [1]}
+      - {type: text, position: [582, 672], text: "cosine similarity of the embeddings · iteration {{self_supervised.knn.last_iteration:,}}, evaluation mode", font: diagram_tiny, colour: dim, anchor: ma}
+      # Softmax of the row of the first view over the seven other views
+      - {type: text, position: [960, 60], text: "row of the first view: softmax of cosine / {{self_supervised.run.temperature}}", font: diagram_small, appear: 2}
+      - {type: bars, box: [960, 120, 1720, 420], values: "{{self_supervised.matrix.first_row_probabilities}}", labels: ["self", "v1", "v1", "v1", "partner", "v2", "v2", "v2"], value_labels: "{{self_supervised.matrix.first_row_probability_labels}}", colours: [border, blue, blue, blue, accent, violet, violet, violet], maximum: 1.0, appear: 2, highlight: [2]}
+      - {type: text, position: [960, 500], text: "row loss: -ln {{self_supervised.matrix.first_partner_probability:.2f}} = {{self_supervised.matrix.first_row_loss:.2f}}", font: diagram_monospace, colour: accent, appear: 2}
+      - {type: text, position: [960, 580], text: "InfoNCE of the 8 views: {{self_supervised.matrix.info_nce:.2f}}\nrandom embeddings: ln 7 = {{self_supervised.matrix.random_info_nce:.2f}}", font: diagram_text, appear: 3, highlight: [3]}
+    narration:
+      - "Here are the views of four sample images, encoded by the last checkpoint of the run, and the cosine similarities of their eight embeddings, the first views first."
+      - "The partner of every view sits four places away, on the two outlined diagonals; the main diagonal, a view against itself, is masked by the loss."
+      - "For the first view, the softmax of its row over the seven other views gives its partner a probability of {{self_supervised.matrix.first_partner_probability:.2f}}, and its share of the loss is minus the logarithm of it."
+      - "Over these eight views the loss is {{self_supervised.matrix.info_nce:.2f}}, against {{self_supervised.matrix.random_info_nce:.2f}} for random embeddings; in training, every one of the 256 views of a batch faces 255 others."
+
+  - kind: code
+    title: "Barlow Twins"
+    code_reference: "vision_training/losses/self_supervised_losses.py · compute_barlow_twins_loss"
+    source:
+      file: vision_training/losses/self_supervised_losses.py
+      function: compute_barlow_twins_loss
+    highlights:
+      - {match: "compute_feature_cross_correlation\\(", sentences: [0]}
+      - {match: "invariance_term = ", sentences: [1]}
+      - {match: "redundancy_term = |barlow_twins_loss = invariance_term", sentences: [1]}
+      - {match: "cross_correlation_diagonal = |cross_correlation_off_diagonal = ", sentences: [3]}
+    narration:
+      - "Barlow Twins compares features instead of views: every embedding feature is normalized over the batch, then the features of the first views are correlated with those of the second views, a 128 by 128 matrix."
+      - "The loss pushes its diagonal to one, every feature equal on both views, and its other terms to zero, weighted by 0.005, so that the features carry different information and cannot all collapse to one constant."
+      - "With a diagonal near zero at the start, the diagonal term alone is close to 128: in the short CPU run of the workflow document, the first loss was 165 with a gradient norm of 6,000, far above InfoNCE."
+      - "Its curves are the mean diagonal and the mean absolute off-diagonal correlations, in place of the positive pair accuracy."
+
+  - kind: code
+    title: "Watching the collapse"
+    code_reference: "vision_training/losses/self_supervised_losses.py · compute_embedding_standard_deviation"
+    source:
+      file: vision_training/losses/self_supervised_losses.py
+      function: compute_embedding_standard_deviation
+    highlights:
+      - {match: "normalize\\(", sentences: [0]}
+      - {match: "std\\(dim=0|shape\\[1\\] \\*\\* 0.5", sentences: [0]}
+    narration:
+      - "Both methods track the embedding standard deviation: the standard deviation over the batch of every feature of the normalized embeddings, averaged, then multiplied by the square root of the dimension."
+      - "Embeddings spread over the sphere give about one, and a collapse, the same embedding whatever the image, gives zero."
+
+  - kind: image
+    title: "The training curves"
+    code_reference: "vision_training/trainers/self_supervised_trainer.py · METHOD_TRACKED_METRICS"
+    image: "figures:self_supervised/training/training_curves_axes.png"
+    overlay: "figures:self_supervised/training/training_curves.png"
+    reveals:
+      - {region: "{{self_supervised.curves.info_nce_reveal_region}}", sentence: 0}
+      - {region: "{{self_supervised.curves.positive_pair_accuracy_reveal_region}}", sentence: 1}
+      - {region: "{{self_supervised.curves.embedding_standard_deviation_reveal_region}}", sentence: 2}
+    highlights:
+      - {box: "{{self_supervised.curves.info_nce_panel_box}}", sentences: [0]}
+      - {box: "{{self_supervised.curves.positive_pair_accuracy_panel_box}}", sentences: [1]}
+      - {box: "{{self_supervised.curves.embedding_standard_deviation_panel_box}}", sentences: [2]}
+    narration:
+      - "The loss of the run starts at {{self_supervised.curves.info_nce_first:.2f}}, just above the {{self_supervised.curves.random_info_nce:.2f}} of random embeddings, and ends near {{self_supervised.curves.info_nce_last_smoothed:.2f}} after {{self_supervised.curves.last_iteration:,}} iterations, still falling."
+      - "The positive pair accuracy reaches {{self_supervised.curves.positive_pair_accuracy_last_smoothed:.0%}}: about three views in ten find their partner among {{self_supervised.curves.other_view_count}}, far above chance and far from solved."
+      - "The embedding standard deviation climbs to {{self_supervised.curves.embedding_standard_deviation_last_smoothed:.2f}}: the embeddings spread over the sphere, no collapse."
+      - "The validation dots follow the training curves, new views of validation images encoded in evaluation mode, except for the very first ones, which the last chapter explains."
+
+  - kind: html
+    page: diagram
+    title: "A cue both views share"
+    code_reference: "vision_training/losses/self_supervised_losses.py · compute_info_nce_loss"
+    elements:
+      - {type: text, position: [40, 30], text: "positive pair accuracy, first training batch of the run", font: diagram_bold}
+      - {type: bars, box: [40, 90, 1120, 190], orientation: horizontal, values: ["{{self_supervised.curves.positive_pair_accuracy_first}}", "{{self_supervised.curves.chance_positive_pair_accuracy}}"], labels: ["iteration 1", "chance 1/{{self_supervised.curves.other_view_count}}"], value_labels: ["{{self_supervised.curves.positive_pair_accuracy_first:.3f}}", "{{self_supervised.curves.chance_positive_pair_accuracy:.4f}}"], colours: [blue, border], maximum: 0.35, label_width: 300, highlight: [0]}
+      - {type: text, position: [40, 250], text: "{{self_supervised.cue.batch_size}} test images, training mode · chance 1/{{self_supervised.cue.other_view_count}} = {{self_supervised.cue.chance:.4f}}", font: diagram_bold, appear: 1}
+      - {type: bars, box: [40, 310, 1120, 450], orientation: horizontal, values: ["{{self_supervised.cue.untrained_colour_accuracy}}", "{{self_supervised.cue.untrained_grayscale_accuracy}}"], labels: ["untrained, colour", "untrained, grayscale"], value_labels: ["{{self_supervised.cue.untrained_colour_accuracy:.3f}}", "{{self_supervised.cue.untrained_grayscale_accuracy:.3f}}"], colours: [magenta, dim], maximum: 0.35, label_width: 300, appear: 1, highlight: [1]}
+      - {type: bars, box: [40, 480, 1120, 620], orientation: horizontal, values: ["{{self_supervised.cue.trained_colour_accuracy}}", "{{self_supervised.cue.trained_grayscale_accuracy}}"], labels: ["iteration {{self_supervised.knn.last_iteration:,}}, colour", "iteration {{self_supervised.knn.last_iteration:,}}, grayscale"], value_labels: ["{{self_supervised.cue.trained_colour_accuracy:.3f}}", "{{self_supervised.cue.trained_grayscale_accuracy:.3f}}"], colours: [violet, dim], maximum: 0.35, label_width: 300, appear: 2, highlight: [2]}
+      - {type: image, path: "figures:self_supervised/views/test_000006_view_1.png", box: [1240, 40, 1470, 270], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000006_view_2.png", box: [1500, 40, 1730, 270], border: violet}
+      - {type: text, position: [1485, 285], text: "two views of a circle:\nthe hue moves, the colour stays", font: diagram_small, colour: dim, anchor: ma, align: center}
+      - {type: box, box: [1200, 420, 1740, 700], text: "a loss falling on such a cue\nlearns colours, not shapes:\nthe colour types of the views\nare there to break it", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+    narration:
+      - "Look at the very first training batch: before any update, {{self_supervised.curves.positive_pair_accuracy_first:.1%}} of the views already found their partner, {{self_supervised.curves.positive_pair_accuracy_first_over_chance:.0f}} times chance."
+      - "An untrained network does the same on {{self_supervised.cue.batch_size}} test images, {{self_supervised.cue.untrained_colour_accuracy:.1%}} with colour views, and falls to {{self_supervised.cue.untrained_grayscale_accuracy:.1%}} once both views are turned to grayscale: the colour of the shape is a cue the two views share."
+      - "The trained network leans on it too: {{self_supervised.cue.trained_colour_accuracy:.0%}} on colour views, {{self_supervised.cue.trained_grayscale_accuracy:.0%}} on the same views in grayscale."
+      - "A loss that falls on such a cue learns colours, not shapes; the colour types of the views are there to break it, and only the nearest neighbour accuracy of the next chapter tells whether the shapes were learnt."
+
+  - kind: html
+    page: diagram
+    title: "The console summary"
+    code_reference: "vision_training/trainers/metric_tracking.py · MetricTracker.print_interval_summary"
+    elements:
+      - type: listing
+        box: [20, 60, 1740, 420]
+        font: diagram_monospace_small
+        source: {file: "figures:self_supervised/listings/last_console_summary.txt"}
+        highlights:
+          - {match: "Iteration: ", sentences: [0]}
+          - {match: "InfoNCE|Positive Pair|Embedding", sentences: [0]}
+          - {match: "Best", sentences: [1]}
+          - {match: "Throughput|Took", sentences: [2]}
+      - {type: text, position: [880, 520], text: "every {{self_supervised.run.information_dump}} iterations · a validation batch every {{self_supervised.run.validation_iteration_ratio}} iterations", font: diagram_small, colour: dim, anchor: ma}
+    narration:
+      - "Every {{self_supervised.run.information_dump}} iterations in this run, the console prints the moving averages of the training and validation metrics of the method; this is the last summary."
+      - "A metric ends with Best when it improves on its best value; with Barlow Twins, a rising off-diagonal correlation is also marked best, only the losses being better when lower, bug B45 of the audit."
+      - "The throughput counts the images, not the views: {{self_supervised.log.last_throughput:.0f}} images per second at the end of this run, on a GPU shared with other trainings."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "The 2N views go through the backbone as one batch"}
+      - {text: "Representation: pooled backbone, kept; embedding: projection head, for the loss"}
+      - {text: "InfoNCE: every view finds its partner among 2N - 1, ln(2N - 1) at random"}
+      - {text: "Barlow Twins: cross-correlation of the features pushed to the identity"}
+      - {text: "Embedding standard deviation: about 1 spread, 0 collapsed"}
+      - {text: "Positive pair accuracy far above chance at the start: a shared cue"}
+    narration:
+      - "To recap: both views go through the network in one pass, the loss compares the embeddings of the head, and the representation before it is what the run keeps."
+      - "The next chapter judges that representation without any classifier: the nearest neighbour evaluation, the effective rank, the pitfalls of the evaluation, and the export and transfer of the backbone."

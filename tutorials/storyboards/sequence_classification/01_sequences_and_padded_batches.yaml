@@ -1,0 +1,206 @@
+# Sequence classification, chapter 1: what the task is for, its data on disk, its configuration keys, how a sequence
+# becomes a sample, and how the collate pads a batch of sequences of different lengths with its mask. Coordinates of
+# the html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures named
+# figures:sequence_classification/... are made by tutorials/figures/sequence_classification.
+series: sequence_classification
+series_title: "Sequence Classification (M2O)"
+chapter: 1
+title: "Sequences and padded batches"
+output_name: sequence_classification_01_sequences_and_padded_batches
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [sequence_classification]
+references:
+  - "vision_training/trainers/sequence_classification_trainer.py · SequenceClassificationTrainer"
+  - "vision_training/data/sequence/sequence_dataset.py · SequenceDataset"
+  - "vision_training/data/sequence/sequence_dataset.py · read_sequence_frames"
+  - "vision_training/data/synthetic/create_synthetic_dataset.py · generate_moving_shape_sequence"
+  - "vision_training/data/split_description.py · count_split_sequences"
+  - "documentation/task workflows/sequence_classification_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "Sequences and padded batches"
+    subheading: "One class for a whole sequence of frames"
+    footnote: "Sequence Classification (M2O) · chapter 1"
+    narration:
+      - "The sequence classifier, M2O for many to one, gives one class to a whole sequence of frames."
+      - "This chapter follows its data from the disk to a padded batch: the layout, the configuration, the length limit, and the padding and masks that every sequence task relies on."
+
+  - kind: html
+    page: diagram
+    title: "When to choose it"
+    code_reference: "vision_training/trainers/sequence_classification_trainer.py · SequenceClassificationTrainer"
+    elements:
+      # The eight frames of the first training sequence, the shape crossing them
+      - {type: text, position: [40, 22], text: "{{sequence_classification.dataset.shown_sequence}} · {{sequence_classification.dataset.shown_class}} · {{sequence_classification.dataset.shown_frames}} frames of 128 pixels", font: diagram_bold}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_00.png", box: [40, 74, 194, 228], border: border}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_01.png", box: [212, 74, 366, 228], border: border}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_02.png", box: [384, 74, 538, 228], border: border}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_03.png", box: [556, 74, 710, 228], border: border}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_04.png", box: [728, 74, 882, 228], border: border}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_05.png", box: [900, 74, 1054, 228], border: border}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_06.png", box: [1072, 74, 1226, 228], border: border}
+      - {type: image, path: "figures:sequence_classification/frames/train_000000_07.png", box: [1244, 74, 1398, 228], border: border}
+      - {type: arrow, points: [[117, 262], [1321, 262]], colour: aqua, width: 4, highlight: [0]}
+      - {type: text, position: [1430, 120], text: "one frame:\na shape somewhere\n\nthe sequence:\nwhere it goes", font: diagram_small, colour: dim}
+      # The task against the other tasks
+      - {type: box, box: [40, 330, 440, 470], text: "CLS\none image carries the class", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [470, 330, 870, 470], text: "M2O\none class needs several frames", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [900, 330, 1300, 470], text: "M2M · SEL\na class or a choice per frame", font: diagram_small, outline: violet, appear: 1}
+      - {type: box, box: [1330, 330, 1730, 470], text: "CMP\na before and an after sequence", font: diagram_small, outline: magenta, appear: 1}
+      # The trainer it extends
+      - {type: box, box: [40, 540, 1730, 690], text: "SequenceClassificationTrainer extends ClassificationTrainer\nthe loss, the batch accuracy and the evaluation of CLS, computed per sequence", font: diagram_text, outline: yellow, appear: 2, highlight: [2]}
+    narration:
+      - "Choose it when the class needs several frames: in the synthetic moving shapes, one shape moves left, right, up or down across the frames, and no single frame shows the direction."
+      - "Take the image classifier when one image carries the class, the sequence labeller or the frame selector when the answer is per frame, and the comparator when a before and an after sequence are compared."
+      - "Its trainer extends the image classification trainer: the loss, the batch accuracy and the whole evaluation are those of the classification, computed on sequences."
+
+  - kind: html
+    page: diagram
+    title: "The data on disk"
+    code_reference: "vision_training/data/sequence/sequence_dataset.py · SequenceDataset"
+    elements:
+      - type: listing
+        box: [40, 40, 720, 340]
+        font: diagram_monospace
+        source: {file: "figures:sequence_classification/listings/split_tree.txt"}
+        highlights:
+          - {match: "data/|train_000000/|000000.png|000007.png", sentences: [0]}
+          - {match: "labels.json", sentences: [0, 1]}
+      - type: listing
+        box: [760, 30, 1740, 600]
+        font: diagram_monospace
+        source: {file: "figures:sequence_classification/listings/labels_entry.txt"}
+        highlights:
+          - {match: "categories|\"id\": \\d, \"name\"", sentences: [0]}
+          - {match: "train_000000\", \"category_id\"|\"frames\"|000007.png\"", sentences: [1]}
+          - {match: "label_mapping.json", sentences: [1]}
+      - {type: text, position: [60, 420], text: "{{sequence_classification.dataset.train_sequences:,}} training, {{sequence_classification.dataset.validation_sequences}} validation\nand {{sequence_classification.dataset.test_sequences}} test sequences", font: diagram_bold, appear: 2}
+      - {type: text, position: [60, 520], text: "{{sequence_classification.dataset.train_minimum_class}} to {{sequence_classification.dataset.train_maximum_class}} training sequences per class\nevery sequence: {{sequence_classification.dataset.disk_frames}} frames of 128 pixels", font: diagram_small, colour: dim, appear: 2}
+    narration:
+      - "A split holds a data folder with one folder of frames per sequence, and a labels file with the categories and the sequences."
+      - "Every sequence gives its name, its frames in order relative to the data folder, and one category for the whole sequence; the label mapping file turns the four categories into the class indices zero to three."
+      - "On this machine: {{sequence_classification.dataset.train_sequences:,}} training, {{sequence_classification.dataset.validation_sequences}} validation and {{sequence_classification.dataset.test_sequences}} test sequences, {{sequence_classification.dataset.train_minimum_class}} to {{sequence_classification.dataset.train_maximum_class}} per class in training, all of {{sequence_classification.dataset.disk_frames_words}} frames."
+
+  - kind: terminal
+    title: "Generate, train, evaluate"
+    code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
+    lines:
+      - {role: comment, text: "# A moving shapes dataset: task and output folder in the main block of the script"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# The training: data folders and label mapping set in the configuration"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml\""}
+      - {role: comment, text: "# The evaluation of checkpoints: run folder and iteration in the main block"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+    narration:
+      - "The synthetic generator writes such a data set once its task and output folder are set in its main block."
+      - "It now draws {{sequence_classification.dataset.generator_minimum_frames_words}} to {{sequence_classification.dataset.generator_maximum_frames_words}} frames of 512 pixels per sequence, not the {{sequence_classification.dataset.disk_frames_words}} frames of the data set on this machine."
+      - "The training takes the synthetic configuration, and the standalone evaluation script scores any checkpoint of the run again, its settings in its main block too."
+
+  - kind: yaml
+    title: "The keys of the task"
+    code_reference: "vision_training/configuration_processing/sequence_checks.py · check_sequence_classification_configuration"
+    source:
+      file: vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml
+      keys: [Data.image_settings.size, Data.sequence_settings, Data.data_augmentation.independent_frames,
+             Data.data_augmentation.shuffle_frames, Data.data_augmentation.types.random_left_right_flip,
+             TemporalModel.type, TemporalModel.hidden_size, TemporalModel.bidirectional,
+             ClassificationHead.global_pooling]
+      comments: false
+    highlights:
+      - {match: "^(Data|TemporalModel|ClassificationHead):|sequence_settings:", sentences: [0]}
+      - {match: "maximum_sequence_length", sentences: [1]}
+      - {match: "size: 128|global_pooling", sentences: [2]}
+      - {match: "random_left_right_flip", sentences: [3]}
+      - {match: "independent_frames|shuffle_frames", sentences: [4]}
+    narration:
+      - "The task adds three things to a classification configuration: the sequence settings, the temporal module, and the frame pooling of the head."
+      - "The maximum sequence length, 50 here, is the longest sequence a run accepts, and the number of learned frame positions of a transformer."
+      - "The frames are read at 128 pixels, and the flatten pooling keeps the whole last feature map of every frame: the next chapter shows why this run needs it."
+      - "The augmentation draws once per sequence, so all its frames share the same crop, rotation and colour change; the flips stay off, since a mirrored movement keeps its label but reverses its direction."
+      - "Independent frames redraws only the photometric types frame by frame, and shuffle frames is for sequences whose order carries nothing: with an ordered temporal module, it only prints a yellow warning."
+
+  - kind: code
+    title: "One sequence, one sample"
+    code_reference: "vision_training/data/sequence/sequence_dataset.py · SequenceDataset.__init__"
+    source:
+      file: vision_training/data/sequence/sequence_dataset.py
+      function: SequenceDataset.__init__
+      start: "for sequence in manifest\\[\"sequences\"\\]"
+      end: "number_long_sequences \\+= 1"
+    highlights:
+      - {match: "for sequence in manifest", sentences: [0]}
+      - {match: "number_left_out_sequences \\+= 1|len\\(frames\\) == 0", sentences: [1]}
+      - {match: "len\\(frames\\) > self.maximum_sequence_length|warn_long_sequence|number_long_sequences \\+= 1", sentences: [2]}
+    narration:
+      - "The data set reads the labels file of the split, and every sequence becomes one sample, read in full, with no window and no subsampling."
+      - "A sequence of an unmapped category, or without frames, is counted in one yellow note."
+      - "A sequence longer than the maximum length is left out with a red line naming it, then a red total for the split: a limit set too low shrinks every split, the test split included."
+
+  - kind: image
+    title: "What the launch prints"
+    code_reference: "vision_training/data/split_description.py · count_split_sequences"
+    image: "figures:sequence_classification/evaluation/launch_console.png"
+    highlights:
+      - {box: "{{sequence_classification.launch.splits_box}}", sentences: [0]}
+      - {box: "{{sequence_classification.launch.epoch_box}}", sentences: [1]}
+    narration:
+      - "At launch, every split is described from its labels file: its sequences, its frames, and the sequences short enough for the maximum length."
+      - "An epoch is the kept training sequences over the batch size, {{sequence_classification.launch.iterations_per_epoch}} iterations here; the count is made before the label mapping, so a mapping that leaves categories out makes it too high."
+
+  - kind: code
+    title: "Padding to the longest sequence"
+    code_reference: "vision_training/data/sequence/sequence_dataset.py · collate_padded_sequences"
+    source:
+      file: vision_training/data/sequence/sequence_dataset.py
+      function: collate_padded_sequences
+    highlights:
+      - {match: "longest_member = max", sentences: [0]}
+      - {match: "new_full|torch.cat", sentences: [0]}
+      - {match: "if sample\\[key\\].dim\\(\\) > 0", sentences: [1]}
+      - {match: "member_lengths = |unflatten", sentences: [2]}
+    narration:
+      - "Every sample keeps its own length, so the collate of the loaders pads the sequences of a batch with black frames up to the longest sequence of that batch, not up to the maximum length."
+      - "The mask is padded with False, and the frame labels of the tasks that have them with the ignored index; the class of a whole sequence has no frame axis and is left as it is."
+      - "The same function batches the pairs of the comparator, two members per sample, every member padded to the longest member of the batch."
+
+  - kind: html
+    page: sequence_classification/frame_batches
+    title: "A padded batch"
+    code_reference: "vision_training/data/sequence/sequence_dataset.py · collate_padded_sequences"
+    data:
+      layout: "figures:sequence_classification/animations/padded_batch.json"
+      phases: [{name: sequences, sentence: -1}, {name: padded, sentence: 1}, {name: mask, sentence: 2}]
+    elements:
+      - {type: text, position: [330, 560], text: "labels [4] int64 · sample_identifiers [4] int64", font: diagram_monospace_small, colour: key, appear: 2}
+      - {type: text, position: [330, 610], text: "prepare_batch: images to float32, still BGR in [0, 255], on the device with the mask and the labels", font: diagram_small, appear: 3}
+      - {type: text, position: [330, 690], text: "Four sequences drawn by the current generator (seed {{sequence_classification.batch.seed}}), read at 128 pixels like the dataset reads them", font: diagram_small, colour: dim}
+    narration:
+      - "Here are four sequences drawn by the current generator, read at 128 pixels: {{sequence_classification.batch.length_0_words}}, {{sequence_classification.batch.length_1_words}}, {{sequence_classification.batch.length_2_words}} and {{sequence_classification.batch.length_3_words}} frames, each sample a tensor of its own length."
+      - "The collate pads them to the {{sequence_classification.batch.longest_words}} frames of the longest one: a batch of {{sequence_classification.batch.sequence_count_words}} by {{sequence_classification.batch.longest_words}} frames of three by 128 by 128, still in unsigned bytes."
+      - "The sequence mask marks the {{sequence_classification.batch.real_frames}} real frames, which always come first in their sequence, as the packed recurrent networks need."
+      - "The trainer then casts the frames to float32, still BGR in the zero to 255 range, and moves them to the device with the mask and the labels."
+
+  - kind: image
+    title: "Padding in numbers"
+    image: "figures:sequence_classification/dataset/lengths.png"
+    highlights:
+      - {box: "{{sequence_classification.lengths.length_panel_box}}", sentences: [0]}
+      - {box: "{{sequence_classification.lengths.padding_panel_box}}", sentences: [1]}
+    narration:
+      - "On this machine every sequence has {{sequence_classification.dataset.disk_frames_words}} frames, so the README runs never padded a single batch."
+      - "With the lengths the generator now draws, {{sequence_classification.lengths.padding_share_generator:.0%}} of the frames of a batch of {{sequence_classification.run.batch_size_words}} are padding: made by the collate and moved to the device, but never encoded, as the next chapter shows."
+      - "The frames per second of the console summary count the real frames only, so they stay comparable whatever the padding."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "One class per sequence, read whole: no window"}
+      - {text: "labels.json: the ordered frames and one category per sequence"}
+      - {text: "Longer than maximum_sequence_length: left out, in red"}
+      - {text: "Batches padded with black frames to their longest sequence"}
+      - {text: "sequence_mask: False on the padding, real frames first"}
+      - {text: "The dataset on this machine: {{sequence_classification.dataset.disk_frames}} frames, never padded"}
+    narration:
+      - "To recap: a sequence is one sample read in full, a batch is padded to its longest sequence, and the mask tells every module which frames are real."
+      - "The next chapter follows a padded batch through the encoder of the frames, the temporal module and the head."

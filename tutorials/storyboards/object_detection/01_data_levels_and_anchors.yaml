@@ -1,0 +1,299 @@
+# Object detection, chapter 1: what the detection task is for, the two-stage detector on three backbone levels, the
+# COCO data it reads, the levels and their anchors on a real test image, the anchor recall of the training objects, the
+# region proposal heads and the proposal filter. Coordinates of the html scenes are in pixels of the content area
+# (1760 x 740, origin at its top left corner); the figures named figures:object_detection/... and the facts
+# {{object_detection.*}} are made by tutorials/figures/object_detection from the DET run of tutorial_sources.yaml.
+series: object_detection
+series_title: "Object Detection (DET)"
+chapter: 1
+title: "Data, levels and anchors"
+output_name: object_detection_01_data_levels_and_anchors
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [object_detection]
+references:
+  - "vision_training/models/detection/two_stage_detector.py · TwoStageDetector.forward_detection_stages"
+  - "vision_training/data/detection/coco_dataset.py · select_image_objects"
+  - "vision_training/models/detection/anchors.py · Anchors.generate_anchors"
+  - "vision_training/evaluation/detection/region_recall.py · summarise_anchor_recall"
+  - "vision_training/models/detection/region_proposer.py · RegionProposalFilter.forward"
+  - "documentation/task workflows/object_detection_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "Data, levels and anchors"
+    subheading: "A two-stage detector on three backbone levels"
+    footnote: "Object Detection · chapter 1"
+    narration:
+      - "The detection task finds every object of an image with its box, its class and a score: choose it when boxes are enough to locate and count the objects."
+      - "Choose instance segmentation for a mask per object, keypoint detection for objects described by points, and semantic segmentation when the objects of a class need not be told apart."
+      - "This chapter covers the data, the backbone levels the detector reads, the anchors, and the region proposals."
+
+  - kind: image
+    title: "What the detector returns"
+    code_reference: "vision_training/trainers/detection_trainer.py · DetectionTrainer.draw_test_image"
+    image: "runs:readme_screenshots/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_5000/Samples/test_014285.png"
+    highlights:
+      - {box: [0, 24, 512, 536], sentences: [0]}
+      - {box: [516, 24, 1028, 536], sentences: [1]}
+    narration:
+      - "This is a test sample the synthetic run writes at every evaluation: on the left, the six ground truth boxes of the image."
+      - "On the right, the detections of iteration {{object_detection.run.checkpoint_iteration}} that reach the deployment score of 0.5, every one a box in network pixels, a class and a score."
+
+  - kind: html
+    page: diagram
+    title: "Two stages on three levels"
+    code_reference: "vision_training/models/detection/two_stage_detector.py · TwoStageDetector"
+    elements:
+      # Input and backbone, the three levels as tensors of the batch of 64
+      - {type: box, box: [20, 300, 200, 420], text: "images\n[64, 3, 512, 512]", font: diagram_small, outline: border}
+      - {type: arrow, points: [[200, 360], [245, 360]]}
+      - {type: cuboid, box: [255, 285, 300, 435], depth: 10, fill: blue}
+      - {type: cuboid, box: [320, 305, 352, 415], depth: 16, fill: blue}
+      - {type: text, position: [305, 470], text: "backbone", font: diagram_small, colour: dim, anchor: ma}
+      - {type: arrow, points: [[375, 330], [425, 125]]}
+      - {type: arrow, points: [[375, 360], [425, 360]]}
+      - {type: arrow, points: [[375, 390], [425, 590]]}
+      - {type: cuboid, box: [435, 85, 495, 145], depth: 18, fill: blue, highlight: [1]}
+      - {type: text, position: [430, 165], text: "block 5 · stride 32\n[64, 32, 16, 16]", font: diagram_small}
+      - {type: cuboid, box: [445, 335, 475, 365], depth: 18, fill: blue, highlight: [1]}
+      - {type: text, position: [430, 390], text: "block 6 · stride 64\n[64, 32, 8, 8]", font: diagram_small}
+      - {type: cuboid, box: [445, 565, 475, 595], depth: 18, fill: blue, highlight: [1]}
+      - {type: text, position: [430, 620], text: "block 7 · stride 64\n[64, 32, 8, 8]", font: diagram_small}
+      # Region proposal heads of every level, then the filter of all the levels together
+      - {type: arrow, points: [[600, 115], [665, 115]], appear: 1}
+      - {type: box, box: [670, 70, 890, 160], text: "region proposals\n{{object_detection.inference.level_5.anchor_count}} anchors", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[600, 345], [665, 345]], appear: 1}
+      - {type: box, box: [670, 300, 890, 390], text: "region proposals\n{{object_detection.inference.level_6.anchor_count}} anchors", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[600, 575], [665, 575]], appear: 1}
+      - {type: box, box: [670, 530, 890, 620], text: "region proposals\n{{object_detection.inference.level_7.anchor_count}} anchors", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[890, 115], [935, 270]], appear: 2}
+      - {type: arrow, points: [[890, 345], [935, 345]], appear: 2}
+      - {type: arrow, points: [[890, 575], [935, 420]], appear: 2}
+      - {type: box, box: [940, 225, 1200, 465], text: "proposal filter\nall levels at once\ntop 1000 · NMS 0.7\n500 per image\nevaluation: 500 · 250", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      # Detection head of the level of every proposal, then the post-processing
+      - {type: arrow, points: [[1200, 290], [1275, 115]], appear: 3}
+      - {type: arrow, points: [[1200, 345], [1275, 345]], appear: 3}
+      - {type: arrow, points: [[1200, 400], [1275, 575]], appear: 3}
+      - {type: box, box: [1280, 70, 1500, 160], text: "RoI head 5\n7 × 7 ROI Align", font: diagram_small, outline: magenta, appear: 3, highlight: [3]}
+      - {type: box, box: [1280, 300, 1500, 390], text: "RoI head 6\n7 × 7 ROI Align", font: diagram_small, outline: magenta, appear: 3, highlight: [3]}
+      - {type: box, box: [1280, 530, 1500, 620], text: "RoI head 7\n7 × 7 ROI Align", font: diagram_small, outline: magenta, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1500, 115], [1570, 320]], appear: 4}
+      - {type: arrow, points: [[1500, 345], [1570, 345]], appear: 4}
+      - {type: arrow, points: [[1500, 575], [1570, 370]], appear: 4}
+      - {type: box, box: [1575, 290, 1745, 400], text: "post-process\n100 per image", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
+      - {type: text, position: [1390, 660], text: "{{object_detection.inference.model.number_classes}} classes · a box per class", font: diagram_small, colour: dim, anchor: ma, appear: 3}
+    narration:
+      - "The detector is a two-stage detector in the style of Faster R-CNN, built on the shared backbone of the repository without any feature pyramid."
+      - "Every block named in Detection Levels is a level with its own anchors and region proposal head: here blocks 5, 6 and 7, with {{object_detection.inference.level_5.anchor_count:,}}, {{object_detection.inference.level_6.anchor_count:,}} and {{object_detection.inference.level_7.anchor_count:,}} anchors at 512 pixels."
+      - "The proposal filter ranks the proposals of all the levels together, keeps the best thousand, suppresses the overlaps at 0.7, and passes 500 per image to the second stage, 250 in evaluation."
+      - "Every proposal goes back to the detection head of the level its anchor came from, which pools it with ROI Align, classifies it among {{object_detection.inference.model.number_classes}} classes and refines one box per class."
+      - "Post-processing keeps the hundred best detections of every image, padded to that number, the fixed shape the exported model returns."
+
+  - kind: html
+    page: diagram
+    title: "The COCO split"
+    code_reference: "vision_training/data/detection/coco_dataset.py · select_image_objects"
+    elements:
+      - type: listing
+        box: [30, 24, 1730, 400]
+        font: diagram_monospace_small
+        source: {file: "figures:object_detection/listings/coco_manifest.txt"}
+        highlights:
+          - {match: "^test/labels.json", sentences: [0, 1]}
+          - {match: "bbox", sentences: [2]}
+          - {match: "segmentation|counts", sentences: [2]}
+          - {match: "label_mapping|label_dictionary", sentences: [3, 4]}
+      - {type: text, position: [40, 450], text: "Splits of the synthetic shapes", font: diagram_bold, appear: 1}
+      - {type: text, position: [40, 500], text: "train {{object_detection.data.train_images:,}} images · {{object_detection.data.train_objects:,}} objects\nvalidation {{object_detection.data.validation_images:,}} · {{object_detection.data.validation_objects:,}}\ntest {{object_detection.data.test_images:,}} · {{object_detection.data.test_objects:,}}", font: diagram_text, appear: 1}
+      - {type: box, box: [900, 440, 1730, 560], text: "bbox [x, y, width, height] → corners\n{{object_detection.data.first_bbox}} → {{object_detection.data.first_box_corners}}", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
+      - {type: box, box: [900, 590, 1730, 710], text: "class 0 = background · classes 1 to 20 = the shapes\na category missing from the mapping: objects dropped", font: diagram_small, outline: violet, appear: 3, highlight: [3, 4]}
+    narration:
+      - "A split is a folder of images with a COCO labels file; the synthetic configuration points at the data set of the instance masks, so that the detection and mask runs train on the same images."
+      - "Its training split holds {{object_detection.data.train_images:,}} images and {{object_detection.data.train_objects:,}} objects of {{object_detection.data.category_count}} shapes, one to six per image, at 512 pixels."
+      - "The detector reads the bbox of every annotation, x, y, width and height, turns it into corners, and ignores the segmentation, which only the mask task reads."
+      - "The mapping file gives every category its class, and the label dictionary saved in the run adds the background as class zero, so the heads predict {{object_detection.data.class_count}} classes."
+      - "A category missing from the mapping is announced in yellow at launch, and its objects are dropped like the background."
+
+  - kind: yaml
+    title: "The levels in the configuration"
+    code_reference: "vision_training/configuration_processing/detection_checks.py · check_detection_levels"
+    source:
+      file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
+      keys: [Backbone.last_max_pooling, DetectionLevels]
+      comments: false
+    highlights:
+      - {match: "^  \"[567]\":", sentences: [0]}
+      - {match: "last_max_pooling", sentences: [1]}
+      - {match: "anchors:", sentences: [2]}
+      - {match: "region_proposal:|detector:", sentences: [3]}
+    narration:
+      - "Detection Levels names the backbone blocks the detector reads, as quoted keys in increasing order, and gives every level its anchors, its region proposal head and its detection head."
+      - "The backbone divides the resolution by two in every block; with the last max pooling off, block 7 keeps the eight by eight map of block 6, so the levels have strides of 32, 64 and 64."
+      - "No top-down path merges the levels: the finest stride is 32, and the small objects pay for it, as the last chapter shows."
+      - "The heads are small here: two convolutions of 32 channels for the proposals, and for the detections two convolutions with squeeze and excitation and residual shortcuts, then fully connected layers of 64 and 32 units."
+
+  - kind: html
+    page: object_detection/anchor_grid
+    title: "Anchors on a test image"
+    code_reference: "vision_training/models/detection/anchors.py · Anchors.generate_anchors"
+    data:
+      anchors: "{{object_detection.inference.anchor_page}}"
+      stages: {fine_grid: 0, fine_anchors: 0, coarse_grid: 3, objects: 5}
+    elements:
+      - {type: text, position: [760, 40], text: "Block 5 · stride 32", font: diagram_heading, until: 2}
+      - {type: text, position: [760, 100], text: "{{object_detection.inference.level_5.cells}} × {{object_detection.inference.level_5.cells}} cells · scales 32, 64\nratios 0.5, 1, 2 (height / width)\n6 anchors per cell · {{object_detection.inference.level_5.anchor_count}} anchors", font: diagram_text, until: 2}
+      - {type: box, box: [760, 330, 1720, 470], text: "centred on the corner of the cell\n(column × stride, row × stride), not its centre\naudit L1", font: diagram_small, outline: accent, appear: 2, until: 2}
+      - {type: text, position: [760, 40], text: "Blocks 6 and 7 · stride 64", font: diagram_heading, appear: 3, until: 4}
+      - {type: text, position: [760, 100], text: "{{object_detection.inference.level_6.cells}} × {{object_detection.inference.level_6.cells}} cells each\nblock 6: scales 64, 128 · {{object_detection.inference.level_6.anchor_count}} anchors\nblock 7: scales 128, 256 · {{object_detection.inference.level_7.anchor_count}} anchors\nin all: {{object_detection.inference.anchor_total:,}} anchors", font: diagram_text, appear: 3, until: 4}
+      - {type: box, box: [760, 330, 1720, 430], text: "the 128 pixel anchors of blocks 6 and 7\nare the same boxes (dashed: block 7)", font: diagram_small, outline: yellow, appear: 4, until: 4}
+      - {type: text, position: [760, 40], text: "Best anchor of every object", font: diagram_heading, appear: 5}
+      - {type: text, position: [760, 100], text: "{{object_detection.inference.object_1.name}} {{object_detection.inference.object_1.best_iou:.2f}} · {{object_detection.inference.object_2.name}} {{object_detection.inference.object_2.best_iou:.2f}} · {{object_detection.inference.object_3.name}} {{object_detection.inference.object_3.best_iou:.2f}}\n{{object_detection.inference.object_4.name}} {{object_detection.inference.object_4.best_iou:.2f}} · {{object_detection.inference.object_5.name}} {{object_detection.inference.object_5.best_iou:.2f}} · {{object_detection.inference.object_6.name}} {{object_detection.inference.object_6.best_iou:.2f}}", font: diagram_text, appear: 5}
+      - {type: text, position: [760, 210], segments: [{text: "blue", colour: blue}, {text: ": IoU >= 0.5   ", colour: dim}, {text: "magenta", colour: magenta}, {text: ": below 0.5", colour: dim}], font: diagram_small, appear: 5}
+      - {type: box, box: [760, 330, 1720, 470], text: "fallback: the best anchor of every object\nis foreground whatever its overlap above 0", font: diagram_small, outline: magenta, appear: 6, highlight: [6]}
+      - {type: text, position: [760, 650], segments: [{text: "anchor scales  ", colour: dim}, {text: "32  ", colour: blue}, {text: "64  ", colour: violet}, {text: "128  ", colour: yellow}, {text: "256", colour: magenta}], font: diagram_small, until: 4}
+    narration:
+      - "Every cell of a level gets one anchor per scale and aspect ratio: block 5 has {{object_detection.inference.level_5.cells}} by {{object_detection.inference.level_5.cells}} cells of 32 pixels, and its two scales, 32 and 64, by three ratios give six anchors per cell."
+      - "The ratio is the height over the width at a constant area: 0.5 for a wide anchor, 2 for a tall one."
+      - "The anchors are centered on the top left corner of their cell, half a stride from its center where the backbone and ROI Align place it, an offset the regressor has to learn, audit item L1."
+      - "Blocks 6 and 7 have {{object_detection.inference.level_6.cells}} by {{object_detection.inference.level_6.cells}} cells of 64 pixels, with anchors of 64 and 128, and of 128 and 256 pixels: {{object_detection.inference.anchor_total:,}} anchors in all."
+      - "Since both levels share the stride and the 128 pixel scale, half the anchors of each are the same boxes, scored by two heads."
+      - "For the six objects of this image, four best anchors reach the foreground threshold of 0.5, but those of the {{object_detection.inference.object_1.name}} and the {{object_detection.inference.object_2.name}} stop at {{object_detection.inference.object_1.best_iou:.2f}} and {{object_detection.inference.object_2.best_iou:.2f}}."
+      - "These two objects are learned only through the fallback of the assignment, which makes the best anchor of every object foreground whatever its overlap."
+
+  - kind: html
+    page: diagram
+    title: "Anchor recall of the training objects"
+    code_reference: "vision_training/trainers/detection_trainer.py · DetectionTrainer.analyse_training_data"
+    elements:
+      - {type: text, position: [40, 30], text: "anchor_recall.csv · share of the objects whose best anchor reaches IoU 0.5", font: diagram_bold}
+      - type: grid
+        box: [470, 150, 1150, 610]
+        values: "{{object_detection.anchor_recall.values}}"
+        show_values: true
+        decimals: 3
+        minimum: 0
+        maximum: 1
+        font: diagram_monospace_small
+        row_labels: "{{object_detection.anchor_recall.row_labels}}"
+        column_labels: ["block 5", "block 6", "block 7", "all levels"]
+        marks:
+          - {row: 3, column: 3, sentences: [1]}
+          - {row: 1, column: 0, sentences: [2]}
+          - {row: 2, column: 0, sentences: [2]}
+          - {row: 2, column: 1, sentences: [2]}
+          - {row: 0, column: 3, sentences: [3]}
+      - {type: text, position: [1230, 170], text: "measured at every launch\nfrom the annotations,\nwithout loading an image", font: diagram_small, colour: dim}
+      - {type: text, position: [1230, 330], text: "large boxes from 96 pixels:\nbeyond the 64 pixel\nanchors of block 5", font: diagram_small, colour: dim, appear: 2}
+      - {type: text, position: [1230, 490], text: "the other objects:\nonly their single best\nanchor, the fallback", font: diagram_small, colour: dim, appear: 3}
+    narration:
+      - "At every launch, the trainer measures how well the anchors fit the training objects, from the annotations alone, and writes anchor recall dot csv in the run folder."
+      - "Of the {{object_detection.anchor_recall.all.count:,}} training objects, {{object_detection.anchor_recall.all.recall_all_levels:.1%}} have an anchor reaching 0.5 in some level."
+      - "Block 5 covers {{object_detection.anchor_recall.medium.recall_block_5:.1%}} of the medium objects and none of the large ones, which blocks 6 and 7 take at {{object_detection.anchor_recall.large.recall_block_6:.1%}}."
+      - "Only {{object_detection.anchor_recall.small.recall_all_levels:.1%}} of the {{object_detection.anchor_recall.small.count:,}} small objects have one; the others rely on the fallback alone, and the evaluation shows the cost."
+
+  - kind: html
+    page: diagram
+    title: "The region proposal head"
+    code_reference: "vision_training/models/detection/region_proposer.py · RegionProposal.forward"
+    elements:
+      - {type: cuboid, box: [50, 250, 150, 350], depth: 26, fill: blue, label: "[64, 32, 16, 16]"}
+      - {type: text, position: [115, 200], text: "block 5", font: diagram_bold, anchor: ma}
+      - {type: arrow, points: [[180, 300], [235, 300]]}
+      - {type: box, box: [240, 230, 560, 370], text: "ConvolutionBlock [2, 32]\nbatch norm\nno SE, no shortcut", font: diagram_small, outline: aqua, highlight: [0]}
+      - {type: arrow, points: [[560, 300], [615, 300]]}
+      - {type: box, box: [620, 230, 900, 370], text: "3 × 3 conv to 32\nReLU", font: diagram_small, outline: aqua, highlight: [0]}
+      - {type: arrow, points: [[900, 270], [995, 165]], appear: 1}
+      - {type: arrow, points: [[900, 330], [995, 435]], appear: 1}
+      - {type: box, box: [1000, 110, 1260, 220], text: "1 × 1 conv · 6\nobjectness", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: text, position: [1280, 165], text: "[64, {{object_detection.inference.level_5.anchor_count}}]", font: diagram_monospace, anchor: lm, appear: 1}
+      - {type: box, box: [1000, 380, 1260, 490], text: "1 × 1 conv · 24\noffsets dx dy dw dh", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: text, position: [1280, 435], text: "[64, {{object_detection.inference.level_5.anchor_count}}, 4]", font: diagram_monospace, anchor: lm, appear: 1}
+      - {type: arrow, points: [[1130, 490], [1130, 560]], appear: 2}
+      - {type: box, box: [800, 565, 1460, 690], text: "anchors moved by the offsets → proposal boxes\ndetached: no gradient through the proposals", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: text, position: [50, 600], text: "{{object_detection.inference.model.region_proposal_level_parameters:,}} parameters per level\n{{object_detection.inference.model.region_proposal_parameters:,}} for the three levels", font: diagram_text, appear: 3}
+    narration:
+      - "Each level has its own region proposal head: a plain convolution block of two layers of 32 channels, without the modules of the detection heads, then a 3 by 3 convolution with a rectified linear unit."
+      - "Two 1 by 1 convolutions give every anchor one objectness logit and four offsets: for block 5 and a batch of 64, objectness of 64 by {{object_detection.inference.level_5.anchor_count:,}} and offsets of 64 by {{object_detection.inference.level_5.anchor_count:,}} by 4."
+      - "The offsets shift the center by a fraction of the anchor size and scale its sides by an exponential, which gives the proposal boxes, detached so that no gradient flows through them."
+      - "Each head has {{object_detection.inference.model.region_proposal_level_parameters:,}} parameters, {{object_detection.inference.model.region_proposal_parameters:,}} for the three levels."
+
+  - kind: html
+    page: diagram
+    title: "The proposal filter"
+    code_reference: "vision_training/models/detection/region_proposer.py · RegionProposalFilter.forward"
+    elements:
+      - {type: text, position: [40, 30], text: "{{object_detection.inference.anchor_total:,}} anchors", font: diagram_bold}
+      - {type: bars, box: [40, 80, 560, 280], orientation: horizontal, values: [1536, 384, 384], labels: ["block 5", "block 6", "block 7"], value_labels: ["{{object_detection.inference.level_5.anchor_count}}", "{{object_detection.inference.level_6.anchor_count}}", "{{object_detection.inference.level_7.anchor_count}}"], colours: [blue, aqua, magenta], label_width: 120}
+      - {type: arrow, points: [[570, 180], [615, 180]], appear: 0}
+      - {type: text, position: [630, 30], text: "{{object_detection.inference.evaluation_filter.top_count}} best by objectness", font: diagram_bold}
+      - {type: bars, box: [630, 80, 1130, 280], orientation: horizontal, values: ["{{object_detection.inference.evaluation_filter.top_level_5}}", "{{object_detection.inference.evaluation_filter.top_level_6}}", "{{object_detection.inference.evaluation_filter.top_level_7}}"], labels: ["block 5", "block 6", "block 7"], value_labels: ["{{object_detection.inference.evaluation_filter.top_level_5}}", "{{object_detection.inference.evaluation_filter.top_level_6}}", "{{object_detection.inference.evaluation_filter.top_level_7}}"], colours: [blue, aqua, magenta], label_width: 120}
+      - {type: arrow, points: [[1140, 180], [1185, 180]], appear: 1}
+      - {type: text, position: [1200, 30], text: "{{object_detection.inference.evaluation_filter.valid_count}} kept after NMS 0.7", font: diagram_bold, appear: 1}
+      - {type: bars, box: [1200, 80, 1720, 280], orientation: horizontal, values: ["{{object_detection.inference.evaluation_filter.kept_level_5}}", "{{object_detection.inference.evaluation_filter.kept_level_6}}", "{{object_detection.inference.evaluation_filter.kept_level_7}}"], labels: ["block 5", "block 6", "block 7"], value_labels: ["{{object_detection.inference.evaluation_filter.kept_level_5}}", "{{object_detection.inference.evaluation_filter.kept_level_6}}", "{{object_detection.inference.evaluation_filter.kept_level_7}}"], colours: [blue, aqua, magenta], label_width: 120, appear: 1}
+      - {type: text, position: [40, 315], text: "test image {{object_detection.inference.image_name}}, evaluation counts", font: diagram_small, colour: dim}
+      - {type: box, box: [40, 390, 820, 560], text: "fewer survivors than slots:\ncopies of random survivors fill the slots,\na valid mask tells them apart", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: text, position: [900, 380], text: "test split, iteration {{object_detection.run.checkpoint_iteration:,}}: proposals per image", font: diagram_bold, appear: 3}
+      - {type: bars, box: [900, 430, 1720, 610], orientation: horizontal, values: "{{object_detection.proposal_recall.proposals_per_block}}", labels: ["block 5", "block 6", "block 7"], value_labels: "{{object_detection.proposal_recall.proposals_per_block_labels}}", colours: [blue, aqua, magenta], label_width: 120, appear: 3, highlight: [3]}
+      - {type: text, position: [900, 650], text: "one top-k and one NMS over all the levels · audit M3", font: diagram_small, colour: dim, appear: 3}
+    narration:
+      - "The proposal filter takes the {{object_detection.inference.anchor_total:,}} proposals of an image at once: the sigmoid of the objectness ranks them, and the best thousand in training, {{object_detection.inference.evaluation_filter.top_count}} in evaluation, are kept and clamped to the image."
+      - "A non-maximum suppression at 0.7 removes the duplicates, here keeping {{object_detection.inference.evaluation_filter.survivor_count}} of {{object_detection.inference.evaluation_filter.top_count}}, and the {{object_detection.inference.evaluation_filter.valid_count}} best survivors go to the detection heads, 500 in training."
+      - "With fewer survivors, the empty slots are filled with copies of random survivors, so that every image has the same number of proposals, and a valid mask tells them apart."
+      - "Ranked over all the levels at once, block 5 takes {{object_detection.inference.evaluation_filter.kept_level_5}} of the slots of this image, and {{object_detection.proposal_recall.block_5.proposals_per_image:.0f}} of 250 per image over the test split, audit item M3."
+
+  - kind: image
+    title: "Proposals of the test image"
+    code_reference: "vision_training/models/detection/region_proposer.py · select_best_proposals"
+    image: "figures:object_detection/inference/proposal_filter.png"
+    highlights:
+      - {box: "{{object_detection.inference.proposal_filter.panel_1_box}}", sentences: [0]}
+      - {box: "{{object_detection.inference.proposal_filter.panel_2_box}}", sentences: [1]}
+      - {box: "{{object_detection.inference.proposal_filter.panel_3_box}}", sentences: [2]}
+    narration:
+      - "On the image, the {{object_detection.inference.evaluation_filter.top_count}} best proposals pile up on the shapes, every level in its color."
+      - "After the suppression, {{object_detection.inference.evaluation_filter.valid_count}} remain, still several per object, for the detection heads to score and refine."
+      - "The heads turn them into {{object_detection.inference.detection_count}} detections above 0.5: the small nonagon is lost, and the large one gets both a nonagon and a circle box."
+
+  - kind: code
+    title: "One selection for training and export"
+    code_reference: "vision_training/models/detection/region_proposer.py · select_best_proposals"
+    source:
+      file: vision_training/models/detection/region_proposer.py
+      function: select_best_proposals
+      start: "# Keep the best pre-NMS"
+      end: "suppress_per_image=suppress_per_image\\)"
+    highlights:
+      - {match: "torch.topk\\(input=torch.sigmoid", sentences: [0]}
+      - {match: "kept_mask = suppress_overlapping_proposals", sentences: [1]}
+      - {match: "suppress_per_image=suppress_per_image", sentences: [1]}
+    narration:
+      - "select_best_proposals does this for the whole batch, and both the training filter and the exported detector call it, so they keep the same proposals."
+      - "Only the suppression differs: one torchvision call per image in the eager model, and one batched call over the batch in the export, the form the ONNX export keeps for any batch size."
+
+  - kind: terminal
+    title: "Generate, train, evaluate"
+    code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
+    lines:
+      - {role: comment, text: "# The instance segmentation data set: task = \"instance_segmentation\" in the main block"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# The detector on it: 2000 iterations as shipped, resumed to 5000 for this run"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml\""}
+      - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+    narration:
+      - "To reproduce the run, generate the data set of the instance masks with the synthetic data set script, its task set in its main block; a new data set has 35 shapes, the one of this run 20."
+      - "The training takes the synthetic detection configuration, which stops at two thousand iterations; the run shown here was resumed to five thousand."
+      - "The evaluation script evaluates any checkpoint again, set in its main block like every script but the training."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Two stages: proposals per level, then RoI heads per level, no feature pyramid"}
+      - {text: "COCO bbox [x, y, w, h] to corners; background added as class 0"}
+      - {text: "Blocks 5, 6, 7: strides 32, 64, 64"}
+      - {text: "6 anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners"}
+      - {text: "anchor_recall.csv: {{object_detection.anchor_recall.all.recall_all_levels:.1%}} of the objects, {{object_detection.anchor_recall.small.recall_all_levels:.1%}} of the small ones"}
+      - {text: "Proposals ranked over all levels: top-k, NMS 0.7, 500 or 250 kept"}
+    narration:
+      - "To recap: three levels of the backbone, six anchors per cell, region proposals ranked over all the levels, and an anchor recall that tells at launch which objects the detector can learn."
+      - "The next chapter follows the training: how the anchors and proposals get their targets, the detection heads, and the four losses."

@@ -3,10 +3,112 @@
 This document follows one semantic segmentation run from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The steps shared by every task (configuration loading, checkpoints, training loop, MLflow tracking, standalone evaluation) are explained in detail in `classification_workflow.md`; here they keep a short explanation and the real output of the segmentation run, and the steps specific to the segmentation are explained in full.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
-- **Stages 1 and 2**: `configurations/semantic_segmentation/configuration_synthetic_shapes.yaml` (synthetic shapes, 9 shape classes plus the background, 512 pixel images, batch size 16), with the run folder redirected to a temporary folder. The dataset of `configuration_example.yaml` is not on this machine.
+- **Stages 1 and 2**: `vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml` (synthetic shapes, 9 shape classes plus the background, 512 pixel images, batch size 16), with the run folder redirected to a temporary folder. The dataset of `configuration_example.yaml` is not on this machine. The synthetic dataset of this machine was generated before the 26 other shapes were added and keeps its 9 classes; a dataset generated now holds the 35 shapes, and its runs end with `MC35`.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel images, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the predicted masks saved and the MLflow tracking turned on. After 12 iterations the network mostly predicts the background, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
+## Read This First
+
+The semantic segmentation task (`task: "semantic_segmentation"`, run name code `SEG`) learns the class of every pixel of one image. The model is a U-Net: the shared `Backbone` is the encoder, its block outputs before their pooling are the skip connections, the `SegmentationDecoder` brings its last feature map back to the input resolution level by level, and a 1x1 head gives K logits per pixel, the background being class 0 (K = 10 for the 9 synthetic shapes). The labels are single-channel uint8 PNG masks holding the category of every pixel, 255 for the pixels left out of the losses and metrics. Choose it when every pixel needs a class and the objects need not be told apart (two touching squares form one region); choose INS for the mask of every object, DET for boxes, KPT for named points, CLS for one label per image. Images much larger than the network input can be trained on tiles (`Data.tiling`) and scored at their original resolution (`evaluation.original_resolution`).
+
+### The Task At A Glance
+
+```text
+on disk        <split>/data/*.png, <split>/masks/*.png (uint8 category per pixel: 0 background, 255 unlabelled),
+               <split>/labels.json (samples with file_name and mask_file_name, categories), label_mapping.json
+sample         SegmentationDataset: letterbox to 512 (image bilinear, mask nearest with padding 255), lookup table
+               {0: 0, category: class, 255: -100}: images [3, 512, 512] uint8, masks [512, 512] int64
+batch (16)     images [16, 3, 512, 512], masks [16, 512, 512]; augment_batch moves the masks with the image (nearest,
+               uncovered pixels -100), the photometric types change the images only
+encoder        Backbone, outputs before pooling: '1' [16, 16, 512, 512] '2' [16, 32, 256, 256] '3' [16, 32, 128, 128]
+               '4' [16, 64, 64, 64] '5' [16, 64, 32, 32], bottleneck '6' [16, 128, 16, 16]
+decoder        per level 5 -> 1: 2x2 transposed conv (x2) -> cat(skip, upsampled) -> ConvolutionBlock:
+               [16, 64, 32, 32] [16, 64, 64, 64] [16, 32, 128, 128] [16, 32, 256, 256] [16, 16, 512, 512]
+head           Dropout2d(0.0) + 1x1 conv 16 -> 10: class_logits [16, 10, 512, 512], softmax in eval mode only
+losses         1.0 x cross entropy + 1.0 x soft Dice (Lovász and boundary at 0), the -100 pixels left out
+batch metrics  argmax -> pixel confusion matrix -> Pixel Accuracy, Mean IoU (console, TensorBoard, MLflow)
+evaluation     summed on the device over the test split: confusion [10, 10], boundary counts [10, 6], histograms
+               [10, 2, 10000] -> Mean IoU (headline), Mean Dice, Mean Boundary IoU / F1, Pixel Accuracy,
+               Frequency Weighted IoU, Macro ROC AUC, Macro Average Precision, the same per class
+files          Evaluation/Iteration_<n>/ class_metrics.csv, confusion_matrix.csv and .png, roc_curves.png,
+               precision_recall_curves.png, Samples/, Predicted_Masks/; Results.txt
+export         InferenceSegmenter: images [B, 3, 512, 512] -> class_map [B, 512, 512] int64,
+               class_probabilities [B, 10, 512, 512]
+```
+
+### Files To Know
+
+| Role | File | Main functions or classes |
+|---|---|---|
+| Trainer | `vision_training/trainers/segmentation_trainer.py` | `SegmentationTrainer`: `build_dataloaders`, `build_model`, `compute_class_weights`, `augment_batch`, `compute_batch_metrics`, `predict_batch`, `accumulate_evaluation_batch`, `build_sample_image`, `compute_evaluation_results` |
+| Dataset and loaders | `vision_training/data/segmentation/segmentation_dataset.py`, `vision_training/data/loaders.py` | `SegmentationDataset` (`cut_tile`, `count_class_pixels`), `build_class_lookup_table`, `get_segmentation_dataloaders`, `build_native_loader` |
+| Model | `vision_training/models/segmentation/semantic_segmenter.py`, `vision_training/models/segmentation/segmentation_decoder.py`, `vision_training/models/backbones/backbone.py` | `SemanticSegmenter` (`compute_mask_losses`), `SegmentationDecoder`, `compute_skip_block_numbers`, `Backbone.forward(return_pre_pooling_outputs=True)` |
+| Losses | `vision_training/losses/segmentation_losses.py`, `vision_training/utilities/mask_morphology.py` | `compute_segmentation_cross_entropy`, `compute_dice_loss`, `compute_lovasz_softmax_loss`, `compute_boundary_loss`, `compute_edge_distance_weights` |
+| Metrics and evaluation | `vision_training/evaluation/segmentation/segmentation_metrics.py`, `boundary_metrics.py`, `segmentation_report.py` | `compute_pixel_confusion_matrix`, `compute_segmentation_metrics`, `compute_pixel_score_histograms`, `compute_boundary_counts`, `compute_boundary_metrics`, `build_segmentation_class_rows`, `build_segmentation_class_table`, `build_segmentation_class_scalars` |
+| Curves and confusion matrix | `vision_training/evaluation/classification/score_curves.py`, `confusion_matrix.py` | `compute_histogram_score_curves`, `compute_macro_curve_metrics`, `save_score_curve_images`, `save_confusion_matrix_table`, `save_confusion_matrix_image` |
+| Tiles and original resolution | `vision_training/models/segmentation/sliding_window.py`, `vision_training/data/preprocessing.py` | `segment_image_by_tiles`, `restore_prediction_to_original_image` |
+| Sample images and input viewer | `vision_training/utilities/visualization.py` | `build_segmentation_sample_grid`, `build_segmentation_error_map`, `overlay_segmentation_mask` |
+| Configuration checks | `vision_training/configuration_processing/segmentation_checks.py` | `check_segmentation_configuration` |
+| Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_segmentation_sections` |
+| Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_segmentation_labels` |
+| Export | `vision_training/models/segmentation/inference_segmenter.py`, `vision_training/deployment/export_specifications.py` | `InferenceSegmenter` (model name `semantic_segmenter`, the deep supervision heads left out), `compare_segmentations` |
+| Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
+
+### Run It
+
+```bash
+# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
+#    task = "semantic_segmentation" and output_folders["semantic_segmentation"] (2,000 / 200 / 200 images of 512
+#    pixels with up to 6 shapes and their class masks, the 35 shapes and the background)
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset
+
+# 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first, and
+#    number_iterations, 1e10 in this file (2000 for the run of experiments/readme_screenshots); Ctrl+C saves a checkpoint
+uv run python -m vision_training.main --configuration_path="vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml"
+
+# 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
+#    test_data_folder, batch_size, track_evaluation, output_folder and maximum_error_images_per_class_pair = None
+#    (Step 5.1) in the main block of scripts/evaluation/evaluate_checkpoint.py
+uv run python -m scripts.evaluation.evaluate_checkpoint
+
+# 4. Export (CUDA only): set experiment_folder, iteration and formats in the main block of
+#    vision_training/deployment/export_model.py
+uv run python -m vision_training.deployment.export_model
+```
+
+### Configuration Keys To Know First
+
+| Key | Value in the synthetic configuration | Effect |
+|---|---|---|
+| `SegmentationDecoder.convolutions` | `{"5": [2, 64], "4": [2, 64], "3": [2, 32], "2": [2, 32], "1": [1, 16]}` | one level per backbone block before the last, keyed by that block, `[layers, channels]` from the deepest level (`D2x64.2x64.2x32.2x32.1x16`) |
+| `SegmentationDecoder.upsampling` | `"transposed"` | a learned 2x2 transposed convolution of stride 2 (`UTC`); `"bilinear"` is a bilinear upsampling followed by a 1x1 convolution (`UBL`) |
+| `SegmentationDecoder.modules` | `squeeze_and_excite: False`, `residual_nets: False` | Squeeze-and-Excitation and residual pairs of the decoder blocks; the residual pairs add nothing there (pitfall below) |
+| `SegmentationDecoder.deep_supervision_weights` | `{}` | 1x1 class heads on intermediate levels (`AUX<levels>`), trained with the same losses times their weight, left out of the inference and the exports |
+| `SegmentationLoss.cross_entropy_weight`, `SegmentationLoss.dice_weight` | `1.0`, `1.0` | the two losses of the total loss; `lovasz_weight` and `boundary_weight` are 0, and the region losses cannot all be 0 |
+| `SegmentationLoss.class_weighting`, `focal_gamma`, `label_smoothing` | `"none"`, `0.0`, `0.0` | `"balanced"` weights a class by total pixels / (K x pixels of the class), counted once and cached in `class_pixel_counts.json` |
+| `Data.tiling` | `activated: False`, `scale: 1.0`, `overlap: 128` | random tiles of the scaled images for the training, fixed ones for the validation, whole test images segmented tile by tile (`TL<scale>`) |
+| `ExperimentConfiguration.evaluation.boundary_tolerance` | `2` | distance in pixels within which a contour pixel is right, for the boundary IoU and F1 |
+| `ExperimentConfiguration.evaluation.save_predicted_masks`, `original_resolution` | `False`, `False` | the class index PNG of every test image in `Predicted_Masks/`; the scores against the original masks after `restore_prediction_to_original_image()` |
+| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table and scalars, confusion matrix image, ROC and precision-recall curves from the 10,000 bin histograms of the pixel probabilities |
+
+### What A Run Writes
+
+- `Results.txt`: one block per evaluated checkpoint with `Mean IoU` (the headline metric), `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, with `per_class_report` `Macro ROC AUC` and `Macro Average Precision`, the notes (labelled pixels and their resolution, boundary tolerance, predicted masks, sample images) and the per-class table sorted by IoU, worst first.
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (pixels, IoU, Dice, boundary IoU and F1, precision, recall, and with `per_class_report` ROC AUC and average precision) and `confusion_matrix.csv` (pixel counts) at every evaluation; `confusion_matrix.png` (shares of every true class), `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `Samples/<image>.png` (Input, Ground Truth, Prediction and Errors panels, 2060x560 for 512 pixel images); `Predicted_Masks/<image>.png` with `save_predicted_masks`. No `EMA/` folder: the moving average of the weights is off in this configuration.
+- `class_pixel_counts.json` in the run folder with `class_weighting: "balanced"`.
+- `Tensorboard/Train` and `Validation`: `Total Loss`, `Cross Entropy Loss`, `Dice Loss`, `Pixel Accuracy`, `Mean IoU` (and `Learning Rate`); `Tensorboard/Test`: 88 scalars in the run of `experiments/readme_screenshots` (the 8 headline metrics and, for each of the 10 classes, `IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`, `ROC AUC` and `Average Precision`) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
+- `Weights/Iteration_<n>/model_<n>.pt`: about 9.6 MB, the 3.15 MB of the weights and the two Adam moments, with the source runs of `Backbone` and `SegmentationDecoder`.
+
+### Pitfalls
+
+- `residual_nets: True` adds no shortcut in the backbone blocks 2, 4 and 6, which change the channel count with 2 layers, nor in any decoder level, whose input (skip plus upsampled channels) never has the channels of its output (`ConvolutionBlock.residual_parity` of `convolution_block.py`; `suggestions.md` H4, open). The backbone summary lists the shortcuts for blocks 3 and 5 only (Step 2.14).
+- `Mean IoU` and `Mean Dice` average over the classes present in the true masks: a class predicted but absent from the test masks is not penalised (`compute_segmentation_metrics()` of `segmentation_metrics.py`; `bug_standards.md` B53). The batch `Mean IoU` of the console averages the classes of each batch, then the batches (Step 3.20).
+- The masks are resized with `cv2.INTER_NEAREST`, about half a pixel off their images, and `random_crop` adds another half pixel (`segmentation_dataset.py`, `augmentations.py`; `suggestions.md` M5, open): with `original_resolution: True` on large images the shift can exceed `boundary_tolerance`.
+- `scripts/evaluation/evaluate_checkpoint.py` stops with `KeyError: 'error_dumps'` unless `maximum_error_images_per_class_pair = None` (`bug_standards.md` B56, Step 5.1).
+- The `SegmentationLoss` settings, the head dropout, the deep supervision weights and the tile overlap give no run name token, so changing them resumes the same run folder, `load_model()` setting the class weights of the new configuration again (`build_segmentation_sections()` of `run_name.py`; Step 2.18).
+- A run trained on tiles is exported with one tile as input, the client scaling and tiling the images with `segment_image_by_tiles()` (README, Deployment, Export), while `run_inference.py` times one letterboxed image per request (`bug_standards.md` B59).
+
 ## Table of Contents
+- [Read This First](#read-this-first)
 - [Call Tree Overview](#call-tree-overview)
 - [Stage 1 — Entry Point and Configuration Loading](#stage-1--entry-point-and-configuration-loading)
 - [Stage 2 — Trainer Initialization](#stage-2--trainer-initialization)
@@ -37,8 +139,8 @@ main()
 │   └── check_configuration()
 │       ├── common checks                         experiment, data, backbone, optimization (see classification)
 │       └── check_segmentation_configuration()
-│               ├── data:       Native loader, classes 0..K-1 with the background at 0, categories that are mask values
-│               │               (1 to 254), no detection block, tiling scale > 0 and overlap smaller than a tile
+│               ├── data:       classes 0..K-1 with the background at 0, categories that are mask values (1 to 254),
+│               │               tiling scale > 0 and overlap smaller than a tile
 │               ├── no sequence settings (frame shuffling, sequence normalization)
 │               ├── no image-only augmentation type (random_perspective, random_jigsaw), which the masks cannot follow
 │               ├── decoder:    upsampling (transposed/bilinear), one level per skip connection of the backbone,
@@ -148,8 +250,8 @@ main()
 
 run_test_evaluation(iteration)  [STAGE 4]
 ├── create_evaluation_accumulator()
-│       A [K, K] pixel confusion matrix and [K, 6] boundary counts, both on the device, the number of images, and the
-│       Predicted_Masks folder of the checkpoint.
+│       A [K, K] pixel confusion matrix and [K, 6] boundary counts, with per_class_report [K, 2, 10000] score
+│       histograms, all on the device, the number of images, and the Predicted_Masks folder of the checkpoint.
 ├── for each test batch:
 │   ├── prepare_batch()
 │   ├── predict_batch()
@@ -162,7 +264,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       same pixels, and with save_predicted_masks writes one class index PNG per image.
 │   └── save_sample_images() -> build_sample_image()
 │           Four panels per fixed image: the input, the true mask and the predicted mask painted over it, the error
-│           map, with the pixel accuracy of the image and a legend of its classes.
+│           map, with the pixel accuracy of the image and a legend of its classes and of the error colours.
 ├── compute_evaluation_results()
 │   ├── compute_segmentation_metrics()       pixel accuracy, IoU and Dice of every class, mean IoU, mean Dice,
 │   │                                        frequency-weighted IoU, precision and recall
@@ -185,7 +287,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 
 ## Stage 1 — Entry Point and Configuration Loading
 
-> The examples below are real outputs from running the loader on `configurations/semantic_segmentation/configuration_synthetic_shapes.yaml`.
+> The examples below are real outputs from running the loader on `vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml`.
 
 ### Step 1.1 — `main()`
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): `parse_configuration_path()` reads the path of the YAML file from the command line (`--configuration_path`), then it loads the file, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the segmentation.
@@ -196,12 +298,13 @@ It splits the YAML into the two dictionaries read by every later stage, converts
 **Example: the sections and the evaluation settings**
 ```text
 model_configuration keys: Optimization, Data, Backbone, SegmentationDecoder, SegmentationLoss
-Data keys after loading:  DALI, loading, image_settings, tiling, label_mapping, data_augmentation, label_mode, label_dictionary
+Data keys after loading:  loading, image_settings, tiling, label_mapping, data_augmentation, label_mode, label_dictionary
 evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'save_predicted_masks': False,
                            'original_resolution': False, 'boundary_tolerance': 2}
 SegmentationDecoder:      {'upsampling': 'transposed', 'convolutions': {'5': [2, 64], '4': [2, 64], '3': [2, 32], '2': [2, 32],
                            '1': [1, 16]}, 'modules': {'squeeze_and_excite': False, 'residual_nets': False},
-                           'feature_map_normalization': 'batch', 'dropout_rate': 0.0, 'deep_supervision_weights': {}, ...}
+                           'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
+                           'deep_supervision_weights': {}, 'pretrained': {...}}
 SegmentationLoss:         {'cross_entropy_weight': 1.0, 'focal_gamma': 0.0, 'label_smoothing': 0.0, 'class_weighting': 'none',
                            'dice_weight': 1.0, 'lovasz_weight': 0.0, 'boundary_weight': 0.0, 'boundary_distance': 3}
 ```
@@ -226,13 +329,13 @@ The mapping file gives the class index of every category, a category being the v
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_segmentation_configuration()`: the data settings (Native loader, background at 0, categories that are mask values, tiling), no sequence settings, no augmentation type moving the image only (`random_perspective` and `random_jigsaw`, which the masks cannot follow, `check_image_only_augmentation_types()`), the decoder (one level per skip connection of the backbone), the losses and the evaluation settings. Every problem is reported together, then the program exits.
+The common checks run first, then `check_segmentation_configuration()`: the data settings (background at 0, categories that are mask values, tiling), no sequence settings, no augmentation type moving the image only (`random_perspective` and `random_jigsaw`, which the masks cannot follow, `check_image_only_augmentation_types()`), the decoder (one level per skip connection of the backbone), the losses and the evaluation settings. Every problem is reported together, then the program exits.
 
 **Example: output with `upsampling: "nearest"` and `dice_weight: -1.0` in the YAML**
 ```text
------------------------------------------------------------------------------------------------
-Invalid Configuration File : file:///.../configuration_wrong.yaml
------------------------------------------------------------------------------------------------
+------------------------------------------------------
+Invalid Configuration File : configuration_wrong.yaml
+------------------------------------------------------
   - 'SegmentationDecoder.upsampling' must be one of ['transposed', 'bilinear'], got 'nearest'.
   - 'SegmentationLoss.dice_weight' must be a number >= 0, got -1.0.
 SystemExit code 1
@@ -249,7 +352,7 @@ get_trainer_class(task="semantic_segmentation") -> <class 'vision_training.train
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `configurations/semantic_segmentation/configuration_synthetic_shapes.yaml` (512 pixel images, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.3 s on CPU.
+> The examples below are real outputs from building the trainer on `vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml` (512 pixel images, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.3 s on CPU.
 
 ### Step 2.1 — `SegmentationTrainer.__init__()`
 Before calling the shared constructor, the trainer stores the settings its hooks read: the `SegmentationLoss` section (the losses, the class weighting), the deep supervision weights of the decoder, the tiling settings, and the three evaluation settings: `save_predicted_masks` (a class index PNG per test image), `original_resolution` (score the predictions against the original masks instead of the resized ones) and `boundary_tolerance` (the distance in pixels within which a contour pixel is right).
@@ -290,7 +393,7 @@ SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32
 ```
 
 ### Step 2.5 — `DataAugmenter()`
-The same augmenter as the classification. Here the masks follow the images (Step 3.13).
+The same augmenter as the classification. Here the masks follow the images (Step 3.11).
 
 **Example: the settings of the configuration**
 ```text
@@ -308,7 +411,7 @@ SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32
 ├── Tensorboard/
 ├── Weights/
 ├── label_dictionary.json          the class index of every category of the run
-└── training_configuration.yaml    4,289 bytes
+└── training_configuration.yaml    the copy of the launched file (5,417 bytes, the redirected file having no comments)
 ```
 With `class_weighting: "balanced"`, the run folder also receives `class_pixel_counts.json` at Step 2.18.
 
@@ -378,20 +481,52 @@ model.number_classes           10
 The segmenter is a U-Net: the backbone is the downsampling path, and the output of each of its blocks before its pooling is kept as a skip connection; the decoder brings the final feature map back to the input resolution through these skip connections; the segmentation head gives the logits of every class at every pixel. The head is kept apart from the decoder, so that a decoder transferred from another run can serve other classes. Deep supervision heads, when `deep_supervision_weights` names decoder levels, add 1×1 convolutions on those levels, trained with the same losses times their weight and left out of the predictions and exports. The number of classes counts the background.
 
 ### Step 2.14 — `build_backbone()`
-The backbone shared by every task (see `classification_workflow.md`, Step 2.14). For the segmentation, its forward pass also returns the output of every block before its pooling (Step 3.15).
+The backbone shared by every task (see `classification_workflow.md`, Step 2.14). For the segmentation, its forward pass also returns the output of every block before its pooling (Step 3.13). The panel lists the residual shortcuts of a block only when it adds one (`ConvolutionBlock.count_residual_additions()`): blocks 3 and 5 keep their channel count and add one, while blocks 2, 4 and 6 change it (16 → 32, 32 → 64, 64 → 128), which shifts their residual pairs by one layer, so with 2 layers they add none (`documentation/suggestions.md`, H4); block 1 never has shortcuts.
 
-**Example: the backbone panel of `print_summary()` for a 512×512 image** (shortened)
+**Example: the backbone panel of `print_summary()` for a 512×512 image** (the model of the configuration rebuilt on CPU with the current code)
 ```text
+------------------------------
+Backbone Architecture Summary
+------------------------------
+------------------------------------
+Input image shape: [1, 3, 512, 512]
+------------------------------------
+╭─────────────────────────── Backbone Architecture ────────────────────────────╮
+│ Normalization Strategy: Batch                                                │
+│                                                                              │
 │  - Convolution Block 1                                                       │
 │    - Modules      : Squeeze-and-Excitation                                   │
 │    - Input Shape  : [1, 3, 512, 512]                                         │
 │    - Output Shape : [1, 16, 256, 256]                                        │
-│  ...                                                                         │
-│  - Convolution Block 6                                                       │
+│                                                                              │
+│  - Convolution Block 2                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 16, 256, 256]                                        │
+│    - Output Shape : [1, 32, 128, 128]                                        │
+│                                                                              │
+│  - Convolution Block 3                                                       │
 │    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
-│    - Input Shape  : [1, 64, 16, 16]                                         │
+│    - Input Shape  : [1, 32, 128, 128]                                        │
+│    - Output Shape : [1, 32, 64, 64]                                          │
+│                                                                              │
+│  - Convolution Block 4                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 32, 64, 64]                                          │
+│    - Output Shape : [1, 64, 32, 32]                                          │
+│                                                                              │
+│  - Convolution Block 5                                                       │
+│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Input Shape  : [1, 64, 32, 32]                                          │
+│    - Output Shape : [1, 64, 16, 16]                                          │
+│                                                                              │
+│  - Convolution Block 6                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 64, 16, 16]                                          │
 │    - Output Shape : [1, 128, 16, 16]                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+----------------------------------------------
 Final Backbone output shape: [1, 128, 16, 16]
+----------------------------------------------
 ```
 
 ### Step 2.15 — `SegmentationDecoder.__init__()` (→ `compute_skip_block_numbers()`)
@@ -472,7 +607,7 @@ Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 ```
 
 ### Step 2.21 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.19).
+The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.16).
 
 **Example output** (cross entropy and Dice on, Lovász and boundary off)
 ```text
@@ -481,21 +616,34 @@ The tracked losses are those whose weight is not 0, so the console, TensorBoard 
 ```
 
 ### Step 2.22 — `print_experiment_information()` (→ `describe_split()` → `count_split_samples()`)
+Every path is a terminal link showing the name of its file or folder (`format_path_link()` of `vision_training/utilities/os_utilities.py`).
+
 **Example output**
 ```text
+--------------------------------------
+=== Experiment Launch Information ===
+--------------------------------------
 - Run Name                : SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9
-- Experiment Folder       : file:///.../example_runs/SEG_IN-KAR-512_..._MC9
-...
-- Train Data Folder       : file:///home/.../segmentation_data/synthetic_shapes/train (2000 images, 9 categories)
-- Validation Data Folder  : file:///home/.../segmentation_data/synthetic_shapes/validation (200 images, 9 categories)
-- Test Data Folder        : file:///home/.../segmentation_data/synthetic_shapes/test (200 images, 9 categories)
+- Experiment Folder       : SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9
+- Tensorboard Directory   : Tensorboard
+- Weights Directory       : Weights
+- Configuration File      : training_configuration.yaml
+- Data Record             : data.json
+- Train Data Folder       : train (2000 images, 9 categories)
+- Validation Data Folder  : validation (200 images, 9 categories)
+- Test Data Folder        : test (200 images, 9 categories)
 - Iterations Per Epoch    : 125
 - Batch Size              : 16
 - Total Iterations        : 10000000000
 - Save And Evaluate Every : 1000 iterations
 - Save Only Every         : 500 iterations
 - Learning Rate           : 0.001
-...
+- Optimizer               : adam (weight decay 0.0)
+- Learning Rate Schedule  : constant (warm-up 0 iterations)
+- Gradient Clipping Norm  : None
+- Weight Moving Average   : Off
+- Mixed Precision         : False
+- Resume Training         : True
 - Validation Iter. Ratio  : 25
 - MLflow Tracking         : Off
 ```
@@ -508,12 +656,22 @@ The backbone and decoder panels are shown in Steps 2.14 and 2.17. The size panel
 ╭─────────────────────── Model Size ───────────────────────╮
 │ Backbone                                                 │
 │   - Parameters           : 438,368                       │
+│   - Trainable Parameters : 438,368                       │
+│   - Estimated Size       : 1.76 MB                       │
+│                                                          │
 │ Segmentation Decoder                                     │
 │   - Parameters           : 345,984                       │
+│   - Trainable Parameters : 345,984                       │
+│   - Estimated Size       : 1.39 MB                       │
+│                                                          │
 │ Segmentation Head                                        │
 │   - Parameters           : 170                           │
+│   - Trainable Parameters : 170                           │
+│   - Estimated Size       : 0.00 MB                       │
+│                                                          │
 │ Total Model                                              │
 │   - Parameters           : 784,522                       │
+│   - Trainable Parameters : 784,522                       │
 │   - Estimated Size       : 3.15 MB                       │
 ╰──────────────────────────────────────────────────────────╯
 ```
@@ -524,10 +682,12 @@ With `diagnosis_modes.view_input_images`, the training image (augmented, with it
 ### Step 2.25 — `restore_last_model()` → `get_last_checkpoint_iteration()` / `load_model()`
 The same restoration as every task (see `classification_workflow.md`, Steps 2.26 to 2.28), except that `load_model()` sets the class weights of the current configuration again after loading the checkpoint.
 
-**Example output: a new run**
+**Example output: a new run** (`start_iteration = 1`)
 ```text
+-----------------------------------------------------------
 No Initiation Model Weights Will Be Used...
-We Generate A New Model That Will Be Trained From Scratch.            -> start_iteration = 1
+We Generate A New Model That Will Be Trained From Scratch.
+-----------------------------------------------------------
 ```
 
 
@@ -584,7 +744,7 @@ model_state: 175 tensors, the first 'class_weights', then 'backbone.convolution_
 ```
 
 ### Step 3.6 — `run_test_evaluation()`
-At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
+At iterations 6 and 12, last in the iteration, after its checkpoint, and at iteration 12 after its summary too, the summaries coming every 4 iterations (see `classification_workflow.md`, Step 3.7), see Stage 4.
 
 ### Step 3.7 — `get_next_batch()` → `SegmentationDataset.__getitem__()`
 `get_next_batch()` drops a batch whose loading fails and takes the next one (see `classification_workflow.md`, Step 3.8). `__getitem__()` reads the image with `read_image()` (BGR, `uint8`, a `ValueError` naming a file that cannot be read) and its mask, and checks that they have the same size. Without tiling, `preprocess_image()` resizes the image with the bilinear interpolation and the mask with the nearest interpolation (so that every pixel keeps a category), with the same letterbox: the padding of the image is black and the padding of the mask is 255, the unlabelled value. With tiling, `cut_tile()` scales both and cuts the tile of the split. The lookup table of Step 2.9 then turns the mask values into class indices.
@@ -644,7 +804,7 @@ outputs before pooling  '1': [4, 16, 64, 64]   '2': [4, 32, 32, 32]   '3': [4, 3
 ```
 
 ### Step 3.14 — `SegmentationDecoder.forward()` + segmentation head
-From the deepest level to the finest, each level upsamples its input to twice its resolution, concatenates the skip connection of its block (resized by one pixel if the input size is not a power of 2), and refines the result with its convolution block. The head turns the `[B, 16, 64, 64]` output into the `[B, 10, 64, 64]` class logits.
+From the deepest level to the finest, each level upsamples its input to twice its resolution, concatenates the skip connection of its block before the upsampled features (the upsampled map being resized bilinearly to the skip connection when they differ by a pixel, an input size that is not a power of 2), and refines the result with its convolution block. The head turns the `[B, 16, 64, 64]` output into the `[B, 10, 64, 64]` class logits.
 
 **Example: shapes through the decoder**
 ```text
@@ -766,13 +926,14 @@ Test Evaluation Iteration 6: 100%|██████████| 50/50
 ```
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-Storing the probabilities of every pixel of the test split would take a lot of memory, so the segmentation accumulates counts instead, on the device: the `[K, K]` pixel confusion matrix and the `[K, 6]` boundary counts of every class, with the number of evaluated images and the `Predicted_Masks` folder of the checkpoint.
+Storing the probabilities of every pixel of the test split would take a lot of memory, so the segmentation accumulates counts instead, on the device: the `[K, K]` pixel confusion matrix and the `[K, 6]` boundary counts of every class, and with `per_class_report` the `[K, 2, 10000]` `score_histograms` of the pixel probabilities (Step 4.5), next to the number of evaluated images and the `Predicted_Masks` folder of the checkpoint.
 
 **Example: the accumulator at the end of the loop**
 ```text
 {'confusion_matrix': [10, 10] torch.int64, 'boundary_counts': [10, 6] torch.int64, 'number_images': 200,
  'predicted_masks_folder': PosixPath('.../Evaluation/Iteration_6/Predicted_Masks')}
 ```
+This run was captured before the ROC and precision-recall curves of the per-class report: with `per_class_report: True`, the current accumulator also holds `'score_histograms': [10, 2, 10000] torch.int64`.
 
 ### Step 4.3 — `prepare_batch()`
 Same function as in training (Step 3.10).
@@ -795,14 +956,15 @@ Evaluation/Iteration_6/Predicted_Masks/    200 files: test_000000.png, test_0000
 ```
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()`
-For every fixed sample image found in the batch, `build_sample_image()` lays out four titled panels side by side: the input, the true mask painted over it, the predicted mask painted over it, and the error map. A caption bar above gives the pixel accuracy of the image over its labelled pixels, and a legend bar below names the classes painted in the image. The panels of a large image segmented tile by tile are reduced to 1024 pixels on their longest side. The image is saved in `Samples/` and sent to TensorBoard under `Samples/<image name>`.
+For every fixed sample image found in the batch, `build_sample_image()` lays out four titled panels side by side: the input, the true mask painted over it, the predicted mask painted over it, and the error map. A caption bar above gives the pixel accuracy of the image over its labelled pixels, and a legend bar below names the classes of its true and predicted masks (background left out), then the colours of the error map: `Correct` (green, a pixel of a class given its class), `Wrong Class` (red, another class, or a class where the truth is the background) and `Missed` (yellow, a pixel of a class predicted as background), the ignored pixels being gray and the background predicted as background staying dark (`build_segmentation_error_map()` of `vision_training/utilities/visualization.py`). The panels of a large image segmented tile by tile are reduced to 1024 pixels on their longest side. The image is saved in `Samples/` and sent to TensorBoard under `Samples/<image name>`.
 
 **Example: `Evaluation/Iteration_12/Samples/test_000028.png`** (268 x 112 pixels)
 ```text
 caption: "Pixel Accuracy 0.9006"
 panels:  Input | Ground Truth | Prediction | Errors      (64 x 64 each; the titles are cut at this small size: "Ground Tru")
-legend:  square (red), circle (orange), rectangle (green)
+legend:  square (red), circle (orange), rectangle (green), ...
 ```
+The legend then names the three error colours, written by `build_segmentation_sample_grid()` after the classes of every sample.
 
 ### Step 4.7 — `compute_evaluation_results()`
 Once the loop is done, it computes the metrics from the accumulated counts (Steps 4.8 and 4.9), writes the evaluation files (Steps 4.10 to 4.12) and organizes the report (Step 4.13). The notes give the number of labelled pixels and the resolution they were scored at, the boundary tolerance and the predicted masks. The headline metric, used by Stage 5 and MLflow to choose the best checkpoint, is the mean IoU.
@@ -818,7 +980,7 @@ headline_metric   = 'Mean IoU'
 files             = Class Metrics, Confusion Matrix Table, Confusion Matrix Image, Predicted Masks, Sample Images
 class_scalars     = 60: IoU/background, Dice/background, Boundary IoU/background, Boundary F1/background, Precision/background, ...
 ```
-The 819,200 labelled pixels are the 200 test images × 64 × 64: the synthetic images are square, so there is no padding.
+The 819,200 labelled pixels are the 200 test images × 64 × 64: the synthetic images are square, so there is no padding. This run was captured before the ROC and precision-recall curves of the per-class report: with `per_class_report: True`, the current code also gives `'Macro ROC AUC'` and `'Macro Average Precision'` in `metrics`, the files `ROC Curves Image` and `Precision Recall Curves Image` after `Confusion Matrix Image`, and the `ROC AUC/<class>` and `Average Precision/<class>` scalars of the classes defining them (Step 4.13).
 
 ### Step 4.8 — `compute_segmentation_metrics()`
 All the region metrics come from the pixel confusion matrix (rows true classes, columns predicted classes). For a class: its **IoU** is the right pixels over the union of its true and predicted pixels, its **Dice** is the F1 of its pixels (twice the intersection over their sum), its **precision** and **recall** are those of the classification. The **pixel accuracy** is the diagonal over all the labelled pixels, the **mean IoU** and **mean Dice** are the means over the classes present in the test masks, and the **frequency-weighted IoU** weights the IoU of every class by its share of the pixels, which the background dominates.
@@ -867,13 +1029,13 @@ class_index,class,pixels,iou,dice,boundary_iou,boundary_f1,precision,recall
 ```
 
 ### Step 4.11 — `save_confusion_matrix_table()` + `save_confusion_matrix_image()`
-The table is the pixel confusion matrix of Step 4.8 (`confusion_matrix.csv`, written whatever `per_class_report`). With `per_class_report`, the image is drawn like the one of the classification, titled `Pixel Confusion Matrix · Iteration N · Mean IoU ... · Pixel Accuracy ...`, its cells showing only the share of every true class, since the pixel counts are too large to print (`show_counts=False`). `save_score_curve_images()` then draws the curves of Step 4.10 as for the classification (`classification_workflow.md`, Step 4.15), titled `ROC Curves · Pixels · Iteration N · Macro ROC AUC ...` and `Precision-Recall Curves · Pixels · Iteration N · Macro Average Precision ...`, without thresholds, and saves `roc_curves.png` and `precision_recall_curves.png`, also logged to TensorBoard and MLflow.
+The table is the pixel confusion matrix of Step 4.8 (`confusion_matrix.csv`, written whatever `per_class_report`). With `per_class_report`, the image is drawn like the one of the classification, titled `Pixel Confusion Matrix · Iteration N · Mean IoU ... · Pixel Accuracy ...`, its cells showing only the share of every true class, since the pixel counts are too large to print (`show_counts=False`). `save_score_curve_images()` then draws the curves of Step 4.10 as for the classification (`classification_workflow.md`, Step 4.15), titled `ROC Curves · Pixels · Iteration N` and `Precision-Recall Curves · Pixels · Iteration N`, the macro mean (`Macro ROC AUC ...`, `Macro Average Precision ...`) on the second line of the title so that it stays within the image, without thresholds, and saves `roc_curves.png` and `precision_recall_curves.png`, also logged to TensorBoard and MLflow.
 
 ### Step 4.12 — the notes and the predicted masks
 The notes name what was scored: the number of labelled pixels and the resolution (`network resolution`, `original resolution of the images`, or `images scaled by <scale>, segmented tile by tile`), and the boundary tolerance. With `save_predicted_masks`, the `Predicted_Masks` folder and its number of images are added.
 
 ### Step 4.13 — `build_segmentation_class_table()` + `build_segmentation_class_scalars()`
-The per-class table sorts the classes by IoU, worst first; the per-class scalars are the 6 metrics of every class (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`): 60 scalars for 10 classes, shown only with `per_class_report`, which also adds the `ROC AUC` and `Average Precision` columns and scalars of the classes defining them.
+The per-class table sorts the classes by IoU, worst first; the per-class scalars are the 6 metrics of every class with pixels (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`), 60 scalars for 10 classes, written only with `per_class_report`, which also adds the `ROC AUC` and `Average Precision` columns and scalars of the classes defining them: 80 per-class scalars for 10 classes, next to the 8 headline metrics, in the 512 pixel run of `experiments/readme_screenshots`.
 
 ### Step 4.14 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
@@ -902,13 +1064,14 @@ Iteration 12 · 200 Test Images · 2026-10-09 10:04 ─────────�
    background   739806   0.7464   0.8548         0.1702        0.4931      0.9255   0.7941
   Worst IoU first, ties in class order. Boundary IoU and F1 : contours within the boundary tolerance. — : no pixel (or
   no edge for the boundary metrics) of the class in the test masks.
-  - Results : file:///.../Results.txt
-  - Class Metrics : file:///.../Evaluation/Iteration_12/class_metrics.csv
-  - Confusion Matrix Table : file:///.../Evaluation/Iteration_12/confusion_matrix.csv
-  - Confusion Matrix Image : file:///.../Evaluation/Iteration_12/confusion_matrix.png
-  - Predicted Masks : file:///.../Evaluation/Iteration_12/Predicted_Masks
-  - Sample Images : file:///.../Evaluation/Iteration_12/Samples
+  - Results : Results.txt
+  - Class Metrics : class_metrics.csv
+  - Confusion Matrix Table : confusion_matrix.csv
+  - Confusion Matrix Image : confusion_matrix.png
+  - Predicted Masks : Predicted_Masks
+  - Sample Images : Samples
 ```
+Every file name is a terminal link to the file in the evaluation folder of the checkpoint, `Results.txt` being in the run folder. This block was captured before the ROC and precision-recall curves of the per-class report. With `per_class_report: True` the current code adds a line `Macro ROC AUC ... Macro Average Precision ...` under the frequency-weighted IoU, the `ROC AUC` and `Average Precision` columns of the per-class table, `, or no pixel of another class for the ROC AUC.` at the end of its legend, and the lines `ROC Curves Image : roc_curves.png` and `Precision Recall Curves Image : precision_recall_curves.png` after the confusion matrix image, as in the `Results.txt` and `semantic_segmentation.log` of the 512 pixel run of `experiments/readme_screenshots`.
 
 **Example: the run folder, TensorBoard and MLflow after the two evaluations**
 ```text
@@ -919,7 +1082,7 @@ Tensorboard/Test: 66 scalars (6 global + 60 per class), 9 images (8 samples + Co
 MLflow: test/Mean IoU, test/Mean Dice, ..., test/best_Mean IoU (steps 6, 12), 60 test_class/<metric>/<class>,
         artifacts evaluation/iteration_6/ and iteration_12/: class_metrics.csv, confusion_matrix.png
 ```
-The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accuracy 0.0196, square recall 0.9966); the one of iteration 12 learned that most pixels are background.
+The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accuracy 0.0196, square recall 0.9966); the one of iteration 12 learned that most pixels are background. With the curves, every evaluation folder also holds `roc_curves.png` and `precision_recall_curves.png`, and `Tensorboard/Test` of the 512 pixel run of `experiments/readme_screenshots` holds 88 scalars (8 headline metrics + 80 per class) and 11 images (8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
 
 
 ---
@@ -929,7 +1092,7 @@ The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accura
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` to the segmentation run, and `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed, and `maximum_error_images_per_class_pair = None`: the segmentation configurations have no `evaluation.error_dumps` section, and the default of the script (100000) stops with `KeyError: 'error_dumps'` (`documentation/bug_standards.md`, B56).
 
 ### Step 5.2 — trainer construction
 The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the output folder, since the counts are cached in the run folder of the trainer.
@@ -947,9 +1110,11 @@ MLflow Run Created In The Experiment 'semantic_segmentation' : 342ebb90469341998
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-**Example output**
+**Example output** (the file name is a terminal link to `runs/evaluations/<run>/Evaluation/evaluation_summary.csv`)
 ```text
-Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/SEG_IN-KAR-64_..._MC9/Evaluation/evaluation_summary.csv
+-------------------------------------------------------------
+Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
+-------------------------------------------------------------
   - Best Checkpoint : iteration 12 (Mean IoU 0.0713)
 
 iteration,Mean IoU,Mean Dice,Mean Boundary IoU,Mean Boundary F1,Pixel Accuracy,Frequency Weighted IoU,IoU/background, ...
@@ -958,11 +1123,15 @@ iteration,Mean IoU,Mean Dice,Mean Boundary IoU,Mean Boundary F1,Pixel Accuracy,F
 6,0.003934161162990151,0.007616101260174676,0.002960294035671728,0.02332027384646323,0.03636474609375,0.0016963343355225918, ...
 3,0.003597412109375,0.006944984505166907,0.0,0.0,0.03597412109375,0.0012941373884677886, ...
 ```
+These evaluations were run before the curves of the per-class report: the current summary also has the `Macro ROC AUC` and `Macro Average Precision` columns after `Frequency Weighted IoU`, and the `ROC AUC/<class>` and `Average Precision/<class>` columns of the classes defining them.
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 **Example output: the block of the checkpoint of iteration 12 on the 40 images** (shortened: the classes absent from these images are left out)
 ```text
-Evaluating : file:///.../runs/SEG_IN-KAR-64_..._MC9/Weights/Iteration_12/model_000012.pt
+-----------------------------
+Evaluating : model_000012.pt
+-----------------------------
+...
 Iteration 12 · 40 Test Images · 2026-10-09 10:04 ───────────────────────────────────────────────────────────────────────
   Mean IoU            0.0713   Mean Dice                0.0898
   Mean Boundary IoU   0.0152   Mean Boundary F1         0.0543

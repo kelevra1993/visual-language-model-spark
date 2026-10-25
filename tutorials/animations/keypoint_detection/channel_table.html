@@ -1,0 +1,180 @@
+<!doctype html>
+<!--
+ Channel table of the keypoint detector, for the first chapter of the keypoint detection series: the 243 heatmap
+ channels of the 33 synthetic classes drawn as a band of stripes, the classes in increasing order and the keypoints of
+ a class in the order of its category, growing from left to right; the classes of the test image highlighted with their
+ channels; then the channel_table buffer [34, 18] of the model, shown with one column per class and one row per keypoint
+ position, the padding positions dimmed. The data is the channel_table.json written by
+ tutorials/figures/keypoint_detection/dataset_figures.py from the checkpoint of the run, and the scene key "steps" gives
+ the sentence of every phase (band, highlight, table).
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Keypoint channel table</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        "use strict";
+
+        // Geometry of the band of channels and of the table under it, in pixels of the content area
+        const BAND_LEFT = 90;
+        const BAND_RIGHT = 1670;
+        const BAND_TOP = 118;
+        const BAND_BOTTOM = 218;
+        const TABLE_LEFT = 340;
+        const TABLE_RIGHT = 1670;
+        const TABLE_TOP = 382;
+        const TABLE_BOTTOM = 706;
+
+        // Seconds the band takes to grow, and the table to fill in, from the start of their sentence
+        const BAND_GROW_SECONDS = 2.4;
+        const TABLE_GROW_SECONDS = 1.6;
+
+        /* Colour of the stripes of a class: two alternating blues, so that the classes stay apart, the highlighted
+         * classes in the accent colour once highlighted. */
+        function classColour(helpers, classIndex, highlighted, highlight) {
+            const base = helpers.resolveColour(classIndex % 2 === 0 ? "blue" : "violet");
+            return helpers.cssColour(highlighted ? helpers.mixColour(base, helpers.COLOURS.accent, highlight) : base);
+        }
+
+        /* Builds the band of channels: one stripe per channel, the class labels of the highlighted classes and of the
+         * first and last classes, and the channel ticks. Returns the stripes and labels to animate. */
+        function buildBand(root, helpers, data) {
+            const group = helpers.createSvgElement("g", {}, root);
+            const stripeWidth = (BAND_RIGHT - BAND_LEFT) / data.total_channels;
+            const stripes = [];
+            data.classes.forEach((classRecord) => {
+                const highlighted = data.highlighted_classes.includes(classRecord.name);
+                for (let offset = 0; offset < classRecord.count; offset++) {
+                    const channel = classRecord.first_channel + offset;
+                    const stripe = helpers.createSvgElement("rect", {
+                        x: BAND_LEFT + channel * stripeWidth + 0.6, y: BAND_TOP, width: stripeWidth - 1.2,
+                        height: BAND_BOTTOM - BAND_TOP, rx: 1, opacity: 0}, group);
+                    stripes.push({ stripe: stripe, channel: channel, classRecord: classRecord,
+                                   highlighted: highlighted });
+                }
+            });
+
+            // Channel ticks under the band, every 50 channels and the last one
+            const ticks = [0, 50, 100, 150, 200, data.total_channels - 1];
+            ticks.forEach((channel) => {
+                helpers.createText(group, String(channel), BAND_LEFT + (channel + 0.5) * stripeWidth, BAND_BOTTOM + 10,
+                                   "ma", "diagram_tiny", "dim");
+            });
+
+            // Labels of the highlighted classes above their stripes, with their channels
+            const labels = data.classes.filter((classRecord) => data.highlighted_classes.includes(classRecord.name))
+                .map((classRecord) => {
+                    const last = classRecord.first_channel + classRecord.count - 1;
+                    const centre = BAND_LEFT + (classRecord.first_channel + classRecord.count / 2) * stripeWidth;
+                    const label = helpers.createText(group, `${classRecord.name.replace(/_/g, " ")} · ` +
+                                                     `${classRecord.first_channel} to ${last}`, centre,
+                                                     BAND_TOP - 14, "md", "diagram_small", "accent");
+                    label.setAttribute("opacity", 0);
+                    return label;
+                });
+            const caption = helpers.createText(group, `${data.total_channels} heat map channels and as many tag ` +
+                                               `maps: ${data.classes.length} classes in increasing order, the key ` +
+                                               "points of a class in the order of its category", BAND_LEFT,
+                                               BAND_BOTTOM + 48, "la", "diagram_small", "text");
+            caption.setAttribute("opacity", 0);
+            return { stripes: stripes, labels: labels, caption: caption };
+        }
+
+        /* Builds the channel table, one column per class (0 the background) and one row per keypoint position, every
+         * cell holding a channel lit, the padding cells (-1) dimmed, the channels written in the highlighted
+         * columns. */
+        function buildTable(root, helpers, data) {
+            const group = helpers.createSvgElement("g", { opacity: 0 }, root);
+            const columns = data.table_rows;
+            const rows = data.table_columns;
+            const cellWidth = (TABLE_RIGHT - TABLE_LEFT) / columns;
+            const cellHeight = (TABLE_BOTTOM - TABLE_TOP) / rows;
+            const classByIndex = {};
+            data.classes.forEach((classRecord) => { classByIndex[classRecord.index] = classRecord; });
+            const cells = [];
+            for (let column = 0; column < columns; column++) {
+                const classRecord = classByIndex[column];
+                const highlighted = Boolean(classRecord) && data.highlighted_classes.includes(classRecord.name);
+                for (let row = 0; row < rows; row++) {
+                    const used = Boolean(classRecord) && row < classRecord.count;
+                    const fill = used ? (highlighted ? helpers.COLOURS.accent : helpers.resolveColour("blue"))
+                        : helpers.COLOURS.box;
+                    const cell = helpers.createSvgElement("rect", {
+                        x: TABLE_LEFT + column * cellWidth + 1, y: TABLE_TOP + row * cellHeight + 1,
+                        width: cellWidth - 2, height: cellHeight - 2, rx: 2, fill: helpers.cssColour(fill),
+                        opacity: 0}, group);
+                    cells.push({ cell: cell, column: column, used: used });
+                    if (used && highlighted) {
+                        helpers.createText(group, String(classRecord.first_channel + row),
+                                           TABLE_LEFT + (column + 0.5) * cellWidth, TABLE_TOP + (row + 0.5) * cellHeight,
+                                           "mm", "diagram_monospace_tiny", "background");
+                    }
+                }
+                if (column % 4 === 0 || highlighted) {
+                    helpers.createText(group, String(column), TABLE_LEFT + (column + 0.5) * cellWidth, TABLE_TOP - 8,
+                                       "md", "diagram_tiny", highlighted ? "accent" : "dim");
+                }
+            }
+
+            // Names of the axes of the table, on its left
+            helpers.createText(group, `channel_table [${data.table_rows}, ${data.table_columns}]`, TABLE_LEFT - 24,
+                               TABLE_TOP + 10, "ra", "diagram_monospace_small", "text");
+            helpers.createText(group, "one column per class,\none row per key point\nposition, -1 dimmed",
+                               TABLE_LEFT - 24, TABLE_TOP + 52, "ra", "diagram_small", "dim");
+            helpers.createText(group, "class index", TABLE_LEFT - 24, TABLE_TOP - 8, "rd", "diagram_tiny", "dim");
+            return { group: group, cells: cells, columns: columns };
+        }
+
+        /* Setup of the custom parts: the band and the table, animated by the sentences named in the scene steps. */
+        function setupChannelTable(context) {
+            const helpers = context.helpers;
+            const data = context.scene.data;
+            const steps = context.scene.steps || { band: 0, highlight: 1, table: 2 };
+            const band = buildBand(context.root, helpers, data);
+            const table = buildTable(context.root, helpers, data);
+
+            /* Draws the band growing, the highlight and the table filling in at a time of the scene; returns whether
+             * something still moves. */
+            return function updateChannelTable(time) {
+                let moving = false;
+
+                // Stripes appearing channel by channel from the start of the band sentence
+                const bandStart = helpers.sentenceStart(steps.band);
+                const bandProgress = helpers.clampUnit((time - bandStart) / BAND_GROW_SECONDS);
+                moving = moving || (time >= bandStart && bandProgress < 1);
+                const highlightProgress = helpers.ease((time - helpers.sentenceStart(steps.highlight)) /
+                                                       helpers.APPEAR_SECONDS);
+                moving = moving || (highlightProgress > 0 && highlightProgress < 1);
+                band.stripes.forEach((record) => {
+                    const shown = helpers.clampUnit(bandProgress * data.total_channels - record.channel);
+                    record.stripe.setAttribute("opacity", shown);
+                    record.stripe.setAttribute("fill", classColour(helpers, record.classRecord.index,
+                                                                   record.highlighted, highlightProgress));
+                });
+                band.caption.setAttribute("opacity", helpers.ease((time - bandStart - BAND_GROW_SECONDS * 0.5) /
+                                                                   helpers.APPEAR_SECONDS));
+                band.labels.forEach((label) => label.setAttribute("opacity", highlightProgress));
+
+                // Table appearing with its sentence, its cells filled in column by column
+                const tableStart = helpers.sentenceStart(steps.table);
+                const tableOpacity = helpers.ease((time - tableStart) / helpers.APPEAR_SECONDS);
+                const tableProgress = helpers.clampUnit((time - tableStart) / TABLE_GROW_SECONDS);
+                table.group.setAttribute("opacity", tableOpacity);
+                table.cells.forEach((record) => {
+                    record.cell.setAttribute("opacity", helpers.clampUnit(tableProgress * table.columns - record.column)
+                                             * (record.used ? 1 : 0.6));
+                });
+                moving = moving || (time >= tableStart && tableProgress < 1);
+                return moving;
+            };
+        }
+
+        Tutorial.registerCustom(setupChannelTable);
+    </script>
+</body>
+</html>

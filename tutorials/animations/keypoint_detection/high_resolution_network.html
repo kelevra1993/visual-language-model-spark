@@ -1,0 +1,266 @@
+<!doctype html>
+<!--
+ High resolution network of the keypoint detector, for the second chapter of the keypoint detection series: the stem
+ feature map, then one lane per branch of the HRNet (1/4, 1/8, 1/16 and 1/32 of the image, their width growing with
+ their channels), a branch added by the transition before every stage, and the exchange unit closing every module, where
+ every branch receives all the others brought to its resolution (strided 3x3 convolutions from the higher resolutions,
+ a 1x1 convolution and a nearest upsampling from the lower ones); the last module only computes the 1/4 branch, read by
+ the heads. The lanes grow from left to right during the sentence of the "lanes" step, the exchanges carry flowing dots
+ during the "exchange" step and the output appears with the "output" step (scene key "steps"). The data is the
+ high_resolution_network.json written by tutorials/figures/keypoint_detection/network_figures.py from the shapes the
+ real network gave on the test image.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>High resolution network</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        "use strict";
+
+        // Geometry of the lanes, in pixels of the content area
+        const STEM_BOX = [40, 150, 230, 270];
+        const LANES_LEFT = 270;
+        const LANES_RIGHT = 1500;
+        const FIRST_LANE_Y = 210;
+        const LANE_SPACING = 125;
+        const EXCHANGE_SPAN = 74;
+        const HEADS_BOX = [1560, 150, 1730, 270];
+
+        // Seconds the lanes take to grow from the start of their sentence, and the period of the flowing dots
+        const LANE_GROW_SECONDS = 3.0;
+        const FLOW_PERIOD_SECONDS = 1.4;
+
+        /* Lane thickness of a branch from its channels, thicker for the wider lower resolution branches. */
+        function laneThickness(channels) {
+            return 4 + 3 * Math.log2(channels / 8);
+        }
+
+        /* Places every module and branch: the x of the exchange unit closing every module, the stage of every module,
+         * the x where every branch starts and the module after which it stops. */
+        function placeNetwork(data) {
+            const modules = [];
+            data.stages.forEach((stage, stageIndex) => {
+                for (let moduleIndex = 0; moduleIndex < stage.modules; moduleIndex++) {
+                    modules.push({ stage: stageIndex, branches: stage.branches.length });
+                }
+            });
+            const moduleWidth = (LANES_RIGHT - LANES_LEFT) / modules.length;
+            modules.forEach((module, moduleIndex) => {
+                module.exchangeX = LANES_LEFT + (moduleIndex + 1) * moduleWidth - 20;
+                module.last = moduleIndex === modules.length - 1;
+            });
+
+            // A branch starts with the first module of its stage, after the exchange closing the previous stage
+            const branches = data.stages[data.stages.length - 1].branches.map((branch, branchIndex) => {
+                const firstModule = modules.findIndex((module) => module.branches > branchIndex);
+                const startX = firstModule === 0 ? LANES_LEFT : modules[firstModule - 1].exchangeX;
+                const endX = branchIndex === 0 ? LANES_RIGHT : modules[modules.length - 1].exchangeX - EXCHANGE_SPAN;
+                return { index: branchIndex, channels: branch.channels, height: branch.height, width: branch.width,
+                         y: FIRST_LANE_Y + branchIndex * LANE_SPACING, startX: startX, endX: endX,
+                         firstModule: firstModule };
+            });
+            return { modules: modules, branches: branches, moduleWidth: moduleWidth };
+        }
+
+        /* Builds the transitions creating the branches: the stem into the first two branches, then the lowest branch
+         * of every stage into the new branch of the next one by a strided 3x3 convolution. */
+        function buildTransitions(root, helpers, layout) {
+            return layout.branches.map((branch) => {
+                const start = branch.firstModule === 0 ? [STEM_BOX[2], Math.min(branch.y, STEM_BOX[3] - 14)] :
+                    [branch.startX, layout.branches[branch.index - 1].y];
+                const end = [branch.startX + (branch.firstModule === 0 ? 0 : 44), branch.y];
+                const colour = helpers.cssColour(helpers.resolveColour(branch.index === 0 ? "blue" : "magenta"));
+                const line = helpers.createSvgElement("line", { x1: start[0], y1: start[1], x2: end[0], y2: end[1],
+                                                                stroke: colour, "stroke-width": 2.5, opacity: 0 },
+                                                      root);
+                return { line: line, startX: start[0] };
+            });
+        }
+
+        /* Builds the lanes of the branches, with their resolution and shape at their start. */
+        function buildLanes(root, helpers, layout, data) {
+            return layout.branches.map((branch) => {
+                const colour = helpers.cssColour(helpers.resolveColour("blue"));
+                const line = helpers.createSvgElement("line", { x1: branch.startX, y1: branch.y, x2: branch.startX,
+                                                                y2: branch.y, stroke: colour,
+                                                                "stroke-width": laneThickness(branch.channels),
+                                                                "stroke-linecap": "round" }, root);
+                const fraction = data.image_size / branch.width;
+                const label = helpers.createText(root, `1/${fraction} · [${branch.channels}, ${branch.height}, ` +
+                                                 `${branch.width}]`, branch.startX + 14,
+                                                 branch.y - laneThickness(branch.channels) / 2 - 10, "ld",
+                                                 "diagram_monospace_small", "text");
+                label.setAttribute("opacity", 0);
+                return { branch: branch, line: line, label: label };
+            });
+        }
+
+        /* Builds the exchange unit of every module: one line from every branch into every output branch, down to a
+         * lower resolution in magenta (strided convolutions), up to a higher one in aqua (1x1 convolution and nearest
+         * upsampling), with a dot flowing along it. */
+        function buildExchanges(root, helpers, layout) {
+            const exchanges = [];
+            layout.modules.forEach((module, moduleIndex) => {
+                const outputBranches = module.last ? 1 : module.branches;
+                for (let source = 0; source < module.branches; source++) {
+                    for (let target = 0; target < outputBranches; target++) {
+                        if (source === target) {
+                            continue;
+                        }
+                        const start = [module.exchangeX - EXCHANGE_SPAN, layout.branches[source].y];
+                        const end = [module.exchangeX, layout.branches[target].y];
+                        const colour = helpers.cssColour(helpers.resolveColour(source < target ? "magenta" : "aqua"));
+                        const line = helpers.createSvgElement("line", { x1: start[0], y1: start[1], x2: end[0],
+                                                                        y2: end[1], stroke: colour,
+                                                                        "stroke-width": 2.5, opacity: 0 }, root);
+                        const dot = helpers.createSvgElement("circle", { r: 5, fill: colour, opacity: 0 }, root);
+                        exchanges.push({ module: moduleIndex, line: line, dot: dot, start: start, end: end });
+                    }
+                }
+                // Node of the sum of every output branch, activated by a ReLU
+                for (let target = 0; target < outputBranches; target++) {
+                    const node = helpers.createSvgElement("circle", { cx: module.exchangeX, cy: layout.branches[target].y,
+                                                                      r: 9, fill: helpers.cssColour(helpers.COLOURS.card),
+                                                                      stroke: helpers.cssColour(helpers.COLOURS.text),
+                                                                      "stroke-width": 2.5, opacity: 0 }, root);
+                    exchanges.push({ module: moduleIndex, node: node });
+                }
+            });
+            return exchanges;
+        }
+
+        /* Builds the stages above the lanes, the stem and the heads boxes, the output arrow and the legend. */
+        function buildFrame(root, helpers, layout, data) {
+            const parts = { stageLabels: [], fixed: [] };
+            data.stages.forEach((stage, stageIndex) => {
+                const stageModules = layout.modules.map((module, index) => ({ module: module, index: index }))
+                    .filter((record) => record.module.stage === stageIndex);
+                const left = stageModules[0].index === 0 ? LANES_LEFT :
+                    layout.modules[stageModules[0].index - 1].exchangeX;
+                const right = stageModules[stageModules.length - 1].module.exchangeX;
+                const label = helpers.createText(root, `stage ${stageIndex + 1} · ${stage.branches.length} branches · ` +
+                                                 `${stage.modules} module${stage.modules > 1 ? "s" : ""}`,
+                                                 (left + right) / 2, 70, "mm", "diagram_small", "dim");
+                const bracket = helpers.createSvgElement("path", { d: `M ${left + 6} 104 V 94 H ${right - 6} V 104`,
+                                                                   fill: "none", stroke: helpers.cssColour(
+                                                                       helpers.COLOURS.border), "stroke-width": 2 },
+                                                         root);
+                parts.stageLabels.push({ label: label, bracket: bracket, startX: left });
+            });
+
+            // Stem box, the feature map of the backbone stem
+            const stem = helpers.createSvgElement("rect", { x: STEM_BOX[0], y: STEM_BOX[1], width: STEM_BOX[2] - STEM_BOX[0],
+                                                            height: STEM_BOX[3] - STEM_BOX[1], rx: 12,
+                                                            fill: helpers.cssColour(helpers.COLOURS.box),
+                                                            stroke: helpers.cssColour(helpers.resolveColour("blue")),
+                                                            "stroke-width": 3 }, root);
+            helpers.createText(root, `stem\n[${data.stem.join(", ")}]`, (STEM_BOX[0] + STEM_BOX[2]) / 2,
+                               (STEM_BOX[1] + STEM_BOX[3]) / 2, "mm", "diagram_small", "text");
+            parts.fixed.push(stem);
+
+            // Heads box and the arrow of the 1/4 branch into it, shown with the output step
+            const heads = helpers.createSvgElement("g", { opacity: 0 }, root);
+            helpers.createSvgElement("rect", { x: HEADS_BOX[0], y: HEADS_BOX[1], width: HEADS_BOX[2] - HEADS_BOX[0],
+                                               height: HEADS_BOX[3] - HEADS_BOX[1], rx: 12,
+                                               fill: helpers.cssColour(helpers.COLOURS.box),
+                                               stroke: helpers.cssColour(helpers.resolveColour("violet")),
+                                               "stroke-width": 3 }, heads);
+            helpers.createText(heads, "heads\n1/4 only", (HEADS_BOX[0] + HEADS_BOX[2]) / 2,
+                               (HEADS_BOX[1] + HEADS_BOX[3]) / 2, "mm", "diagram_small", "text");
+            helpers.createSvgElement("line", { x1: LANES_RIGHT, y1: FIRST_LANE_Y, x2: HEADS_BOX[0] - 16,
+                                               y2: FIRST_LANE_Y, stroke: helpers.cssColour(helpers.resolveColour("blue")),
+                                               "stroke-width": laneThickness(data.stages[0].branches[0].channels) },
+                                     heads);
+            const arrow = helpers.createSvgElement("polygon", {}, heads);
+            helpers.placeArrowHead(arrow, HEADS_BOX[0] - 4, FIRST_LANE_Y, 0, 18);
+            arrow.setAttribute("fill", helpers.cssColour(helpers.resolveColour("blue")));
+            parts.heads = heads;
+
+            // Legend of the exchange lines
+            const legend = helpers.createSvgElement("g", { opacity: 0 }, root);
+            helpers.createSvgElement("line", { x1: 60, y1: 672, x2: 110, y2: 672, stroke: helpers.cssColour(
+                helpers.resolveColour("magenta")), "stroke-width": 4 }, legend);
+            helpers.createText(legend, "to a lower resolution: strided 3x3 convolutions", 124, 672, "lm",
+                               "diagram_small", "text");
+            helpers.createSvgElement("line", { x1: 60, y1: 712, x2: 110, y2: 712, stroke: helpers.cssColour(
+                helpers.resolveColour("aqua")), "stroke-width": 4 }, legend);
+            helpers.createText(legend, "to a higher resolution: 1x1 convolution, nearest upsampling", 124, 712, "lm",
+                               "diagram_small", "text");
+            helpers.createSvgElement("circle", { cx: 1010, cy: 692, r: 9, fill: helpers.cssColour(helpers.COLOURS.card),
+                                                 stroke: helpers.cssColour(helpers.COLOURS.text), "stroke-width": 2.5 },
+                                     legend);
+            helpers.createText(legend, "sum of all the branches, then ReLU", 1030, 692, "lm", "diagram_small", "text");
+            parts.legend = legend;
+            return parts;
+        }
+
+        /* Setup of the custom parts: the network laid out from the data, animated by the sentences of the steps. */
+        function setupHighResolutionNetwork(context) {
+            const helpers = context.helpers;
+            const data = context.scene.data;
+            const steps = context.scene.steps || { lanes: 0, exchange: 1, output: 2 };
+            const layout = placeNetwork(data);
+            const transitions = buildTransitions(context.root, helpers, layout);
+            const exchanges = buildExchanges(context.root, helpers, layout);
+            const lanes = buildLanes(context.root, helpers, layout, data);
+            const frame = buildFrame(context.root, helpers, layout, data);
+
+            /* Draws the network at a time of the scene; returns whether something still moves. */
+            return function updateHighResolutionNetwork(time) {
+                const laneStart = helpers.sentenceStart(steps.lanes);
+                const progress = helpers.clampUnit((time - laneStart) / LANE_GROW_SECONDS);
+                const frontX = LANES_LEFT + progress * (LANES_RIGHT - LANES_LEFT);
+                let moving = time >= laneStart && progress < 1;
+
+                // Lanes grown up to the front, their labels shown once the front passed their start
+                lanes.forEach((record) => {
+                    const end = Math.max(record.branch.startX, Math.min(record.branch.endX, frontX));
+                    record.line.setAttribute("x2", end);
+                    record.line.setAttribute("opacity", frontX > record.branch.startX ? 1 : 0);
+                    record.label.setAttribute("opacity", helpers.clampUnit((frontX - record.branch.startX) / 120));
+                });
+                transitions.forEach((record) => {
+                    record.line.setAttribute("opacity", helpers.clampUnit((frontX - record.startX + 40) / 60));
+                });
+                frame.stageLabels.forEach((record) => {
+                    const shown = helpers.clampUnit((frontX - record.startX) / 120);
+                    record.label.setAttribute("opacity", shown);
+                    record.bracket.setAttribute("opacity", shown);
+                });
+
+                // Exchange units shown once the front reached them, their dots flowing during the exchange sentence
+                const flowing = helpers.activeSentence(time) === steps.exchange;
+                exchanges.forEach((record) => {
+                    const exchangeX = record.node ? Number(record.node.getAttribute("cx")) : record.end[0];
+                    const shown = helpers.clampUnit((frontX - exchangeX + 40) / 60);
+                    if (record.node) {
+                        record.node.setAttribute("opacity", shown);
+                        return;
+                    }
+                    record.line.setAttribute("opacity", shown * 0.9);
+                    const phase = (time / FLOW_PERIOD_SECONDS + record.module * 0.17) % 1;
+                    record.dot.setAttribute("cx", record.start[0] + (record.end[0] - record.start[0]) * phase);
+                    record.dot.setAttribute("cy", record.start[1] + (record.end[1] - record.start[1]) * phase);
+                    record.dot.setAttribute("opacity", flowing ? shown * Math.sin(Math.PI * phase) : 0);
+                });
+                moving = moving || flowing;
+
+                // Heads and legend appearing with their steps
+                const outputShown = helpers.ease((time - helpers.sentenceStart(steps.output)) / helpers.APPEAR_SECONDS);
+                frame.heads.setAttribute("opacity", outputShown);
+                const legendShown = helpers.ease((time - helpers.sentenceStart(steps.exchange)) / helpers.APPEAR_SECONDS);
+                frame.legend.setAttribute("opacity", legendShown);
+                moving = moving || (outputShown > 0 && outputShown < 1) || (legendShown > 0 && legendShown < 1);
+                return moving;
+            };
+        }
+
+        Tutorial.registerCustom(setupHighResolutionNetwork);
+    </script>
+</body>
+</html>

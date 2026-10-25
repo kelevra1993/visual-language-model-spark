@@ -1,0 +1,298 @@
+# Frame selection, chapter 2: the per-frame loss and the selection loss, the two softmaxes on the real logits of a test
+# sequence, the training curves against the losses of equal logits, the Hungarian assignment animated on the real
+# gains of the same sequence (a wrong triangle pick of iteration 1000), its code, and the greedy rule against it on the
+# example of the README. The matrix scenes use the page animations/frame_selection/frame_matrix.html, fed with the
+# matrices written by tutorials/figures/frame_selection (the checkpoint of iteration 1000 run on the CPU) and decoded by
+# the code of the repository; coordinates are in pixels of the content area (1760 x 740).
+series: frame_selection
+series_title: "Frame Selection (SEL)"
+chapter: 2
+title: "Two losses and two decodings"
+output_name: frame_selection_02_losses_and_decoding
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [frame_selection]
+references:
+  - "vision_training/models/sequence/frame_selector.py · FrameSelector.forward"
+  - "vision_training/losses/sequence_losses.py · compute_sequence_labelling_loss"
+  - "vision_training/models/sequence/frame_selection_decoding.py · decode_greedy_selection"
+  - "vision_training/models/sequence/frame_selection_decoding.py · decode_frame_selection"
+  - "vision_training/trainers/frame_selection_trainer.py · FrameSelectionTrainer.compute_evaluation_results"
+  - "documentation/task workflows/frame_selection_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "Two losses and two decodings"
+    subheading: "Which class is this frame, and which frames are best for this class"
+    footnote: "Frame Selection (SEL) · chapter 2"
+    narration:
+      - "A frame selector is trained with two losses and read through a decoding; this chapter covers both, on the real probabilities of the README run."
+      - "The decoding is animated on one of its wrong picks, then compared with the greedy rule on the example of the README."
+
+  - kind: code
+    title: "The selection loss"
+    code_reference: "vision_training/losses/sequence_losses.py · compute_frame_selection_loss"
+    source:
+      file: vision_training/losses/sequence_losses.py
+      function: compute_frame_selection_loss
+    highlights:
+      - {match: "log_softmax", sentences: [1, 2]}
+      - {match: "masked_fill|real_frames =", sentences: [2]}
+      - {match: "target_distributions|number_true_frames", sentences: [3]}
+      - {match: "counted_classes", sentences: [3]}
+    narration:
+      - "The per-frame loss is the cross entropy of the sequence labeling, which answers which class this frame is."
+      - "The selection loss answers the other question, which frames of this sequence are best for this class."
+      - "For every wanted class, the softmax of its logit is taken over the frames of the sequence, dimension one, the padding frames masked out."
+      - "Its target puts one over N on each of the N true frames of the class, and the cross entropy is averaged over the wanted classes holding true frames."
+      - "The frame selector adds it to the per-frame loss, times selection loss weight; at zero, the per-frame loss trains alone."
+
+  - kind: html
+    page: frame_selection/frame_matrix
+    title: "Two softmaxes over one matrix"
+    code_reference: "vision_training/models/sequence/frame_selector.py · FrameSelector.forward"
+    data:
+      matrix: "figures:frame_selection/selection/matrix_real.json"
+      grid_box: [170, 120, 770, 678]
+      panel_position: [860, 150]
+      note_spacing: 48
+      states:
+        - sentence: 0
+          values: probabilities
+          title: "test_000052 · iteration 1000 · softmax of every frame"
+          show_true: true
+          bands: [{row: "{{frame_selection.matrix.true_triangle_frame}}", colour: yellow}]
+          notes:
+            - {text: "Per-frame softmax: every row sums to 1", font: diagram_bold}
+            - {text: "the probabilities the decoding reads", colour: dim}
+            - {text: "dashed: the true frames of the wanted classes", colour: dim}
+        - sentence: 1
+          values: selection
+          title: "test_000052 · iteration 1000 · softmax of every class column"
+          hide_columns: [0]
+          dim_columns: [0]
+          show_true: true
+          bands: [{column: 2, colour: yellow}]
+          notes:
+            - {text: "Selection softmax: every wanted class", font: diagram_bold}
+            - {text: "column sums to 1 over the 9 real frames", font: diagram_bold}
+            - {text: "the unselected class takes no part", colour: dim}
+        - sentence: 2
+          values: selection
+          title: "test_000052 · iteration 1000 · softmax of every class column"
+          hide_columns: [0]
+          dim_columns: [0]
+          show_true: true
+          bands: [{column: 2, colour: yellow}]
+          note_stagger: 0.6
+          notes:
+            - {text: "triangle column:", font: diagram_bold}
+            - {text: "frame {{frame_selection.matrix.triangle_pick}} takes {{frame_selection.matrix.chosen_triangle_selection_share:.3f}}"}
+            - {text: "the true frame {{frame_selection.matrix.true_triangle_frame}} only {{frame_selection.matrix.true_triangle_selection_share:.3f}}"}
+            - {text: "selection loss of the class: −ln {{frame_selection.matrix.true_triangle_selection_share:.3f}} = {{frame_selection.matrix.true_triangle_selection_loss:.2f}}", colour: accent}
+    narration:
+      - "On the real logits of test sequence 52 at iteration 1000, the per-frame softmax normalizes every row over the four classes: the probabilities the decoding reads."
+      - "The selection softmax normalizes every wanted class column over the nine frames of the sequence instead."
+      - "In the triangle column, frame {{frame_selection.matrix.triangle_pick}} takes {{frame_selection.matrix.chosen_triangle_selection_share:.2f}} of the mass and the true frame {{frame_selection.matrix.true_triangle_frame}} only {{frame_selection.matrix.true_triangle_selection_share:.2f}}: the selection loss pushes the true frame above every other frame of its sequence, the comparison the decoding makes."
+
+  - kind: image
+    title: "The training curves"
+    image: "figures:frame_selection/training/training_curves_axes.png"
+    overlay: "figures:frame_selection/training/training_curves.png"
+    reveals:
+      - {region: "{{frame_selection.training.loss_reveal_region}}", sentence: 1}
+      - {region: "{{frame_selection.training.accuracy_reveal_region}}", sentence: 3}
+    highlights:
+      - {box: "{{frame_selection.training.loss_panel_box}}", sentences: [0, 1, 2]}
+      - {box: "{{frame_selection.training.accuracy_panel_box}}", sentences: [3]}
+    narration:
+      - "A model giving the same logit to every frame scores the log of T on a sequence of T frames, {{frame_selection.dataset.mean_log_length:.2f}} on average over the training sequences."
+      - "The first selection loss of the README run is {{frame_selection.training.train_selection_loss.first:.2f}}, close to that line, and its first per-frame loss {{frame_selection.training.train_classification_loss.first:.2f}}, near the log of four."
+      - "Both fall within a few hundred iterations, on a logarithmic axis: by iteration 1000, the smoothed selection loss is {{frame_selection.training.train_selection_loss.smoothed_at_1000:.3f}} and the per-frame loss {{frame_selection.training.train_classification_loss.smoothed_at_1000:.3f}}."
+      - "The frame accuracy starts at {{frame_selection.training.train_accuracy.first:.2f}}, about the share of unselected frames, and reaches {{frame_selection.training.train_accuracy.last:.0f}}."
+      - "The synthetic task is easy: it is solved long before the end of the run, which the third chapter turns into a pitfall."
+
+  - kind: html
+    page: frame_selection/frame_matrix
+    title: "The Hungarian assignment"
+    code_reference: "vision_training/models/sequence/frame_selection_decoding.py · decode_hungarian_selection"
+    data:
+      matrix: "figures:frame_selection/selection/matrix_real.json"
+      grid_box: [170, 120, 770, 678]
+      panel_position: [860, 150]
+      note_spacing: 48
+      states:
+        - sentence: 0
+          values: probabilities
+          title: "test_000052 · iteration 1000 · probabilities"
+          show_true: true
+          notes:
+            - {text: "Probabilities of every frame", font: diagram_bold}
+            - {text: "dashed: the true frames", colour: dim}
+        - sentence: 1
+          values: gains
+          title: "test_000052 · iteration 1000 · gains"
+          hide_columns: [0]
+          dim_columns: [0]
+          show_true: true
+          notes:
+            - {text: "gain(f, c) = log p(f, c) − log p(f, unselected)", font: diagram_bold}
+            - {text: "what frame f adds when taken from unselected", colour: dim}
+        - sentence: 2
+          values: gains
+          title: "test_000052 · iteration 1000 · gains"
+          hide_columns: [0]
+          dim_columns: [0]
+          show_true: true
+          notes:
+            - {text: "gain(f, c) = log p(f, c) − log p(f, unselected)", font: diagram_bold}
+            - {text: "every column repeated frames_per_class times"}
+            - {text: "here 1: one frame per column", colour: dim}
+        - sentence: 3
+          values: gains
+          title: "test_000052 · iteration 1000 · gains"
+          hide_columns: [0]
+          dim_columns: [0]
+          show_true: true
+          picks: [hungarian]
+          pick_delay: 0.8
+          pick_stagger: 1.0
+          notes:
+            - {text: "linear_sum_assignment(maximize=True)", font: diagram_bold}
+            - {text: "one frame per column, every frame at most once"}
+            - {text: "the largest total gain", colour: dim}
+        - sentence: 4
+          values: gains
+          title: "test_000052 · iteration 1000 · gains"
+          hide_columns: [0]
+          dim_columns: [0]
+          show_true: true
+          picks: [hungarian]
+          bands: [{column: 2, colour: yellow}]
+          note_stagger: 0.7
+          notes:
+            - {text: "circle ← frame {{frame_selection.matrix.circle_pick}}, star ← frame {{frame_selection.matrix.star_pick}}", font: diagram_bold}
+            - {text: "triangle ← frame {{frame_selection.matrix.triangle_pick}}, gain {{frame_selection.matrix.triangle_pick_gain:+.2f}}", colour: accent}
+            - {text: "true frame {{frame_selection.matrix.true_triangle_frame}}, gain {{frame_selection.matrix.true_triangle_gain:+.2f}}"}
+        - sentence: 5
+          values: gains
+          title: "test_000052 · iteration 1000 · gains"
+          hide_columns: [0]
+          dim_columns: [0]
+          show_true: true
+          picks: [hungarian]
+          bands: [{column: 2, colour: red}]
+          notes:
+            - {text: "A wrong pick of iteration 1000:", font: diagram_bold}
+            - {text: "3 in 600 choices, all 3 triangles", colour: accent}
+    narration:
+      - "The decoding turns the probabilities of a sequence into the chosen frames: here test sequence 52 at iteration 1000, its true frames dashed."
+      - "The Hungarian decoding scores every frame for every wanted class by its gain, the log probability of the class minus the log probability of unselected: what the frame adds when it is taken from the unselected class."
+      - "With more than one frame per class, every class column is repeated that many times, so that the assignment picks exactly that count."
+      - "scipy's linear sum assignment then picks one frame per column, every frame at most once, with the largest total gain: the most probable labeling of the whole sequence in which every class holds its frames."
+      - "Here circle takes frame {{frame_selection.matrix.circle_pick}} and star frame {{frame_selection.matrix.star_pick}}; for triangle, frame {{frame_selection.matrix.triangle_pick}} at {{frame_selection.matrix.triangle_pick_gain:.2f}} beats the true frame {{frame_selection.matrix.true_triangle_frame}} at {{frame_selection.matrix.true_triangle_gain:.2f}}."
+      - "That is one of the three wrong picks of iteration 1000, and all three are triangles."
+
+  - kind: code
+    title: "The assignment in code"
+    code_reference: "vision_training/models/sequence/frame_selection_decoding.py · decode_hungarian_selection"
+    source:
+      file: vision_training/models/sequence/frame_selection_decoding.py
+      function: decode_hungarian_selection
+    highlights:
+      - {match: "log_probabilities =|gains =", sentences: [0]}
+      - {match: "np.repeat|linear_sum_assignment", sentences: [1]}
+      - {match: "order_selected_frames", sentences: [2]}
+    narration:
+      - "In the code, the gains are one subtraction of log probabilities, clipped to a tiny minimum so that a probability of zero still gives a finite cost."
+      - "Every column is repeated frames per class times, and linear sum assignment maximizes the total gain."
+      - "The file imports numpy and scipy only, so that the same code runs in the evaluation, in the local inference and inside the Triton server."
+
+  - kind: html
+    page: frame_selection/frame_matrix
+    title: "Greedy against Hungarian"
+    code_reference: "vision_training/models/sequence/frame_selection_decoding.py · decode_greedy_selection"
+    data:
+      matrix: "figures:frame_selection/selection/matrix_readme.json"
+      grid_box: [170, 200, 890, 590]
+      panel_position: [980, 170]
+      note_spacing: 48
+      value_font: diagram_monospace
+      states:
+        - sentence: 0
+          values: probabilities
+          title: "Example of the README: classes A and B, 3 frames"
+          notes:
+            - {text: "Greedy:", font: diagram_bold}
+            - {text: "1. every frame takes its most probable class"}
+            - {text: "2. a class taken too often keeps its best frames"}
+            - {text: "3. a class short of frames, in class order,"}
+            - {text: "    takes the unselected frames best for it"}
+        - sentence: 1
+          values: probabilities
+          title: "Example of the README: classes A and B, 3 frames"
+          picks: [greedy]
+          pick_delay: 0.5
+          notes:
+            - {text: "Greedy: A ← frame 1, B ← frame 3", font: diagram_bold, colour: violet}
+            - {text: "labelling A · unselected · B"}
+            - {text: "0.50 × 0.50 × 0.08 = {{frame_selection.readme.greedy_labelling_probability:.3f}}"}
+        - sentence: 2
+          values: probabilities
+          title: "Example of the README: classes A and B, 3 frames"
+          picks: [greedy, hungarian]
+          pick_delay: 0.5
+          notes:
+            - {text: "Greedy: A ← frame 1, B ← frame 3", font: diagram_bold, colour: violet}
+            - {text: "0.50 × 0.50 × 0.08 = {{frame_selection.readme.greedy_labelling_probability:.3f}}"}
+            - {text: "Hungarian: B ← frame 1, A ← frame 2", font: diagram_bold, colour: accent}
+            - {text: "0.45 × 0.45 × 0.90 = {{frame_selection.readme.hungarian_labelling_probability:.3f}}"}
+            - {text: "{{frame_selection.readme.probability_ratio:.1f}} times more probable", colour: accent}
+        - sentence: 3
+          values: probabilities
+          title: "Example of the README: classes A and B, 3 frames"
+          picks: [greedy, hungarian]
+          bands: [{row: 0, colour: yellow}]
+          notes:
+            - {text: "frame 1 prefers A only slightly: 0.50 against 0.45", font: diagram_bold}
+            - {text: "B has no better frame: 0.05 and 0.08"}
+            - {text: "greedy gives frame 1 to A, and B loses most", colour: dim}
+        - sentence: 4
+          values: probabilities
+          title: "Example of the README: classes A and B, 3 frames"
+          picks: [hungarian]
+          notes:
+            - {text: "Both decodings scored at every evaluation", font: diagram_bold}
+            - {text: "Selection.decoding: the images, the thresholds,"}
+            - {text: "the best checkpoint and the deployed decoder"}
+    narration:
+      - "The greedy decoding gives every frame its most probable class, trims a class taken by too many frames to its most probable ones, then completes the classes short of frames, in class order, with the unselected frames most probable for them."
+      - "On the example of the README, two classes A and B over three frames, greedy gives A to frame one, leaves frame two unselected, and completes B with frame three: a labeling of probability {{frame_selection.readme.greedy_labelling_probability:.2f}}."
+      - "The Hungarian assignment gives B to frame one and A to frame two: a labeling of probability {{frame_selection.readme.hungarian_labelling_probability:.3f}}, {{frame_selection.readme.probability_ratio:.1f}} times more probable, which the README rounds to ten."
+      - "Greedy is cheaper, but it gives a frame to a class that only slightly prefers it over a class with no better frame."
+      - "Both decodings are scored at every evaluation, and Selection decoding picks the one drawn in the images, behind the thresholds, the best checkpoint and the deployed decoder."
+
+  - kind: html
+    page: diagram
+    title: "Most probable is not most right"
+    code_reference: "vision_training/evaluation/sequence/frame_selection_metrics.py · compute_selection_metrics"
+    elements:
+      - {type: box, box: [40, 60, 1720, 200], text: "Hungarian: the most probable labelling of the whole sequence,\nnot the largest number of right frames", font: diagram_text, outline: violet, highlight: [0]}
+      - {type: box, box: [40, 260, 1720, 420], text: "Workflow document, 20 test sequences, checkpoint of iteration 3:\ntriangle 3 true frames with greedy, 1 with Hungarian", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [40, 480, 1720, 640], text: "README run, iteration {{frame_selection.picks.iteration}}: {{frame_selection.decodings.iteration_1000_differing}} of the {{frame_selection.decodings.iteration_1000_rows}} rows of selections.csv differ\nbetween the decodings, both wrong on the same {{frame_selection.decodings.iteration_1000_hungarian_wrong}}", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
+    narration:
+      - "So the Hungarian assignment maximizes the probability of the labeling, not the number of right frames."
+      - "On the 20 test sequences of the workflow document, the checkpoint of iteration three finds three true triangle frames with greedy, and one with Hungarian."
+      - "With a trained model the two agree: on the {{frame_selection.decodings.iteration_1000_rows}} rows of the selections file of iteration 1000, {{frame_selection.decodings.iteration_1000_differing}} differ, both decodings wrong on the same {{frame_selection.decodings.iteration_1000_hungarian_wrong}}."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Per-frame loss: which class is this frame"}
+      - {text: "Selection loss: which frames are best for this class"}
+      - {text: "Equal logits: ln T, {{frame_selection.dataset.mean_log_length:.2f}} on average"}
+      - {text: "Hungarian gain: log p(f, c) − log p(f, unselected)"}
+      - {text: "linear_sum_assignment: the most probable labelling"}
+      - {text: "Greedy: cheaper, can lose the labelling"}
+    narration:
+      - "To recap: two losses, one per frame and one per class over the frames, and two decodings, the Hungarian assignment of the most probable labeling and the cheaper greedy rule."
+      - "The next chapter reads the evaluation of the run, its three wrong picks and their confidence thresholds, then its deployment as a network, a decoder and an ensemble."

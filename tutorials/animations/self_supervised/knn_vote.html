@@ -1,0 +1,130 @@
+<!doctype html>
+<!--
+ Neighbourhood of a test image in the k-NN evaluation of the self-supervised task, for the third chapter of the
+ self-supervised series, as compute_nearest_neighbour_predictions sees it: the query at the centre, its nearest test
+ images around it, every image at a distance growing with the square root of 1 - cosine similarity to the query,
+ scaled so that the farthest shown image lies on the outer circle (its true similarity; the angle only spreads the
+ images, one golden angle after the other in their order), the nearest images appearing from the closest one with the
+ "points" step, then the ring of the k-th neighbour growing and the k neighbours taking the colour of their class with
+ the "ring" step (scene key "steps"). The data is the knn_radial_layout.json written by
+ tutorials/figures/self_supervised/representation_figures.py from the representations of the checkpoint.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>k-NN vote</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        "use strict";
+
+        // Geometry of the radial plot, in pixels of the content area
+        const CENTRE_X = 470;
+        const CENTRE_Y = 405;
+        const MAXIMUM_RADIUS = 290;
+        const POINT_RADIUS = 6;
+        const NEIGHBOUR_RADIUS = 10;
+
+        // Seconds over which the images appear from the nearest one, and over which the ring grows
+        const POINTS_SECONDS = 1.6;
+        const RING_SECONDS = 0.9;
+
+        // Angle between two images in their order, the golden angle, so that they spread evenly around the query
+        const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+        /* Distance of an image from the centre, a fraction of the outer circle: the square root of its 1 - cosine
+         * similarity over that of the farthest shown image. */
+        function radiusFraction(similarity, farthestSimilarity) {
+            return Math.sqrt(Math.max(0, 1 - similarity) / Math.max(1e-9, 1 - farthestSimilarity));
+        }
+
+        /* Position of an image of the layout in the plot. */
+        function placePoint(point, farthestSimilarity) {
+            const radius = radiusFraction(point.similarity, farthestSimilarity) * MAXIMUM_RADIUS;
+            const angle = point.rank * GOLDEN_ANGLE;
+            return { x: CENTRE_X + Math.cos(angle) * radius, y: CENTRE_Y + Math.sin(angle) * radius };
+        }
+
+        /* Builds the guide circles, the images, the ring of the k-th neighbour and the query. */
+        function buildNeighbourhood(root, helpers, data) {
+            const parts = { points: [], ring: null };
+            const farthestSimilarity = data.points[data.points.length - 1].similarity;
+            const ringRadius = radiusFraction(data.points[data.number_neighbours - 1].similarity, farthestSimilarity);
+            parts.ringRadius = ringRadius;
+
+            // Guide circles of the distance, the farthest shown image on the outer one
+            [0.5, 1.0].forEach((fraction) => {
+                helpers.createSvgElement("circle", { cx: CENTRE_X, cy: CENTRE_Y, r: fraction * MAXIMUM_RADIUS,
+                                                     fill: "none", stroke: helpers.cssColour(helpers.COLOURS.border),
+                                                     "stroke-width": 1.5, "stroke-dasharray": "3 6" }, root);
+            });
+            helpers.createText(root, `cosine ${farthestSimilarity.toFixed(3)}`, CENTRE_X,
+                               CENTRE_Y - MAXIMUM_RADIUS - 12, "md", "diagram_tiny", "dim");
+
+            // Every image, grey until the ring step colours the neighbours by their class
+            data.points.forEach((point) => {
+                const position = placePoint(point, farthestSimilarity);
+                const circle = helpers.createSvgElement("circle", { cx: position.x, cy: position.y, r: POINT_RADIUS,
+                                                                    fill: helpers.cssColour(helpers.COLOURS.dim),
+                                                                    opacity: 0 }, root);
+                parts.points.push({ point: point, circle: circle,
+                                    colour: helpers.resolveColour(data.class_colours[point.class_index]),
+                                    neighbour: point.rank < data.number_neighbours });
+            });
+
+            // Ring of the k-th neighbour, and the query at the centre
+            parts.ring = helpers.createSvgElement("circle", { cx: CENTRE_X, cy: CENTRE_Y, r: 0, fill: "none",
+                                                              stroke: helpers.cssColour(helpers.COLOURS.accent),
+                                                              "stroke-width": 3, "stroke-dasharray": "10 6" }, root);
+            parts.ringLabel = helpers.createText(root, `${data.number_neighbours} nearest`, CENTRE_X,
+                                                 CENTRE_Y + ringRadius * MAXIMUM_RADIUS + 16, "ma",
+                                                 "diagram_small", "accent");
+            helpers.createSvgElement("circle", { cx: CENTRE_X, cy: CENTRE_Y, r: 14,
+                                                 fill: helpers.cssColour(helpers.resolveColour(
+                                                     data.class_colours[data.query_class_index])),
+                                                 stroke: helpers.cssColour(helpers.COLOURS.text), "stroke-width": 3 },
+                                     root);
+            return parts;
+        }
+
+        /* Setup of the custom parts: the neighbourhood laid out from the data, animated by the sentences of the steps. */
+        function setupNeighbourhood(context) {
+            const helpers = context.helpers;
+            const steps = context.scene.steps || { points: 0, ring: 1 };
+            const data = context.scene.data;
+            const parts = buildNeighbourhood(context.root, helpers, data);
+            const pointCount = parts.points.length;
+
+            /* Draws the neighbourhood at a time of the scene; returns whether something still moves. */
+            return function updateNeighbourhood(time) {
+                // Images appearing from the nearest one
+                const pointsProgress = (time - helpers.sentenceStart(steps.points)) / POINTS_SECONDS;
+                const shownPoints = pointsProgress * pointCount;
+                const ringProgress = helpers.ease((time - helpers.sentenceStart(steps.ring)) / RING_SECONDS);
+                parts.points.forEach((record, index) => {
+                    record.circle.setAttribute("opacity", helpers.clampUnit(shownPoints - index) *
+                                               (record.neighbour ? 1 : 0.55));
+                    if (record.neighbour) {
+                        const colour = helpers.mixColour(helpers.COLOURS.dim, record.colour, ringProgress);
+                        record.circle.setAttribute("fill", helpers.cssColour(colour));
+                        record.circle.setAttribute("r", POINT_RADIUS + (NEIGHBOUR_RADIUS - POINT_RADIUS) * ringProgress);
+                    }
+                });
+
+                // Ring of the k-th neighbour growing from the query
+                parts.ring.setAttribute("r", parts.ringRadius * MAXIMUM_RADIUS * ringProgress);
+                parts.ring.setAttribute("opacity", ringProgress > 0 ? 1 : 0);
+                parts.ringLabel.setAttribute("opacity", ringProgress >= 1 ? 1 : 0);
+                const pointsMoving = pointsProgress >= 0 && pointsProgress < 1;
+                const ringMoving = time >= helpers.sentenceStart(steps.ring) && ringProgress < 1;
+                return pointsMoving || ringMoving;
+            };
+        }
+
+        Tutorial.registerCustom(setupNeighbourhood);
+    </script>
+</body>
+</html>

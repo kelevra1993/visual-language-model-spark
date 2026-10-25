@@ -1,0 +1,273 @@
+# Image classification, chapter 1: what is specific to the classifier, from its labels to its logits: when to choose
+# the task, the labels and label mapping files, the commands, the head section and its run name tokens, the pooling or
+# flattening, the layers of the head, the logits and probabilities of a test star, the loss and its class weights, the
+# decorrelation of the hidden features, and the learning rate variants of the README. Coordinates of the html scenes
+# are in pixels of the content area (1760 x 740, origin at its top left corner); the figures and facts named
+# classification.* are made by tutorials/figures/classification from the synthetic shapes run of tutorial_sources.yaml.
+series: classification
+series_title: "Image Classification (CLS)"
+chapter: 1
+title: "From labels to logits"
+output_name: classification_01_labels_to_logits
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [classification]
+references:
+  - "vision_training/models/classification/image_classifier.py · ImageClassifier.forward"
+  - "vision_training/models/classification/classification_head.py · build_global_pooling"
+  - "vision_training/models/components/fully_connected_block.py · build_fully_connected_block"
+  - "vision_training/losses/classification_losses.py · compute_balanced_class_weights"
+  - "vision_training/configuration_processing/classification_checks.py · check_classification_configuration"
+  - "vision_training/configurations/classification/configuration_synthetic_shapes.yaml · ClassificationHead.decorrelation"
+  - "documentation/task workflows/classification_workflow.md"
+  - "documentation/architecture_benchmarking/experiment_plan.md"
+scenes:
+  - kind: title_card
+    heading: "From labels to logits"
+    subheading: "One class per image: the data, the head and the loss"
+    footnote: "Image Classification · chapter 1"
+    narration:
+      - "Classification gives one label to a whole image: choose it when the answer belongs to the image, not to a place in it."
+      - "This chapter follows the synthetic shapes run from its labels to its logits: the data files, the head and its run name tokens, the probabilities, the loss, and the learning rate."
+
+  - kind: html
+    page: diagram
+    title: "When to choose classification"
+    code_reference: "vision_training/models/classification/image_classifier.py · ImageClassifier"
+    elements:
+      - {type: image, path: "figures:classification/model/input_star.png", box: [30, 150, 370, 490], border: border, caption: "a test image, 512 × 512"}
+      - {type: arrow, points: [[385, 320], [455, 320]]}
+      - {type: box, box: [465, 230, 805, 410], text: "backbone\npooling or flatten\nfully connected head", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[815, 320], [885, 320]]}
+      - {type: box, box: [895, 270, 1085, 370], text: "9 logits", font: diagram_bold, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[1095, 300], [1175, 185]], colour: aqua, appear: 1}
+      - {type: box, box: [1185, 100, 1740, 260], text: "multi_class · softmax\none class per image\ncross entropy · MC<classes>", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1095, 340], [1175, 455]], colour: violet, appear: 1}
+      - {type: box, box: [1185, 380, 1740, 540], text: "multi_label · one sigmoid per class\nany number of classes per image\nbinary cross entropy · ML<classes>", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: text, position: [880, 640], text: "objects to locate: DET, INS · a class per pixel: SEG · points: KPT · several frames: M2O, M2M, CMP, SEL", font: diagram_small, colour: dim, anchor: mm, appear: 2, highlight: [2]}
+    narration:
+      - "The image classifier is the shared backbone, then a global pooling or a flattening of its last feature map, then a fully connected head with one logit per class."
+      - "The multi class output reads the logits with a softmax, one class per image; the multi label output gives every class its own sigmoid, for images holding several classes, listed as category identifiers in the manifest."
+      - "To locate objects, choose detection or instance masks; segmentation for a class per pixel, key points for points, and the sequence tasks when the decision needs several frames, which reuse this head and its loss."
+
+  - kind: html
+    page: diagram
+    title: "Labels and the label mapping"
+    code_reference: "vision_training/configuration_processing/classification_checks.py · check_classification_data_configuration"
+    elements:
+      - {type: text, position: [20, 18], text: "train/labels.json", font: diagram_small, colour: dim}
+      - type: listing
+        box: [20, 56, 760, 400]
+        font: diagram_monospace_tiny
+        source: {file: "figures:classification/listings/labels_json.txt"}
+        highlights:
+          - {match: "\"category_id\": 6", sentences: [0]}
+      - {type: text, position: [800, 18], text: "label_mapping.json", font: diagram_small, colour: dim}
+      - type: listing
+        box: [800, 56, 1060, 330]
+        font: diagram_monospace_tiny
+        source: {file: "figures:classification/listings/label_mapping_json.txt"}
+        highlights:
+          - {match: "\"6\": 5", sentences: [0]}
+      - {type: arrow, points: [[672, 243], [800, 199]], colour: accent, appear: 0, until: 0}
+      - {type: text, position: [20, 432], text: "data.json of the run · classes", font: diagram_small, colour: dim, appear: 2}
+      - type: listing
+        box: [20, 470, 760, 700]
+        font: diagram_monospace_tiny
+        appear: 2
+        source: {file: "figures:classification/listings/data_json_classes.txt"}
+      - {type: box, box: [1110, 56, 1740, 196], text: "category 6, hexagon → class index 5\nseveral categories on one index: merged\na category left out: its images left out", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [1110, 236, 1740, 376], text: "checks at launch\nlabel_mapping.mode: multi_class\nindices 0 to K − 1, no gap, K ≥ 2", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [1110, 470, 1740, 640], text: "label_dictionary.json\nthe classes of the run, read back by\nthe evaluation, export and loading tools", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+    narration:
+      - "Every split lists its images in a labels json manifest, each sample with its category identifier, and the label mapping file gives every category its class index: hexagon, category six, becomes class five."
+      - "The mapping decides the classes: categories mapped to the same index merge, and the images of a category left out of the mapping are left out of the training."
+      - "The checks at launch want a multi class mapping, indexed from zero to K minus one without gaps, and the run writes its classes to data json, with their images in every split, and to label dictionary json, which the evaluation and export tools read back."
+
+  - kind: terminal
+    title: "Generate, train, evaluate"
+    code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
+    lines:
+      - {role: comment, text: "# One shape per 512 pixel image: task = \"classification\" in the main block"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# Training: experiment_folder, the three data folders and the mapping file set first"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
+      - {role: comment, text: "# Checkpoints scored again, error images on: settings in the main block"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+    narration:
+      - "With task set to classification in its main block, the synthetic data set script draws one shape per 512 pixel image, and this run trains on {{classification.data.train_images:,}} of them, with {{classification.data.validation_images:,}} for validation and {{classification.data.test_images:,}} for test."
+      - "A data set generated now holds the {{classification.data.generator_class_count}} shape classes of the generator, not the nine of this run, so its run name ends with MC{{classification.data.generator_class_count}} and its numbers differ from these."
+      - "The training takes the synthetic configuration once its folders and mapping file are set, and the evaluate checkpoint script scores any checkpoint again, with the error images when asked."
+
+  - kind: html
+    page: diagram
+    title: "The head section and its tokens"
+    code_reference: "vision_training/configuration_processing/run_name.py · build_classification_sections"
+    elements:
+      - type: listing
+        box: [20, 40, 900, 700]
+        font: diagram_monospace
+        source:
+          file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
+          keys: [ClassificationHead.global_pooling, ClassificationHead.fully_connected,
+                 ClassificationHead.fully_connected_normalization, ClassificationHead.dropout_rate,
+                 ClassificationHead.output_mode, ClassificationHead.label_smoothing, ClassificationHead.class_weighting]
+          comments: false
+        highlights:
+          - {match: "global_pooling|fully_connected:", sentences: [0]}
+          - {match: "fully_connected_normalization|dropout_rate", sentences: [1]}
+          - {match: "label_smoothing|class_weighting|output_mode", sentences: [2]}
+      - {type: text, position: [960, 90], font: code_text, segments: [{text: "..._", colour: dim}, {text: "HFLAT.128", highlight: [0]}, {text: "-", colour: dim}, {text: "HLN", highlight: [1]}, {text: "-", colour: dim}, {text: "CWB", highlight: [2]}, {text: "_", colour: dim}, {text: "MC9", highlight: [2]}]}
+      - {type: box, box: [960, 150, 1740, 270], text: "HFLAT.128 · flatten, one hidden layer of 128\nHAVG, HMAX · average or max pooling", font: diagram_small, outline: violet, appear: 0, highlight: [0]}
+      - {type: box, box: [960, 300, 1740, 420], text: "HLN · layer normalization · HBN · batch\ndropout and its momentum: no token", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [960, 450, 1740, 570], text: "LS<rate> · label smoothing above 0\nCWB · balanced class weights", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [960, 600, 1740, 720], text: "MC9 · multi_class, 9 classes\nML<classes> · multi_label", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+    narration:
+      - "The head section gives the run name its last tokens: first the pooling and the sizes of the hidden layers, flatten and one layer of 128 units here, average or max for the global poolings."
+      - "Layer normalization of the hidden layers adds HLN, batch normalization HBN; the dropout gives no token, so that it can change when a run resumes."
+      - "Label smoothing above zero adds LS and its rate, balanced class weights add CWB, and the output mode ends the name: MC and the number of classes, or ML for multi label."
+
+  - kind: html
+    page: diagram
+    title: "Pooling or flatten"
+    code_reference: "vision_training/models/classification/classification_head.py · compute_pooled_features"
+    elements:
+      - {type: text, position: [40, 170], text: "last block, no max pooling", font: diagram_small, colour: dim}
+      - {type: cuboid, box: [60, 250, 250, 440], depth: 60, fill: blue, label: "[B, 128, 16, 16]", highlight: [0]}
+      - {type: arrow, points: [[330, 300], [470, 170]], colour: violet, appear: 1}
+      - {type: box, box: [480, 140, 1250, 190], text: "flatten · {{classification.head.input_features:,}} features", font: diagram_small, fill: violet, appear: 1, highlight: [1]}
+      - {type: text, position: [480, 206], text: "every position kept: the head knows where each feature is", font: diagram_small, colour: dim, appear: 1}
+      - {type: arrow, points: [[330, 420], [470, 560]], colour: aqua, appear: 1}
+      - {type: box, box: [480, 535, 600, 585], text: "{{classification.head.final_map_channels}}", font: diagram_small, fill: aqua, appear: 1}
+      - {type: text, position: [620, 560], text: "average or max: one value per channel, any image size", font: diagram_small, colour: dim, anchor: lm, appear: 1}
+      - {type: arrow, points: [[1258, 165], [1330, 165]], colour: red, appear: 2}
+      - {type: box, box: [1340, 105, 1740, 225], text: "Linear {{classification.head.input_features:,}} → {{classification.head.hidden_units}}\n{{classification.head.first_linear_parameters:,}} parameters\n{{classification.head.first_linear_share:.1%}} of the model", font: diagram_small, outline: red, appear: 2, highlight: [2]}
+      - {type: box, box: [1340, 500, 1740, 620], text: "the same head after\nan average pooling:\n{{classification.head.average_pooling_parameters:,}} parameters", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [480, 300, 1250, 430], text: "at {{classification.head.half_image_size}} pixels: [B, 128, 8, 8] → {{classification.head.flatten_features_at_half_size:,}} features\nanother first layer: the head only transfers\nat the same image size and last max pooling", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+    narration:
+      - "The last block keeps its {{classification.head.final_map_size}} by {{classification.head.final_map_size}} map, its max pooling being off, and the head first turns this map of {{classification.head.final_map_channels}} channels into one vector."
+      - "An average or max pooling keeps one value per channel, {{classification.head.final_map_channels}} features whatever the image size; the flatten setting of this run keeps all {{classification.head.input_features:,}} values, so the head knows where every feature lies."
+      - "The price is the first hidden layer: {{classification.head.first_linear_parameters:,}} parameters, {{classification.head.first_linear_share:.0%}} of the model, where the same head after an average pooling would hold {{classification.head.average_pooling_parameters:,}} in all."
+      - "And a flattened head is tied to the image size: at {{classification.head.half_image_size}} pixels the vector has {{classification.head.flatten_features_at_half_size:,}} features, so the head only transfers to a run of the same image size and last max pooling."
+
+  - kind: html
+    page: diagram
+    title: "The layers of the head"
+    code_reference: "vision_training/models/classification/classification_head.py · ClassificationHead.compute_logits"
+    elements:
+      - {type: box, box: [20, 110, 250, 230], text: "[B, {{classification.head.input_features:,}}]\nflattened", font: diagram_small}
+      - {type: arrow, points: [[258, 170], [292, 170]]}
+      - {type: box, box: [300, 110, 500, 230], text: "Dropout\n0.2", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[508, 170], [542, 170]]}
+      - {type: box, box: [550, 110, 880, 230], text: "Linear\n{{classification.head.input_features:,}} → {{classification.head.hidden_units}}\n{{classification.head.first_linear_parameters:,}}", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[888, 170], [922, 170]]}
+      - {type: box, box: [930, 110, 1180, 230], text: "LayerNorm\n{{classification.head.normalization_parameters}}", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[1188, 170], [1222, 170]]}
+      - {type: box, box: [1230, 110, 1400, 230], text: "ReLU", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: text, position: [1430, 170], text: "one hidden layer per\nsize of fully_connected", font: diagram_small, colour: dim, anchor: lm}
+      - {type: arrow, points: [[1315, 238], [1315, 280], [400, 280], [400, 322]], appear: 1}
+      - {type: box, box: [300, 330, 500, 450], text: "Dropout\n0.2", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[508, 390], [542, 390]], appear: 1}
+      - {type: box, box: [550, 330, 880, 450], text: "Linear\n{{classification.head.hidden_units}} → {{classification.head.number_classes}}\n{{classification.head.classifier_parameters:,}}", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[888, 390], [922, 390]], appear: 1}
+      - {type: box, box: [930, 330, 1180, 450], text: "class_logits\n[B, {{classification.head.number_classes}}]", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [20, 520, 1740, 600], text: "[B, F] per image · [B, F] per sequence · [B, T, F] per frame: the same head on the last dimension", font: diagram_small, appear: 2, highlight: [2]}
+      - {type: box, box: [20, 630, 1740, 710], text: "layer: per vector, the same in training and evaluation · batch: per unit over the batch, batch_size ≥ 2, last incomplete batch dropped", font: diagram_small, appear: 3, highlight: [3]}
+    narration:
+      - "Every hidden layer is a dropout, a linear layer, its normalization and a ReLU; the dropout layers exist even at a rate of zero, so that the names of the weights do not depend on the rate."
+      - "A last dropout and the class layer then give one logit per class: {{classification.head.classifier_parameters:,}} parameters for nine classes."
+      - "The head works on the last dimension of its input, so the sequence tasks reuse it on one vector per sequence or per frame."
+      - "Layer normalization normalizes every vector alone, the same way in training and evaluation; batch normalization needs a batch of at least two, and its training loader drops the last incomplete batch."
+
+  - kind: html
+    page: diagram
+    title: "Logits and probabilities"
+    code_reference: "vision_training/losses/classification_losses.py · convert_logits_to_probabilities"
+    elements:
+      - {type: image, path: "figures:classification/model/input_star.png", box: [30, 90, 330, 390], border: border, caption: "{{classification.star_image.file_name}}"}
+      - {type: text, position: [1340, 62], text: "logit", font: diagram_small, colour: dim, anchor: ms}
+      - {type: grid, box: [1260, 90, 1420, 630], values: "{{classification.star_image.sorted_logit_rows}}", show_values: true, decimals: 2, font: diagram_monospace_small, high_colour: blue, highlight: [0]}
+      - {type: text, position: [790, 62], text: "softmax probability", font: diagram_small, colour: dim, anchor: ms, appear: 1}
+      - {type: bars, box: [420, 90, 1200, 630], orientation: horizontal, gap: 0, maximum: 1, values: "{{classification.star_image.sorted_probabilities}}", labels: "{{classification.star_image.sorted_class_names}}", value_labels: "{{classification.star_image.sorted_probability_labels}}", colour: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [1470, 110, 1740, 290], text: "multi_class\nsoftmax\nsum = 1", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [1470, 330, 1740, 510], text: "multi_label\none sigmoid\nper class, at 0.5", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: text, position: [180, 520], text: "outputs:\nclass_logits\nclass_probabilities", font: diagram_monospace_small, anchor: ma, appear: 3, highlight: [3]}
+    narration:
+      - "The class layer gives logits, raw scores of any sign: for this test star, {{classification.star_image.logits.star:.2f}} for star and below zero for every other class."
+      - "In the multi class mode, a softmax turns them into probabilities summing to one: {{classification.star_image.probabilities.star:.3f}} for star, then {{classification.star_image.probabilities.pentagon:.3f}} for pentagon."
+      - "In the multi label mode, a sigmoid reads every logit alone, and the batch accuracy and the evaluation decide every class at a probability of one half."
+      - "The model returns both the logits and the probabilities, and the exported model returns only the probabilities."
+
+  - kind: html
+    page: diagram
+    title: "The loss"
+    code_reference: "vision_training/losses/classification_losses.py · compute_classification_loss"
+    elements:
+      - type: listing
+        box: [20, 20, 1740, 300]
+        font: diagram_monospace_tiny
+        source: {file: vision_training/losses/classification_losses.py, function: compute_classification_loss}
+        highlights:
+          - {match: "return torch.nn.functional.cross_entropy", sentences: [0]}
+          - {match: "weight=class_weights", sentences: [1]}
+          - {match: "smoothed_targets|binary_cross_entropy_with_logits", sentences: [2]}
+          - {match: "label_smoothing=label_smoothing\\)", sentences: [3]}
+      - {type: box, box: [20, 340, 560, 520], text: "this star: −ln {{classification.star_image.probabilities.star:.3f}} = {{classification.star_image.cross_entropy:.3f}}\nuntrained: ln 9 ≈ 2.197", font: diagram_small, outline: blue, appear: 0, highlight: [0]}
+      - {type: text, position: [640, 330], text: "balanced weights N / (K · N_k) of the training split", font: diagram_small, colour: dim, appear: 1}
+      - {type: grid, box: [640, 410, 1740, 480], values: "{{classification.class_weights.weight_rows}}", show_values: true, decimals: 3, minimum: 0.95, maximum: 1.05, column_labels: "{{classification.confusion.short_class_names}}", font: diagram_monospace_small, appear: 1, highlight: [1]}
+      - {type: box, box: [20, 560, 1740, 700], text: "label_smoothing above 0 with class_weighting balanced: PyTorch also weights the smoothing term,\nevery image is pulled towards the rare classes (suggestions.md C2) · shipped configurations: smoothing 0", font: diagram_small, outline: red, appear: 3, highlight: [3]}
+    narration:
+      - "In the multi class mode, the loss is the PyTorch cross entropy against the class index: minus the log of the probability of the true class, {{classification.star_image.cross_entropy:.3f}} for this star, and the log of nine, about 2.2, for an untrained network."
+      - "Balanced class weighting multiplies the loss of every image by the weight of its class, the training images over the number of classes times the images of that class; these classes are nearly balanced, so the weights stay between {{classification.class_weights.minimum:.3f}} and {{classification.class_weights.maximum:.3f}}."
+      - "In the multi label mode, the loss is a binary cross entropy per class, its targets smoothed towards one half."
+      - "Do not combine label smoothing with balanced weights: PyTorch also weights the smoothing term, which pulls every image towards the rare classes, and every shipped configuration keeps a smoothing of zero."
+
+  - kind: html
+    page: diagram
+    title: "Decorrelation of the hidden features"
+    code_reference: "vision_training/losses/classification_losses.py · compute_decorrelation_loss"
+    elements:
+      - {type: image, path: "figures:classification/model/hidden_feature_correlation.png", box: [20, 20, 780, 720], highlight: [1]}
+      - type: listing
+        box: [840, 30, 1740, 170]
+        font: diagram_monospace_small
+        source:
+          file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
+          keys: [ClassificationHead.decorrelation]
+          comments: false
+        highlights:
+          - {match: "activated|weight|hidden_layer", sentences: [0]}
+      - {type: box, box: [840, 230, 1740, 360], text: "{{classification.hidden_features.image_count}} validation images, {{classification.hidden_features.unit_count}} units: mean |correlation| {{classification.hidden_features.mean_absolute_correlation:.2f}}\nloss {{classification.hidden_features.decorrelation_loss:.2f}} at the weight {{classification.hidden_features.decorrelation_weight}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [840, 390, 1740, 520], text: "a batch of {{classification.hidden_features.batch_size}}: sampling noise alone ≈ {{classification.hidden_features.batch_noise_floor:.0f}}\nunits × (units − 1) / (N − 1), never 0", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [840, 550, 1740, 680], text: "no run name token:\nturned on when a run resumes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+    narration:
+      - "The decorrelation, off in this run, adds a second loss so that the units of one hidden layer carry different information: the squared correlations of every pair of units over the batch, summed and multiplied by the weight."
+      - "Over {{classification.hidden_features.image_count}} validation images, the {{classification.hidden_features.unit_count}} units of this trained head have a mean absolute correlation of {{classification.hidden_features.mean_absolute_correlation:.2f}}, which would add {{classification.hidden_features.decorrelation_loss:.2f}} to the loss at the weight of the configuration."
+      - "Over a training batch of {{classification.hidden_features.batch_size}} images, sampling noise alone gives a sum of about {{classification.hidden_features.batch_noise_floor:.0f}}, so the term never reaches zero: pick the weight so that the term is about a tenth of the classification loss."
+      - "It gives no run name token, so it can be turned on when a run resumes, after a warm-up of the classification loss."
+
+  - kind: image
+    title: "Batch accuracy and the learning rate"
+    code_reference: "vision_training/trainers/classification_trainer.py · ClassificationTrainer.compute_batch_metrics"
+    image: "figures:classification/training/learning_rates_validation_accuracy.png"
+    highlights:
+      - {box: "{{classification.learning_rates.curve_panel_box}}", sentences: [0, 1]}
+      - {box: "{{classification.learning_rates.bar_panel_box}}", sentences: [2]}
+    narration:
+      - "The accuracy of every training and validation batch is the share of images whose highest logit is the true class, taken from the logits of the forward pass, for monitoring only."
+      - "The README compares four learning rates of this configuration, told apart by their run name suffix: over the first {{classification.learning_rates.compared_iterations}} iterations, the smallest, 0.0001, lags at {{classification.learning_rates.lr_0_0001.validation_last_mean:.2f}} validation accuracy over the last {{classification.learning_rates.averaged_last_iterations}}."
+      - "The three others reach about {{classification.learning_rates.lr_0_0002.validation_last_mean:.2f}}, but the test evaluation gives {{classification.learning_rates.lr_0_0005.test_accuracy:.2f}} at 0.0005 and only {{classification.learning_rates.lr_0_001.test_accuracy:.2f}} at 0.001: one evaluation of a short run does not rank them."
+      - "In the benchmark, at 256 pixels with a deeper backbone and no head normalization, every launch from 0.0005 upwards stayed near one in nine at iteration 500, at most {{classification.benchmark.high_learning_rates.largest_accuracy_500:.3f}}, and this run keeps 0.0002."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "labels.json + label_mapping.json: category → class index 0 to K − 1"}
+      - {text: "multi_class: softmax, cross entropy · multi_label: sigmoids, binary cross entropy"}
+      - {text: "Head tokens: HFLAT.128-HLN-CWB_MC9", monospace: true}
+      - {text: "flatten: {{classification.head.input_features:,}} features, {{classification.head.first_linear_share:.0%}} of the parameters, tied to the image size"}
+      - {text: "Balanced weights N / (K · N_k), never with label smoothing"}
+      - {text: "Decorrelation: no token, mind the noise floor of the batch"}
+    narration:
+      - "To recap: the mapping file sets the classes, the head flattens the last map into the largest layer of the model, and the loss is a weighted cross entropy of the softmax."
+      - "The next chapter judges this classifier: its evaluation files, its confusions, its thresholds, the measured effects of the head settings, its pitfalls and its export."

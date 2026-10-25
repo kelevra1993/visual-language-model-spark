@@ -1,0 +1,168 @@
+<!doctype html>
+<!--
+ Tags of the trained keypoint detector at the labelled keypoints of the three objects of the test image, for the second
+ chapter of the keypoint detection series: one row per object, every keypoint a dot at its tag on a shared tag axis
+ (the "dots" step), then the mean tag of every object and the spread the pull loss gathers ("pull" step), then the pair
+ of objects of the same class the push loss separates, the trapezoid being compared with nothing ("push" step). The data
+ is the tags.json written by tutorials/figures/keypoint_detection/network_figures.py from the tag maps of the checkpoint.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Keypoint tags</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        "use strict";
+
+        // Geometry of the tag axis and of the rows of the objects, in pixels of the content area
+        const AXIS_LEFT = 360;
+        const AXIS_RIGHT = 1640;
+        const AXIS_Y = 590;
+        const FIRST_ROW_Y = 150;
+        const ROW_SPACING = 150;
+        const DOT_RADIUS = 10;
+
+        // Seconds between the drops of two dots of a row, and the time a dot takes to fall
+        const DOT_DELAY_SECONDS = 0.08;
+        const DOT_FALL_SECONDS = 0.5;
+
+        /* Tick step of the tag axis, a round step giving five to ten ticks over the range. */
+        function chooseTickStep(range) {
+            const steps = [0.1, 0.2, 0.25, 0.5, 1, 2, 5];
+            return steps.find((step) => range / step <= 10) || 10;
+        }
+
+        /* Names of the rows: the class of every object, numbered when two objects share a class. */
+        function nameRows(objects) {
+            return objects.map((item, index) => {
+                const sameClass = objects.filter((other) => other.name === item.name);
+                if (sameClass.length < 2) {
+                    return item.name;
+                }
+                return `${item.name} ${sameClass.indexOf(item) + 1}`;
+            });
+        }
+
+        /* Builds the axis, the rows, the dots, the means and spreads, and the push of the pair of the same class. */
+        function buildTags(root, helpers, data) {
+            const allTags = data.objects.flatMap((item) => item.tags);
+            const padding = Math.max(0.15, (Math.max(...allTags) - Math.min(...allTags)) * 0.08);
+            const minimum = Math.min(...allTags) - padding;
+            const maximum = Math.max(...allTags) + padding;
+            const scale = (tag) => helpers.scaleValue(tag, minimum, maximum, AXIS_LEFT, AXIS_RIGHT);
+            const parts = { dots: [], means: [], push: null };
+
+            // Axis of the tags with its ticks
+            helpers.createSvgElement("line", { x1: AXIS_LEFT, y1: AXIS_Y, x2: AXIS_RIGHT, y2: AXIS_Y,
+                                               stroke: helpers.cssColour(helpers.COLOURS.border), "stroke-width": 2 },
+                                     root);
+            const tickStep = chooseTickStep(maximum - minimum);
+            for (let tick = Math.ceil(minimum / tickStep) * tickStep; tick <= maximum; tick += tickStep) {
+                helpers.createText(root, tick.toFixed(tickStep < 1 ? 2 : 0).replace(/\.?0+$/, "") || "0", scale(tick),
+                                   AXIS_Y + 12, "ma", "diagram_tiny", "dim");
+            }
+            helpers.createText(root, "tag value", AXIS_RIGHT, AXIS_Y + 44, "ra", "diagram_small", "dim");
+
+            // One row per object: its name, its dots, its mean and the spread of its tags
+            const names = nameRows(data.objects);
+            data.objects.forEach((item, objectIndex) => {
+                const rowY = FIRST_ROW_Y + objectIndex * ROW_SPACING;
+                const colour = helpers.cssColour(helpers.resolveColour(item.colour));
+                helpers.createText(root, names[objectIndex], 60, rowY, "lm", "diagram_bold", "text");
+                helpers.createText(root, `${item.tags.length} key points`, 60, rowY + 34, "lm", "diagram_small", "dim");
+                const spread = helpers.createSvgElement("rect", {
+                    x: scale(Math.min(...item.tags)) - DOT_RADIUS - 6, y: rowY - 34,
+                    width: scale(Math.max(...item.tags)) - scale(Math.min(...item.tags)) + 2 * DOT_RADIUS + 12,
+                    height: 68, rx: 14, fill: colour, "fill-opacity": 0.16, opacity: 0 }, root);
+                const sortedTags = item.tags.map((tag, index) => ({ tag: tag, index: index }))
+                    .sort((first, second) => first.tag - second.tag);
+                sortedTags.forEach((record, rank) => {
+                    const dot = helpers.createSvgElement("circle", { cx: scale(record.tag),
+                                                                     cy: rowY + ((rank % 3) - 1) * 14, r: DOT_RADIUS,
+                                                                     fill: colour, stroke: helpers.cssColour(
+                                                                         helpers.COLOURS.card), "stroke-width": 2,
+                                                                     opacity: 0 }, root);
+                    parts.dots.push({ dot: dot, rowY: rowY + ((rank % 3) - 1) * 14, order: rank, row: objectIndex });
+                });
+                const meanX = scale(item.mean);
+                const meanLine = helpers.createSvgElement("line", { x1: meanX, y1: rowY - 44, x2: meanX, y2: rowY + 44,
+                                                                    stroke: helpers.cssColour(helpers.COLOURS.text),
+                                                                    "stroke-width": 3, opacity: 0 }, root);
+                const meanLabel = helpers.createText(root, `mean ${item.mean.toFixed(3)}`, meanX, rowY - 50, "md",
+                                                     "diagram_small", "text");
+                meanLabel.setAttribute("opacity", 0);
+                parts.means.push({ line: meanLine, label: meanLabel, spread: spread, x: meanX, y: rowY,
+                                   classIndex: item.class_index, objectIndex: objectIndex });
+            });
+
+            // The pair of objects of the same class, joined by the push, the objects alone in their class marked
+            const pairs = [];
+            parts.means.forEach((first, firstIndex) => {
+                parts.means.slice(firstIndex + 1).forEach((second) => {
+                    if (first.classIndex === second.classIndex) {
+                        pairs.push([first, second]);
+                    }
+                });
+            });
+            const pushGroup = helpers.createSvgElement("g", { opacity: 0 }, root);
+            pairs.forEach(([first, second]) => {
+                const difference = data.objects[first.objectIndex].mean - data.objects[second.objectIndex].mean;
+                const arcX = Math.max(first.x, second.x) + 70;
+                helpers.createSvgElement("path", { d: `M ${first.x + 6} ${first.y} C ${arcX} ${first.y}, ${arcX} ` +
+                                                      `${second.y}, ${second.x + 6} ${second.y}`, fill: "none",
+                                                   stroke: helpers.cssColour(helpers.COLOURS.accent),
+                                                   "stroke-width": 3, "stroke-dasharray": "8 6" }, pushGroup);
+                helpers.createText(pushGroup, `push: exp(-${Math.abs(difference).toFixed(2)}²) = ` +
+                                   `${Math.exp(-difference * difference).toFixed(3)}`, arcX + 16,
+                                   (first.y + second.y) / 2, "lm", "diagram_small", "accent");
+            });
+            parts.means.filter((record) => !pairs.some((pair) => pair.includes(record))).forEach((record) => {
+                helpers.createText(pushGroup, "alone in its class: never pushed", AXIS_RIGHT, record.y + 54, "rm",
+                                   "diagram_small", "dim");
+            });
+            parts.push = pushGroup;
+            return parts;
+        }
+
+        /* Setup of the custom parts: the tags laid out from the data, animated by the sentences of the steps. */
+        function setupTags(context) {
+            const helpers = context.helpers;
+            const steps = context.scene.steps || { dots: 0, pull: 1, push: 2 };
+            const parts = buildTags(context.root, helpers, context.scene.data);
+
+            /* Draws the tags at a time of the scene; returns whether something still moves. */
+            return function updateTags(time) {
+                let moving = false;
+
+                // Dots falling onto their row one after the other, row by row
+                const dotsStart = helpers.sentenceStart(steps.dots);
+                parts.dots.forEach((record) => {
+                    const delay = (record.row * 12 + record.order) * DOT_DELAY_SECONDS;
+                    const progress = helpers.ease((time - dotsStart - delay) / DOT_FALL_SECONDS);
+                    record.dot.setAttribute("opacity", progress);
+                    record.dot.setAttribute("cy", record.rowY - (1 - progress) * 60);
+                    moving = moving || (time >= dotsStart + delay && progress < 1);
+                });
+
+                // Means and spreads, then the push of the pair
+                const pullShown = helpers.ease((time - helpers.sentenceStart(steps.pull)) / helpers.APPEAR_SECONDS);
+                parts.means.forEach((record) => {
+                    record.line.setAttribute("opacity", pullShown);
+                    record.label.setAttribute("opacity", pullShown);
+                    record.spread.setAttribute("opacity", pullShown);
+                });
+                const pushShown = helpers.ease((time - helpers.sentenceStart(steps.push)) / helpers.APPEAR_SECONDS);
+                parts.push.setAttribute("opacity", pushShown);
+                moving = moving || (pullShown > 0 && pullShown < 1) || (pushShown > 0 && pushShown < 1);
+                return moving;
+            };
+        }
+
+        Tutorial.registerCustom(setupTags);
+    </script>
+</body>
+</html>

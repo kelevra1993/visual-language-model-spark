@@ -25,6 +25,8 @@ wheels/
 # Keep the notes of the documentation folder (architecture benchmarking, suggestions and audit, task workflows) under
 # version control
 !documentation/**/*.md
+# Keep the guide of the tutorial build under version control
+!tutorials/README.md
 
 # Model data
 experiments_folder/

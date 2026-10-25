@@ -1,0 +1,205 @@
+# Frame selection, chapter 1: what the task is for and when to choose it, its synthetic data (the largest copy of
+# every wanted shape among smaller copies and other shapes), the labels, the mapping and the check of the frames per
+# class, the Selection settings, the frame selector with the shapes and parameters of the trained README run, its run
+# name and the commands of a run. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at
+# its top left corner); the figures named figures:frame_selection/... are made by tutorials/figures/frame_selection from
+# the README run of tutorials/tutorial_sources.yaml.
+series: frame_selection
+series_title: "Frame Selection (SEL)"
+chapter: 1
+title: "The selection problem"
+output_name: frame_selection_01_selection_problem
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [frame_selection]
+references:
+  - "vision_training/trainers/frame_selection_trainer.py · FrameSelectionTrainer"
+  - "vision_training/data/synthetic/create_synthetic_dataset.py · generate_selection_sequence"
+  - "vision_training/models/sequence/frame_selector.py · FrameSelector"
+  - "vision_training/configuration_processing/sequence_checks.py · check_selection_configuration"
+  - "documentation/task workflows/frame_selection_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "The selection problem"
+    subheading: "Frame selection: a fixed number of frames for every wanted class"
+    footnote: "Frame Selection (SEL) · chapter 1"
+    narration:
+      - "Frame selection chooses, in every sequence, a fixed number of frames for every wanted class: the sharpest view of each side of an object among the photos of a visit, for example."
+      - "This chapter covers when to choose it, its synthetic data, the checks on its labels, its settings and its model."
+
+  - kind: html
+    page: diagram
+    title: "Selection, not labelling"
+    code_reference: "vision_training/models/sequence/frame_selector.py · FrameSelector"
+    elements:
+      # The test sequence of the next scene and the network giving one probability vector per frame
+      - {type: text, position: [40, 75], text: "test_000057", font: diagram_monospace, anchor: lm}
+      - {type: text, position: [330, 75], text: "12 frames, 0 to 11", font: diagram_small, colour: dim, anchor: lm}
+      - {type: box, box: [40, 130, 1720, 230], text: "network of the sequence labelling: probabilities [T, 4] over unselected, circle, triangle, star", font: diagram_text, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[880, 230], [880, 295]], appear: 1}
+      # The decoding over the whole sequence and its outputs
+      - {type: box, box: [440, 300, 1320, 400], text: "decoding over the whole sequence: Hungarian or greedy", font: diagram_text, outline: violet, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[700, 400], [400, 495]], appear: 1}
+      - {type: arrow, points: [[880, 400], [880, 495]], appear: 1}
+      - {type: arrow, points: [[1060, 400], [1360, 495]], appear: 1}
+      - {type: box, box: [140, 500, 660, 590], text: "circle ← frame {{frame_selection.dataset.strip_circle_frame}}", font: diagram_text, outline: aqua, appear: 1}
+      - {type: box, box: [620, 500, 1140, 590], text: "triangle ← frame {{frame_selection.dataset.strip_triangle_frame}}", font: diagram_text, outline: aqua, appear: 1}
+      - {type: box, box: [1100, 500, 1620, 590], text: "star ← frame {{frame_selection.dataset.strip_star_frame}}", font: diagram_text, outline: aqua, appear: 1}
+      - {type: text, position: [880, 650], text: "exactly frames_per_class frames per wanted class · a low confidence flag on each", font: diagram_small, colour: dim, anchor: mm, appear: 1}
+    narration:
+      - "The frame selector is the network of the sequence labeling: one probability vector per frame, over the wanted classes and an unselected class."
+      - "A decoding over the whole sequence then picks exactly frames per class frames for every wanted class, and per-class thresholds flag the doubtful picks for a human."
+      - "Choose it over sequence labeling when that count is known in advance and the right frame depends on the other frames of its sequence; choose sequence labeling when every frame has a class of its own."
+
+  - kind: image
+    title: "The synthetic selected shapes"
+    code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · generate_selection_sequence"
+    image: "figures:frame_selection/dataset/sequence_strip.png"
+    views:
+      - {box: "{{frame_selection.dataset.strip_first_row_box}}", from_sentence: 2}
+      - {box: [0, 0, 1720, 700], from_sentence: 3}
+    highlights:
+      - {box: "{{frame_selection.dataset.strip_circle_box}}", sentences: [1]}
+      - {box: "{{frame_selection.dataset.strip_triangle_box}}", sentences: [1]}
+      - {box: "{{frame_selection.dataset.strip_star_box}}", sentences: [1]}
+    narration:
+      - "The synthetic data set, synthetic selected shapes, holds {{frame_selection.dataset.training_sequences:,}} training, {{frame_selection.dataset.validation_sequences}} validation and {{frame_selection.dataset.test_sequences}} test sequences of {{frame_selection.dataset.minimum_frames}} to {{frame_selection.dataset.maximum_frames}} frames of {{frame_selection.dataset.image_size}} pixels, one shape per frame, in a background and a color shared by the sequence."
+      - "In every sequence, the largest circle, the largest triangle and the largest star are the three frames to select, outlined here."
+      - "The other frames show a smaller copy of a wanted shape, at most 70% of its size and 60% of its area, or a square, a rectangle or a plus sign."
+      - "So whether a triangle is the one to select depends on the other triangles of its sequence: the model must compare the frames, which come in random order."
+      - "Each training sequence holds one frame of each wanted class: {{frame_selection.dataset.circle_training_frames:,}} frames each, against {{frame_selection.dataset.unselected_training_frames:,}} unselected ones, {{frame_selection.dataset.unselected_share:.0%}} of the {{frame_selection.dataset.training_frames:,}} frames."
+
+  - kind: html
+    page: diagram
+    title: "Labels, mapping and the check of the counts"
+    code_reference: "vision_training/data/sequence/sequence_dataset.py · describe_selection_problem"
+    elements:
+      - type: listing
+        box: [40, 30, 960, 470]
+        font: diagram_monospace_small
+        source: {file: "figures:frame_selection/listings/labels_entry.txt"}
+        highlights:
+          - {match: "frame_category_ids", sentences: [0]}
+          - {match: "\"name\": \"unselected\"", sentences: [1]}
+      - type: listing
+        box: [1040, 30, 1720, 230]
+        font: diagram_monospace_small
+        appear: 1
+        source: {file: "figures:frame_selection/listings/label_mapping.txt"}
+        highlights:
+          - {match: "\"1\": 0", sentences: [1]}
+      - type: listing
+        box: [40, 500, 1720, 720]
+        font: diagram_monospace_tiny
+        appear: 3
+        source: {file: "figures:frame_selection/listings/selection_error.txt"}
+        highlights:
+          - {match: "ValueError", sentences: [3]}
+      - {type: box, box: [1040, 280, 1720, 440], text: "every sequence: exactly frames_per_class\nframes of every wanted class", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+    narration:
+      - "The labels file gives the category of every frame: one for unselected, then two, three and four for circle, triangle and star."
+      - "The label mapping must map the unselected category named by Selection unselected category, and the frames of an unmapped category become unselected: leaving a wanted class out of the mapping turns its frames into unselected ones."
+      - "Every sequence must hold exactly frames per class frames of every wanted class, since the decoding always picks that many."
+      - "Otherwise the launch stops: here the error of the sequence data set of the repository, given the training split and two frames per class, lists the first 20 offending sequences and counts the others."
+
+  - kind: yaml
+    title: "The Selection section"
+    code_reference: "vision_training/configuration_processing/sequence_checks.py · check_selection_configuration"
+    source:
+      file: vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml
+      keys: [Selection.unselected_category, Selection.decoding, Selection.frames_per_class,
+             Selection.selection_loss_weight, TemporalModel.type, TemporalModel.hidden_size, TemporalModel.bidirectional]
+      comments: false
+    highlights:
+      - {match: "unselected_category", sentences: [0]}
+      - {match: "frames_per_class", sentences: [1]}
+      - {match: "selection_loss_weight|decoding", sentences: [2]}
+      - {match: "bidirectional", sentences: [3]}
+    narration:
+      - "unselected category names the category that is never chosen; every other class of the mapping is a wanted class."
+      - "frames per class sets the count, and gives the FPC token of the run name."
+      - "selection loss weight weighs the selection loss of the next chapter, the SLW token when above zero, and decoding chooses the Hungarian assignment or the greedy rule, without any token."
+      - "And the temporal module is a bidirectional GRU: to compare a frame with the whole sequence, it must also read the frames after it."
+
+  - kind: html
+    page: diagram
+    title: "The frame selector"
+    code_reference: "vision_training/models/sequence/frame_selector.py · FrameSelector.get_unselected_class_index"
+    elements:
+      # Frame encoder of the sequence labeller
+      - {type: box, box: [20, 90, 300, 200], text: "images\n[16, T, 3, 256, 256]", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[300, 145], [355, 145]]}
+      - {type: box, box: [360, 90, 680, 200], text: "Backbone, real frames\n[N, 64, 16, 16]", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[680, 145], [735, 145]]}
+      - {type: box, box: [740, 90, 1060, 200], text: "average pooling\n[16, T, 64]", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[1060, 145], [1115, 145]], appear: 1}
+      - {type: box, box: [1120, 90, 1740, 200], text: "GRU 1x128, bidirectional\n[16, T, 256]", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      # Head and the wanted class mask
+      - {type: arrow, points: [[1430, 200], [1430, 295]], appear: 2}
+      - {type: box, box: [740, 300, 1740, 410], text: "ClassificationHead on every frame\nDropout · Linear(256, 64) · ReLU · Dropout · Linear(64, 4)", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[740, 355], [685, 355]], appear: 2}
+      - {type: box, box: [360, 300, 680, 410], text: "class_logits\n[16, T, 4]", font: diagram_small, outline: violet, appear: 2}
+      - {type: box, box: [20, 300, 300, 410], text: "wanted_class_mask\n{{frame_selection.model.wanted_class_mask}}", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+      # Parameters of the trained model
+      - {type: text, position: [20, 470], text: "Parameters of the trained model", font: diagram_bold, appear: 4}
+      - type: bars
+        box: [20, 520, 1180, 700]
+        orientation: horizontal
+        label_width: 300
+        value_width: 140
+        values: ["{{frame_selection.model.backbone_parameters}}", "{{frame_selection.model.temporal_parameters}}", "{{frame_selection.model.head_parameters}}"]
+        labels: ["Backbone", "GRU", "Head"]
+        value_labels: ["{{frame_selection.model.backbone_parameters:,}}", "{{frame_selection.model.temporal_parameters:,}}", "{{frame_selection.model.head_parameters:,}}"]
+        colours: [blue, aqua, violet]
+        appear: 4
+      - {type: box, box: [1260, 540, 1740, 680], text: "{{frame_selection.model.total_parameters:,}} parameters\n{{frame_selection.model.total_megabytes:.2f}} MB", font: diagram_bold, outline: yellow, appear: 4}
+    narration:
+      - "A batch of 16 sequences of 256 pixel frames goes through the encoder of the frames of the sequence labeler: the backbone gives 64 channels of 16 by 16, averaged into 64 values per frame."
+      - "The bidirectional GRU of 128 units per direction gives 256 values per frame, every frame seen with the whole sequence."
+      - "The head maps them to four logits per frame: unselected, circle, triangle and star."
+      - "The frame selector adds the wanted class mask, a buffer of ones with zero on the unselected class, set by the trainer and saved with the weights, so that an exported model knows its unselected class without any labels file."
+      - "That is {{frame_selection.model.backbone_parameters:,}} parameters in the backbone, {{frame_selection.model.temporal_parameters:,}} in the GRU and {{frame_selection.model.head_parameters:,}} in the head: {{frame_selection.model.total_parameters:,}} in all."
+
+  - kind: html
+    page: diagram
+    title: "The run name"
+    code_reference: "vision_training/configuration_processing/run_name.py · build_frame_selection_sections"
+    elements:
+      - {type: text, position: [191, 110], font: code_text, segments: [{text: "SEL", dim: [0, 1]}, {text: "_", colour: dim}, {text: "IN-KAR-256", dim: [0, 1]}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", dim: [0, 1]}, {text: "_", colour: dim}, {text: "T50", dim: [0, 1]}, {text: "_", colour: dim}, {text: "GRU1x128-BI", highlight: [0]}, {text: "_", colour: dim}, {text: "HAVG.64", dim: [0, 1]}, {text: "_", colour: dim}, {text: "MC4", highlight: [0]}, {text: "_", colour: dim}, {text: "FPC1-SLW1", highlight: [1]}]}
+      - {type: box, box: [180, 240, 860, 470], text: "GRU1x128-BI · MC4\n\none bidirectional GRU layer,\n128 units per direction;\n4 classes, unselected included", font: diagram_small, outline: aqua, highlight: [0]}
+      - {type: box, box: [900, 240, 1580, 470], text: "FPC1-SLW1\n\none frame per wanted class,\nselection loss weight 1,\nno SLW token at 0", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [240, 540, 1520, 680], text: "No token: Selection.decoding, both decodings being scored at every evaluation\nthe same run can change it and resume in its folder", font: diagram_text, outline: yellow, appear: 1}
+    narration:
+      - "In the run name of the README run, GRU one by 128 BI marks the bidirectional GRU, and MC four the four classes, the unselected one included."
+      - "FPC one is one frame per class, and SLW one the selection loss weight of one, absent at zero; the decoding leaves no token, both decodings being scored at every evaluation."
+
+  - kind: terminal
+    title: "Generate, train, evaluate, export"
+    code_reference: "vision_training/deployment/export_model.py"
+    lines:
+      - {role: comment, text: "# Data: task = \"frame_selection\" in the main block, 2,000 / 200 / 200 sequences of 256 pixels"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# Training: its only argument is the configuration"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml\""}
+      - {role: comment, text: "# Any checkpoint again, both decodings scored, set in the main block"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: comment, text: "# The network, the decoder and the ensembles into the Triton repository"}
+      - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
+    narration:
+      - "The data set is written by the synthetic data set script, its task set to frame selection in its main block."
+      - "The training takes the synthetic configuration alone; the README run of this series trained it for 2000 iterations at about 30 sequences per second."
+      - "The evaluation script evaluates any checkpoint again, both decodings scored."
+      - "And the export script writes the network, the decoder and the ensembles into the Triton model repository, the subject of the third chapter."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "SEL: exactly frames_per_class frames per wanted class"}
+      - {text: "Every class but Selection.unselected_category is wanted"}
+      - {text: "Unmapped categories become unselected frames"}
+      - {text: "A sequence with another count stops the launch"}
+      - {text: "The network of M2M, with a bidirectional GRU"}
+      - {text: "wanted_class_mask saved with the weights"}
+    narration:
+      - "To recap: a fixed count of frames per wanted class, checked on every sequence at launch, chosen from the probabilities of the network of the sequence labeling."
+      - "The next chapter covers the two losses that train it and the two decodings that read it, on the real probabilities of the README run."
