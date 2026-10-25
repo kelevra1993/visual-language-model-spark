@@ -1,0 +1,286 @@
+<!doctype html>
+<!--
+ Matrix page of the frame selection tutorials: the frames of one sequence (rows) against its classes (columns), every
+ cell holding a value of one of the value sets of the matrix data written by tutorials/figures/frame_selection
+ (the per-frame probabilities, the Hungarian gains log p(f, c) - log p(f, unselected), the selection distributions of
+ the wanted classes over the frames), drawn by the engine of common/tutorial.js as a custom part. The scene data names
+ the matrix file and a list of states, each starting with a sentence of the narration: the value set shown (the cells
+ cross-fading their values and colours), the columns left empty, the rows or columns outlined, the frames picked by the
+ Hungarian or greedy decoding (outlined one after the other, so that the assignment is seen being built) and the lines
+ of the side panel. The diagram elements of the scene, if any, are drawn under the matrix.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Frame selection matrix</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+    (function () {
+        "use strict";
+
+        // Seconds of the cross-fade between two states, of the appearance of one pick or note, and between two picks
+        const TRANSITION_SECONDS = 0.6;
+        const ITEM_SECONDS = 0.45;
+        const DEFAULT_STAGGER_SECONDS = 0.7;
+
+        // Colours of the picks of every decoding and of the true frames, by name of the engine palette
+        const PICK_COLOURS = { hungarian: "accent", greedy: "violet" };
+        const TRUE_CELL_COLOUR = "text";
+
+        // Gains drawn at the full colour of their sign from this magnitude on
+        const GAIN_COLOUR_LIMIT = 8;
+
+        /* Text of a cell value of a value set: probabilities and selection shares with 3 decimals, gains signed. */
+        function formatValue(value, valueSet) {
+            if (value === null || value === undefined) {
+                return "—";
+            }
+            if (valueSet === "gains") {
+                return (value >= 0 ? "+" : "−") + Math.abs(value).toFixed(2);
+            }
+            return Number(value).toFixed(3);
+        }
+
+        /* Fill colour of a cell value: probabilities towards blue, selection shares towards violet, gains towards
+         * aqua when positive and red when negative, an empty cell staying the colour of a box. */
+        function computeCellColour(helpers, value, valueSet) {
+            const base = helpers.COLOURS.box;
+            if (value === null || value === undefined) {
+                return base;
+            }
+            if (valueSet === "gains") {
+                const mix = Math.min(1, Math.abs(value) / GAIN_COLOUR_LIMIT) * 0.85;
+                return helpers.mixColour(base, value >= 0 ? helpers.COLOURS.aqua : helpers.COLOURS.red, mix);
+            }
+            const target = valueSet === "selection" ? helpers.COLOURS.violet : helpers.COLOURS.blue;
+            return helpers.mixColour(base, target, helpers.clampUnit(value) * 0.9);
+        }
+
+        /* State of the scene during a sentence: the last state starting at or before it, -1 before the first. */
+        function findStateIndex(states, sentenceIndex) {
+            let found = -1;
+            states.forEach((state, stateIndex) => {
+                if (state.sentence <= sentenceIndex) {
+                    found = stateIndex;
+                }
+            });
+            return found;
+        }
+
+        /* Keys of the picks of a state, "<decoding>-<row>-<column>", with their order of appearance. */
+        function listPicks(matrix, state) {
+            const picks = [];
+            (state && state.picks ? state.picks : []).forEach((decoding) => {
+                matrix.picks[decoding].forEach((pick) => {
+                    picks.push({ key: `${decoding}-${pick[0]}-${pick[1]}`, decoding: decoding, row: pick[0],
+                                 column: pick[1] });
+                });
+            });
+            return picks;
+        }
+
+        /* Builds the cells, labels, outlines and side panel of the matrix once, and returns its update function. */
+        async function setupMatrix(context) {
+            const helpers = context.helpers;
+            const data = context.scene.data || {};
+            if (!data.matrix) {
+                return () => false;
+            }
+            const matrix = await (await fetch(data.matrix)).json();
+            const states = data.states || [];
+            const [left, top, right, bottom] = data.grid_box;
+            const rows = matrix.row_labels.length;
+            const columns = matrix.column_labels.length;
+            const cellWidth = (right - left) / columns;
+            const cellHeight = (bottom - top) / rows;
+            const valueFont = data.value_font || "diagram_monospace_small";
+            const group = helpers.createSvgElement("g", {}, context.root);
+
+            // Title over the grid, one text per state cross-fading with the states
+            const titles = states.map((state) => helpers.createText(group, state.title || "", left, top - 86, "la",
+                                                                    "diagram_bold", "text"));
+
+            // Column labels above the grid, row labels on its left
+            const columnLabels = matrix.column_labels.map((label, columnIndex) => helpers.createText(
+                group, label, left + (columnIndex + 0.5) * cellWidth, top - 12, "md", "diagram_small", "dim"));
+            matrix.row_labels.forEach((label, rowIndex) => {
+                helpers.createText(group, label, left - 14, top + (rowIndex + 0.5) * cellHeight, "rm",
+                                   "diagram_small", "dim");
+            });
+
+            // Cells: a rectangle and one text per state, the texts cross-fading between two states
+            const cells = [];
+            for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
+                for (let columnIndex = 0; columnIndex < columns; columnIndex++) {
+                    const rectangle = helpers.createSvgElement("rect", {
+                        x: left + columnIndex * cellWidth + 2, y: top + rowIndex * cellHeight + 2,
+                        width: cellWidth - 4, height: cellHeight - 4, rx: 6 }, group);
+                    const texts = states.map((state) => {
+                        const values = matrix.values[state.values];
+                        const hidden = (state.hide_columns || []).includes(columnIndex);
+                        return helpers.createText(group, hidden ? "" : formatValue(values[rowIndex][columnIndex],
+                                                                                    state.values),
+                                                  left + (columnIndex + 0.5) * cellWidth,
+                                                  top + (rowIndex + 0.5) * cellHeight, "mm", valueFont, "text");
+                    });
+                    cells.push({ row: rowIndex, column: columnIndex, rectangle: rectangle, texts: texts });
+                }
+            }
+
+            // Outlines of the true frames, white, inside the cells
+            const trueOutlines = matrix.true_cells.map((cell) => helpers.createSvgElement("rect", {
+                x: left + cell[1] * cellWidth + 6, y: top + cell[0] * cellHeight + 6, width: cellWidth - 12,
+                height: cellHeight - 12, rx: 4, fill: "none", "stroke-width": 2.5, "stroke-dasharray": "7 5",
+                stroke: helpers.cssColour(helpers.resolveColour(TRUE_CELL_COLOUR)), opacity: 0 }, group));
+
+            // Outlines of the picks of every decoding, the greedy ones inside the Hungarian ones
+            const pickOutlines = {};
+            Object.keys(matrix.picks).forEach((decoding) => {
+                const inset = decoding === "greedy" ? 7 : -3;
+                matrix.picks[decoding].forEach((pick) => {
+                    pickOutlines[`${decoding}-${pick[0]}-${pick[1]}`] = helpers.createSvgElement("rect", {
+                        x: left + pick[1] * cellWidth + inset, y: top + pick[0] * cellHeight + inset,
+                        width: cellWidth - 2 * inset, height: cellHeight - 2 * inset, rx: 8, fill: "none",
+                        "stroke-width": 5, stroke: helpers.cssColour(helpers.resolveColour(PICK_COLOURS[decoding])),
+                        opacity: 0 }, group);
+                });
+            });
+
+            // Bands outlining whole rows or columns, created for every band a state names
+            const bands = {};
+            states.forEach((state) => {
+                (state.bands || []).forEach((band) => {
+                    const key = band.row !== undefined ? `row-${band.row}` : `column-${band.column}`;
+                    if (key in bands) {
+                        return;
+                    }
+                    const bandBox = band.row !== undefined ?
+                        [left - 4, top + band.row * cellHeight - 2, right + 4, top + (band.row + 1) * cellHeight + 2] :
+                        [left + band.column * cellWidth - 2, top - 4, left + (band.column + 1) * cellWidth + 2,
+                         bottom + 4];
+                    bands[key] = helpers.createSvgElement("rect", {
+                        x: bandBox[0], y: bandBox[1], width: bandBox[2] - bandBox[0], height: bandBox[3] - bandBox[1],
+                        rx: 10, fill: "none", "stroke-width": 4,
+                        stroke: helpers.cssColour(helpers.resolveColour(band.colour || "yellow")), opacity: 0 },
+                        group);
+                });
+            });
+
+            // Lines of the side panel of every state, appearing one after the other
+            const [panelLeft, panelTop] = data.panel_position;
+            const noteLines = states.map((state) => (state.notes || []).map((note, noteIndex) => ({
+                text: helpers.createText(group, note.text, panelLeft, panelTop + noteIndex * (data.note_spacing || 46),
+                                         "la", note.font || "diagram_text", note.colour || "text"),
+                delay: note.delay !== undefined ? note.delay : noteIndex * (state.note_stagger || 0) })));
+
+            /* Draws the matrix at a time of the scene; returns whether something still moves. */
+            return function updateMatrix(time) {
+                const sentenceIndex = helpers.activeSentence(time);
+                const stateIndex = findStateIndex(states, sentenceIndex);
+                const state = stateIndex >= 0 ? states[stateIndex] : null;
+                const previousState = stateIndex >= 1 ? states[stateIndex - 1] : null;
+                const stateStart = state ? helpers.sentenceStart(state.sentence) : 0;
+                const progress = state ? helpers.ease((time - stateStart) / TRANSITION_SECONDS) : 0;
+                let moving = Boolean(state) && time < stateStart + TRANSITION_SECONDS;
+                group.setAttribute("opacity", state ? (previousState ? 1 : progress).toFixed(4) : 0);
+
+                // Titles, cell colours and values of the previous and current states, cross-faded
+                titles.forEach((title, index) => {
+                    const opacity = index === stateIndex ? progress : (index === stateIndex - 1 ? 1 - progress : 0);
+                    title.setAttribute("opacity", opacity.toFixed(4));
+                    title.style.display = opacity <= 0.001 ? "none" : "";
+                });
+                cells.forEach((cell) => {
+                    const currentHidden = state && (state.hide_columns || []).includes(cell.column);
+                    const currentValue = state && !currentHidden ? matrix.values[state.values][cell.row][cell.column] :
+                        null;
+                    const currentColour = computeCellColour(helpers, currentValue, state ? state.values : null);
+                    let colour = currentColour;
+                    if (previousState) {
+                        const previousHidden = (previousState.hide_columns || []).includes(cell.column);
+                        const previousValue = previousHidden ? null :
+                            matrix.values[previousState.values][cell.row][cell.column];
+                        colour = helpers.mixColour(computeCellColour(helpers, previousValue, previousState.values),
+                                                   currentColour, progress);
+                    }
+                    cell.rectangle.setAttribute("fill", helpers.cssColour(colour));
+                    const dimmed = state && (state.dim_columns || []).includes(cell.column);
+                    cell.rectangle.setAttribute("opacity", dimmed ? 0.35 : 1);
+                    cell.texts.forEach((text, index) => {
+                        const opacity = index === stateIndex ? progress : (index === stateIndex - 1 ? 1 - progress : 0);
+                        text.setAttribute("opacity", (opacity * (dimmed ? 0.4 : 1)).toFixed(4));
+                        text.style.display = opacity <= 0.001 ? "none" : "";
+                    });
+                });
+                columnLabels.forEach((label, columnIndex) => {
+                    const dimmed = state && (state.dim_columns || []).includes(columnIndex);
+                    label.setAttribute("opacity", dimmed ? 0.4 : 1);
+                });
+
+                // True frames outlined in the states that show them
+                trueOutlines.forEach((outline) => {
+                    const shown = state && state.show_true ? 1 : 0;
+                    const shownBefore = previousState && previousState.show_true ? 1 : 0;
+                    outline.setAttribute("opacity", (shownBefore + (shown - shownBefore) * progress).toFixed(4));
+                });
+
+                // Picks of the current state outlined one after the other, those of the previous state kept or faded
+                const previousKeys = new Set(listPicks(matrix, previousState).map((pick) => pick.key));
+                const currentPicks = listPicks(matrix, state);
+                const currentKeys = new Set(currentPicks.map((pick) => pick.key));
+                const stagger = state && state.pick_stagger !== undefined ? state.pick_stagger : DEFAULT_STAGGER_SECONDS;
+                const pickDelay = state && state.pick_delay !== undefined ? state.pick_delay : 0;
+                Object.entries(pickOutlines).forEach(([key, outline]) => {
+                    let opacity = 0;
+                    if (currentKeys.has(key) && previousKeys.has(key)) {
+                        opacity = 1;
+                    } else if (currentKeys.has(key)) {
+                        const order = currentPicks.findIndex((pick) => pick.key === key);
+                        const appearTime = stateStart + pickDelay + order * stagger;
+                        opacity = helpers.ease((time - appearTime) / ITEM_SECONDS);
+                        moving = moving || time < appearTime + ITEM_SECONDS;
+                    } else if (previousKeys.has(key)) {
+                        opacity = 1 - progress;
+                    }
+                    outline.setAttribute("opacity", opacity.toFixed(4));
+                });
+
+                // Bands of the current state, the others faded out
+                Object.entries(bands).forEach(([key, band]) => {
+                    const inCurrent = state && (state.bands || []).some((entry) =>
+                        (entry.row !== undefined ? `row-${entry.row}` : `column-${entry.column}`) === key);
+                    const inPrevious = previousState && (previousState.bands || []).some((entry) =>
+                        (entry.row !== undefined ? `row-${entry.row}` : `column-${entry.column}`) === key);
+                    const opacity = inCurrent && inPrevious ? 1 : (inCurrent ? progress : (inPrevious ?
+                        1 - progress : 0));
+                    band.setAttribute("opacity", opacity.toFixed(4));
+                });
+
+                // Notes of the current state appearing after their delays, those of the previous state fading out
+                noteLines.forEach((lines, index) => {
+                    lines.forEach((line) => {
+                        let opacity = 0;
+                        if (index === stateIndex) {
+                            const appearTime = stateStart + line.delay;
+                            opacity = helpers.ease((time - appearTime) / ITEM_SECONDS);
+                            moving = moving || time < appearTime + ITEM_SECONDS;
+                        } else if (index === stateIndex - 1) {
+                            opacity = 1 - progress;
+                        }
+                        line.text.setAttribute("opacity", opacity.toFixed(4));
+                        line.text.style.display = opacity <= 0.001 ? "none" : "";
+                    });
+                });
+                return moving;
+            };
+        }
+
+        Tutorial.registerCustom(setupMatrix);
+    })();
+    </script>
+</body>
+</html>

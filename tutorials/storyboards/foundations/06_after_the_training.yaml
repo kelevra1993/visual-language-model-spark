@@ -1,0 +1,209 @@
+# Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, comparing
+# launches and runs, clustering the image embeddings of a trained run, exporting a model to Triton and serving it, the
+# tests and the map of the repository. The settings shown are the live main blocks of the scripts; the spread between
+# launches is the one of benchmark.py and the counts of the repository those of listings.py of
+# tutorials/figures/foundations.
+series: foundations
+series_title: "Foundations"
+chapter: 6
+title: "After the training"
+output_name: foundations_06_after_the_training
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [foundations]
+references:
+  - "scripts/evaluation/evaluate_checkpoint.py"
+  - "vision_training/evaluation/checkpoint_evaluation.py · evaluate_checkpoints"
+  - "scripts/evaluation/collect_experiment_results.py"
+  - "scripts/evaluation/compare_best_evaluations.py · compare_best_evaluations"
+  - "scripts/embedding/cluster_image_embeddings.py · embed_and_cluster_sources"
+  - "vision_training/deployment/export_model.py · export_experiment"
+  - "vision_training/deployment/run_inference.py"
+scenes:
+  - kind: title_card
+    heading: "After the training"
+    subheading: "Evaluating, comparing, clustering, exporting"
+    footnote: "Foundations · chapter 6"
+    narration:
+      - "Every task shares the tools that come after a training: the evaluation of checkpoints, the comparison of launches and runs, the clustering of image embeddings and the export to Triton."
+      - "This last foundations chapter covers them, then the tests and the map of the repository."
+
+  - kind: code
+    title: "Evaluating checkpoints"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py"
+    source:
+      file: scripts/evaluation/evaluate_checkpoint.py
+      start: "^if __name__ == \"__main__\":"
+      end: "^    maximum_error_images_per_class_pair = "
+    highlights:
+      - {match: "^    run_name = |^    experiment_folder = ", sentences: [0]}
+      - {match: "^    iteration = |^    test_data_folder = |^    batch_size = |^    track_evaluation = ", sentences: [1]}
+      - {match: "^    maximum_error_images_per_class_pair = ", sentences: [2]}
+    narration:
+      - "To evaluate a trained run again, on another labelled split or with a larger batch, set the run name and its folder in the main block of the evaluate checkpoint script; the run folder itself is never modified."
+      - "The iteration is None for the last checkpoint, a number, or all for every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
+      - "The maximum number of error images per pair of classes turns the error images on; set it to None for the tasks without error images, which otherwise stop on their missing error dumps section, then run the script as a module with uv."
+
+  - kind: html
+    page: diagram
+    title: "What the evaluation writes"
+    code_reference: "vision_training/evaluation/checkpoint_evaluation.py · summarise_checkpoint_evaluations"
+    elements:
+      - {type: text, position: [30, 60], text: "<experiments>/evaluations/", font: diagram_monospace, anchor: ls}
+      - {type: text, position: [30, 115], text: "└── <run name>/", font: diagram_monospace, anchor: ls}
+      - {type: text, position: [30, 170], text: "    ├── Results.txt", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 225], text: "    ├── Tensorboard/Test/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 280], text: "    └── Evaluation/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 335], text: "        ├── Iteration_<n>/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 390], text: "        │   └── the files of the task, Errors/ when on", font: diagram_monospace, colour: dim, anchor: ls}
+      - {type: text, position: [30, 445], text: "        └── evaluation_summary.csv", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: box, box: [1000, 150, 1740, 330], text: "every checkpoint scored on the whole\ntest split, with the trained weights\nand the averaged ones when kept", font: diagram_text, outline: aqua, appear: 0, highlight: [0]}
+      - {type: box, box: [1000, 380, 1740, 560], text: "iteration = \"all\": one row per checkpoint,\nthe best checkpoint printed\nfor the trained and averaged weights", font: diagram_text, outline: violet, appear: 1, highlight: [1]}
+    narration:
+      - "The evaluation writes the results file, the test curves and the evaluation folder like a training does, in a folder named after the run, under evaluations."
+      - "With all the checkpoints, the evaluation summary compares their metrics in one table, and the best checkpoint is printed for the trained and for the averaged weights."
+
+  - kind: code
+    title: "Comparing launches"
+    code_reference: "scripts/evaluation/collect_experiment_results.py"
+    source:
+      file: scripts/evaluation/collect_experiment_results.py
+      start: "^if __name__ == \"__main__\":"
+      end: "output_path = experiment_folder"
+    highlights:
+      - {match: "^    experiments_root_folder = ", sentences: [0]}
+      - {match: "^    metrics = |^    number_last_evaluations = ", sentences: [1]}
+      - {match: "^    output_path = ", sentences: [1]}
+    narration:
+      - "To compare settings, train every launch in its own run folder of one experiment folder, run one, run two, and run twenty three b for a repeat launch of the same settings, then run the collect experiment results script."
+      - "It writes one row per launch with the test metric at every evaluation, its mean and the mean of the last evaluations, then a mean row for the launches of the same settings."
+      - "Compare settings by the mean of the last evaluations, with at least two launches each: in the benchmark, six launches of the same settings spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.3f}} in mean test accuracy."
+
+  - kind: code
+    title: "Comparing runs"
+    code_reference: "scripts/evaluation/compare_best_evaluations.py · compare_best_evaluations"
+    source:
+      file: scripts/evaluation/compare_best_evaluations.py
+      start: "^if __name__ == \"__main__\":"
+      end: "^    evaluated_weights = "
+    highlights:
+      - {match: "^    experiment_folders = ", sentences: [0]}
+      - {match: "^    best_metric = |^    higher_is_better = |^    evaluated_weights = ", sentences: [1]}
+    narration:
+      - "To compare finished runs, the compare best evaluations script reads every run folder of some experiment folders."
+      - "It picks the best evaluation of every run by one test curve, with the trained or the averaged weights, and prints markdown tables with any setting of the configurations and the image counts of every split as columns."
+
+  - kind: html
+    page: diagram
+    title: "Clustering image embeddings"
+    code_reference: "scripts/embedding/cluster_image_embeddings.py · embed_and_cluster_sources"
+    elements:
+      - {type: box, box: [10, 140, 250, 270], text: "images of\ndata sets\nor folders", font: diagram_small}
+      - {type: arrow, points: [[258, 205], [302, 205]], appear: 0}
+      - {type: box, box: [310, 140, 560, 270], text: "trained run:\nthe embedding", font: diagram_small, outline: blue, appear: 0, highlight: [0]}
+      - {type: arrow, points: [[568, 205], [612, 205]], appear: 0}
+      - {type: box, box: [620, 140, 880, 270], text: "features of a block\nor a hidden layer", font: diagram_small, outline: blue, appear: 0, highlight: [0]}
+      - {type: arrow, points: [[888, 205], [932, 205]], appear: 1}
+      - {type: box, box: [940, 140, 1130, 270], text: "PCA\n200 dimensions", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1138, 205], [1182, 205]], appear: 1}
+      - {type: box, box: [1190, 140, 1460, 270], text: "HDBSCAN, DBSCAN\nor k-means,\nper category", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1468, 205], [1512, 205]], appear: 1}
+      - {type: box, box: [1520, 140, 1750, 270], text: "clusters and\nisolated images", font: diagram_small, outline: violet, appear: 1}
+      - {type: arrow, points: [[1635, 278], [1635, 340], [380, 340], [380, 402]], appear: 2}
+      - {type: arrow, points: [[1635, 340], [920, 340], [920, 402]], appear: 2}
+      - {type: arrow, points: [[1635, 340], [1460, 340], [1460, 402]], appear: 2}
+      - {type: box, box: [120, 410, 640, 560], text: "kept_images_by_clustering/\nclosest to every centre,\nand the isolated images", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [690, 410, 1150, 560], text: "kept_images_at_random/", font: diagram_small, appear: 2}
+      - {type: box, box: [1200, 410, 1720, 560], text: "kept_images_evenly_spaced\n_per_group/", font: diagram_small, appear: 2}
+      - {type: text, position: [880, 620], text: "the same number of images per category, to compare by training a smaller model on each", font: diagram_small, colour: dim, anchor: mm, appear: 2}
+      - {type: text, position: [880, 690], text: "features stored · clusters.csv · cluster_summary.csv · links and mosaics of every cluster", font: diagram_small, anchor: mm, appear: 3, highlight: [3]}
+    narration:
+      - "To pick diverse images from a data set of video frames, many of them nearly identical, the cluster image embeddings script embeds the images with a trained run: the output of a convolution block, or of a hidden layer of a classification head."
+      - "Every layer is normalized and reduced by a PCA, then clustered category by category with HDBSCAN, DBSCAN or k-means, the images in no cluster being the isolated images."
+      - "It keeps the images closest to the centre of every cluster and the isolated images, and as many images drawn at random or spread over the groups of the file names, to compare by training a smaller model on each."
+      - "The features are stored, so a relaunch with other clustering settings skips the model, and the clusters get their tables, their links and a mosaic of their images."
+
+  - kind: code
+    title: "Exporting a model"
+    code_reference: "vision_training/deployment/export_model.py · export_experiment"
+    source:
+      file: vision_training/deployment/export_model.py
+      start: "^if __name__ == \"__main__\":"
+      end: "^    tensorrt_precision = "
+    highlights:
+      - {match: "^    formats = |^    repository = ", sentences: [0]}
+      - {match: "^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [1]}
+    narration:
+      - "The export model script writes a trained run to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model, and checks every export against the PyTorch model."
+      - "Set the run folder, the iteration, the averaged or the trained weights, the largest batch size and the TensorRT precision of the ONNX model, then run it as a module."
+
+  - kind: code
+    title: "The exported models"
+    code_reference: "vision_training/deployment/export_specifications.py · get_export_specification"
+    source:
+      file: vision_training/deployment/export_specifications.py
+      function: TASK_MODEL_NAMES
+    highlights:
+      - {match: "image_classifier|object_detector", sentences: [0]}
+    narration:
+      - "Every task is exported under its own model name, followed by its format in the model repository, each in a folder with its Triton configuration and its version."
+      - "The models take float32 BGR images, or the frames of a sequence, in the zero to two hundred and fifty five range, resized and padded like the data loaders, the input normalization being part of the model; every task series shows its outputs."
+
+  - kind: terminal
+    title: "Serving with Triton"
+    code_reference: "vision_training/deployment/run_inference.py"
+    lines:
+      - {role: command, text: "cd vision_training/deployment/triton"}
+      - {role: command, text: "docker compose up"}
+      - {role: comment, text: "# serves every model of served_models/: HTTP on port 8000, gRPC on 8001, metrics on 8002"}
+      - {role: command, text: "curl localhost:8000/v2/health/ready"}
+      - {role: comment, text: "# in another terminal, from the repository root"}
+      - {role: command, text: "uv run python -m vision_training.deployment.run_inference"}
+    narration:
+      - "Start Triton with docker compose up in its folder and keep it running: it serves every exported model, HTTP on port eight thousand and gRPC on eight thousand and one."
+      - "The run inference script then measures the throughput of a model in this process, then through Triton, in TorchScript and in ONNX with TensorRT."
+
+  - kind: terminal
+    title: "The tests"
+    lines:
+      - {role: command, text: "uv run pytest tests"}
+      - {role: comment, text: "# every test, short trainings of every task included"}
+      - {role: command, text: "uv run pytest tests/models"}
+      - {role: comment, text: "# one folder only, e.g. after changing a model"}
+    narration:
+      - "The tests mirror the folders of the training framework: {{foundations.repository.test_file_count}} test files, short trainings of every task on tiny synthetic data sets included."
+      - "Run them all with the first command, or only one folder after a change, and compare with the results from before the change."
+
+  - kind: html
+    page: diagram
+    title: "The map of the repository"
+    elements:
+      - {type: text, position: [40, 50], text: ".", font: diagram_monospace, anchor: ls}
+      - {type: text, position: [40, 100], text: "├── vision_training/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [40, 150], text: "│   ├── main.py · configurations/ · configuration_processing/ · core/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [40, 200], text: "│   ├── data/ · models/ · losses/ · trainers/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [40, 250], text: "│   └── evaluation/ · tracking/ · deployment/ · utilities/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [40, 300], text: "├── scripts/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 350], text: "│   └── evaluation/ · embedding/ · data/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 400], text: "├── tests/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 450], text: "├── documentation/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 500], text: "│   └── architecture_benchmarking/ · task workflows/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 550], text: "├── tutorials/", font: diagram_monospace, anchor: ls, highlight: [2]}
+      - {type: text, position: [40, 600], text: "└── README.md · pyproject.toml · uv.lock", font: diagram_monospace, anchor: ls}
+    narration:
+      - "To find your way, the training framework holds the entry point, the configurations, the data, the models and losses, the trainers, the evaluation, the tracking and the deployment."
+      - "Next to it, the scripts folder holds the evaluation, comparison and clustering scripts, the tests mirror the framework, and the documentation keeps the benchmark and one run of every task followed function by function."
+      - "And the tutorials folder rebuilds these videos from the repository and its runs, so that they follow the code."
+
+  - kind: summary
+    title: "The foundations"
+    items:
+      - {text: "One configuration file per run, its name and folder written by the run"}
+      - {text: "One training loop, scheduled in iterations"}
+      - {text: "One data pipeline and one augmentation code"}
+      - {text: "One backbone with its modules, shared by the {{foundations.repository.task_count}} tasks"}
+      - {text: "One optimization step, its schedule and averaged weights"}
+      - {text: "Evaluation, comparison, clustering and export scripts"}
+    narration:
+      - "To sum up the foundations: one configuration format, one training loop, one data pipeline, one backbone and one optimization serve every task, with the same tools after the training."
+      - "Every task series then covers what is its own: its data, its model, its targets and losses, its evaluation and its export, starting with classification."

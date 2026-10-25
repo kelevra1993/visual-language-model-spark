@@ -1,0 +1,168 @@
+<!doctype html>
+<!--
+ Grouping of the keypoint candidates of the two hollow capsules of the test image into objects, for the third chapter of
+ the keypoint detection series, as group_keypoint_candidates runs it: the keypoints of the class taken in their order
+ (one column each), the candidates of every keypoint above the keypoint threshold drawn at their tag and filled with the
+ colour of the labelled capsule they lie on, matched to the objects formed so far (whose running mean tag is drawn
+ between the columns), every object a path through the candidates it took. The columns are added one after the other
+ from the "columns" step, and the candidates an object took from the other capsule are ringed with the "exchange" step
+ (scene key "steps"). The data is the grouping.json written by tutorials/figures/keypoint_detection/evaluation_figures.py
+ from the candidates of the checkpoint, checked against group_keypoint_candidates.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Keypoint grouping</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        "use strict";
+
+        // Geometry of the plot of the tags, in pixels of the content area
+        const PLOT_LEFT = 250;
+        const PLOT_RIGHT = 1560;
+        const PLOT_TOP = 90;
+        const PLOT_BOTTOM = 520;
+        const DOT_RADIUS = 11;
+
+        // Seconds between the columns of two keypoints
+        const COLUMN_SECONDS = 0.55;
+
+        /* Label of a keypoint column, its name on two lines when long. */
+        function columnLabel(name) {
+            const words = name.split(" ");
+            if (words.length < 2 || name.length <= 9) {
+                return name;
+            }
+            return `${words[0]}\n${words.slice(1).join(" ")}`;
+        }
+
+        /* Builds the axis of the tags, the columns, the candidates, the paths of the objects and their running means. */
+        function buildGrouping(root, helpers, data) {
+            const allTags = data.steps.flatMap((step) => step.candidates.map((candidate) => candidate.tag));
+            const range = Math.max(...allTags) - Math.min(...allTags);
+            const minimum = Math.min(...allTags) - Math.max(range * 0.15, 0.05);
+            const maximum = Math.max(...allTags) + Math.max(range * 0.15, 0.05);
+            const scaleY = (tag) => helpers.scaleValue(tag, minimum, maximum, PLOT_BOTTOM, PLOT_TOP);
+            const columnX = (index) => helpers.scaleValue(index, 0, data.steps.length - 1, PLOT_LEFT + 30,
+                                                          PLOT_RIGHT - 30);
+            const parts = { columns: [], paths: [], exchanged: [] };
+
+            // Axis of the tags with its ticks and name
+            helpers.createSvgElement("line", { x1: PLOT_LEFT - 20, y1: PLOT_TOP, x2: PLOT_LEFT - 20, y2: PLOT_BOTTOM,
+                                               stroke: helpers.cssColour(helpers.COLOURS.border), "stroke-width": 2 },
+                                     root);
+            const tickStep = [0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1].find((step) => (maximum - minimum) / step <= 8) || 1;
+            for (let tick = Math.ceil(minimum / tickStep) * tickStep; tick <= maximum; tick += tickStep) {
+                helpers.createText(root, tick.toFixed(2), PLOT_LEFT - 32, scaleY(tick), "rm", "diagram_tiny", "dim");
+            }
+            const axisName = helpers.createText(root, "tag", 70, (PLOT_TOP + PLOT_BOTTOM) / 2, "mm", "diagram_small",
+                                                "dim");
+            axisName.setAttribute("transform", `rotate(-90 70 ${(PLOT_TOP + PLOT_BOTTOM) / 2})`);
+
+            // One column per keypoint: its name, its candidates, and the means the next candidates are matched to
+            data.steps.forEach((step, stepIndex) => {
+                const group = helpers.createSvgElement("g", { opacity: 0 }, root);
+                const x = columnX(stepIndex);
+                helpers.createText(group, columnLabel(data.keypoint_names[step.keypoint_index]), x, PLOT_BOTTOM + 22,
+                                   "ma", "diagram_tiny", "dim");
+                if (stepIndex < data.steps.length - 1) {
+                    step.object_means.forEach((mean) => {
+                        helpers.createSvgElement("line", { x1: x + 14, y1: scaleY(mean), x2: columnX(stepIndex + 1) - 14,
+                                                           y2: scaleY(mean), stroke: helpers.cssColour(
+                                                               helpers.COLOURS.dim), "stroke-width": 2,
+                                                           "stroke-dasharray": "5 5" }, group);
+                    });
+                }
+                step.candidates.forEach((candidate) => {
+                    const colour = helpers.resolveColour(data.capsule_colours[candidate.capsule]);
+                    helpers.createSvgElement("circle", { cx: x, cy: scaleY(candidate.tag), r: DOT_RADIUS,
+                                                         fill: helpers.cssColour(colour), stroke: helpers.cssColour(
+                                                             helpers.COLOURS.card), "stroke-width": 2 }, group);
+                    if (candidate.exchanged) {
+                        const ring = helpers.createSvgElement("circle", { cx: x, cy: scaleY(candidate.tag),
+                                                                          r: DOT_RADIUS + 7, fill: "none",
+                                                                          stroke: helpers.cssColour(
+                                                                              helpers.COLOURS.accent),
+                                                                          "stroke-width": 3.5, opacity: 0 }, root);
+                        parts.exchanged.push(ring);
+                    }
+                });
+                parts.columns.push(group);
+            });
+
+            // Path of every object through the candidates it took, in the colour of the capsule it mostly lies on
+            data.objects.forEach((item, objectIndex) => {
+                const points = [];
+                const capsuleCounts = {};
+                data.steps.forEach((step, stepIndex) => {
+                    step.candidates.filter((candidate) => candidate.object === objectIndex).forEach((candidate) => {
+                        points.push({ x: columnX(stepIndex), y: scaleY(candidate.tag), column: stepIndex });
+                        capsuleCounts[candidate.capsule] = (capsuleCounts[candidate.capsule] || 0) + 1;
+                    });
+                });
+                const capsule = Number(Object.keys(capsuleCounts).sort((first, second) =>
+                    capsuleCounts[second] - capsuleCounts[first])[0]);
+                const path = helpers.createSvgElement("polyline", { fill: "none", stroke: helpers.cssColour(
+                    helpers.resolveColour(data.capsule_colours[capsule])), "stroke-width": 3,
+                                                                    "stroke-dasharray": objectIndex === 0 ? "" : "10 6",
+                                                                    opacity: 0.85 }, root);
+                root.insertBefore(path, root.children[1]);
+                // Legend of the object above the plot, its line drawn like its path, shown once the path is complete
+                const legendY = PLOT_TOP - 62 + objectIndex * 32;
+                const label = helpers.createSvgElement("g", { opacity: 0 }, root);
+                helpers.createSvgElement("line", { x1: PLOT_RIGHT - 330, y1: legendY, x2: PLOT_RIGHT - 280, y2: legendY,
+                                                   stroke: path.getAttribute("stroke"), "stroke-width": 3,
+                                                   "stroke-dasharray": path.getAttribute("stroke-dasharray") }, label);
+                helpers.createText(label, `object ${objectIndex + 1} · score ${item.score.toFixed(2)}`,
+                                   PLOT_RIGHT - 268, legendY, "lm", "diagram_small", "text");
+                parts.paths.push({ path: path, points: points, label: label });
+            });
+
+            // Rule of the matching under the plot
+            helpers.createText(root, "matching cost = round(|tag - mean tag of the object|) x 100 - score;  " +
+                               `a match is kept below a tag distance of ${data.tag_threshold}`, PLOT_LEFT - 20, 640,
+                               "la", "diagram_small", "text");
+            helpers.createText(root, "fill: the labelled capsule under the candidate · path: the object it joined · " +
+                               "dashes: the mean tags the next key point is matched to", PLOT_LEFT - 20, 682, "la",
+                               "diagram_small", "dim");
+            return parts;
+        }
+
+        /* Setup of the custom parts: the grouping laid out from the data, animated by the sentences of the steps. */
+        function setupGrouping(context) {
+            const helpers = context.helpers;
+            const steps = context.scene.steps || { columns: 0, exchange: 2 };
+            const parts = buildGrouping(context.root, helpers, context.scene.data);
+
+            /* Draws the grouping at a time of the scene; returns whether something still moves. */
+            return function updateGrouping(time) {
+                const start = helpers.sentenceStart(steps.columns);
+                const shownColumns = (time - start) / COLUMN_SECONDS;
+                let moving = time >= start && shownColumns < parts.columns.length + 1;
+                parts.columns.forEach((group, index) => {
+                    group.setAttribute("opacity", helpers.ease(shownColumns - index));
+                });
+
+                // Paths drawn up to the last column shown, their labels once complete
+                parts.paths.forEach((record) => {
+                    const points = record.points.filter((point) => point.column <= shownColumns - 0.5);
+                    record.path.setAttribute("points", helpers.formatPoints(points.map((point) => [point.x, point.y])));
+                    record.label.setAttribute("opacity", helpers.ease(shownColumns - parts.columns.length));
+                });
+
+                // Rings of the exchanged candidates
+                const ringShown = helpers.ease((time - helpers.sentenceStart(steps.exchange)) / helpers.APPEAR_SECONDS);
+                parts.exchanged.forEach((ring) => ring.setAttribute("opacity", ringShown));
+                moving = moving || (ringShown > 0 && ringShown < 1);
+                return moving;
+            };
+        }
+
+        Tutorial.registerCustom(setupGrouping);
+    </script>
+</body>
+</html>

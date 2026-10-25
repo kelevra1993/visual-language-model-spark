@@ -1,0 +1,215 @@
+# Semantic segmentation, chapter 1: what the task gives, the layout of a split and its masks, the lookup table turning
+# the category values of a mask into class indices, the resizing and augmentation of the masks, and the U-Net of the
+# model (the backbone as its encoder, the decoder levels and the head) with the shapes and level maps of the trained
+# network of the synthetic segmentation run on its test image 28. Coordinates of the html scenes are in pixels of the
+# content area (1760 x 740); the figures and facts {{semantic_segmentation.<name>}} are made by
+# tutorials/figures/semantic_segmentation.
+series: semantic_segmentation
+series_title: "Semantic Segmentation (SEG)"
+chapter: 1
+title: "Masks, classes and the decoder"
+output_name: semantic_segmentation_01_masks_classes_and_decoder
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [semantic_segmentation]
+references:
+  - "vision_training/data/segmentation/segmentation_dataset.py · SegmentationDataset"
+  - "vision_training/data/label_mapping.py · build_label_dictionary"
+  - "vision_training/models/segmentation/segmentation_decoder.py · compute_skip_block_numbers"
+  - "vision_training/models/backbones/backbone.py · Backbone.forward"
+  - "vision_training/data/augmentations.py · DataAugmenter.augment_batch"
+  - "documentation/task workflows/semantic_segmentation_workflow.md"
+  - "documentation/suggestions.md"
+scenes:
+  - kind: title_card
+    heading: "Masks, classes and the decoder"
+    subheading: "One class per pixel: the data, the lookup table, the U-shaped network"
+    footnote: "Semantic Segmentation (SEG) · chapter 1"
+    narration:
+      - "This series covers semantic segmentation: one image in, one class for every pixel out."
+      - "This first chapter follows a test image from its mask file to the class indices of the loader, then through the encoder and the decoder of the model."
+
+  - kind: html
+    page: diagram
+    title: "One class per pixel"
+    code_reference: "vision_training/models/segmentation/semantic_segmenter.py · SemanticSegmenter"
+    elements:
+      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Evaluation/Iteration_2000/Samples/test_000028.png", crop: [0, 24, 515, 536], box: [20, 40, 420, 440], border: border, caption: "image, 512 x 512"}
+      - {type: arrow, points: [[430, 260], [465, 260]], colour: blue}
+      - {type: box, box: [475, 180, 715, 340], text: "backbone\nthe encoder\nskips before pooling", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[715, 260], [765, 260]], colour: blue}
+      - {type: box, box: [775, 180, 1015, 340], text: "decoder\nlevel by level\nback to 512", font: diagram_small, outline: violet}
+      - {type: arrow, points: [[1015, 260], [1065, 260]], colour: violet, appear: 1}
+      - {type: box, box: [1075, 180, 1295, 340], text: "1x1 head\n10 logits\nper pixel", font: diagram_small, outline: aqua, appear: 1}
+      - {type: arrow, points: [[1295, 260], [1330, 260]], colour: aqua, appear: 1}
+      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Evaluation/Iteration_2000/Samples/test_000028.png", crop: [1030, 24, 1545, 536], box: [1340, 40, 1740, 440], border: border, caption: "class of every pixel", appear: 1}
+      - {type: box, box: [180, 560, 1580, 690], text: "every pixel a class, the objects not told apart: two touching squares form one region\ninstance segmentation gives every object its own mask", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+    narration:
+      - "The model is a U-shaped network: the shared backbone is the encoder, its block outputs before pooling are the skip connections, and a decoder brings the last feature map back to the input resolution, level by level."
+      - "A one by one head gives ten logits per pixel, the background being class zero and the nine shapes classes one to nine."
+      - "Choose it when every pixel needs a class and the objects need not be told apart: two touching squares form one region, while instance segmentation gives every object its own mask."
+
+  - kind: html
+    page: diagram
+    title: "A split on disk"
+    code_reference: "vision_training/data/segmentation/segmentation_dataset.py · SegmentationDataset.__init__"
+    elements:
+      - type: listing
+        box: [40, 40, 1130, 560]
+        font: diagram_monospace
+        source: {file: "figures:semantic_segmentation/dataset/manifest_entry.txt"}
+        highlights:
+          - {match: "data/|masks/|labels.json$|\"samples\"|file_name", sentences: [0]}
+          - {match: "masks/", sentences: [1]}
+          - {match: "categories|label_mapping|\"1\": 1", sentences: [2]}
+      - {type: box, box: [1180, 60, 1730, 300], text: "mask: one channel, uint8\nthe size of its image\n0 background, 1 to 254 categories\n255 unlabelled, ignored", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [1180, 340, 1730, 520], text: "class 0 is the background,\nadded to the mapping;\nseveral categories may share a class", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: text, position: [40, 640], text: "{{semantic_segmentation.manifest_samples}} test samples, {{semantic_segmentation.manifest_categories}} categories: the data set of this machine predates the 35 shapes of the current generator", font: diagram_small, colour: dim, appear: 3}
+    narration:
+      - "A split holds its images in data, its masks in masks, and a labels file listing every sample with its image and mask files, and the categories."
+      - "A mask is a single-channel 8-bit image of the size of its image, every pixel holding its category: zero for the background, 255 for the pixels left out of the losses and the metrics."
+      - "The mapping file gives the class of every category, several categories may share one class, and the loader adds the background as class zero."
+      - "This data set holds {{semantic_segmentation.manifest_categories}} shapes; one generated now holds 35 and its runs end in MC 35."
+
+  - kind: image
+    title: "From mask values to class indices"
+    code_reference: "vision_training/data/segmentation/segmentation_dataset.py · build_class_lookup_table"
+    image: "figures:semantic_segmentation/dataset/mask_values.png"
+    highlights:
+      - {box: "{{semantic_segmentation.mask_raw_panel_box}}", sentences: [0]}
+      - {box: "{{semantic_segmentation.mask_classes_panel_box}}", sentences: [1]}
+      - {box: "{{semantic_segmentation.mask_table_panel_box}}", sentences: [1, 2]}
+    narration:
+      - "The mask of test image 28 holds the values {{semantic_segmentation.mask_values}}: the background and four shapes."
+      - "The lookup table holds a class for every one of the 256 possible values, so a whole mask converts at once: zero stays the background, 255 becomes minus 100, the ignored index of the losses, and an unmapped category becomes background."
+      - "The background covers {{semantic_segmentation.mask_background_share:.1%}} of this image, a share that shapes the choice of the losses in the next chapter."
+
+  - kind: code
+    title: "Images and masks resized together"
+    code_reference: "vision_training/data/segmentation/segmentation_dataset.py · SegmentationDataset.__getitem__"
+    source:
+      file: vision_training/data/segmentation/segmentation_dataset.py
+      function: SegmentationDataset.__getitem__
+      start: "sample = self.samples"
+    highlights:
+      - {match: "resized_image = preprocess_image", sentences: [0]}
+      - {match: "resized_mask = preprocess_image|interpolation=cv2.INTER_NEAREST", sentences: [0, 1]}
+      - {match: "class_lookup_table\\[resized_mask\\]", sentences: [2]}
+    narration:
+      - "The image is resized with a bilinear interpolation and the mask with the nearest one, under the same letterbox, the padding of the mask set to 255."
+      - "The nearest interpolation keeps every pixel a category, but the mask ends about half a pixel off its image, and a random crop adds another half pixel: below the boundary tolerance of two pixels at the network resolution, but not always at the original resolution of a large image."
+      - "The lookup table then turns the categories of the resized mask into class indices."
+
+  - kind: yaml
+    title: "Masks follow the geometric augmentations"
+    code_reference: "vision_training/trainers/segmentation_trainer.py · SegmentationTrainer.augment_batch"
+    source:
+      file: vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml
+      keys: [Data.tiling, Data.data_augmentation.types.random_crop, Data.data_augmentation.types.random_left_right_flip,
+             Data.data_augmentation.types.random_rotation, Data.data_augmentation.types.random_perspective,
+             Data.data_augmentation.types.random_jigsaw]
+      comments: false
+    highlights:
+      - {match: "random_crop|random_rotation", sentences: [0]}
+      - {match: "random_left_right_flip", sentences: [1]}
+      - {match: "random_perspective|random_jigsaw", sentences: [1]}
+      - {match: "tiling:|scale:|overlap:", sentences: [2]}
+    narration:
+      - "The geometric augmentations move the masks with their images, with the nearest interpolation, the pixels uncovered by a rotation becoming ignored; the photometric ones leave the masks alone."
+      - "Flips are fine here, a class per pixel having no left nor right, but the perspective and the jigsaw move the image only and are refused."
+      - "For images much larger than the input, tiling trains on random tiles of the scaled images, validates on fixed tiles, and segments every test image tile by tile, averaging the overlapping probabilities."
+
+  - kind: html
+    page: diagram
+    title: "The U-shaped network, with its real shapes"
+    code_reference: "vision_training/models/segmentation/segmentation_decoder.py · SegmentationDecoder"
+    elements:
+      # Encoder: the outputs of the backbone blocks before their pooling, from the input resolution down
+      - {type: cuboid, box: [60, 20, 170, 130], depth: 8, fill: blue, label: "{{semantic_segmentation.model_skip_1_shape}}", label_font: diagram_monospace_tiny}
+      - {type: cuboid, box: [120, 175, 208, 263], depth: 14, fill: blue, label: "{{semantic_segmentation.model_skip_2_shape}}", label_font: diagram_monospace_tiny}
+      - {type: cuboid, box: [180, 305, 250, 375], depth: 14, fill: blue, label: "{{semantic_segmentation.model_skip_3_shape}}", label_font: diagram_monospace_tiny}
+      - {type: cuboid, box: [240, 420, 294, 474], depth: 24, fill: blue, label: "{{semantic_segmentation.model_skip_4_shape}}", label_font: diagram_monospace_tiny}
+      - {type: cuboid, box: [300, 520, 342, 562], depth: 24, fill: blue, label: "{{semantic_segmentation.model_skip_5_shape}}", label_font: diagram_monospace_tiny}
+      - {type: text, position: [60, 690], text: "encoder: the backbone blocks, output before pooling", font: diagram_small, colour: dim}
+      # Bottleneck, the last block without pooling
+      - {type: arrow, points: [[372, 556], [780, 640]], colour: blue}
+      - {type: cuboid, box: [790, 615, 822, 647], depth: 40, fill: magenta, label: "bottleneck {{semantic_segmentation.model_bottleneck_shape}}", label_font: diagram_monospace_tiny}
+      - {type: arrow, points: [[870, 640], [1332, 562]], colour: violet, appear: 1}
+      # Decoder levels from the deepest, mirrored on the right
+      - {type: cuboid, box: [1340, 520, 1382, 562], depth: 24, fill: violet, label: "{{semantic_segmentation.model_level_5_shape}}", label_font: diagram_monospace_tiny, appear: 1}
+      - {type: cuboid, box: [1400, 420, 1454, 474], depth: 24, fill: violet, label: "{{semantic_segmentation.model_level_4_shape}}", label_font: diagram_monospace_tiny, appear: 1}
+      - {type: cuboid, box: [1460, 305, 1530, 375], depth: 14, fill: violet, label: "{{semantic_segmentation.model_level_3_shape}}", label_font: diagram_monospace_tiny, appear: 1}
+      - {type: cuboid, box: [1520, 175, 1608, 263], depth: 14, fill: violet, label: "{{semantic_segmentation.model_level_2_shape}}", label_font: diagram_monospace_tiny, appear: 1}
+      - {type: cuboid, box: [1580, 20, 1690, 130], depth: 8, fill: violet, label: "{{semantic_segmentation.model_level_1_shape}}", label_font: diagram_monospace_tiny, appear: 2}
+      - {type: text, position: [1700, 690], text: "decoder: transposed 2x2, concatenate, convolution block", font: diagram_small, colour: dim, anchor: ra, appear: 1}
+      # Skip connections, concatenated before the upsampled features of every level
+      - {type: arrow, points: [[190, 75], [1570, 75]], colour: dim, appear: 1, highlight: [1], label: "skip 1, concatenated", label_position: [880, 50]}
+      - {type: arrow, points: [[230, 219], [1510, 219]], colour: dim, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[270, 340], [1450, 340]], colour: dim, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[325, 447], [1390, 447]], colour: dim, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[372, 541], [1330, 541]], colour: dim, appear: 1, highlight: [1]}
+      # Head on the last level
+      - {type: box, box: [1000, 110, 1300, 190], text: "1x1 head: [10, 512, 512]", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1575, 130], [1305, 160]], colour: aqua, appear: 2}
+      - {type: text, position: [660, 270], text: "{{semantic_segmentation.model_parameters_total:,}} parameters · receptive field {{semantic_segmentation.model_receptive_field}} pixels", font: diagram_small, appear: 3, highlight: [3]}
+    narration:
+      - "The backbone of the other tasks is the encoder: its six blocks halve the resolution five times, from 512 to 16 pixels, and the output of every block before its pooling is kept as a skip connection."
+      - "The decoder has one level per skip, keyed by the block it reads: a two by two transposed convolution doubles the resolution, the skip is concatenated before the upsampled features, and a convolution block refines them."
+      - "The last level is back at 512 pixels with 16 channels, and a one by one head behind a dropout at zero gives the ten class logits of every pixel."
+      - "The model has {{semantic_segmentation.model_parameters_total:,}} parameters, {{semantic_segmentation.model_parameters_decoder:,}} of them in the decoder and {{semantic_segmentation.model_parameters_head}} in the head, and its encoder sees {{semantic_segmentation.model_receptive_field}} pixels."
+
+  - kind: code
+    title: "The decoder loop"
+    code_reference: "vision_training/models/segmentation/segmentation_decoder.py · SegmentationDecoder.forward"
+    source:
+      file: vision_training/models/segmentation/segmentation_decoder.py
+      function: SegmentationDecoder.forward
+    highlights:
+      - {match: "current_tensor = upsampling_layer", sentences: [0]}
+      - {match: "interpolate", sentences: [0]}
+      - {match: "torch.cat\\(tensors=\\[skip_tensor, current_tensor\\]", sentences: [0]}
+      - {match: "return_level_outputs", sentences: [1]}
+    narration:
+      - "The forward pass is that loop, from the deepest level to the finest; an input size that is not a power of two gives an upsampled map one pixel off its skip, resized to it with a bilinear interpolation."
+      - "The outputs of the intermediate levels are only returned for the deep supervision heads, and the head stays outside the decoder, so that a decoder transferred from another run can serve other classes."
+
+  - kind: yaml
+    title: "The decoder section"
+    code_reference: "vision_training/models/components/convolution_block.py · ConvolutionBlock.count_residual_additions"
+    source:
+      file: vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml
+      keys: [SegmentationDecoder.upsampling, SegmentationDecoder.convolutions, SegmentationDecoder.modules,
+             SegmentationDecoder.dropout_rate, SegmentationDecoder.deep_supervision_weights]
+      comments: false
+    highlights:
+      - {match: "upsampling|convolutions|\"5\"|\"1\"", sentences: [0]}
+      - {match: "deep_supervision_weights", sentences: [1]}
+      - {match: "residual_nets", sentences: [2]}
+    narration:
+      - "The levels are keyed by the backbone block they read, as layers and channels, from the deepest; the upsampling is transposed, or bilinear followed by a one by one convolution."
+      - "Deep supervision adds one by one heads on intermediate levels, trained with the same losses times their weight, and left out of the inference and the exports."
+      - "Residual nets would do nothing in the decoder: a level reads the skip plus the upsampled channels, never its own width; in the encoder, only blocks {{semantic_segmentation.model_backbone_blocks_with_shortcuts}} add a shortcut."
+
+  - kind: image
+    title: "What every level computes"
+    code_reference: "vision_training/models/segmentation/semantic_segmenter.py · SemanticSegmenter.forward"
+    image: "figures:semantic_segmentation/model/levels.png"
+    highlights:
+      - {box: "{{semantic_segmentation.levels_row_1_box}}", sentences: [0]}
+      - {box: "{{semantic_segmentation.levels_row_2_box}}", sentences: [1]}
+    narration:
+      - "On the test image, with the weights of iteration 2000, the first skips follow the outlines at full resolution while the deep ones only mark where the shapes are."
+      - "The decoder levels bring both back together on the way up, and the class map gets {{semantic_segmentation.levels_pixel_accuracy:.2%}} of the pixels of this image right."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Masks: uint8 category per pixel, 0 background, 255 ignored"}
+      - {text: "A 256-entry lookup table: categories to classes, 255 to -100"}
+      - {text: "Masks resized and augmented with the nearest interpolation"}
+      - {text: "Encoder = backbone, skips before pooling, decoder level per skip"}
+      - {text: "1x1 head: one logit per class and pixel, background at 0"}
+      - {text: "residual_nets adds no shortcut to the decoder levels"}
+    narration:
+      - "To recap: the masks hold categories, the lookup table turns them into classes, and the decoder brings the encoder back to one logit per class and pixel."
+      - "The next chapter trains it: the cross entropy and Dice losses, the class weighting, the batch metrics and the curves of the run."

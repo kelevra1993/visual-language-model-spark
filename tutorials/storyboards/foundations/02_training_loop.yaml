@@ -1,0 +1,197 @@
+# Foundations, chapter 2: the training loop of BaseTrainer, shared by every task: one iteration, the schedule of the
+# summaries, checkpoints and evaluations in iterations, the console summary, the curves, TensorBoard and MLflow, and how
+# a run stops and resumes. The schedule and the curves are those of the classification run of tutorial_sources.yaml,
+# read by tutorials/figures/foundations.
+series: foundations
+series_title: "Foundations"
+chapter: 2
+title: "The training loop"
+output_name: foundations_02_training_loop
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [foundations]
+references:
+  - "vision_training/trainers/base_trainer.py · BaseTrainer.run_training_iterations"
+  - "vision_training/trainers/base_trainer.py · BaseTrainer.run_model_iteration"
+  - "vision_training/trainers/base_trainer.py · BaseTrainer.step_optimizer"
+  - "vision_training/trainers/metric_tracking.py"
+scenes:
+  - kind: title_card
+    heading: "The training loop"
+    subheading: "Iterations, validation, checkpoints, resuming"
+    footnote: "Foundations · chapter 2"
+    narration:
+      - "Every task trains in the same loop of the base trainer; the task trainers only bring their batches, losses and metrics."
+      - "This chapter follows one iteration, then the schedule of a run, what it prints and plots, and how it stops and resumes."
+
+  - kind: html
+    page: diagram
+    title: "One iteration"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_model_iteration"
+    elements:
+      - {type: box, box: [20, 70, 270, 170], text: "batch\nprefetched", outline: blue, highlight: [0]}
+      - {type: arrow, points: [[275, 120], [315, 120]]}
+      - {type: box, box: [320, 70, 570, 170], text: "augmentation\non the GPU", outline: yellow, highlight: [0]}
+      - {type: arrow, points: [[575, 120], [615, 120]]}
+      - {type: box, box: [620, 70, 870, 170], text: "forward pass\nbfloat16", outline: blue, highlight: [0]}
+      - {type: arrow, points: [[875, 120], [915, 120]], appear: 1}
+      - {type: box, box: [920, 70, 1170, 170], text: "losses and\nbatch metrics", outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1175, 120], [1215, 120]], appear: 1}
+      - {type: box, box: [1220, 70, 1470, 170], text: "backward pass", outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1475, 120], [1515, 120]], appear: 1}
+      - {type: box, box: [1520, 70, 1740, 170], text: "optimizer step", outline: aqua, appear: 1, highlight: [1]}
+      - {type: text, position: [145, 192], text: "get_next_batch", font: diagram_monospace_tiny, colour: dim, anchor: ma}
+      - {type: text, position: [445, 192], text: "augment_batch", font: diagram_monospace_tiny, colour: dim, anchor: ma}
+      - {type: text, position: [745, 192], text: "forward_pass", font: diagram_monospace_tiny, colour: dim, anchor: ma}
+      - {type: text, position: [1045, 192], text: "task loss and metrics", font: diagram_monospace_tiny, colour: dim, anchor: ma, appear: 1}
+      - {type: text, position: [1630, 192], text: "step_optimizer", font: diagram_monospace_tiny, colour: dim, anchor: ma, appear: 1}
+      - {type: text, position: [1630, 222], text: "clipping, schedule,\nmoving average", font: diagram_tiny, colour: dim, anchor: ma, appear: 1}
+      - {type: arrow, points: [[1630, 290], [145, 290], [145, 232]], colour: text, label: "next iteration", label_position: [892, 312], appear: 1}
+      - {type: text, position: [20, 370], text: "every validation_iteration_ratio iterations", font: diagram_small, colour: dim, appear: 2}
+      - {type: box, box: [20, 410, 270, 510], text: "validation batch", outline: blue, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[275, 460], [615, 460]], appear: 2, label: "no augmentation", label_position: [445, 435]}
+      - {type: box, box: [620, 410, 870, 510], text: "forward pass\nno update", outline: blue, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[875, 460], [915, 460]], appear: 2}
+      - {type: box, box: [920, 410, 1170, 510], text: "losses and\nbatch metrics", outline: magenta, appear: 2, highlight: [2]}
+      - {type: box, box: [1220, 410, 1740, 510], text: "metric tracker\nTensorBoard every iteration,\nconsole averages per interval", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1170, 140], [1260, 405]], colour: violet, appear: 3}
+      - {type: arrow, points: [[1175, 460], [1215, 460]], colour: violet, appear: 3}
+    narration:
+      - "Every iteration takes one batch prefetched by the loader workers, augments it on the GPU, and runs the forward pass in bfloat16 when mixed precision is on."
+      - "The task trainer returns its losses and batch metrics, the backward pass follows, then one optimizer step: gradient clipping, the learning rate of the schedule, and the moving average of the weights when it is on."
+      - "Every validation ratio iterations, one validation batch goes through the model without augmentation and without any update, for the validation curves."
+      - "Every value goes to the metric tracker, which writes it to TensorBoard at every iteration and averages it over the interval for the console."
+
+  - kind: html
+    page: foundations/iteration_timeline
+    title: "Scheduled in iterations"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_training_iterations"
+    data:
+      number_iterations: "{{foundations.run.number_iterations}}"
+      information_dump: "{{foundations.run.information_dump}}"
+      intermediate_saving: "{{foundations.run.intermediate_weight_saving_iterations}}"
+      weight_saving: "{{foundations.run.weight_saving_iterations}}"
+    elements:
+      - {type: text, position: [40, 40], text: "The classification run", font: diagram_bold}
+      - {type: text, position: [40, 450], text: "Within one iteration", font: diagram_bold, appear: 2}
+      - {type: box, box: [40, 500, 330, 590], text: "optimizer step", font: diagram_small, outline: aqua, appear: 2}
+      - {type: arrow, points: [[335, 545], [385, 545]], appear: 2}
+      - {type: box, box: [390, 500, 680, 590], text: "checkpoint", font: diagram_small, outline: blue, appear: 2}
+      - {type: arrow, points: [[685, 545], [735, 545]], appear: 2}
+      - {type: box, box: [740, 500, 1030, 590], text: "validation batch", font: diagram_small, outline: blue, appear: 2}
+      - {type: arrow, points: [[1035, 545], [1085, 545]], appear: 2}
+      - {type: box, box: [1090, 500, 1380, 590], text: "console summary", font: diagram_small, outline: border, appear: 2}
+      - {type: arrow, points: [[1385, 545], [1435, 545]], appear: 2}
+      - {type: box, box: [1440, 500, 1730, 590], text: "test evaluation", font: diagram_small, outline: yellow, appear: 2}
+      - {type: text, position: [880, 640], text: "a checkpoint of iteration k holds exactly k optimizer steps", font: diagram_small, colour: dim, anchor: ma, appear: 2}
+    narration:
+      - "Everything else is scheduled in iterations: in this run, a console summary every {{foundations.run.information_dump}} iterations."
+      - "A checkpoint every {{foundations.run.intermediate_weight_saving_iterations}} iterations, and every {{foundations.run.weight_saving_iterations}}, a checkpoint that is also evaluated on the whole test split."
+      - "Within one iteration the order is fixed: the optimizer step, the checkpoint, the validation batch, the console summary, and the test evaluation last."
+      - "The synthetic configurations set ten to the power of ten iterations, so a run goes on until you stop it."
+
+  - kind: image
+    title: "The console summary"
+    code_reference: "vision_training/trainers/metric_tracking.py · MetricTracker.print_interval_summary"
+    image: "repository:README/interval_summary.png"
+    views:
+      - {box: [0, 20, 1060, 70], from_sentence: 0}
+      - {box: [0, 70, 700, 200], from_sentence: 1}
+      - {box: [480, 330, 720, 460], from_sentence: 2}
+    highlights:
+      - {box: [8, 34, 1040, 58], sentences: [0]}
+      - {box: [10, 76, 650, 196], sentences: [1]}
+      - {box: [505, 336, 700, 456], sentences: [2]}
+    narration:
+      - "Every summary opens with the iteration, the images seen, and the throughput of the interval."
+      - "Then the moving averages of the interval, training in blue and validation in yellow, each with its change since the previous summary."
+      - "Green marks an improvement, red a degradation, and Best a value at its best so far; the summary ends with the duration of the interval and its validation batches."
+
+  - kind: image
+    title: "Reading the curves"
+    code_reference: "tutorials/figures/foundations/training_curves.py"
+    image: "figures:foundations/training_curves_readme_classification_run_axes.png"
+    overlay: "figures:foundations/training_curves_readme_classification_run.png"
+    highlights:
+      - {box: "{{foundations.training_curves.loss_panel_box}}", sentences: [0, 1]}
+      - {box: "{{foundations.training_curves.accuracy_panel_box}}", sentences: [2, 3]}
+    reveals:
+      - {region: "{{foundations.training_curves.loss_reveal_region}}", sentence: 0}
+      - {region: "{{foundations.training_curves.accuracy_reveal_region}}", sentence: 2}
+    narration:
+      - "Here are the curves of the classification run, every iteration faint and smoothed as TensorBoard does: the loss of the training batches falls from {{foundations.training_curves.train_total_loss.first:.2f}} to about {{foundations.training_curves.train_total_loss.smoothed_last:.2f}}."
+      - "The validation curve follows it with spikes: one validation batch at a time is a noisy estimate, so read its smoothed trend rather than its points."
+      - "The accuracy of the batches climbs to about {{foundations.training_curves.train_accuracy.smoothed_last:.2f}}, and the dots are the evaluations on the whole test split: {{foundations.training_curves.test_accuracy.iteration_500:.3f}}, {{foundations.training_curves.test_accuracy.iteration_1000:.3f}} and {{foundations.training_curves.test_accuracy.iteration_1500:.3f}}."
+      - "The batch curves tell whether the training learns; a model is judged by the test evaluations, which come with every evaluation checkpoint."
+
+  - kind: terminal
+    title: "TensorBoard and MLflow"
+    lines:
+      - {role: comment, text: "# Curves of one run, on http://localhost:6006"}
+      - {role: command, text: "uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard"}
+      - {role: comment, text: "# Every tracked run of an experiment folder, on http://localhost:5000"}
+      - {role: command, text: "uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db"}
+    narration:
+      - "TensorBoard reads the Train, Validation and Test folders of the run: the first two at every iteration, the test scalars and sample images at every evaluation."
+      - "With tracking on, every run is also an MLflow run in a database of the experiment folder, to compare runs by any setting or metric."
+
+  - kind: yaml
+    title: "MLflow tracking"
+    code_reference: "vision_training/tracking"
+    source:
+      file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
+      keys: [ExperimentConfiguration.tracking]
+      comments: false
+    highlights:
+      - {match: "activated:", sentences: [0]}
+      - {match: "tracking_uri:|experiment_name:", sentences: [1]}
+    narration:
+      - "Tracking records the settings, the interval averages, the learning rate and the test metrics from a background thread, so it never slows down nor stops the training."
+      - "Without a tracking address, the database sits in the experiment folder, and the experiment name defaults to the task."
+
+  - kind: terminal
+    title: "Stopping and resuming"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.restore_last_model"
+    lines:
+      - {role: comment, text: "# Ctrl+C saves a checkpoint of the last step taken, and may print:"}
+      - {role: comment, text: "#   The Checkpoint Of Iteration <n> Was Not Evaluated"}
+      - {role: comment, text: "# resume_training: true, the same configuration launched again"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
+      - {role: comment, text: "#   - Changed Settings        : None Since Iteration <n>"}
+    narration:
+      - "Control C saves a checkpoint of the last step; an evaluation checkpoint left unevaluated by the stop is announced, to be evaluated apart."
+      - "Launched again with resume training on, the run restarts from its last checkpoint with its optimizer state, and prints every setting changed since the previous start."
+      - "The number of iterations is the total of the run: resumed at five thousand with eight thousand iterations, it trains the last three thousand."
+
+  - kind: html
+    page: diagram
+    title: "What a resume can change"
+    code_reference: "vision_training/configuration_processing/run_name.py · build_run_name"
+    elements:
+      - {type: box, box: [20, 20, 860, 410], outline: aqua, fill: null, highlight: [0]}
+      - {type: text, position: [440, 55], text: "Can change when the run resumes", font: diagram_bold, anchor: mm}
+      - {type: text, position: [60, 110], text: "batch size\nlearning rate, warm-up and schedule\naugmentation\nlearning rate multipliers of pre-trained parts\ngradient clipping, mixed precision\nmoving average of the weights\ndropout rates, decorrelation"}
+      - {type: box, box: [900, 20, 1740, 410], outline: magenta, fill: null, appear: 1, highlight: [1]}
+      - {type: text, position: [1320, 55], text: "Gives another run name: a new run folder", font: diagram_bold, anchor: mm, appear: 1}
+      - {type: text, position: [940, 110], text: "task, image size, aspect ratio\nbackbone blocks, modules, normalization\nhead pooling, hidden layers, normalization\nclasses, output mode, label smoothing\nclass weighting\noptimizer and weight decay\npre-trained or frozen components", appear: 1}
+      - {type: box, box: [20, 450, 570, 700], text: "run_name_suffix: \"v1\"\n\na new run of the same\nsettings, <run name>_v1", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [605, 450, 1155, 700], text: "resume_training: false\n\nthe previous training moved\naside as v1_<run name>", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [1190, 450, 1740, 700], text: "a labels.json that changed\n\nthe resume stops, unless\nallow_data_change_on_resume", font: diagram_small, outline: red, appear: 3, highlight: [3]}
+    narration:
+      - "The settings without a run name token can change between two resumptions: the batch size, the learning rate and its schedule, the augmentation, the dropout and the other training settings."
+      - "Any setting with a token gives another run name, so the training starts in a new folder."
+      - "A run name suffix starts a new run of the same settings, and with resume training off, the previous training is moved aside so that two trainings never mix."
+      - "And when the labels file of a split changed since the run started, the resume stops, unless the data change is allowed."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "One loop for every task: batch, augmentation, forward, loss, backward, step"}
+      - {text: "Validation every validation_iteration_ratio iterations, without update", monospace: false}
+      - {text: "Summaries, checkpoints and evaluations scheduled in iterations"}
+      - {text: "TensorBoard every iteration, MLflow per run"}
+      - {text: "Ctrl+C saves; resume_training restarts from the last checkpoint"}
+      - {text: "Settings without a run name token can change on resume"}
+    narration:
+      - "To recap: one loop trains every task, everything is scheduled in iterations, and a run can stop and resume with its training settings changed."
+      - "The next chapter opens the data pipeline: the loaders, the image size, the normalization and the augmentation."

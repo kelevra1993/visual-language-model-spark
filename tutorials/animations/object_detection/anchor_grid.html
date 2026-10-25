@@ -1,0 +1,232 @@
+<!doctype html>
+<!--
+ Anchors of the detector on the test image of the object detection series, for the chapter on the data, the levels and
+ the anchors: the grid of the cells of block 5 (stride 32) over the image, the cell of the star with its corner, where
+ the six anchors of the cell are centred, the anchors growing from that corner; then the grid of blocks 6 and 7
+ (stride 64) with the anchors of both levels at the same corner, the 128 pixel anchors of the two levels being the same
+ boxes; then every object with its best anchor over the levels and their overlap, in blue when it reaches the
+ foreground threshold of 0.5 and in magenta when the object only gets that anchor through the fallback of the assignment.
+ The anchors, objects and overlaps are those the trained detector computes (scene data: the anchor_page fact of
+ tutorials/figures/object_detection/detector_inference.py, and the sentence of every stage). The elements of the scene
+ (the texts on the right) are drawn by the engine of common/tutorial.js.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Anchor grid</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        (function () {
+            "use strict";
+
+            // Placement of the image in the content area, a square on the left of the card
+            const IMAGE_LEFT = 40;
+            const IMAGE_TOP = 40;
+            const IMAGE_SIDE = 660;
+
+            // Colour of the anchors of every scale, and of the objects and their best anchors
+            const SCALE_COLOURS = { 32: "blue", 64: "violet", 128: "yellow", 256: "magenta" };
+            const FOREGROUND_COLOUR = "blue";
+            const FALLBACK_COLOUR = "magenta";
+
+            // Seconds between the start of growth of two successive anchors of a cell
+            const ANCHOR_STAGGER_SECONDS = 0.15;
+
+            /* Position of a coordinate of the network input in the content area, along one axis. */
+            function toScene(value, origin, imageSize) {
+                return origin + value * IMAGE_SIDE / imageSize;
+            }
+
+            /* Opacity of a part shown from one sentence until the start of another: faded in over APPEAR_SECONDS from
+             * its first sentence and out over APPEAR_SECONDS from its last one, with whether it is fading. */
+            function stageOpacity(helpers, time, firstSentence, lastSentence) {
+                const startTime = helpers.sentenceStart(firstSentence);
+                const endTime = lastSentence === null ? Infinity : helpers.sentenceStart(lastSentence);
+                const fadeIn = helpers.ease((time - startTime) / helpers.APPEAR_SECONDS);
+                const fadeOut = 1 - helpers.ease((time - endTime) / helpers.APPEAR_SECONDS);
+                const moving = (time >= startTime && time < startTime + helpers.APPEAR_SECONDS) ||
+                    (time >= endTime && time < endTime + helpers.APPEAR_SECONDS);
+                return { value: time < startTime ? 0 : fadeIn * fadeOut, moving: moving };
+            }
+
+            /* Draws the lines of the grid of a level over the image, in a group of its own. */
+            function drawGrid(helpers, parent, cells, imageSize) {
+                const group = helpers.createSvgElement("g", { opacity: 0 }, parent);
+                const stroke = helpers.cssColour(helpers.COLOURS.text);
+                for (let index = 0; index <= cells; index++) {
+                    const position = IMAGE_LEFT + index * IMAGE_SIDE / cells;
+                    helpers.createSvgElement("line", { x1: position, y1: IMAGE_TOP, x2: position,
+                                                       y2: IMAGE_TOP + IMAGE_SIDE, stroke: stroke,
+                                                       "stroke-opacity": 0.35, "stroke-width": 1 }, group);
+                    const row = IMAGE_TOP + index * IMAGE_SIDE / cells;
+                    helpers.createSvgElement("line", { x1: IMAGE_LEFT, y1: row, x2: IMAGE_LEFT + IMAGE_SIDE, y2: row,
+                                                       stroke: stroke, "stroke-opacity": 0.35, "stroke-width": 1 },
+                                             group);
+                }
+                return group;
+            }
+
+            /* Draws the cell of a level whose anchors are shown, outlined, with a dot at its centre and the accent dot
+             * at its top left corner, the point the anchors of the cell are centred on. */
+            function drawCell(helpers, parent, level, imageSize) {
+                const group = helpers.createSvgElement("g", { opacity: 0 }, parent);
+                const cellSide = level.stride * IMAGE_SIDE / imageSize;
+                const left = toScene(level.cell[0] * level.stride, IMAGE_LEFT, imageSize);
+                const top = toScene(level.cell[1] * level.stride, IMAGE_TOP, imageSize);
+                helpers.createSvgElement("rect", { x: left, y: top, width: cellSide, height: cellSide,
+                                                   fill: helpers.cssColour(helpers.COLOURS.accent),
+                                                   "fill-opacity": 0.18,
+                                                   stroke: helpers.cssColour(helpers.COLOURS.accent),
+                                                   "stroke-width": 2, "stroke-dasharray": "6 4" }, group);
+                helpers.createSvgElement("circle", { cx: left + cellSide / 2, cy: top + cellSide / 2, r: 4,
+                                                     fill: helpers.cssColour(helpers.COLOURS.dim) }, group);
+                helpers.createSvgElement("circle", { cx: left, cy: top, r: 8,
+                                                     fill: helpers.cssColour(helpers.COLOURS.accent) }, group);
+                return group;
+            }
+
+            /* Draws the anchors of the cell of a level, every anchor a rectangle that grows from the corner. */
+            function drawAnchors(helpers, parent, level, imageSize, dashed) {
+                return level.anchors.map((anchor) => {
+                    const colour = helpers.cssColour(helpers.resolveColour(SCALE_COLOURS[anchor.scale] || "text"));
+                    const rectangle = helpers.createSvgElement("rect", { fill: "none", stroke: colour,
+                                                                         "stroke-width": dashed ? 3 : 3.5,
+                                                                         "stroke-dasharray": dashed ? "10 7" : "none",
+                                                                         opacity: 0 }, parent);
+                    return { rectangle: rectangle, box: anchor.box,
+                             centre: [level.cell[0] * level.stride, level.cell[1] * level.stride] };
+                });
+            }
+
+            /* Places an anchor at its growth, a rectangle scaled about its centre from a point to its full size. */
+            function placeAnchor(record, growth, imageSize) {
+                const [centreX, centreY] = record.centre;
+                const left = centreX + (record.box[0] - centreX) * growth;
+                const top = centreY + (record.box[1] - centreY) * growth;
+                const right = centreX + (record.box[2] - centreX) * growth;
+                const bottom = centreY + (record.box[3] - centreY) * growth;
+                record.rectangle.setAttribute("x", toScene(left, IMAGE_LEFT, imageSize));
+                record.rectangle.setAttribute("y", toScene(top, IMAGE_TOP, imageSize));
+                record.rectangle.setAttribute("width", Math.max(0, (right - left) * IMAGE_SIDE / imageSize));
+                record.rectangle.setAttribute("height", Math.max(0, (bottom - top) * IMAGE_SIDE / imageSize));
+            }
+
+            /* Draws every object with its best anchor and their overlap, coloured by the foreground threshold. */
+            function drawObjects(helpers, parent, objects, imageSize) {
+                const group = helpers.createSvgElement("g", { opacity: 0 }, parent);
+                objects.forEach((object) => {
+                    const [left, top, right, bottom] = object.box;
+                    helpers.createSvgElement("rect", { x: toScene(left, IMAGE_LEFT, imageSize),
+                                                       y: toScene(top, IMAGE_TOP, imageSize),
+                                                       width: (right - left) * IMAGE_SIDE / imageSize,
+                                                       height: (bottom - top) * IMAGE_SIDE / imageSize, fill: "none",
+                                                       stroke: helpers.cssColour(helpers.COLOURS.text),
+                                                       "stroke-width": 2.5 }, group);
+                    const colour = helpers.resolveColour(object.foreground ? FOREGROUND_COLOUR : FALLBACK_COLOUR);
+                    const [anchorLeft, anchorTop, anchorRight, anchorBottom] = object.best_anchor;
+                    const clippedLeft = Math.max(anchorLeft, 0);
+                    const clippedTop = Math.max(anchorTop, 0);
+                    helpers.createSvgElement("rect", { x: toScene(clippedLeft, IMAGE_LEFT, imageSize),
+                                                       y: toScene(clippedTop, IMAGE_TOP, imageSize),
+                                                       width: (Math.min(anchorRight, imageSize) - clippedLeft) *
+                                                           IMAGE_SIDE / imageSize,
+                                                       height: (Math.min(anchorBottom, imageSize) - clippedTop) *
+                                                           IMAGE_SIDE / imageSize,
+                                                       fill: "none", stroke: helpers.cssColour(colour),
+                                                       "stroke-width": 3.5, "stroke-dasharray": "10 6" }, group);
+                    const label = helpers.createText(group, Number(object.best_iou).toFixed(2),
+                                                     toScene(clippedLeft, IMAGE_LEFT, imageSize) + 8,
+                                                     toScene(clippedTop, IMAGE_TOP, imageSize) + 6, "la",
+                                                     "diagram_monospace_small", colour);
+                    label.setAttribute("font-weight", "700");
+
+                    // Dark band behind the overlap, so that it reads on the colours of the image
+                    const labelBox = label.getBBox();
+                    group.insertBefore(helpers.createSvgElement("rect", {
+                        x: labelBox.x - 4, y: labelBox.y - 2, width: labelBox.width + 8, height: labelBox.height + 4,
+                        rx: 4, fill: helpers.cssColour(helpers.COLOURS.terminal), "fill-opacity": 0.85 }), label);
+                });
+                return group;
+            }
+
+            /* Builds the image, the grids, cells and anchors of both levels and the objects, all hidden. */
+            function setupAnchorGrid(context) {
+                const helpers = context.helpers;
+                const data = context.scene.data;
+                const page = data.anchors;
+                const imageSize = page.image_size;
+                const group = helpers.createSvgElement("g", {}, context.root);
+                helpers.createSvgElement("image", { x: IMAGE_LEFT, y: IMAGE_TOP, width: IMAGE_SIDE, height: IMAGE_SIDE,
+                                                    href: page.image }, group);
+
+                // Anchors reaching beyond the image clipped at its border, so that they never cover the texts
+                const clipPath = helpers.createSvgElement("clipPath", { id: "anchor-image-clip" }, group);
+                helpers.createSvgElement("rect", { x: IMAGE_LEFT, y: IMAGE_TOP, width: IMAGE_SIDE, height: IMAGE_SIDE },
+                                         clipPath);
+                const anchorGroup = helpers.createSvgElement("g", { "clip-path": "url(#anchor-image-clip)" }, group);
+                const fineLevel = page.levels[0];
+                const coarseLevels = page.levels.slice(1);
+                const parts = {
+                    helpers: helpers, stages: data.stages, imageSize: imageSize,
+                    fineGrid: drawGrid(helpers, group, fineLevel.cells, imageSize),
+                    fineCell: drawCell(helpers, group, fineLevel, imageSize),
+                    coarseGrid: drawGrid(helpers, group, coarseLevels[0].cells, imageSize),
+                    coarseCell: drawCell(helpers, group, coarseLevels[0], imageSize),
+                    fineAnchors: drawAnchors(helpers, anchorGroup, fineLevel, imageSize, false),
+                    coarseAnchors: coarseLevels.flatMap((level, levelIndex) =>
+                        drawAnchors(helpers, anchorGroup, level, imageSize, levelIndex > 0)),
+                    objects: drawObjects(helpers, group, page.objects, imageSize)
+                };
+                return parts;
+            }
+
+            /* Shows the anchors of a cell from a sentence until another, every anchor growing after the previous. */
+            function updateAnchors(parts, records, time, firstSentence, lastSentence) {
+                const helpers = parts.helpers;
+                const shown = stageOpacity(helpers, time, firstSentence, lastSentence);
+                let moving = shown.moving;
+                records.forEach((record, index) => {
+                    const growStart = helpers.sentenceStart(firstSentence) + index * ANCHOR_STAGGER_SECONDS;
+                    const growth = helpers.ease((time - growStart) / helpers.GROW_SECONDS);
+                    moving = moving || (time >= growStart && time < growStart + helpers.GROW_SECONDS);
+                    placeAnchor(record, Math.max(growth, 0.001), parts.imageSize);
+                    record.rectangle.setAttribute("opacity", time < growStart ? 0 : shown.value);
+                });
+                return moving;
+            }
+
+            /* Draws the stages at a time: the fine grid and its anchors, the coarse grid and its anchors, then the
+             * objects with their best anchors. */
+            function updateAnchorGrid(parts, time) {
+                const helpers = parts.helpers;
+                const stages = parts.stages;
+                let moving = false;
+                [[parts.fineGrid, stages.fine_grid, stages.coarse_grid], [parts.fineCell, stages.fine_grid,
+                 stages.coarse_grid], [parts.coarseGrid, stages.coarse_grid, stages.objects],
+                 [parts.coarseCell, stages.coarse_grid, stages.objects], [parts.objects, stages.objects, null]]
+                    .forEach(([node, firstSentence, lastSentence]) => {
+                        const shown = stageOpacity(helpers, time, firstSentence, lastSentence);
+                        node.setAttribute("opacity", shown.value);
+                        moving = moving || shown.moving;
+                    });
+                moving = updateAnchors(parts, parts.fineAnchors, time, stages.fine_anchors, stages.coarse_grid) ||
+                    moving;
+                moving = updateAnchors(parts, parts.coarseAnchors, time, stages.coarse_grid, stages.objects) || moving;
+                return moving;
+            }
+
+            /* Registers the anchor grid as the custom part of the scene, its update function bound to its parts. */
+            function registerAnchorGrid(context) {
+                const parts = setupAnchorGrid(context);
+                return updateAnchorGrid.bind(null, parts);
+            }
+
+            Tutorial.registerCustom(registerAnchorGrid);
+        })();
+    </script>
+</body>
+</html>

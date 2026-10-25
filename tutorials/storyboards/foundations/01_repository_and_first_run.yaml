@@ -1,0 +1,224 @@
+# Foundations, chapter 1: what the repository is, where its parts live, how a run is installed, configured, named and
+# launched, and what it prints and writes. Coordinates of the html scenes are in pixels of the content area (1760 x 740,
+# origin at its top left corner); the figures named figures:foundations/... are made by tutorials/figures/foundations.
+series: foundations
+series_title: "Foundations"
+chapter: 1
+title: "The repository and a first run"
+output_name: foundations_01_repository_and_first_run
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [foundations]
+references:
+  - "vision_training/main.py · main"
+  - "vision_training/configuration_processing/configuration_loader.py · load_experiment_configuration"
+  - "vision_training/configuration_processing/run_name.py"
+  - "vision_training/data/synthetic/create_synthetic_dataset.py"
+  - "scripts/evaluation/evaluate_checkpoint.py"
+  - "documentation/task workflows/classification_workflow.md"
+scenes:
+  - kind: title_card
+    heading: "The repository and a first run"
+    subheading: "Ten tasks, one backbone, one training loop"
+    footnote: "Foundations · chapter 1"
+    narration:
+      - "This series is for engineers who know deep learning and need to know this repository: what it decides for you, where the code lives, and which settings matter."
+      - "This first chapter maps the ten tasks, installs the environment, and follows one synthetic run from its configuration file to its run folder."
+
+  - kind: html
+    page: diagram
+    title: "Ten tasks on one backbone"
+    code_reference: "vision_training/models/backbones/backbone.py · Backbone"
+    elements:
+      # Inputs on the left, the image from the start, the sequences and pairs with the sequence tasks
+      - {type: box, box: [40, 90, 330, 200], text: "Image", font: diagram_bold, outline: blue}
+      - {type: box, box: [40, 320, 330, 430], text: "Sequence\nof frames", font: diagram_bold, outline: aqua, appear: 2}
+      - {type: box, box: [40, 550, 330, 660], text: "Pair\nbefore, after", font: diagram_bold, outline: aqua, appear: 2}
+      # Shared backbone: blocks halving the resolution while the channels grow
+      - {type: cuboid, box: [430, 255, 520, 495], depth: 12, fill: blue}
+      - {type: cuboid, box: [565, 285, 635, 465], depth: 22, fill: blue}
+      - {type: cuboid, box: [680, 310, 730, 440], depth: 32, fill: blue}
+      - {type: cuboid, box: [770, 330, 805, 420], depth: 42, fill: blue}
+      - {type: cuboid, box: [845, 345, 870, 405], depth: 52, fill: blue}
+      - {type: text, position: [665, 530], text: "Shared backbone", font: diagram_bold, anchor: ma}
+      - {type: text, position: [665, 572], text: "convolution blocks with optional\nsqueeze-and-excitation, residual\nand inception modules", font: diagram_small, colour: dim, anchor: ma, align: center}
+      - {type: arrow, points: [[330, 145], [420, 320]], colour: blue}
+      - {type: arrow, points: [[330, 375], [420, 375]], colour: aqua, appear: 2}
+      - {type: arrow, points: [[330, 605], [420, 430]], colour: aqua, appear: 2}
+      # Image tasks on the right
+      - {type: text, position: [1050, 22], text: "Image tasks: a head on the backbone", font: diagram_small, colour: dim, appear: 1}
+      - {type: arrow, points: [[915, 350], [1040, 175]], colour: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [1050, 60, 1380, 130], text: "CLS · classification", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1400, 60, 1730, 130], text: "DET · object detection", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1050, 145, 1380, 215], text: "INS · instance masks", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1400, 145, 1730, 215], text: "KPT · keypoints", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1050, 230, 1380, 300], text: "SEG · segmentation", font: diagram_small, outline: blue, appear: 1}
+      # Sequence tasks, the backbone run on every frame
+      - {type: text, position: [1050, 372], text: "Sequence tasks: the backbone on every frame", font: diagram_small, colour: dim, appear: 2}
+      - {type: arrow, points: [[915, 400], [1040, 480]], colour: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [1050, 410, 1380, 480], text: "M2O · class per sequence", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1400, 410, 1730, 480], text: "M2M · class per frame", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1050, 495, 1380, 565], text: "CMP · class per pair", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1400, 495, 1730, 565], text: "SEL · frames to select", font: diagram_small, outline: aqua, appear: 2}
+      # Self-supervised task, training the backbone the others start from
+      - {type: box, box: [1050, 630, 1730, 700], text: "SSL · self-supervised: the backbone without labels", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1050, 665], [880, 665], [880, 425]], colour: violet, appear: 3, highlight: [3], label: "pre-trained\nweights", label_position: [965, 610]}
+    narration:
+      - "Every task of the repository shares one convolutional backbone, one training loop, one configuration format, one evaluation report and one export to Triton."
+      - "The image tasks put a head on that backbone: pooling and a fully connected head for classification, region proposals and ROI Align for detection and instance masks, a high resolution network for keypoints, and a U-Net decoder for segmentation."
+      - "The sequence tasks run the backbone on every frame, then a temporal module: one class per sequence, per frame, per pair of sequences, or the frames to select."
+      - "And the self-supervised task trains the backbone without any label, so that every other task can start from its weights."
+
+  - kind: text_panel
+    title: "Where things live"
+    columns:
+      - heading: "vision_training/"
+        lines:
+          - "main.py                   entry point"
+          - "configurations/           one folder per task"
+          - "configuration_processing/ load, check, name"
+          - "data/                     datasets, augmentation"
+          - "models/                   backbone, task heads"
+          - "losses/                   losses of every task"
+          - "trainers/                 base trainer, one per task"
+          - "evaluation/               metrics and reports"
+          - "deployment/               export, Triton"
+      - heading: "around it"
+        lines:
+          - "scripts/        after training"
+          - "tests/          mirrors the package"
+          - "documentation/  benchmark, audit, workflows"
+          - "tutorials/      these videos"
+          - "README.md       every task, every key"
+    narration:
+      - "The training framework is one package: its main module is the entry point of every training, and every task adds its trainer, dataset, model, loss and metrics to the matching folders."
+      - "Around it, the scripts run after training, the tests mirror the package, and the documentation holds the benchmark results, the audit of known problems, and one workflow document per task that follows a real run function by function."
+
+  - kind: terminal
+    title: "Install, generate, train"
+    code_reference: "vision_training/main.py · main"
+    lines:
+      - {role: comment, text: "# The environment pinned by uv.lock"}
+      - {role: command, text: "uv sync"}
+      - {role: comment, text: "# A synthetic dataset, task and folders set in the main block of the script"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# A training: its only argument is the path of its configuration"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
+    narration:
+      - "uv sync installs the environment pinned by the lock file, and every script then runs as a module from the repository root."
+      - "Without data at hand, the synthetic dataset script draws a shapes dataset for any task in a few minutes; like every script but the training, it is set in its main block."
+      - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
+
+  - kind: yaml
+    title: "One file defines the run"
+    code_reference: "vision_training/configuration_processing/configuration_loader.py · load_experiment_configuration"
+    source:
+      file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
+      keys: [ExperimentConfiguration.task, ExperimentConfiguration.batch_size, ExperimentConfiguration.weight_saving_iterations,
+             ExperimentConfiguration.number_iterations, ExperimentConfiguration.validation_iteration_ratio, Optimization.optimizer,
+             Data.image_settings, ClassificationHead.output_mode]
+      comments: false
+    highlights:
+      - {match: "^(ExperimentConfiguration|Optimization|Data|ClassificationHead):", sentences: [0]}
+      - {match: "task:", sentences: [0, 1]}
+      - {match: "number_iterations|weight_saving_iterations|validation_iteration_ratio", sentences: [2]}
+    narration:
+      - "A configuration has one section for the experiment, one for the optimization, one for the data, one for the backbone, and the sections of the task, here the classification head."
+      - "There are no defaults: the file of a task holds every key the task reads, and the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all the mistakes."
+      - "The training is counted in iterations, not epochs: checkpoints, evaluations and summaries are all set in iterations."
+
+  - kind: html
+    page: diagram
+    title: "The run name"
+    code_reference: "vision_training/configuration_processing/run_name.py · build_run_name"
+    elements:
+      - {type: text, position: [269, 110], font: code_text, segments: [{text: "CLS", highlight: [1]}, {text: "_", colour: dim}, {text: "IN-KAR-512", highlight: [1]}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128", highlight: [2]}, {text: "_", colour: dim}, {text: "HFLAT.128-HLN-CWB", highlight: [3]}, {text: "_", colour: dim}, {text: "MC9", highlight: [3]}]}
+      - {type: arrow, points: [[293, 130], [158, 240]], appear: 1}
+      - {type: box, box: [0, 245, 316, 445], text: "CLS\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[410, 130], [519, 240]], appear: 1}
+      - {type: box, box: [361, 245, 677, 445], text: "IN-KAR-512\n\ninput normalization,\nkept aspect ratio,\n512 pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[825, 130], [880, 240]], appear: 2}
+      - {type: box, box: [722, 245, 1038, 445], text: "SE-RES-BN-B...\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1295, 130], [1241, 240]], appear: 3}
+      - {type: box, box: [1083, 245, 1399, 445], text: "HFLAT.128-HLN-CWB\n\nflatten pooling,\n128 hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1467, 130], [1602, 240]], appear: 3}
+      - {type: box, box: [1444, 245, 1760, 445], text: "MC9\n\nmulti-class output,\n9 classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [130, 520, 1630, 700], text: "No token: batch size, learning rate and its schedule, augmentation, dropout,\nmixed precision, gradient clipping, moving average of the weights\nrun_name_suffix: \"v1\"  →  <run name>_v1, a new run of the same settings", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
+    narration:
+      - "The run folder is named after the settings that shape the model, so that the same settings resume in the same folder and changed ones start a new run."
+      - "Here: the task, then the input, normalized, with its aspect ratio kept, at five hundred and twelve pixels."
+      - "Then the backbone, with squeeze and excitation, residual shortcuts and batch normalization, and the layers by channels of its six blocks."
+      - "Then the head: flattened features, a hidden layer of a hundred and twenty eight units with layer normalization, balanced class weights, and nine classes."
+      - "Settings that may change when a run resumes, like the learning rate, the augmentation or the moving average, leave no token; a run name suffix starts a new run of the same settings."
+
+  - kind: image
+    title: "What the launch prints"
+    image: "repository:README/experiment_launch_information.png"
+    views:
+      - {box: [0, 40, 940, 205], from_sentence: 0}
+      - {box: [0, 200, 700, 300], from_sentence: 1}
+      - {box: [0, 290, 620, 560], from_sentence: 2}
+    highlights:
+      - {box: [10, 77, 915, 95], sentences: [0]}
+      - {box: [10, 97, 915, 195], sentences: [0]}
+      - {box: [10, 217, 600, 275], sentences: [1]}
+      - {box: [10, 277, 330, 295], sentences: [1]}
+      - {box: [10, 297, 520, 435], sentences: [2]}
+    narration:
+      - "At launch, the trainer prints the run name, then its folders and files as clickable links."
+      - "Then every split with its images and categories, and the length of one epoch in iterations, the only place where epochs appear."
+      - "Then the training settings: the batch size, the iterations, how often checkpoints are saved and evaluated, the learning rate and the optimizer."
+
+  - kind: html
+    page: diagram
+    title: "The run folder"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.setup_training_paths"
+    elements:
+      - type: listing
+        box: [40, 22, 1040, 720]
+        font: diagram_monospace
+        source: {file: "figures:foundations/listings/run_folder_tree.txt"}
+        highlights:
+          - {match: "training_configuration.yaml|data.json|label_dictionary.json", sentences: [0]}
+          - {match: "Weights/|model_\\d+\\.pt|full-checkpoint", sentences: [1]}
+          - {match: "Tensorboard/|Train/|Validation/|Test/|Results.txt|mlflow_run.json", sentences: [2]}
+          - {match: "Evaluation/", sentences: [3]}
+      - {type: text, position: [1100, 60], text: "Every evaluated checkpoint", font: diagram_bold, appear: 3}
+      - type: listing
+        box: [1100, 120, 1720, 420]
+        font: diagram_monospace
+        appear: 3
+        source: {file: "figures:foundations/listings/evaluation_folder_tree.txt"}
+    narration:
+      - "Everything a run writes stays in its folder: the copy of its configuration, the record of its data with the classes counted in every split, and the class index of every category."
+      - "Then the checkpoints of every saved iteration, each holding the weights, the optimizer state and the classes."
+      - "Then the TensorBoard logs of the three splits, the report of every evaluated checkpoint in the results file, and the MLflow run when tracking is on."
+      - "And for every evaluated checkpoint, a folder with the metrics, curves, predictions and sample images of the test split; every task writes its own files there."
+
+  - kind: image
+    title: "TensorBoard"
+    image: "repository:README/tensorboard.png"
+    narration:
+      - "TensorBoard reads the logs of the run folder: the training and validation curves at every iteration, and the test metrics of every evaluated checkpoint."
+
+  - kind: image
+    title: "MLflow"
+    code_reference: "vision_training/tracking"
+    image: "repository:README/mlflow_runs.png"
+    views:
+      - {box: [470, 95, 1500, 265], from_sentence: 0}
+    narration:
+      - "With tracking on, every run is also an MLflow run with its parameters, metrics and artifacts, so that launches are compared in one table, here four learning rates of the same configuration."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Ten tasks: one backbone, one loop, one configuration format, one report"}
+      - {text: "uv sync, then every script as a module from the repository root"}
+      - {text: "One YAML file per run: every key required, all checked at launch"}
+      - {text: "Iterations, not epochs"}
+      - {text: "The run name encodes the model; run_name_suffix starts a new run"}
+      - {text: "Everything a run writes stays in its run folder"}
+    narration:
+      - "To recap: one configuration file defines a run, the run name identifies its model, and its folder holds everything it writes."
+      - "The next chapter follows the training loop itself: the iterations, the validation, the checkpoints, and how a run stops and resumes."

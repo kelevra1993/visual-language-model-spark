@@ -1,0 +1,84 @@
+<!doctype html>
+<!--
+ Receptive field of the backbone for the foundations chapter on the backbone: the squares of input pixels seen by one
+ value of the feature map after the last convolution of every block, drawn on the test image of the feature maps
+ figure around the position of the strongest response of the final map, the first two blocks with the first sentence,
+ the middle blocks with the second and the last block with the third. The receptive fields, the input size and the
+ centre come from the facts of the run (scene data), computed by Backbone.compute_receptive_field_information; the
+ image and the bars of the receptive fields are drawn by the engine of common/tutorial.js.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Receptive field</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        (function () {
+            "use strict";
+
+            /* Sentence with which the square of a block appears: the first two blocks with the first sentence, the
+             * last block with the third, the others with the second. */
+            function appearSentence(blockIndex, blockCount) {
+                if (blockIndex < 2) {
+                    return 0;
+                }
+                return blockIndex === blockCount - 1 ? 2 : 1;
+            }
+
+            /* Draws the square of every block over the image, clipped to the image, hidden until its sentence. */
+            function setupSquares(context) {
+                const helpers = context.helpers;
+                const data = context.scene.data;
+                const [left, top, right, bottom] = data.image_box;
+                const scale = (right - left) / data.input_size;
+                const clipIdentifier = "receptive-field-clip";
+                const definitions = helpers.createSvgElement("defs", {}, context.root);
+                const clipPath = helpers.createSvgElement("clipPath", { id: clipIdentifier }, definitions);
+                helpers.createSvgElement("rect", { x: left, y: top, width: right - left, height: bottom - top },
+                                         clipPath);
+                const group = helpers.createSvgElement("g", { "clip-path": `url(#${clipIdentifier})` }, context.root);
+                const centreX = left + data.centre_x * scale;
+                const centreY = top + data.centre_y * scale;
+                const squares = data.receptive_fields.map((receptiveField, blockIndex) => {
+                    const side = Math.max(receptiveField * scale, 3);
+                    const node = helpers.createSvgElement("rect", { x: centreX - side / 2, y: centreY - side / 2,
+                                                                    width: side, height: side, fill: "none",
+                                                                    stroke: helpers.cssColour(helpers.COLOURS.text),
+                                                                    "stroke-width": 3 }, group);
+                    return { node: node, appear: appearSentence(blockIndex, data.receptive_fields.length),
+                             last: blockIndex === data.receptive_fields.length - 1 };
+                });
+                return { helpers: helpers, squares: squares };
+            }
+
+            /* Shows the squares from their sentences, the square of the last block in the accent colour while the third
+             * sentence is spoken. Returns whether a square still fades in. */
+            function updateSquares(parts, time) {
+                const helpers = parts.helpers;
+                let moving = false;
+                parts.squares.forEach((square) => {
+                    const appearance = helpers.computeAppearance({ appear: square.appear }, time);
+                    square.node.setAttribute("opacity", appearance.opacity);
+                    const accented = square.last && helpers.activeSentence(time) === 2;
+                    square.node.setAttribute("stroke", helpers.cssColour(accented ? helpers.COLOURS.accent :
+                        helpers.COLOURS.text));
+                    moving = moving || appearance.moving;
+                });
+                return moving;
+            }
+
+            /* Registers the squares as the custom part of the scene, its update function bound to its parts. */
+            function registerSquares(context) {
+                const parts = setupSquares(context);
+                return updateSquares.bind(null, parts);
+            }
+
+            Tutorial.registerCustom(registerSquares);
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+# Sequence classification, chapter 3: the README run of the current configuration against the average pooling and
+# flatten runs at 512 pixels: the console summary, the training loss, Results.txt, the confusion matrices and ROC
+# curves, the probabilities of the predictions file, the sample sequences, the accuracy on shorter sequences, the export
+# and the pitfalls of the task. The figures are made by tutorials/figures/sequence_classification.
+series: sequence_classification
+series_title: "Sequence Classification (M2O)"
+chapter: 3
+title: "Training, evaluation and export"
+output_name: sequence_classification_03_training_evaluation_export
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [sequence_classification]
+references:
+  - "vision_training/trainers/sequence_classification_trainer.py · SequenceClassificationTrainer"
+  - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.compute_evaluation_results"
+  - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.write_predictions_file"
+  - "vision_training/deployment/export_model.py"
+  - "vision_training/deployment/export_specifications.py"
+  - "documentation/suggestions.md"
+scenes:
+  - kind: title_card
+    heading: "Training, evaluation and export"
+    subheading: "What the run writes, why average pooling fails, what Triton serves"
+    footnote: "Sequence Classification (M2O) · chapter 3"
+    narration:
+      - "This chapter reads the README run of the current configuration: {{sequence_classification.run.number_iterations}} iterations at 128 pixels, a checkpoint evaluated every 500."
+      - "Then it sets it against the same task with average pooling, which never leaves chance, and ends with the export and the pitfalls."
+
+  - kind: image
+    title: "The console summary"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_training_iterations"
+    image: "figures:sequence_classification/evaluation/training_console.png"
+    highlights:
+      - {box: "{{sequence_classification.console.header_box}}", sentences: [0, 2]}
+      - {box: "{{sequence_classification.console.train_loss_box}}", sentences: [1]}
+      - {box: "{{sequence_classification.console.validation_box}}", sentences: [1]}
+    narration:
+      - "Every 100 iterations, the summary gives the sequences per second, and the frames per second without the padding."
+      - "At the first interval of this run: {{sequence_classification.console.flatten_128.first_throughput}} sequences and {{sequence_classification.console.flatten_128.first_frame_throughput}} frames per second, a training loss of {{sequence_classification.console.flatten_128.first_interval_loss:.2f}}, and four validation batches, one every 25 iterations."
+      - "The same task at 512 pixels ran at {{sequence_classification.console.average_512.first_throughput}} sequences per second: the frame size sets the cost of a sequence run."
+
+  - kind: image
+    title: "Flatten learns, average does not"
+    image: "figures:sequence_classification/evaluation/training_loss_axes.png"
+    overlay: "figures:sequence_classification/evaluation/training_loss.png"
+    reveals:
+      - {region: "{{sequence_classification.training.panel_0_reveal_region}}", sentence: 0}
+      - {region: "{{sequence_classification.training.panel_1_reveal_region}}", sentence: 1}
+    highlights:
+      - {box: "{{sequence_classification.training.panel_0_box}}", sentences: [0]}
+      - {box: "{{sequence_classification.training.panel_1_box}}", sentences: [1, 2]}
+    narration:
+      - "The training loss of the flatten run falls from {{sequence_classification.training.flatten_128.first_loss:.2f}} to {{sequence_classification.training.flatten_128.last_loss:.3f}} in {{sequence_classification.training.flatten_128.iterations}} iterations."
+      - "With average pooling at 512 pixels, it stays at the natural log of four, the loss of a uniform guess over four classes, for {{sequence_classification.training.average_512.iterations}} iterations: its interval averages never leave {{sequence_classification.console.average_512.minimum_interval_loss:.3f}} to {{sequence_classification.console.average_512.maximum_interval_loss:.3f}}."
+      - "Flatten at 512 pixels stays there too after {{sequence_classification.training.flatten_512.iterations}} iterations, its 65,536 features per frame feeding a GRU of {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million weights."
+
+  - kind: code
+    title: "Results.txt"
+    code_reference: "vision_training/trainers/classification_trainer.py · ClassificationTrainer.compute_evaluation_results"
+    syntax: plain
+    source:
+      file: "figures:sequence_classification/listings/results_flatten_128.txt"
+      start: "^Iteration 500"
+      count: 16
+    highlights:
+      - {match: "Accuracy  |Macro F1|Macro ROC AUC", sentences: [0]}
+      - {match: "^   moving_left ", sentences: [1]}
+      - {match: "Threshold|@ P0.99|Worst F1 first", sentences: [3]}
+    narration:
+      - "The results file gets one block per evaluated checkpoint: the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-2 accuracy, the macro ROC AUC and the macro average precision."
+      - "At iteration 500, one test sequence is wrong: sequence {{sequence_classification.evaluation.flatten_128.first_wrong.number}}, a {{sequence_classification.evaluation.flatten_128.first_wrong.true_class}} shape given {{sequence_classification.evaluation.flatten_128.first_wrong.predicted_class}} at {{sequence_classification.evaluation.flatten_128.first_wrong.probability:.2f}}, hence the recall of moving left."
+      - "At iteration 1000, every metric of the block is {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:.0f}}."
+      - "The per-class table is sorted by F1, worst first, with the lowest threshold keeping a precision of 0.99 and the recall it keeps."
+
+  - kind: image
+    title: "Flatten against average"
+    image: "figures:sequence_classification/evaluation/confusion_and_roc.png"
+    views:
+      - {box: "{{sequence_classification.evaluation.composite.row_0_box}}", from_sentence: 1}
+      - {box: "{{sequence_classification.evaluation.composite.row_1_box}}", from_sentence: 2}
+    narration:
+      - "The evaluation folder holds the files of the image classification: the confusion matrix, the class metrics and thresholds, the ROC and precision-recall curves, the predictions, and the sample sequences."
+      - "At iteration 1000, the flatten run has a diagonal confusion matrix and a ROC AUC of one for every class."
+      - "The average pooling run predicts moving down for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:.2f}}, the share of moving down, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:.2f}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:.2f}}."
+
+  - kind: image
+    title: "The probability of the true class"
+    code_reference: "vision_training/trainers/classification_trainer.py · ClassificationTrainer.write_predictions_file"
+    image: "figures:sequence_classification/evaluation/true_class_probabilities.png"
+    highlights:
+      - {box: "{{sequence_classification.probabilities.panel_0_box}}", sentences: [0]}
+      - {box: "{{sequence_classification.probabilities.panel_1_box}}", sentences: [1]}
+    narration:
+      - "The predictions file gives every test sequence with its first and last frames and its four probabilities: the flatten run gives the true class more than ninety percent for {{sequence_classification.probabilities.flatten_128.above_0_9}} of the {{sequence_classification.probabilities.flatten_128.sequences}} sequences."
+      - "With average pooling, every probability of every sequence lies between {{sequence_classification.probabilities.average_512.minimum_any:.2f}} and {{sequence_classification.probabilities.average_512.maximum_any:.2f}}: the same answer, whatever the frames."
+
+  - kind: image
+    title: "Sample sequences"
+    image: "figures:sequence_classification/evaluation/samples.png"
+    highlights:
+      - {box: "{{sequence_classification.samples.row_0_image_0_box}}", sentences: [1]}
+      - {box: "{{sequence_classification.samples.row_0_image_1_box}}", sentences: [1]}
+    narration:
+      - "Every evaluation draws its eight fixed test sequences as grids of their real frames, under the true class, the predicted one and its probability, in green when right and in red when wrong."
+      - "Here the same {{sequence_classification.samples.flatten_128.true_class}} sequence: right at {{sequence_classification.samples.flatten_128.probability:.3f}} with flatten, given {{sequence_classification.samples.average_512.predicted_class}} at {{sequence_classification.samples.average_512.probability:.2f}} with average pooling."
+
+  - kind: image
+    title: "Shorter sequences"
+    image: "figures:sequence_classification/model/truncation.png"
+    highlights:
+      - {box: "{{sequence_classification.truncation.panel_box}}", sentences: [0]}
+    narration:
+      - "The run only ever saw sequences of eight frames: on the first frames of the test sequences, which show less of the movement, its checkpoint reaches an accuracy of {{sequence_classification.truncation.frames_2.accuracy:.2f}} with two frames, {{sequence_classification.truncation.frames_4.accuracy:.2f}} with 4, and {{sequence_classification.truncation.frames_8.accuracy:.2f}} with all 8."
+      - "The model accepts any length, but what it learnt comes from sequences of eight frames: check the lengths a deployment will send against those of the training data."
+
+  - kind: html
+    page: diagram
+    title: "The export"
+    code_reference: "vision_training/models/sequence/inference_sequence_model.py · InferenceSequenceModel"
+    elements:
+      - {type: box, box: [20, 120, 380, 380], text: "client\n\nevery frame resized\nand padded to 128\n(keep_ratio)", font: diagram_small, outline: border}
+      - {type: arrow, points: [[380, 250], [470, 250]], label: "images", label_position: [425, 220]}
+      - {type: box, box: [470, 40, 1290, 460], text: null, outline: aqua, fill: null}
+      - {type: text, position: [880, 64], text: "InferenceSequenceModel · Triton model sequence_classifier", font: diagram_bold, anchor: ma}
+      - {type: text, position: [880, 130], text: "input normalization\nbackbone on every frame\nflatten pooling\nGRU, bidirectional\nhead and softmax", font: diagram_text, anchor: ma, align: center, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1290, 250], [1380, 250]]}
+      - {type: box, box: [1380, 150, 1740, 350], text: "class_probabilities\n[B, 4]", font: diagram_text, outline: violet}
+      - {type: text, position: [880, 520], text: "images [B, T, 3, 128, 128] float32, BGR in [0, 255], T from 1 to 50", font: diagram_monospace_small, anchor: ma, appear: 1, highlight: [1]}
+      - {type: text, position: [880, 570], text: "traced on [2, 50, 3, 128, 128], checked on [3, 49, 3, 128, 128]", font: diagram_monospace_small, colour: dim, anchor: ma, appear: 1}
+      - {type: text, position: [880, 640], text: "no mask in the graph: every frame of a request is a real frame", font: diagram_bold, colour: accent, anchor: ma, appear: 3}
+    narration:
+      - "The export script wraps the run in InferenceSequenceModel, served by Triton as the sequence classifier."
+      - "Its input is images: float32 BGR frames in the zero to 255 range at 128 pixels, any number of frames up to 50, traced on 50 frames and checked on 49."
+      - "The input normalization, the backbone, the pooling, the GRU, the head and the softmax are in the graph; the resizing stays with the client."
+      - "The export runs the path without mask, where every frame counts: a client batching sequences of different lengths must not pad them, or the GRU reads the black frames as frames."
+
+  - kind: html
+    page: diagram
+    title: "Pitfalls"
+    code_reference: "documentation/suggestions.md"
+    elements:
+      - {type: box, box: [40, 40, 860, 230], text: "global_pooling average or max\nmotion classes at chance,\nthe loss at the natural log of 4", font: diagram_text, outline: red, highlight: [0]}
+      - {type: box, box: [900, 40, 1720, 230], text: "flatten at 512 pixels\n{{sequence_classification.parameters.flatten_512.temporal_module_millions}} M GRU weights,\ncheckpoints of {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} MB", font: diagram_text, outline: red, highlight: [1]}
+      - {type: box, box: [40, 270, 860, 460], text: "the dataset on this machine\n{{sequence_classification.dataset.disk_frames}} frames everywhere, never padded\n(suggestions.md K32)", font: diagram_text, outline: yellow, highlight: [2]}
+      - {type: box, box: [900, 270, 1720, 460], text: "TemporalModel.dropout_rate\nno effect with one GRU layer", font: diagram_text, outline: yellow, highlight: [3]}
+      - {type: box, box: [40, 500, 860, 690], text: "shuffle_frames with an ordered module\na yellow warning only", font: diagram_text, outline: yellow, highlight: [3]}
+      - {type: box, box: [900, 500, 1720, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(bug_standards.md B46)", font: diagram_text, outline: yellow, highlight: [3]}
+    narration:
+      - "The pitfalls of the task: average or max pooling leaves motion classes at chance, and nothing warns about it but a loss stuck at the natural log of four."
+      - "Flatten follows the image size: at 512 pixels its GRU grows to {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million weights and its checkpoint to {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} megabytes, against {{sequence_classification.checkpoints.flatten_128.megabytes:.0f}} at 128 pixels, and it did not learn in 500 iterations."
+      - "The data set on this machine only holds sequences of eight frames, so the README runs never padded a batch, and a data set from the current generator gives longer and slower batches."
+      - "The temporal dropout does nothing with one GRU layer, shuffled frames with an ordered module only print a warning, and the iterations per epoch are counted before the label mapping."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Console: sequences and real frames per second"}
+      - {text: "Flatten at 128 pixels: every metric 1.0 at iteration 1,000"}
+      - {text: "Average pooling: moving_down for every sequence, loss at ln 4"}
+      - {text: "The evaluation files of CLS, one row per sequence"}
+      - {text: "Export: images [B, T, 3, 128, 128], every frame real"}
+      - {text: "On motion classes, the pooling decides, not the temporal module"}
+    narration:
+      - "To recap: on the moving shapes the frame pooling decides everything, flatten at 128 pixels learns in a few hundred iterations, and the evaluation reads like that of the image classification."
+      - "The next series, sequence labelling, keeps the time axis and gives a class to every frame."

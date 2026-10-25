@@ -1,0 +1,235 @@
+# Object detection, chapter 2: the training of the detector, the labels of the anchors and their sampling for the
+# region proposal losses, the proposals of the detection heads with the ground truth boxes written into them, the
+# detection head and its losses, the loss weights, and the losses of the real run in TensorBoard and in the console.
+# The counts of the test image come from the trained detector run on the CPU by tutorials/figures/object_detection
+# (detector_inference.py), with the target functions of the repository.
+series: object_detection
+series_title: "Object Detection (DET)"
+chapter: 2
+title: "Targets, losses and training"
+output_name: object_detection_02_targets_losses_and_training
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [object_detection]
+references:
+  - "vision_training/models/detection/target_assignment.py · batch_assign_targets_to_anchors"
+  - "vision_training/models/detection/target_assignment.py · add_ground_truth_proposals"
+  - "vision_training/models/detection/target_assignment.py · sample_positive_and_negative_training_targets"
+  - "vision_training/models/detection/detection_head.py · DetectionHead.forward"
+  - "vision_training/losses/detection_losses.py · compute_detection_losses"
+  - "vision_training/trainers/base_trainer.py · BaseTrainer.run_model_iteration"
+scenes:
+  - kind: title_card
+    heading: "Targets, losses and training"
+    subheading: "Two samplings, four losses"
+    footnote: "Object Detection · chapter 2"
+    narration:
+      - "The detector learns from two sets of targets: labels for the anchors of the region proposal network, and classes and boxes for the proposals of the detection heads."
+      - "This chapter builds both on the test image of the previous chapter, then follows the four losses through the real run."
+
+  - kind: html
+    page: diagram
+    title: "Labels of the anchors"
+    code_reference: "vision_training/models/detection/target_assignment.py · batch_assign_targets_to_anchors"
+    elements:
+      - {type: text, position: [100, 40], text: "best IoU of an anchor with an object", font: diagram_bold}
+      - {type: box, box: [100, 100, 568, 190], text: "background · below 0.3", font: diagram_small, outline: dim, highlight: [0]}
+      - {type: box, box: [576, 100, 880, 190], text: "ignored · 0.3 to 0.5", font: diagram_small, outline: yellow, highlight: [0]}
+      - {type: box, box: [888, 100, 1660, 190], text: "foreground · from 0.5", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: text, position: [100, 205], text: "0", font: diagram_monospace_small, colour: dim, anchor: ma}
+      - {type: text, position: [572, 205], text: "0.3", font: diagram_monospace_small, colour: dim, anchor: ma}
+      - {type: text, position: [884, 205], text: "0.5", font: diagram_monospace_small, colour: dim, anchor: ma}
+      - {type: text, position: [1660, 205], text: "1", font: diagram_monospace_small, colour: dim, anchor: ma}
+      - {type: box, box: [100, 260, 1660, 370], text: "fallback: the best anchor of every object is foreground at any overlap above 0,\nassigned to the object it overlaps most · bug B40: a small box can get none", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: text, position: [100, 420], text: "test image {{object_detection.inference.image_name}}: {{object_detection.inference.anchor_total:,}} anchors", font: diagram_bold, appear: 2}
+      - {type: bars, box: [100, 470, 820, 650], orientation: horizontal, values: ["{{object_detection.inference.anchor_labels.foreground}}", "{{object_detection.inference.anchor_labels.ignored}}", "{{object_detection.inference.anchor_labels.background}}"], labels: ["foreground", "ignored", "background"], value_labels: ["{{object_detection.inference.anchor_labels.foreground}}", "{{object_detection.inference.anchor_labels.ignored}}", "{{object_detection.inference.anchor_labels.background:,}}"], colours: [blue, yellow, border], label_width: 160, appear: 2, highlight: [2]}
+      - {type: text, position: [940, 420], text: "sampled: 256 per image, at most 128 positive", font: diagram_bold, appear: 3}
+      - {type: bars, box: [940, 470, 1660, 590], orientation: horizontal, values: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], labels: ["positives", "negatives"], value_labels: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], colours: [blue, border], label_width: 160, appear: 3, highlight: [3]}
+    narration:
+      - "For the region proposal losses, every anchor is labeled by its best overlap with an object: background below 0.3, foreground from 0.5, and ignored in between."
+      - "The best anchor of every object is made foreground at any overlap above zero, but assigned to the object it overlaps most, so a small box sharing its best anchor with a larger one gets none, bug B40."
+      - "On the test image, {{object_detection.inference.anchor_labels.foreground}} anchors are foreground, {{object_detection.inference.anchor_labels.overlap_foreground}} by overlap and {{object_detection.inference.anchor_labels.fallback_foreground}} by the fallback, {{object_detection.inference.anchor_labels.ignored}} are ignored and {{object_detection.inference.anchor_labels.background:,}} are background."
+      - "The losses sample 256 anchors per image with at most 128 positives: here all {{object_detection.inference.anchor_labels.sampled_positives}} positives and {{object_detection.inference.anchor_labels.sampled_negatives}} random negatives."
+
+  - kind: image
+    title: "The labels on the image"
+    code_reference: "vision_training/models/detection/target_assignment.py · sample_positive_and_negative_training_targets"
+    image: "figures:object_detection/inference/anchor_labels.png"
+    highlights:
+      - {box: "{{object_detection.inference.anchor_labels.panel_1_box}}", sentences: [0]}
+      - {box: "{{object_detection.inference.anchor_labels.panel_2_box}}", sentences: [1]}
+      - {box: "{{object_detection.inference.anchor_labels.panel_3_box}}", sentences: [2]}
+    narration:
+      - "Drawn on the image, the foreground anchors hug the objects, several per object at the levels whose scales fit."
+      - "The ignored anchors overlap the objects partly; they give no loss, so the head is never pushed either way on ambiguous boxes."
+      - "The negatives are drawn at random among the background anchors, so that the thousands of empty anchors do not swamp the objectness loss."
+
+  - kind: yaml
+    title: "The RegionProposal section"
+    code_reference: "vision_training/losses/detection_losses.py · compute_region_proposal_losses"
+    source:
+      file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
+      keys: [RegionProposal.foreground_iou_threshold, RegionProposal.background_iou_threshold, RegionProposal.strict_fallback_assignment, RegionProposal.number_training_positives, RegionProposal.total_training_samples, RegionProposal.localisation_loss_beta]
+      comments: false
+    highlights:
+      - {match: "foreground_iou_threshold:|background_iou_threshold:", sentences: [0]}
+      - {match: "strict_fallback_assignment", sentences: [1]}
+      - {match: "number_training_positives|total_training_samples|localisation_loss_beta", sentences: [2]}
+    narration:
+      - "The thresholds live in the Region Proposal section: foreground from 0.5, its maximum being unused, and background from 0 to 0.3, so that the anchors overlapping nothing are sampled too."
+      - "Strict fallback assignment, off here, would give a fallback anchor to the object that chose it rather than to the object it overlaps most."
+      - "Then the sampling counts, and the beta of the smooth L1 box loss, a ninth."
+
+  - kind: html
+    page: diagram
+    title: "The region proposal losses"
+    code_reference: "vision_training/losses/detection_losses.py · compute_region_proposal_losses"
+    elements:
+      - type: listing
+        box: [20, 15, 1740, 560]
+        font: diagram_monospace_small
+        source: {file: vision_training/losses/detection_losses.py, function: compute_region_proposal_losses, start: "region_proposal_classification_loss = torch", end: "reduction=\"sum\"\\) / torch.sum"}
+        highlights:
+          - {match: "binary_cross_entropy_with_logits|reduction=\"mean\"", sentences: [0]}
+          - {match: "smooth_l1_loss|reduction=\"sum\"\\) /", sentences: [1]}
+      - type: listing
+        box: [20, 580, 1740, 725]
+        font: diagram_monospace_tiny
+        appear: 2
+        source: {file: vision_training/models/detection/box_operations.py, start: "# Weights of the regression offsets", end: "^BOX_REGRESSION_WEIGHTS ="}
+        highlights:
+          - {match: "^BOX_REGRESSION_WEIGHTS =", sentences: [2]}
+    narration:
+      - "The objectness loss is the binary cross entropy of the sampled anchors, averaged over them."
+      - "The box loss is the smooth L1 between the predicted and target offsets of the positive anchors, summed, then divided by the number of positives rather than of sampled anchors, audit item L5."
+      - "The offsets are regressed unscaled: the box regression weights stay at one, the ten, ten, five, five of torchvision having given about two and a half times lower mAP at 0.5 on these shapes."
+
+  - kind: html
+    page: diagram
+    title: "Proposals for the detection heads"
+    code_reference: "vision_training/models/detection/two_stage_detector.py · TwoStageDetector._prepare_detector_inputs"
+    elements:
+      - {type: box, box: [20, 80, 390, 230], text: "training filter\ntop 1000 · NMS 0.7\n500 proposals per image", font: diagram_small, outline: yellow, highlight: [0]}
+      - {type: arrow, points: [[390, 155], [445, 155]], appear: 1}
+      - {type: box, box: [450, 80, 870, 230], text: "ground truth boxes written\ninto the last slots, at the level\nof their best anchor", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[870, 155], [925, 155]], appear: 2}
+      - {type: box, box: [930, 80, 1320, 230], text: "class of the object\noverlapping by 0.5 or more,\nelse background", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1320, 155], [1375, 155]], appear: 2}
+      - {type: box, box: [1380, 80, 1740, 230], text: "128 sampled\nat most 64 positive", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: text, position: [20, 300], text: "test image: {{object_detection.inference.detector_targets.proposal_count}} proposals, {{object_detection.inference.detector_targets.written_ground_truths}} of them ground truth", font: diagram_bold, appear: 3}
+      - {type: bars, box: [20, 350, 820, 470], orientation: horizontal, values: ["{{object_detection.inference.detector_targets.sampled_positives}}", "{{object_detection.inference.detector_targets.sampled_negatives}}"], labels: ["positives", "negatives"], value_labels: ["{{object_detection.inference.detector_targets.sampled_positives}}", "{{object_detection.inference.detector_targets.sampled_negatives}}"], colours: [blue, border], label_width: 160, appear: 3}
+      - {type: text, position: [940, 300], text: "the 128 sampled proposals by level", font: diagram_bold, appear: 3}
+      - {type: bars, box: [940, 350, 1740, 530], orientation: horizontal, values: ["{{object_detection.inference.detector_targets.sampled_level_5}}", "{{object_detection.inference.detector_targets.sampled_level_6}}", "{{object_detection.inference.detector_targets.sampled_level_7}}"], labels: ["block 5", "block 6", "block 7"], value_labels: ["{{object_detection.inference.detector_targets.sampled_level_5}}", "{{object_detection.inference.detector_targets.sampled_level_6}}", "{{object_detection.inference.detector_targets.sampled_level_7}}"], colours: [blue, aqua, magenta], label_width: 160, appear: 3}
+      - {type: text, position: [20, 590], text: "every head trains on the proposals of its own level only", font: diagram_small, colour: dim, appear: 3}
+    narration:
+      - "The detection heads train on the proposals of the training filter, 500 per image after the suppression at 0.7."
+      - "First the ground truth boxes are written into the last slots, each at the level of its best anchor, so that every object has a positive proposal with a zero regression target, even when the proposals miss it."
+      - "A proposal takes the class of the object it overlaps by 0.5 or more, the background otherwise, and 128 are sampled with at most 64 positives."
+      - "On the test image, {{object_detection.inference.detector_targets.positives}} of the {{object_detection.inference.detector_targets.proposal_count}} proposals are positive and all are kept, with {{object_detection.inference.detector_targets.sampled_negatives}} negatives: block 5 receives {{object_detection.inference.detector_targets.sampled_level_5}} of the 128, block 6 {{object_detection.inference.detector_targets.sampled_level_6}} and block 7 {{object_detection.inference.detector_targets.sampled_level_7}}."
+
+  - kind: html
+    page: diagram
+    title: "The detection head"
+    code_reference: "vision_training/models/detection/detection_head.py · DetectionHead.forward"
+    elements:
+      - {type: cuboid, box: [40, 120, 140, 220], depth: 26, fill: blue, label: "[64, 32, 16, 16]"}
+      - {type: text, position: [40, 60], text: "block 5", font: diagram_bold}
+      - {type: box, box: [40, 330, 260, 430], text: "proposals\n[K, 5]", font: diagram_small, outline: yellow}
+      - {type: arrow, points: [[190, 175], [300, 255]]}
+      - {type: arrow, points: [[260, 380], [300, 300]]}
+      - {type: box, box: [305, 210, 585, 350], text: "ROI Align 7 × 7\nscale {{object_detection.inference.model.level_5.spatial_scale}}\naligned", font: diagram_small, outline: aqua, highlight: [0]}
+      - {type: arrow, points: [[585, 280], [640, 280]]}
+      - {type: cuboid, box: [645, 245, 715, 315], depth: 26, fill: aqua, label: "[K, 32, 7, 7]"}
+      - {type: arrow, points: [[745, 280], [800, 280]], appear: 1}
+      - {type: box, box: [805, 210, 1105, 350], text: "ConvolutionBlock [2, 32]\nSE · residual · BN", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1105, 280], [1160, 280]], appear: 1}
+      - {type: box, box: [1165, 210, 1445, 350], text: "flatten {{object_detection.inference.model.flattened_dimension}}\nFC 64 · FC 32", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1445, 250], [1500, 150]], appear: 2}
+      - {type: arrow, points: [[1445, 310], [1500, 410]], appear: 2}
+      - {type: box, box: [1505, 90, 1740, 200], text: "classifier\n{{object_detection.inference.model.number_classes}} logits", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [1505, 360, 1740, 470], text: "box regressor\n4 per class", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: text, position: [1505, 220], text: "[64, 128, 21]", font: diagram_monospace_small, appear: 2}
+      - {type: text, position: [1505, 490], text: "[64, 128, 21, 4]", font: diagram_monospace_small, appear: 2}
+      - {type: text, position: [40, 560], text: "{{object_detection.inference.model.detection_level_parameters:,}} parameters per level · {{object_detection.inference.model.detection_parameters:,}} for the three\nbackbone: {{object_detection.inference.model.backbone_parameters:,}} parameters", font: diagram_text, appear: 3}
+    narration:
+      - "Each proposal is pooled from the feature map of its level by ROI Align, seven by seven, at a spatial scale of 16 over 512 for block 5 and 8 over 512 for blocks 6 and 7, aligned, with adaptive sampling."
+      - "A convolution block of two layers of 32 channels, with squeeze and excitation and residual shortcuts, refines it, then fully connected layers take its {{object_detection.inference.model.flattened_dimension:,}} values to 64, then 32 units."
+      - "A linear layer gives the logits of the {{object_detection.inference.model.number_classes}} classes, another four offsets per class: in training, logits of 64 by 128 by 21, and offsets of 64 by 128 by 21 by 4."
+      - "Each head has {{object_detection.inference.model.detection_level_parameters:,}} parameters, {{object_detection.inference.model.detection_parameters:,}} for the three levels, more than twice the {{object_detection.inference.model.backbone_parameters:,}} of the backbone."
+
+  - kind: code
+    title: "The detection losses"
+    code_reference: "vision_training/losses/detection_losses.py · compute_detection_losses"
+    source:
+      file: vision_training/losses/detection_losses.py
+      function: compute_detection_losses
+    highlights:
+      - {match: "detection_classification_loss = torch.nn.functional.cross_entropy", sentences: [0]}
+      - {match: "box_regressions\"\\]\\[sampled_positive_indices, foreground_classes\\]", sentences: [1]}
+      - {match: "beta=localisation_loss_beta, reduction=\"sum\"\\)", sentences: [1]}
+    narration:
+      - "The classification loss is the cross entropy of the sampled proposals over the {{object_detection.inference.model.number_classes}} classes, the background ones teaching the head to reject false positives."
+      - "The box loss takes, for every positive proposal, the four offsets of its true class only, a smooth L1 with beta of a ninth, summed and divided by the positives."
+
+  - kind: yaml
+    title: "Weights of the four losses"
+    code_reference: "vision_training/trainers/detection_trainer.py · DetectionTrainer.get_loss_weights"
+    source:
+      file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
+      keys: [Optimization.loss_weights]
+      comments: false
+    highlights:
+      - {match: "loss_weights:", sentences: [0]}
+      - {match: "_loss: 1.0", sentences: [1]}
+    narration:
+      - "The total loss is the sum of the four losses, each multiplied by its weight in Optimization loss weights."
+      - "They are all one here; TensorBoard and the console track every loss unweighted, and only the total weighted."
+
+  - kind: image
+    title: "The losses of the run"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_model_iteration"
+    image: "figures:object_detection/training/loss_curves.png"
+    highlights:
+      - {box: "{{object_detection.losses.panel_1_box}}", sentences: [0]}
+      - {box: "{{object_detection.losses.panel_2_box}}", sentences: [1]}
+      - {box: "{{object_detection.losses.panel_3_box}}", sentences: [2]}
+    narration:
+      - "Over the {{object_detection.losses.iterations:,}} iterations of the run, the region proposal losses fall fast: the objectness loss from {{object_detection.losses.rpn_classification.first:.2f}} to {{object_detection.losses.rpn_classification.last:.3f}}, the box loss from {{object_detection.losses.rpn_regression.first:.2f}} to {{object_detection.losses.rpn_regression.last:.3f}}."
+      - "The detection classification loss starts at {{object_detection.losses.detection_classification.first:.2f}}, close to the logarithm of 21, then flattens while the proposals improve, and slowly reaches {{object_detection.losses.detection_classification.last:.2f}}."
+      - "Their weighted sum goes from {{object_detection.losses.total.first:.2f}} to {{object_detection.losses.total.last:.2f}}, at a constant learning rate of 0.0002, the moving average of the weights being kept alongside."
+
+  - kind: html
+    page: diagram
+    title: "The console summary"
+    code_reference: "vision_training/trainers/metric_tracking.py · MetricTracker.print_interval_summary"
+    elements:
+      - type: listing
+        box: [20, 20, 1740, 340]
+        font: diagram_monospace_small
+        source: {file: "figures:object_detection/listings/console_1000.txt"}
+        highlights:
+          - {match: "Iteration: 1000|Total Loss", sentences: [0]}
+          - {match: "Took", sentences: [0]}
+      - type: listing
+        box: [20, 390, 1740, 710]
+        font: diagram_monospace_small
+        appear: 1
+        source: {file: "figures:object_detection/listings/console_2000.txt"}
+        highlights:
+          - {match: "Best", sentences: [1]}
+    narration:
+      - "Every thousand iterations the console prints the moving averages of the interval: at iteration one thousand, a total loss of {{object_detection.console.1000.total_loss}} at {{object_detection.console.1000.throughput}} images per second, after {{object_detection.console.1000.minutes}} minutes."
+      - "At two thousand, where the synthetic configuration stops, the total is {{object_detection.console.2000.total_loss}}, every loss marked Best."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Anchors: foreground from 0.5, background below 0.3, the best anchor of every object kept"}
+      - {text: "256 anchors per image, at most 128 positive"}
+      - {text: "Ground truth boxes written into the proposals; 128 per image, at most 64 positive"}
+      - {text: "RoI head: ROI Align 7 × 7, 2 convolutions, FC 64 and 32, 21 classes, 4 offsets per class"}
+      - {text: "Smooth L1, beta 1/9, unscaled offsets, divided by the positives"}
+      - {text: "Optimization.loss_weights: 1 each, losses tracked unweighted", monospace: false}
+    narration:
+      - "To recap: two samplings feed four losses, the ground truth boxes guarantee positives to the detection heads, and the losses of the run fall steadily over five thousand iterations."
+      - "The next chapter evaluates the checkpoints: the post-processing, the mean average precision and its tables, the proposal recall, and the export."

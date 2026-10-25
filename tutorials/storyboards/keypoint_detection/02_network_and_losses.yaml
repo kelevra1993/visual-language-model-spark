@@ -1,0 +1,214 @@
+# Keypoint detection, chapter 2: the network of the keypoint detector (the stem of the shared backbone, the high
+# resolution network and its exchanges, the prediction head and the higher resolution branch, with the shapes of the
+# trained network on the test image), the focal heatmap loss and its split on the test image, the tag losses with the
+# tags of the trained network, and the training curves of the synthetic keypoint run. Coordinates of the html scenes are
+# in pixels of the content area (1760 x 740); the figures and facts are made by tutorials/figures/keypoint_detection.
+series: keypoint_detection
+series_title: "Keypoint Detection (KPT)"
+chapter: 2
+title: "The network and its losses"
+output_name: keypoint_detection_02_network_and_losses
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [keypoint_detection]
+references:
+  - "vision_training/models/keypoints/hrnet.py · HighResolutionNetwork"
+  - "vision_training/models/keypoints/hrnet.py · BranchTransition"
+  - "vision_training/models/keypoints/hrnet.py · HigherResolutionBranch"
+  - "vision_training/models/keypoints/hrnet.py · build_prediction_head"
+  - "vision_training/configuration_processing/keypoint_checks.py · check_keypoint_stem_configuration"
+  - "vision_training/configuration_processing/keypoint_checks.py · check_high_resolution_network_configuration"
+  - "vision_training/configuration_processing/run_name.py · build_keypoint_sections"
+  - "documentation/suggestions.md"
+scenes:
+  - kind: title_card
+    heading: "The network and its losses"
+    subheading: "Stem, high resolution network, two heads, focal and tag losses"
+    footnote: "Keypoint Detection (KPT) · chapter 2"
+    narration:
+      - "This chapter follows a batch through the key point detector: the stem of the shared backbone, the high resolution network, the two heads, then the three losses."
+      - "Every shape is the one the trained network of the synthetic run gave on the test image of the first chapter."
+
+  - kind: yaml
+    title: "The model sections"
+    code_reference: "vision_training/configuration_processing/keypoint_checks.py · check_keypoint_configuration"
+    source:
+      file: vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml
+      keys: [Backbone.convolutions, Backbone.last_max_pooling, HRNet.base_width, HRNet.modules_per_stage,
+             HRNet.blocks_per_branch, KeypointHead.higher_resolution, KeypointHead.hidden_width,
+             KeypointHead.heatmap_sigma, KeypointHead.tag_pull_weight, KeypointHead.tag_push_weight]
+      comments: false
+    highlights:
+      - {match: "convolutions:|\"1\"|\"2\"|\"3\"|last_max_pooling", sentences: [0]}
+      - {match: "base_width|modules_per_stage|blocks_per_branch", sentences: [1, 2]}
+      - {match: "heatmap_sigma|tag_pull_weight|tag_push_weight", sentences: [3]}
+    narration:
+      - "The stem is the backbone of the other tasks cut at a quarter of the image: three blocks without the last max pooling, or two with it, which the checks enforce."
+      - "The high resolution network has a base width of 16, one, two and two exchange modules in its three stages, and two residual pairs per branch."
+      - "With three stages its lowest branch has a stride of 32, so the image size must be a multiple of 32."
+      - "Sigma, the tag weights and the grouping thresholds give no token to the run name, so they may change when a run resumes."
+
+  - kind: html
+    page: diagram
+    title: "Stem, network and two heads"
+    code_reference: "vision_training/models/keypoints/keypoint_detector.py · KeypointDetector.forward"
+    elements:
+      # Input, stem and the high resolution network
+      - {type: cuboid, box: [30, 120, 170, 260], depth: 10, fill: blue, label: "{{keypoint_detection.network_input_shape}}"}
+      - {type: text, position: [100, 70], text: "image", font: diagram_small, colour: dim, anchor: ma}
+      - {type: arrow, points: [[185, 190], [235, 190]], colour: blue}
+      - {type: cuboid, box: [245, 150, 315, 220], depth: 34, fill: blue, label: "{{keypoint_detection.network_stem_shape}}"}
+      - {type: text, position: [295, 70], text: "stem", font: diagram_small, colour: dim, anchor: ma}
+      - {type: arrow, points: [[360, 190], [410, 190]], colour: blue}
+      - {type: box, box: [420, 130, 640, 250], text: "high resolution\nnetwork", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[640, 190], [690, 190]], colour: blue}
+      - {type: cuboid, box: [700, 150, 770, 220], depth: 12, fill: blue, label: "{{keypoint_detection.network_features_shape}}"}
+      - {type: text, position: [745, 70], text: "1/4 features", font: diagram_small, colour: dim, anchor: ma}
+      # Quarter resolution head
+      - {type: arrow, points: [[800, 190], [850, 190]], colour: violet, appear: 1}
+      - {type: box, box: [860, 130, 1150, 250], text: "3x3, 16 to 256, BN, ReLU\n1x1, 256 to 486", font: diagram_small, outline: violet, appear: 1}
+      - {type: arrow, points: [[1150, 190], [1200, 190]], colour: violet, appear: 1}
+      - {type: cuboid, box: [1210, 150, 1280, 220], depth: 60, fill: violet, label: "{{keypoint_detection.network_predictions_shape}}", appear: 1}
+      - {type: text, position: [1390, 130], text: "243 heat map logits\n+ 243 tags at 1/4", font: diagram_small, anchor: la, appear: 1}
+      # Hidden width note
+      - {type: box, box: [30, 340, 700, 480], text: "hidden width 256: a 1x1 convolution\nof 16 channels cannot raise 243 heat maps\neach on its own key points", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      # Higher resolution branch
+      - {type: arrow, points: [[735, 270], [735, 520], [800, 520]], colour: aqua, appear: 3}
+      - {type: arrow, points: [[1245, 270], [1245, 420], [880, 420], [880, 470]], colour: aqua, appear: 3}
+      - {type: box, box: [810, 480, 1080, 600], text: "concatenate\n{{keypoint_detection.network_branch_input_shape}}\n4x4 transposed, stride 2", font: diagram_small, outline: aqua, appear: 3}
+      - {type: arrow, points: [[1080, 540], [1130, 540]], colour: aqua, appear: 3}
+      - {type: box, box: [1140, 480, 1400, 600], text: "{{keypoint_detection.network_branch_upsampled_shape}}\n4 refinement layers\n3x3 then 1x1", font: diagram_small, outline: aqua, appear: 3}
+      - {type: arrow, points: [[1400, 540], [1450, 540]], colour: aqua, appear: 3}
+      - {type: cuboid, box: [1460, 500, 1540, 580], depth: 48, fill: aqua, label: "{{keypoint_detection.network_branch_heatmaps_shape}}", appear: 3}
+      - {type: text, position: [1520, 648], text: "243 heat maps at 1/2", font: diagram_small, anchor: ma, appear: 3}
+      # Initialisation of the last layers
+      - {type: text, position: [30, 640], text: "last layers: weights of standard deviation 0.001, heat map bias logit(0.01) = {{keypoint_detection.loss_prior_logit:.3f}}", font: diagram_small, colour: dim, appear: 4, highlight: [4]}
+    narration:
+      - "The stem brings the 512 pixel image to 64 channels at a quarter of its size, with a receptive field of only {{keypoint_detection.stem_receptive_field}} pixels: the context comes from the lower branches of the high resolution network."
+      - "The network returns its quarter resolution branch of 16 channels, and a three by three convolution of 256 channels feeds a one by one convolution of 486 channels: 243 heat map logits, then 243 tags."
+      - "The hidden layer is there because a one by one convolution of 16 channels cannot raise 243 heat maps each on its own key points: without it, an early test raised the heat maps of a few classes only."
+      - "The higher resolution branch concatenates the features with these predictions, 502 channels, doubles their resolution with a four by four transposed convolution, refines them and predicts 243 more heat maps at half the image."
+      - "Both last layers start with weights of standard deviation 0.001 and a heat map bias at the logit of 0.01, so that every cell starts at a probability of 0.01."
+
+  - kind: html
+    page: keypoint_detection/high_resolution_network
+    title: "Branches that exchange their features"
+    code_reference: "vision_training/models/keypoints/hrnet.py · ExchangeModule"
+    data: "figures:keypoint_detection/network/high_resolution_network.json"
+    steps: {lanes: 0, exchange: 1, output: 2}
+    narration:
+      - "Inside, a branch at a quarter of the image runs from start to end, and every stage adds a branch at half the resolution and twice the width, down to a stride of 32."
+      - "Every module ends with an exchange: each branch receives the sum of all the others brought to its resolution, by strided three by three convolutions from above and by a one by one convolution and a nearest upsampling from below."
+      - "The last module only computes the quarter resolution branch, the one both heads read."
+
+  - kind: html
+    page: diagram
+    title: "Where the parameters are"
+    code_reference: "vision_training/models/components/convolution_block.py · ConvolutionBlock.count_residual_additions"
+    elements:
+      - type: bars
+        box: [80, 90, 1400, 400]
+        orientation: horizontal
+        values: "{{keypoint_detection.parameters_values}}"
+        labels: ["stem", "high resolution network", "heat map and tag head", "higher resolution branch"]
+        value_labels: "{{keypoint_detection.parameters_labels}}"
+        colours: [blue, blue, violet, aqua]
+        label_width: 330
+        value_width: 140
+      - {type: text, position: [80, 450], text: "{{keypoint_detection.parameters_total:,}} parameters in all", font: diagram_bold}
+      - {type: box, box: [80, 530, 1680, 680], text: "no shortcut in the stem: its 3 blocks change their channel count, which moves their residual pairs past\ntheir last layer; every branch of the network adds {{keypoint_detection.branch_shortcuts}} shortcuts per module, the refinement too", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+    narration:
+      - "Of the {{keypoint_detection.parameters_total:,}} parameters, {{keypoint_detection.parameters_high_resolution_network:,}} are in the high resolution network: the heads are small and the stem tiny."
+      - "Residual nets add no shortcut to the stem, whose three blocks all change their channel count: only the branches of the network and the refinement of the branch have shortcuts."
+
+  - kind: code
+    title: "The focal heat map loss"
+    code_reference: "vision_training/losses/keypoint_losses.py · compute_heatmap_loss"
+    source:
+      file: vision_training/losses/keypoint_losses.py
+      function: compute_heatmap_loss
+    highlights:
+      - {match: "positive_losses =", sentences: [1]}
+      - {match: "negative_losses = \\(|probabilities \\*\\* FOCAL_EXPONENT", sentences: [1]}
+      - {match: "number_positives|cell_losses.sum\\(\\)", sentences: [2]}
+      - {match: "ignored_cells", sentences: [3]}
+    narration:
+      - "The heat map loss is the penalty-reduced focal loss of Corner Net, computed in float32 from the logits at both strides and summed."
+      - "A positive cell costs one minus p squared times minus log p; any other cell is weighted by one minus its target to the fourth and by p squared, so the cells near a key point and those already near zero count for little."
+      - "The sum over all the cells and channels is divided by the number of positive cells, so that neither the 243 channels nor the size of the maps dilute the key points."
+      - "With ignore unlabelled objects, the cells mostly covered by the objects without labels are left out, except the key point cells."
+
+  - kind: html
+    page: diagram
+    title: "Where the loss comes from"
+    code_reference: "vision_training/losses/keypoint_losses.py · compute_heatmap_loss"
+    elements:
+      - {type: text, position: [80, 40], text: "every cell at the prior of 0.01 · total {{keypoint_detection.loss_prior_total:.3f}}", font: diagram_bold}
+      - type: bars
+        box: [80, 90, 1500, 330]
+        orientation: horizontal
+        values: "{{keypoint_detection.loss_prior_values}}"
+        maximum: "{{keypoint_detection.loss_maximum}}"
+        labels: ["stride 4, key point cells", "stride 4, other cells", "stride 2, key point cells", "stride 2, other cells"]
+        value_labels: "{{keypoint_detection.loss_prior_labels}}"
+        colours: [violet, dim, aqua, dim]
+        label_width: 330
+        value_width: 110
+      - {type: text, position: [80, 400], text: "trained weights, iteration 6000 · total {{keypoint_detection.loss_trained_total:.3f}}", font: diagram_bold, appear: 2}
+      - type: bars
+        box: [80, 450, 1500, 690]
+        orientation: horizontal
+        values: "{{keypoint_detection.loss_trained_values}}"
+        maximum: "{{keypoint_detection.loss_maximum}}"
+        labels: ["stride 4, key point cells", "stride 4, other cells", "stride 2, key point cells", "stride 2, other cells"]
+        value_labels: "{{keypoint_detection.loss_trained_labels}}"
+        colours: [violet, dim, aqua, dim]
+        label_width: 330
+        value_width: 110
+        appear: 2
+    narration:
+      - "On the test image with every cell at the prior of 0.01, each of the {{keypoint_detection.loss_positive_cells}} key point cells costs {{keypoint_detection.loss_prior_stride_4_keypoint_cells:.2f}} at each stride, while the other {{keypoint_detection.loss_cells_stride_4:,}} cells of stride four add only {{keypoint_detection.loss_prior_stride_4_other_cells:.2f}}."
+      - "That is the point of the prior: millions of empty cells start almost free, and the gradient goes to the few cells that matter."
+      - "With the trained weights of iteration 6000, the heat map loss of this image falls to {{keypoint_detection.loss_trained_total:.3f}}."
+
+  - kind: html
+    page: keypoint_detection/tag_line
+    title: "Tags pulled together, objects pushed apart"
+    code_reference: "vision_training/losses/keypoint_losses.py · compute_tag_losses"
+    data: "figures:keypoint_detection/network/tags.json"
+    steps: {dots: 0, pull: 1, push: 2}
+    narration:
+      - "The tags have no target: every labelled key point takes the tag of its channel at its cell, and only the distances between tags are trained."
+      - "The pull loss is the mean squared distance of the tags of an object to their mean, which gathers its key points around one value."
+      - "The push loss averages e to the minus squared difference of the mean tags, over the pairs of objects of the same class only, the only ones that share channels; both losses are weighted by 0.1."
+      - "Here the mean tags of the two capsules end only {{keypoint_detection.tags_same_class_distance:.2f}} apart, so the push loss of this image is {{keypoint_detection.tags_push_loss:.3f}}, its maximum being one: the two objects of one class were not separated."
+
+  - kind: image
+    title: "Training curves of the synthetic run"
+    code_reference: "vision_training/trainers/keypoint_trainer.py · KeypointTrainer"
+    image: "figures:keypoint_detection/network/training_curves_axes.png"
+    overlay: "figures:keypoint_detection/network/training_curves.png"
+    reveals:
+      - {region: "{{keypoint_detection.curves_loss_reveal_region}}", sentence: 1}
+      - {region: "{{keypoint_detection.curves_tag_reveal_region}}", sentence: 2}
+    highlights:
+      - {box: "{{keypoint_detection.curves_loss_panel_box}}", sentences: [1]}
+      - {box: "{{keypoint_detection.curves_tag_panel_box}}", sentences: [2]}
+    narration:
+      - "The run trained {{keypoint_detection.run_iterations}} iterations of {{keypoint_detection.run_batch_size}} images on the GPU at about {{keypoint_detection.training_throughput:.0f}} images per second, with a cosine decay after {{keypoint_detection.run_warmup_iterations}} warm-up iterations."
+      - "The total loss starts at {{keypoint_detection.curves_total_loss_first:.1f}} and ends near {{keypoint_detection.curves_total_loss_last_smoothed:.2f}}, almost all of it heat map loss."
+      - "The weighted pull loss settles near {{keypoint_detection.curves_tag_pull_loss_last_smoothed:.4f}}, but the push loss stays near {{keypoint_detection.curves_tag_push_loss_last_smoothed:.3f}} from start to end: it does not fall."
+      - "This run logs no validation curve, its validation iteration ratio being zero: the test evaluations every 2000 iterations take its place."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Stem at 1/4, then an HRNet of 4 branches exchanging after every module"}
+      - {text: "Head at 1/4: 486 channels, 243 heat map logits then 243 tags"}
+      - {text: "Higher resolution branch: 243 more heat maps at 1/2"}
+      - {text: "hidden_width 256, heat map bias at logit(0.01)"}
+      - {text: "Focal loss of both strides over the positive cells"}
+      - {text: "Pull and push tag losses, weighted by 0.1, same class only"}
+    narration:
+      - "To recap: one quarter resolution branch carries the features from the stem to both heads, the focal loss trains the almost empty heat maps, and the tag losses shape the tags that group the key points."
+      - "The next chapter turns the heat maps into objects: the candidates and their refinement, the grouping by tags, the object key point similarity, the metrics of the run and the export."

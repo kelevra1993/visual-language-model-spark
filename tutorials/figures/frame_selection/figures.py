@@ -1,0 +1,44 @@
+"""
+Figures and facts of the frame selection (SEL) series of the tutorial videos, made by make_figures.py (python -m
+tutorials.figures.make_figures --series frame_selection) at every build, from the real frame selection run of
+tutorials/tutorial_sources.yaml, its synthetic selected shapes data and the code of the repository: the data figures (a
+test sequence frame by frame, the labels listings and the error of the selection check), the training curves of the
+two losses against the losses of equal logits, the wrong picks of iteration 1000 drawn by the selection image of the
+repository with the matrix data of the decoding animations, and the evaluation listing and thresholds figure. Every
+figure family is a module of this folder writing into a subfolder of the output folder, its facts gathered here into the
+facts.json the storyboards quote as {{frame_selection.<name>}}.
+"""
+
+from pathlib import Path
+from typing import Any, Dict
+
+from tutorials.figures.figure_utilities import find_run_folder, merge_facts
+from tutorials.figures.frame_selection.dataset_figures import make_dataset_figures
+from tutorials.figures.frame_selection.evaluation_figures import make_evaluation_figures
+from tutorials.figures.frame_selection.selection_figures import make_selection_figures
+from tutorials.figures.frame_selection.training_figures import make_training_figures
+
+
+def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
+    """
+    Makes every figure of the frame selection series into its output folder and gives their facts, the checkpoint
+    inference of the selection figures being reused from the previous build unless forced.
+
+    Args:
+        output_folder (Path): The figures folder of the series in the cache of the build.
+        experiments_folder (Path): The folder of the real runs.
+        force (bool): Whether the reused figures are made again.
+
+    Returns:
+        Dict[str, Any]: The facts of every figure family, keyed by their dotted names.
+    """
+    run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="frame_selection")
+    run_label = f"{experiments_folder.name}/{run_folder.relative_to(experiments_folder)}"
+    dataset_facts = make_dataset_figures(output_folder=output_folder, run_folder=run_folder)
+    return merge_facts(fact_groups=[
+        dataset_facts,
+        make_training_figures(output_folder=output_folder, run_folder=run_folder, run_label=run_label,
+                              reference_facts=dataset_facts),
+        make_selection_figures(output_folder=output_folder, run_folder=run_folder, force=force),
+        make_evaluation_figures(output_folder=output_folder, run_folder=run_folder),
+        {"run.name": run_folder.name, "run.label": run_label}])

@@ -1,0 +1,36 @@
+[project]
+name = "vlms-tutorials"
+version = "1.0.0"
+description = "Builder of the narrated tutorial videos of visual-language-model-spark, rebuilt from their storyboards, the code and configurations of the repository and its real runs"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    # Offline voice of the narration (Kokoro, run by ONNX Runtime on the CPU)
+    "kokoro-onnx==0.6.1",
+    # Speech recognition checking the narration against its script
+    "faster-whisper==1.2.1",
+    # Static ffmpeg encoding the frames and the narration
+    "imageio-ffmpeg==0.6.0",
+    # Headless Chrome driver capturing the HTML scenes frame by frame
+    "playwright==1.64.1",
+    "pillow>=12.0.0",
+    "numpy>=2.2.0",
+    "pyyaml>=6.0.2",
+]
+
+[project.scripts]
+build-tutorials = "tutorial_builder.build_tutorials:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tutorial_builder"]
+
+[tool.pytest.ini_options]
+# The tests of the builder, run with the environment of this folder (uv run --project tutorials pytest tutorials/tests)
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+
+[dependency-groups]
+dev = ["pytest>=9.1.1"]

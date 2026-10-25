@@ -1,0 +1,251 @@
+# Foundations, chapter 3: the data pipeline shared by every task, from the files on disk to the batch the network sees:
+# the loader workers, the image size and aspect ratio, the input normalization, and the augmentation (its switches and
+# probabilities in the configuration, its strengths in the code, how it draws, its 28 types at the strengths of the
+# supervised tasks and of the self-supervised views), then the input viewer. The augmentation settings are those of the
+# classification run of tutorial_sources.yaml (listings.py, the data facts), the images those of augmentation_examples.py
+# and aspect_ratio.py of tutorials/figures/foundations.
+series: foundations
+series_title: "Foundations"
+chapter: 3
+title: "The data pipeline"
+output_name: foundations_03_data_pipeline
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [foundations]
+references:
+  - "vision_training/data/loaders.py · build_native_loader"
+  - "vision_training/data/preprocessing.py · preprocess_image"
+  - "vision_training/models/components/input_normalization.py · InputNormalizer"
+  - "vision_training/data/augmentations.py · DataAugmenter.augment_batch"
+  - "vision_training/data/augmentations.py · DataAugmenter.should_apply"
+  - "vision_training/utilities/visualization.py · view_input_data"
+scenes:
+  - kind: title_card
+    heading: "The data pipeline"
+    subheading: "Loading, image size, normalization, augmentation"
+    footnote: "Foundations · chapter 3"
+    narration:
+      - "Every task reads its images through the same loaders and the same augmentation code; only the targets travelling with the images differ."
+      - "This chapter follows the images from the disk to the batch the network sees: the loading, the image size, the normalization and the augmentation."
+
+  - kind: html
+    page: diagram
+    title: "From files to batches"
+    code_reference: "vision_training/data/loaders.py · build_native_loader"
+    elements:
+      - {type: box, box: [30, 290, 290, 450], text: "images\n+ labels.json\nof the split", font: diagram_small}
+      - {type: arrow, points: [[300, 370], [380, 370]], appear: 0}
+      - {type: box, box: [390, 90, 760, 650], outline: blue, appear: 0, highlight: [0]}
+      - {type: text, position: [575, 125], text: "number_workers processes", font: diagram_small, colour: dim, anchor: mm, appear: 0}
+      - {type: box, box: [410, 170, 740, 230], text: "worker 1 · read, resize", font: diagram_small, appear: 0}
+      - {type: box, box: [410, 260, 740, 320], text: "worker 2 · read, resize", font: diagram_small, appear: 0}
+      - {type: box, box: [410, 350, 740, 410], text: "worker 3 · read, resize", font: diagram_small, appear: 0}
+      - {type: text, position: [575, 460], text: "...", font: diagram_bold, colour: dim, anchor: mm, appear: 0}
+      - {type: box, box: [410, 520, 740, 580], text: "worker n · read, resize", font: diagram_small, appear: 0}
+      - {type: arrow, points: [[770, 370], [860, 370]], appear: 1}
+      - {type: box, box: [870, 290, 1130, 450], text: "prefetch_batches\nready per worker", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1140, 370], [1220, 370]], appear: 2, flow: true, highlight: [2]}
+      - {type: box, box: [1230, 100, 1740, 640], outline: aqua, appear: 2, highlight: [2]}
+      - {type: text, position: [1485, 140], text: "GPU", font: diagram_bold, anchor: mm, appear: 2}
+      - {type: box, box: [1270, 190, 1700, 290], text: "augmentation\ntraining batches only", font: diagram_small, outline: yellow, appear: 2}
+      - {type: arrow, points: [[1485, 295], [1485, 335]], appear: 2}
+      - {type: box, box: [1270, 340, 1700, 440], text: "input normalization\nfirst layer of the model", font: diagram_small, outline: violet, appear: 2}
+      - {type: arrow, points: [[1485, 445], [1485, 485]], appear: 2}
+      - {type: box, box: [1270, 490, 1700, 590], text: "backbone\nand head of the task", font: diagram_small, outline: blue, appear: 2}
+      - {type: text, position: [575, 715], text: "number_workers: 0 loads in the main process, for debugging", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+    narration:
+      - "The loader workers read the images listed in the labels file and resize them to the input size, each decoding with a single OpenCV thread."
+      - "Every worker keeps its prefetch batches ready in advance, and the training, validation and test loaders each have their own workers, alive for the whole run."
+      - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
+      - "With zero workers, the images load in the main process, which only serves for debugging."
+
+  - kind: yaml
+    title: "Loading, image size and pixel range"
+    code_reference: "vision_training/models/components/input_normalization.py · InputNormalizer.forward"
+    source:
+      file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
+      keys: [Data.loading, Data.image_settings, Backbone.normalization.input_normalization, Backbone.normalization.per_sample_normalization]
+      comments: false
+    highlights:
+      - {match: "number_workers|prefetch_batches", sentences: [0]}
+      - {match: "size:|keep_ratio", sentences: [1]}
+      - {match: "input_normalization|per_sample_normalization", sentences: [2]}
+    narration:
+      - "In the data section, the loading sets the number of workers and the batches each one prepares in advance."
+      - "The image settings give the square input size of the network, and whether the images keep their aspect ratio."
+      - "In the backbone section, the input normalization maps the pixels from zero to two hundred and fifty five onto minus one half to one half, and the per-sample normalization would also standardize every image on its own."
+
+  - kind: html
+    page: diagram
+    title: "The aspect ratio"
+    code_reference: "vision_training/data/preprocessing.py · preprocess_image"
+    elements:
+      - {type: image, path: "figures:foundations/aspect_ratio/original_1920x1080.png", box: [640, 10, 1120, 280], caption: "test image, {{foundations.aspect_ratio.original_width}} × {{foundations.aspect_ratio.original_height}}", appear: 0}
+      - {type: arrow, points: [[820, 330], [480, 395]], appear: 1}
+      - {type: image, path: "figures:foundations/aspect_ratio/keep_ratio_true_512.png", box: [330, 400, 610, 680], border: border, caption: "keep_ratio: True · {{foundations.aspect_ratio.input_size}} × {{foundations.aspect_ratio.input_size}}", appear: 1, highlight: [1]}
+      - {type: arrow, points: [[940, 330], [1280, 395]], appear: 2}
+      - {type: image, path: "figures:foundations/aspect_ratio/keep_ratio_false_512.png", box: [1150, 400, 1430, 680], border: border, caption: "keep_ratio: False · {{foundations.aspect_ratio.input_size}} × {{foundations.aspect_ratio.input_size}}", appear: 2, highlight: [2]}
+    narration:
+      - "Every image is resized to the square input of the network: here a wide test image drawn for this video, given to the preprocessing of the repository."
+      - "With keep ratio on, the image keeps its proportions: it is resized to fit and centred between black bands, {{foundations.aspect_ratio.padding_rows}} rows here, and the predictions are mapped back through the same offsets."
+      - "With keep ratio off, it is stretched to the square, and the disc becomes an ellipse; the synthetic images, already square, are changed by neither."
+
+  - kind: yaml
+    title: "Data augmentation"
+    code_reference: "vision_training/data/augmentations.py · DataAugmenter.__init__"
+    source:
+      file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
+      keys: [Data.data_augmentation.activated, Data.data_augmentation.probability, Data.data_augmentation.types.random_crop, Data.data_augmentation.types.random_aspect_crop, Data.data_augmentation.types.random_zoom_out, Data.data_augmentation.types.random_translation, Data.data_augmentation.types.random_left_right_flip, Data.data_augmentation.types.random_up_down_flip, Data.data_augmentation.types.random_rotation, Data.data_augmentation.types.brightness_contrast_saturation, Data.data_augmentation.types.random_hue, Data.data_augmentation.types.random_noise, Data.data_augmentation.types.random_haze, Data.data_augmentation.types.random_erasing]
+      comments: false
+    highlights:
+      - {match: "^\\s*probability:", sentences: [1]}
+      - {match: "activated: True, probability", sentences: [2]}
+    narration:
+      - "Data augmentation changes the training images at random, so that the model learns the objects rather than one framing or one colour."
+      - "Its probability is the share of the training images augmented at all; each of the {{foundations.data.type_count}} types then has its own switch and its own probability."
+      - "The classification configuration switches on {{foundations.data.activated_type_count}} of them; the others stay listed and off, every key of the section being required."
+
+  - kind: code
+    title: "Strengths fixed in the code"
+    code_reference: "vision_training/data/augmentations.py · AugmentationStrengths"
+    source:
+      file: vision_training/data/augmentations.py
+      function: SUPERVISED_AUGMENTATION_STRENGTHS
+    highlights:
+      - {match: "^SUPERVISED_AUGMENTATION_STRENGTHS", sentences: [0]}
+      - {match: "crop_side_range|brightness_maximum_delta|noise_standard_deviation", sentences: [1]}
+    narration:
+      - "The strengths of the types are fixed in the code, so that a configuration file only switches the types on and sets their probabilities."
+      - "The supervised tasks take slight changes that keep every object recognisable: the crop keeps three quarters or more of each side, the brightness moves by up to forty levels, and the noise has a standard deviation of twenty levels."
+      - "The self-supervised task takes stronger strengths of its own, the views of SimCLR toned down for the images of the project, and every augmenter takes the set of its task."
+
+  - kind: html
+    page: foundations/augmentation_draw
+    title: "How the augmentation draws"
+    code_reference: "vision_training/data/augmentations.py · DataAugmenter.augment_sample"
+    data:
+      activated_types: "{{foundations.data.activated_types}}"
+    elements:
+      - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.original_box}}", box: [20, 270, 220, 470], caption: "training image", appear: 0}
+      - {type: arrow, points: [[230, 370], [280, 370]], appear: 0}
+      - {type: box, box: [290, 310, 520, 430], text: "augmented?\nprobability {{foundations.data.augmentation_probability}}", font: diagram_small, outline: yellow, appear: 0, highlight: [0]}
+      - {type: arrow, points: [[405, 305], [405, 120], [640, 120]], label: "no · {{foundations.data.unaugmented_probability:.0%}}", label_position: [522, 95], appear: 0}
+      - {type: box, box: [650, 70, 990, 170], text: "unchanged", outline: border, appear: 0}
+      - {type: arrow, points: [[525, 370], [640, 370]], label: "yes · {{foundations.data.augmentation_probability:.0%}}", label_position: [582, 345], appear: 1}
+      - {type: arrow, points: [[1300, 450], [1370, 450]], appear: 2}
+      - {type: box, box: [1380, 380, 1740, 520], text: "augmented image:\none type, several,\nor none", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: text, position: [1560, 560], text: "about {{foundations.data.changed_share:.0%}} of the training\nimages change", font: diagram_small, colour: accent, anchor: ma, align: center, appear: 2}
+      - {type: text, position: [880, 725], text: "validation and test images: never augmented", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+    narration:
+      - "For every training image, a first draw decides whether it is augmented at all, here with a probability of {{foundations.data.augmentation_probability}}."
+      - "Then every activated type is drawn on its own with its own probability, and the drawn types are applied in a fixed order, the geometric ones first, so that boxes, masks and keypoints move with the image."
+      - "An augmented image may thus get one type, several, or none: with these probabilities, about {{foundations.data.changed_share:.0%}} of the training images change."
+      - "The validation and test images are never augmented, so that their curves and metrics measure the model on the real images."
+
+  - kind: html
+    page: diagram
+    title: "Two strengths"
+    code_reference: "vision_training/data/augmentations.py · SELF_SUPERVISED_AUGMENTATION_STRENGTHS"
+    elements:
+      - {type: text, position: [620, 22], text: "original", font: diagram_small, colour: dim, anchor: ma}
+      - {type: text, position: [890, 22], text: "supervised", font: diagram_small, colour: dim, anchor: ma}
+      - {type: text, position: [1160, 22], text: "self-supervised", font: diagram_small, colour: dim, anchor: ma}
+      - {type: text, position: [40, 150], text: "random_crop", font: diagram_monospace, anchor: lm, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.original_box}}", box: [520, 50, 720, 250]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.supervised_box}}", box: [790, 50, 990, 250], highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.self_supervised_box}}", box: [1060, 50, 1260, 250], highlight: [1]}
+      - {type: text, position: [1320, 150], text: "a share of each side,\nor of the area with\nanother aspect ratio", font: diagram_small, colour: dim, anchor: lm, appear: 1}
+      - {type: text, position: [40, 380], text: "brightness_contrast_\nsaturation", font: diagram_monospace, anchor: lm, highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/brightness_contrast_saturation.png", crop: "{{foundations.augmentation_examples.brightness_contrast_saturation.image_1.original_box}}", box: [520, 280, 720, 480]}
+      - {type: image, path: "figures:foundations/augmentation_examples/brightness_contrast_saturation.png", crop: "{{foundations.augmentation_examples.brightness_contrast_saturation.image_1.supervised_box}}", box: [790, 280, 990, 480], highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/brightness_contrast_saturation.png", crop: "{{foundations.augmentation_examples.brightness_contrast_saturation.image_1.self_supervised_box}}", box: [1060, 280, 1260, 480], highlight: [2]}
+      - {type: text, position: [1320, 380], text: "a shift of the brightness,\nor factors on brightness,\ncontrast and saturation", font: diagram_small, colour: dim, anchor: lm, appear: 2}
+      - {type: text, position: [40, 610], text: "random_black_out", font: diagram_monospace, anchor: lm, highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_black_out.png", crop: "{{foundations.augmentation_examples.random_black_out.image_1.original_box}}", box: [520, 510, 720, 710]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_black_out.png", crop: "{{foundations.augmentation_examples.random_black_out.image_1.supervised_box}}", box: [790, 510, 990, 710], highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_black_out.png", crop: "{{foundations.augmentation_examples.random_black_out.image_1.self_supervised_box}}", box: [1060, 510, 1260, 710], highlight: [2]}
+      - {type: text, position: [1320, 610], text: "more grid cells hidden,\nin the second view only", font: diagram_small, colour: dim, anchor: lm, appear: 2}
+    narration:
+      - "Here are three types applied alone to a validation image, with the strengths of the supervised tasks and with those of the self-supervised views."
+      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps half of the area or more with another aspect ratio, and can cut the object out, as for this triangle."
+      - "The colour changes and the black-out are stronger too, the black-out and the solarization hitting the second view only: the two views of one image must differ enough for the self-supervised loss to learn something."
+
+  - kind: html
+    page: diagram
+    title: "The geometric types"
+    code_reference: "vision_training/data/augmentations.py · GEOMETRIC_AUGMENTATION_TYPES"
+    elements:
+      - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.supervised_box}}", box: [61, 20, 291, 250], caption: "random_crop", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_aspect_crop.png", crop: "{{foundations.augmentation_examples.random_aspect_crop.image_1.supervised_box}}", box: [413, 20, 643, 250], caption: "random_aspect_crop", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_zoom_out.png", crop: "{{foundations.augmentation_examples.random_zoom_out.image_1.supervised_box}}", box: [765, 20, 995, 250], caption: "random_zoom_out", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_translation.png", crop: "{{foundations.augmentation_examples.random_translation.image_1.supervised_box}}", box: [1117, 20, 1347, 250], caption: "random_translation", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_left_right_flip.png", crop: "{{foundations.augmentation_examples.random_left_right_flip.image_1.supervised_box}}", box: [1469, 20, 1699, 250], caption: "random_left_right_flip", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_up_down_flip.png", crop: "{{foundations.augmentation_examples.random_up_down_flip.image_1.supervised_box}}", box: [61, 360, 291, 590], caption: "random_up_down_flip", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_rotation.png", crop: "{{foundations.augmentation_examples.random_rotation.image_1.supervised_box}}", box: [413, 360, 643, 590], caption: "random_rotation", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_90_rotation.png", crop: "{{foundations.augmentation_examples.random_90_rotation.image_1.supervised_box}}", box: [765, 360, 995, 590], caption: "random_90_rotation", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_perspective.png", crop: "{{foundations.augmentation_examples.random_perspective.image_1.supervised_box}}", box: [1117, 360, 1347, 590], caption: "random_perspective", appear: 1, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_jigsaw.png", crop: "{{foundations.augmentation_examples.random_jigsaw.image_1.supervised_box}}", box: [1469, 360, 1699, 590], caption: "random_jigsaw", appear: 1, highlight: [1]}
+    narration:
+      - "The geometric types change the framing: the two crops, a zoom out on a black canvas, a shift, the two flips and the two rotations."
+      - "The perspective moves the corners and the jigsaw puts the four quarters back in a random order; both move the image only, so the tasks with boxes, masks or keypoints refuse them at launch."
+
+  - kind: html
+    page: diagram
+    title: "The photometric types"
+    code_reference: "vision_training/data/augmentations.py · PHOTOMETRIC_AUGMENTATION_TYPES"
+    elements:
+      - {type: image, path: "figures:foundations/augmentation_examples/brightness_contrast_saturation.png", crop: "{{foundations.augmentation_examples.brightness_contrast_saturation.image_1.supervised_box}}", box: [65, 8, 225, 168], caption: "brightness_contrast_\nsaturation", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_hue.png", crop: "{{foundations.augmentation_examples.random_hue.image_1.supervised_box}}", box: [355, 8, 515, 168], caption: "random_hue", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_colour_augmentation.png", crop: "{{foundations.augmentation_examples.random_colour_augmentation.image_1.supervised_box}}", box: [645, 8, 805, 168], caption: "random_colour_\naugmentation", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/gray_scale_augment.png", crop: "{{foundations.augmentation_examples.gray_scale_augment.image_1.supervised_box}}", box: [935, 8, 1095, 168], caption: "gray_scale_augment", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_gamma.png", crop: "{{foundations.augmentation_examples.random_gamma.image_1.supervised_box}}", box: [1225, 8, 1385, 168], caption: "random_gamma", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_solarize.png", crop: "{{foundations.augmentation_examples.random_solarize.image_1.supervised_box}}", box: [1515, 8, 1675, 168], caption: "random_solarize", appear: 0, highlight: [0]}
+      - {type: image, path: "figures:foundations/augmentation_examples/clahe_augment.png", crop: "{{foundations.augmentation_examples.clahe_augment.image_1.supervised_box}}", box: [65, 248, 225, 408], caption: "clahe_augment", appear: 1, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/equalize_histogram_augment.png", crop: "{{foundations.augmentation_examples.equalize_histogram_augment.image_1.supervised_box}}", box: [355, 248, 515, 408], caption: "equalize_histogram_\naugment", appear: 1, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/equalize_bgr_histogram_augment.png", crop: "{{foundations.augmentation_examples.equalize_bgr_histogram_augment.image_1.supervised_box}}", box: [645, 248, 805, 408], caption: "equalize_bgr_\nhistogram_augment", appear: 1, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_linear_illumination.png", crop: "{{foundations.augmentation_examples.random_linear_illumination.image_1.supervised_box}}", box: [935, 248, 1095, 408], caption: "random_linear_\nillumination", appear: 1, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_plasma_shadow.png", crop: "{{foundations.augmentation_examples.random_plasma_shadow.image_1.supervised_box}}", box: [1225, 248, 1385, 408], caption: "random_plasma_\nshadow", appear: 1, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_noise.png", crop: "{{foundations.augmentation_examples.random_noise.image_1.supervised_box}}", box: [1515, 248, 1675, 408], caption: "random_noise", appear: 1, highlight: [1]}
+      - {type: image, path: "figures:foundations/augmentation_examples/sharp_augment.png", crop: "{{foundations.augmentation_examples.sharp_augment.image_1.supervised_box}}", box: [65, 488, 225, 648], caption: "sharp_augment", appear: 2, highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_blur.png", crop: "{{foundations.augmentation_examples.random_blur.image_1.supervised_box}}", box: [355, 488, 515, 648], caption: "random_blur", appear: 2, highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_motion_blur.png", crop: "{{foundations.augmentation_examples.random_motion_blur.image_1.supervised_box}}", box: [645, 488, 805, 648], caption: "random_motion_blur", appear: 2, highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_haze.png", crop: "{{foundations.augmentation_examples.random_haze.image_1.supervised_box}}", box: [935, 488, 1095, 648], caption: "random_haze", appear: 2, highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_black_out.png", crop: "{{foundations.augmentation_examples.random_black_out.image_1.supervised_box}}", box: [1225, 488, 1385, 648], caption: "random_black_out", appear: 2, highlight: [2]}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_erasing.png", crop: "{{foundations.augmentation_examples.random_erasing.image_1.supervised_box}}", box: [1515, 488, 1675, 648], caption: "random_erasing", appear: 2, highlight: [2]}
+    narration:
+      - "The photometric types change the colours: brightness, contrast and saturation, the hue, the swap of the blue and red channels, the grayscale, the gamma and the solarization."
+      - "Others change the contrast and the light: the adaptive equalization and the two histogram equalizations, of which an image gets one at most, a ramp of light from one side, irregular shadows, and the noise."
+      - "The last ones sharpen, blur or hide: the sharpening, the two blurs, the haze, the black-out of grid cells and the erasing of a rectangle, applied last so that the hidden parts stay black."
+
+  - kind: image
+    title: "Checking the inputs"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.show_input_samples"
+    image: "repository:README/input_viewer.png"
+    views:
+      - {box: [0, 0, 3056, 512], from_sentence: 0}
+      - {box: [40, 0, 1480, 512], from_sentence: 1}
+      - {box: [1580, 0, 3020, 512], from_sentence: 2}
+    highlights:
+      - {box: [552, 176, 1362, 365], sentences: [0]}
+      - {box: [565, 241, 825, 273], sentences: [1]}
+      - {box: [565, 306, 1362, 365], sentences: [1]}
+      - {box: [2092, 172, 2556, 206], sentences: [2]}
+      - {box: [2092, 452, 2600, 484], sentences: [2]}
+    narration:
+      - "To check them, set view input images in the diagnosis modes and launch: a window shows every training image as the network receives it, with the types drawn and their values."
+      - "This pentagon was mirrored, and its brightness raised by seventeen levels with a lower saturation."
+      - "The validation images are shown unchanged; space shows the next images, and enter stops without training and without creating the run folder, so set it back to false to train."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Loader workers read and resize the images, every split with its own"}
+      - {text: "Square input: keep_ratio pads with black bands, otherwise stretches"}
+      - {text: "Pixels mapped to -0.5 to 0.5 by the first layer of the model"}
+      - {text: "Augmentation: one draw per image, then one per activated type"}
+      - {text: "Strengths in the code, switches and probabilities in the file"}
+      - {text: "Validation and test images are never augmented"}
+      - {text: "view_input_images shows what the network receives"}
+    narration:
+      - "To sum up: the workers read and resize the images, the first layer of the model normalizes them, and only the training batches are augmented, with the types and probabilities of the configuration."
+      - "The next chapter opens the model: the convolution blocks of the backbone and the modules that can be switched on."

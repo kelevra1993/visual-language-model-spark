@@ -1,0 +1,48 @@
+/*
+ * Look of the HTML scenes of the tutorial videos: the palette and fonts of the frames drawn in Python
+ * (tutorial_builder/layout.py), so that a diagram captured from Chrome sits on the same card as a figure or a code
+ * excerpt. The page is the content area of the frame, 1760 x 740 pixels, under the title bar and above the captions.
+ */
+
+@font-face { font-family: "Inter"; font-weight: 400; src: url("../../fonts/Inter-Regular.otf"); }
+@font-face { font-family: "Inter"; font-weight: 600; src: url("../../fonts/Inter-SemiBold.otf"); }
+@font-face { font-family: "Inter"; font-weight: 700; src: url("../../fonts/Inter-Bold.otf"); }
+@font-face { font-family: "Hack"; font-weight: 400; src: url("../../fonts/Hack-Regular.ttf"); }
+@font-face { font-family: "Hack"; font-weight: 700; src: url("../../fonts/Hack-Bold.ttf"); }
+
+:root {
+    --background: #060a12;
+    --card: #0c1320;
+    --card-border: #1c283e;
+    --text: #e8e8e8;
+    --dim: #8c96a6;
+    --accent: #4cc9f0;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 1760px;
+    height: 740px;
+    overflow: hidden;
+    background: var(--background);
+    font-family: "Inter", sans-serif;
+    color: var(--text);
+}
+
+svg#scene {
+    display: block;
+    width: 1760px;
+    height: 740px;
+}
+
+/* Text styles of the diagram elements, named like the fonts of the Python frames */
+.diagram_heading { font-family: "Inter"; font-weight: 700; font-size: 34px; }
+.diagram_bold { font-family: "Inter"; font-weight: 600; font-size: 28px; }
+.diagram_text { font-family: "Inter"; font-weight: 400; font-size: 28px; }
+.diagram_small { font-family: "Inter"; font-weight: 400; font-size: 22px; }
+.diagram_tiny { font-family: "Inter"; font-weight: 400; font-size: 18px; }
+.diagram_monospace { font-family: "Hack"; font-weight: 400; font-size: 24px; }
+.diagram_monospace_small { font-family: "Hack"; font-weight: 400; font-size: 20px; }
+.diagram_monospace_tiny { font-family: "Hack"; font-weight: 400; font-size: 16px; }
+.code_text { font-family: "Hack"; font-weight: 400; font-size: 26px; }

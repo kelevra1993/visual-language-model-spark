@@ -1,0 +1,135 @@
+<!doctype html>
+<!--
+ Schedule of a training run for the foundations chapter on the training loop: the iterations of the real run on one
+ axis, a playhead sweeping them over the first two sentences of the scene, the console summaries appearing behind it
+ every information_dump iterations, then the checkpoints saved every intermediate_weight_saving_iterations and those
+ saved and evaluated every weight_saving_iterations. The numbers come from the facts of the run (scene data), so that the
+ schedule follows the run when it is trained again with other settings. The elements of the scene (the order of the
+ steps within one iteration) are drawn by the engine of common/tutorial.js on top.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Iteration timeline</title>
+    <link rel="stylesheet" href="../common/tutorial.css">
+</head>
+<body>
+    <svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1760 740"></svg>
+    <script src="../common/tutorial.js"></script>
+    <script>
+        (function () {
+            "use strict";
+
+            // Geometry of the timeline in the content area: the axis, and the row of every kind of mark above it
+            const AXIS_LEFT = 360;
+            const AXIS_RIGHT = 1660;
+            const AXIS_Y = 330;
+            const ROWS = { summary: 278, checkpoint: 218, evaluation: 158 };
+
+            /* Horizontal position of an iteration on the axis. */
+            function iterationToX(iteration, numberIterations) {
+                return AXIS_LEFT + (AXIS_RIGHT - AXIS_LEFT) * iteration / numberIterations;
+            }
+
+            /* Draws the axis, the row labels and every mark of the run, hidden until the playhead reaches them. */
+            function setupTimeline(context) {
+                const helpers = context.helpers;
+                const data = context.scene.data;
+                const root = context.root;
+                const numberIterations = data.number_iterations;
+                const group = helpers.createSvgElement("g", {}, root);
+
+                // Axis with the evaluated iterations as ticks, and the labels of the rows on the left
+                helpers.createSvgElement("line", { x1: AXIS_LEFT, y1: AXIS_Y, x2: AXIS_RIGHT, y2: AXIS_Y,
+                                                   stroke: helpers.cssColour(helpers.COLOURS.border),
+                                                   "stroke-width": 3 }, group);
+                for (let iteration = 0; iteration <= numberIterations; iteration += data.weight_saving) {
+                    helpers.createText(group, String(iteration), iterationToX(iteration, numberIterations), AXIS_Y + 14,
+                                       "ma", "diagram_monospace_small", "dim");
+                }
+                helpers.createText(group, "iteration", AXIS_LEFT - 30, AXIS_Y, "rm", "diagram_small", "dim");
+                const rowLabels = {
+                    summary: helpers.createText(group, `console summary · every ${data.information_dump}`,
+                                                AXIS_LEFT - 30, ROWS.summary, "rm", "diagram_small", "text"),
+                    checkpoint: helpers.createText(group, `checkpoint · every ${data.intermediate_saving}`,
+                                                   AXIS_LEFT - 30, ROWS.checkpoint, "rm", "diagram_small", "blue"),
+                    evaluation: helpers.createText(group, `+ test evaluation · every ${data.weight_saving}`,
+                                                   AXIS_LEFT - 30, ROWS.evaluation, "rm", "diagram_small", "yellow")
+                };
+
+                // Marks of every kind at their iterations
+                const marks = [];
+                for (let iteration = data.information_dump; iteration <= numberIterations;
+                     iteration += data.information_dump) {
+                    marks.push({ kind: "summary", iteration: iteration, node: helpers.createSvgElement("line", {
+                        x1: iterationToX(iteration, numberIterations), y1: ROWS.summary - 12,
+                        x2: iterationToX(iteration, numberIterations), y2: ROWS.summary + 12,
+                        stroke: helpers.cssColour(helpers.COLOURS.dim), "stroke-width": 2 }, group) });
+                }
+                for (let iteration = data.intermediate_saving; iteration <= numberIterations;
+                     iteration += data.intermediate_saving) {
+                    marks.push({ kind: "checkpoint", iteration: iteration, node: helpers.createSvgElement("circle", {
+                        cx: iterationToX(iteration, numberIterations), cy: ROWS.checkpoint, r: 11,
+                        fill: helpers.cssColour(helpers.COLOURS.blue) }, group) });
+                }
+                for (let iteration = data.weight_saving; iteration <= numberIterations;
+                     iteration += data.weight_saving) {
+                    const x = iterationToX(iteration, numberIterations);
+                    marks.push({ kind: "evaluation", iteration: iteration, node: helpers.createSvgElement("polygon", {
+                        points: helpers.formatPoints([[x, ROWS.evaluation - 16], [x + 16, ROWS.evaluation],
+                                                      [x, ROWS.evaluation + 16], [x - 16, ROWS.evaluation]]),
+                        fill: helpers.cssColour(helpers.COLOURS.yellow) }, group) });
+                }
+
+                // Playhead with the iteration it has reached
+                const playhead = helpers.createSvgElement("line", { y1: ROWS.evaluation - 40, y2: AXIS_Y + 6,
+                                                                    stroke: helpers.cssColour(helpers.COLOURS.accent),
+                                                                    "stroke-width": 3 }, group);
+                const playheadLabel = helpers.createText(group, "", AXIS_LEFT, ROWS.evaluation - 52, "md",
+                                                         "diagram_monospace_small", "accent");
+                return { helpers: helpers, data: data, timing: context.timing, rowLabels: rowLabels, marks: marks,
+                         playhead: playhead, playheadLabel: playheadLabel };
+            }
+
+            /* Moves the playhead over the first two sentences and shows the marks it has passed: the summaries from
+             * the first sentence, the checkpoints and evaluations from the second. */
+            function updateTimeline(parts, time) {
+                const helpers = parts.helpers;
+                const sweepStart = helpers.sentenceStart(0);
+                const sweepEnd = parts.timing.sentences.length > 1 ? parts.timing.sentences[1].end :
+                    parts.timing.sentences[0].end;
+                const progress = helpers.clampUnit((time - sweepStart) / Math.max(sweepEnd - sweepStart, 0.001));
+                const reachedIteration = progress * parts.data.number_iterations;
+                const playheadX = iterationToX(reachedIteration, parts.data.number_iterations);
+                parts.playhead.setAttribute("x1", playheadX);
+                parts.playhead.setAttribute("x2", playheadX);
+                parts.playhead.setAttribute("opacity", progress > 0 && progress < 1 ? 1 : 0);
+                helpers.setMultilineText(parts.playheadLabel, `iteration ${Math.round(reachedIteration)}`, playheadX,
+                                         ROWS.evaluation - 52, "md", "diagram_monospace_small");
+                parts.playheadLabel.setAttribute("opacity", progress > 0 && progress < 1 ? 1 : 0);
+
+                // Rows shown from their sentence, every mark once the playhead has passed it
+                const secondSentenceStarted = helpers.activeSentence(time) >= 1;
+                const rowShown = { summary: helpers.activeSentence(time) >= 0, checkpoint: secondSentenceStarted,
+                                   evaluation: secondSentenceStarted };
+                Object.entries(parts.rowLabels).forEach(([kind, label]) => {
+                    label.setAttribute("opacity", rowShown[kind] ? 1 : 0.15);
+                });
+                parts.marks.forEach((mark) => {
+                    const shown = rowShown[mark.kind] && mark.iteration <= reachedIteration + 0.5;
+                    mark.node.setAttribute("opacity", shown ? 1 : 0);
+                });
+                return progress > 0 && progress < 1;
+            }
+
+            /* Registers the timeline as the custom part of the scene, its update function bound to its parts. */
+            function registerTimeline(context) {
+                const parts = setupTimeline(context);
+                return updateTimeline.bind(null, parts);
+            }
+
+            Tutorial.registerCustom(registerTimeline);
+        })();
+    </script>
+</body>
+</html>

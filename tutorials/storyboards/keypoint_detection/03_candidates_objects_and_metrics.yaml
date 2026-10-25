@@ -1,0 +1,208 @@
+# Keypoint detection, chapter 3: from the heatmaps of the trained detector to objects (the candidates, their refinement
+# within their cell, the grouping by tags followed on the two hollow capsules of the test image), the object keypoint
+# similarity and the metrics of the synthetic keypoint run (trained and averaged weights, worst classes and keypoints,
+# the pitfall of Matched Objects), then the commands and the export. Coordinates of the html scenes are in pixels of the
+# content area (1760 x 740); the figures and facts are made by tutorials/figures/keypoint_detection.
+series: keypoint_detection
+series_title: "Keypoint Detection (KPT)"
+chapter: 3
+title: "From candidates to objects, metrics and export"
+output_name: keypoint_detection_03_candidates_objects_and_metrics
+pace: 1.16
+voice: {name: af_heart, language: en-us}
+figures: [keypoint_detection]
+references:
+  - "vision_training/models/keypoints/keypoint_detector.py · compute_peak_offsets"
+  - "vision_training/models/keypoints/keypoint_grouping.py · match_candidates_to_objects"
+  - "vision_training/evaluation/keypoints/object_keypoint_similarity.py · compute_object_keypoint_similarity"
+  - "vision_training/evaluation/keypoints/object_keypoint_similarity.py · summarise_keypoint_accuracy"
+  - "vision_training/evaluation/detection/average_precision_report.py"
+  - "vision_training/models/keypoints/inference_keypoint_detector.py · InferenceKeypointDetector"
+  - "vision_training/deployment/export_specifications.py · compare_keypoints"
+  - "vision_training/deployment/deployment_utilities.py · load_inference_inputs"
+  - "documentation/bug_standards.md"
+scenes:
+  - kind: title_card
+    heading: "From candidates to objects"
+    subheading: "Peaks, grouping by tags, key point similarity, metrics and export"
+    footnote: "Keypoint Detection (KPT) · chapter 3"
+    narration:
+      - "This last chapter of the series turns the heat maps of the trained detector into objects, scores them, and exports the network."
+      - "It follows the same test image with the checkpoint of iteration {{keypoint_detection.checkpoint_iteration}}, run on the CPU."
+
+  - kind: image
+    title: "Heat maps of the trained detector"
+    code_reference: "vision_training/models/keypoints/keypoint_detector.py · extract_keypoint_candidates"
+    image: "figures:keypoint_detection/evaluation/heatmaps.png"
+    highlights:
+      - {box: "{{keypoint_detection.heatmaps_trapezoid_row_box}}", sentences: [1]}
+      - {box: "{{keypoint_detection.heatmaps_hollow_capsule_average_box}}", sentences: [2]}
+      - {box: "{{keypoint_detection.heatmaps_trapezoid_average_box}}", sentences: [2]}
+    narration:
+      - "At inference the heat maps of a quarter of the image are upsampled by two and averaged with those of the higher resolution branch, and the tags are upsampled with them."
+      - "For the trapezoid the peaks reach {{keypoint_detection.heatmaps_trapezoid_peak_stride_2:.2f}} at stride two, and the average on the right is the map the candidates are taken on."
+      - "Of the {{keypoint_detection.heatmaps_candidate_count:,}} candidates of the image, {{keypoint_detection.heatmaps_candidates_above_threshold}} pass the key point threshold of 0.1, each less than two and a half pixels from a labelled key point."
+
+  - kind: code
+    title: "Local maxima of every channel"
+    code_reference: "vision_training/models/keypoints/keypoint_detector.py · extract_keypoint_candidates"
+    source:
+      file: vision_training/models/keypoints/keypoint_detector.py
+      function: extract_keypoint_candidates
+      start: "window_maxima = "
+      end: "rows = torch.div"
+    highlights:
+      - {match: "window_maxima|local_maxima|topk", sentences: [0]}
+    narration:
+      - "The candidates of a channel are its local maxima over three by three cells, the 30 highest kept and padded with zero scores."
+
+  - kind: code
+    title: "Candidates placed within their cell"
+    code_reference: "vision_training/models/keypoints/keypoint_detector.py · compute_peak_offsets"
+    source:
+      file: vision_training/models/keypoints/keypoint_detector.py
+      function: extract_keypoint_candidates
+      start: "offset_x = compute_peak_offsets"
+      end: "candidate_x = "
+    highlights:
+      - {match: "offset_x = compute_peak_offsets|offset_y = compute_peak_offsets", sentences: [0]}
+      - {match: "candidate_x = ", sentences: [1]}
+    narration:
+      - "Each is placed within its cell, along each axis, at the vertex of the parabola through the log heat map at its cell and its two neighbours: the Taylor expansion of DARK without its cross term."
+      - "Its position in pixels is the cell plus that offset plus one half, times the stride; on the synthetic test images this cut the error per axis off the pixel centres from 0.458 to 0.363 pixels."
+
+  - kind: html
+    page: keypoint_detection/grouping
+    title: "Grouping by tags"
+    code_reference: "vision_training/models/keypoints/keypoint_grouping.py · group_keypoint_candidates"
+    data: "figures:keypoint_detection/evaluation/grouping.json"
+    steps: {columns: 0, exchange: 2}
+    narration:
+      - "The grouping runs on the CPU, class by class: the candidates of the first key point of the class start one object each."
+      - "The candidates of every next key point are matched to the objects so far by the Hungarian method, the cost being the tag distance to the mean tag of the object rounded to whole units, times 100, minus the score."
+      - "The two capsules have mean tags only {{keypoint_detection.tags_same_class_distance:.2f}} apart, so every rounded distance is zero, both assignments cost the same, and the candidates go to the objects in the order of their scores: {{keypoint_detection.grouping_exchanged_count}} key points join the other capsule."
+      - "An object scores the sum of its key point scores over the key points of its class; the evaluation keeps every object, the sample images and the deployment those scoring above one fifth."
+
+  - kind: image
+    title: "The sample image of the evaluation"
+    code_reference: "vision_training/utilities/visualization.py · build_keypoint_sample_grid"
+    image: "runs:keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Evaluation/Iteration_6000/Samples/test_000000.png"
+    highlights:
+      - {box: "{{keypoint_detection.sample_prediction_hollow_capsule_box}}", sentences: [0]}
+      - {box: "{{keypoint_detection.sample_ground_truth_hollow_capsule_box}}", sentences: [0]}
+      - {box: "{{keypoint_detection.sample_prediction_trapezoid_box}}", sentences: [1]}
+    narration:
+      - "The sample image of the evaluation shows it: every key point of both capsules is found, but their skeletons cross from one capsule to the other."
+      - "The trapezoid, alone in its class, comes out whole, with a score of {{keypoint_detection.grouping_trapezoid_best_score:.2f}}."
+
+  - kind: html
+    page: diagram
+    title: "Object key point similarity"
+    code_reference: "vision_training/evaluation/keypoints/object_keypoint_similarity.py · compute_object_keypoint_similarity"
+    elements:
+      - {type: text, position: [80, 40], text: "OKS = mean over the labelled key points of exp(-d² / (2 · area · k²)),  k = 2 sigma = {{keypoint_detection.oks_constant:g}}", font: code_text}
+      - type: curve
+        box: [180, 110, 1180, 560]
+        series:
+          - {colour: blue, points: "{{keypoint_detection.oks_trapezoid_points}}"}
+          - {colour: aqua, points: "{{keypoint_detection.oks_capsule_points}}"}
+        x_range: [0, 30]
+        y_range: [0, 1]
+        x_ticks: [{value: 0, label: "0"}, {value: 10, label: "10"}, {value: 20, label: "20"}, {value: 30, label: "30"}]
+        y_ticks: [{value: 0.5, label: "0.5"}, {value: 1.0, label: "1.0"}]
+        x_label: "distance of one key point to its ground truth, pixels"
+        y_label: "OKS"
+        appear: 1
+      - {type: text, position: [1300, 200], text: "trapezoid, area {{keypoint_detection.oks_trapezoid_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_trapezoid_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_trapezoid_pck_tolerance:.2f}} px", font: diagram_small, colour: blue, appear: 1}
+      - {type: text, position: [1300, 360], text: "capsule, area {{keypoint_detection.oks_capsule_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_capsule_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_capsule_pck_tolerance:.2f}} px", font: diagram_small, colour: aqua, appear: 1}
+      - {type: box, box: [80, 655, 1680, 725], text: "a labelled key point not found counts 0: half the key points missing never reaches OKS 0.5", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+    narration:
+      - "An object found is scored against the ground truth objects of its class with the COCO object key point similarity, which replaces the box IOU of detection."
+      - "With the default sigma of {{keypoint_detection.oks_default_sigma:g}}, a key point about twelve pixels away brings the similarity down to one half on the trapezoid, but only about seven pixels away on the smaller capsule."
+      - "A labelled key point that was not found counts zero, so an object missing half its key points never reaches an OKS of one half."
+
+  - kind: html
+    page: diagram
+    title: "Metrics of the evaluated checkpoints"
+    code_reference: "vision_training/evaluation/keypoints/object_keypoint_similarity.py · match_ground_truth_objects"
+    elements:
+      - type: grid
+        box: [330, 90, 1500, 600]
+        values: "{{keypoint_detection.metrics_grid_values}}"
+        show_values: true
+        decimals: 3
+        font: diagram_monospace_small
+        row_labels: "{{keypoint_detection.metrics_grid_row_labels}}"
+        column_labels: "{{keypoint_detection.metrics_grid_column_labels}}"
+        low_colour: box
+        high_colour: blue
+        marks:
+          - {row: 0, column: 0, sentences: [1]}
+          - {row: 0, column: 4, sentences: [1]}
+          - {row: 2, column: 0, sentences: [1, 2]}
+          - {row: 2, column: 4, sentences: [1]}
+          - {row: 2, column: 1, sentences: [2]}
+          - {row: 2, column: 5, sentences: [2]}
+          - {row: 6, column: 4, sentences: [3]}
+      - {type: text, position: [330, 640], text: "{{keypoint_detection.metrics_test_images}} test images, {{keypoint_detection.metrics_test_objects:,}} objects with key points · mean error at 6000: {{keypoint_detection.metrics_trained_6000_error:.2f}} px", font: diagram_small, colour: dim}
+    narration:
+      - "Every evaluation runs on {{keypoint_detection.metrics_test_images}} test images holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
+      - "From iteration 2000 to 6000, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_5:.3f}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_95:.3f}}."
+      - "At iteration 2000 the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:.3f}} at 0.95; by 6000 they are within a hundredth of the trained weights."
+      - "Read matched objects with care: a ground truth matches any object with an OKS above zero, however far, so {{keypoint_detection.metrics_trained_6000_matched:.4f}} matched sits next to a mean error of about seven pixels."
+
+  - kind: image
+    title: "Worst classes and key points"
+    code_reference: "vision_training/evaluation/keypoints/object_keypoint_similarity.py · summarise_keypoint_accuracy"
+    image: "figures:keypoint_detection/evaluation/worst_classes_and_keypoints.png"
+    narration:
+      - "Per class, the {{keypoint_detection.worst_class}} is the weakest at {{keypoint_detection.worst_class_ap:.3f}}; per key point, the {{keypoint_detection.worst_keypoint_name}} of the {{keypoint_detection.worst_keypoint_class}}, with a PCK of {{keypoint_detection.worst_keypoint_pck:.3f}} and {{keypoint_detection.worst_keypoint_error:.0f}} pixels of mean error."
+      - "Both tables come from class metrics and key point metrics, written in the evaluation folder of every checkpoint next to its sample images and to the same files for the averaged weights."
+
+  - kind: terminal
+    title: "Generate, train, evaluate, export"
+    code_reference: "vision_training/deployment/export_model.py · export_experiment"
+    lines:
+      - {role: comment, text: "# Synthetic key point data set: task = \"keypoint_detection\" in the main block of the script"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# Training, its data folders and label mapping set in the configuration"}
+      - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml\""}
+      - {role: comment, text: "# Evaluation of checkpoints: maximum_error_images_per_class_pair = None in its main block"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
+      - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
+    narration:
+      - "To reproduce it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration."
+      - "The evaluation script needs maximum error images per class pair set to None in its main block, or it stops on a missing error dumps key."
+      - "The export loads the checkpoint on CUDA, hard-coded, so it needs a GPU."
+
+  - kind: html
+    page: diagram
+    title: "What the export gives"
+    code_reference: "vision_training/models/keypoints/inference_keypoint_detector.py · InferenceKeypointDetector.forward"
+    elements:
+      - {type: box, box: [40, 90, 330, 290], text: "images\n[B, 3, 512, 512]\nBGR, 0 to 255", font: diagram_text, outline: blue}
+      - {type: arrow, points: [[330, 190], [400, 190]], colour: blue}
+      - {type: box, box: [410, 90, 800, 290], text: "exported network\nTorch Script or ONNX\nin Triton", font: diagram_text, outline: violet}
+      - {type: arrow, points: [[800, 190], [860, 190]], colour: violet}
+      - {type: text, position: [875, 140], text: "candidate_positions  [B, 243, 30, 2]\ncandidate_scores     [B, 243, 30]\ncandidate_tags       [B, 243, 30]", font: diagram_monospace}
+      - {type: arrow, points: [[1200, 270], [1200, 350]], colour: aqua, appear: 1}
+      - {type: box, box: [660, 360, 1740, 510], text: "client: group_keypoint_candidates (NumPy, SciPy)\nwith the channel table rebuilt from the training labels.json", font: diagram_text, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [40, 560, 1740, 700], text: "export check: compare_keypoints pairs the candidates by position, not by rank\n(a cell tied with its neighbour can become a local maximum in one runtime only)", font: diagram_text, outline: yellow, appear: 2, highlight: [2]}
+    narration:
+      - "The exported network stops at the candidates: the positions, scores and tags of 30 candidates per channel, served by Triton as Torch Script or ONNX."
+      - "The client groups them with the same function, rebuilding the channel table from the categories of the training labels, since the export writes no channel names."
+      - "The export check pairs the candidates by position rather than by rank: a cell tied with its neighbour can become a local maximum in one runtime only and shift the ranks."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Candidates: 3x3 local maxima of the averaged heat maps, placed within their cell"}
+      - {text: "Grouping on the CPU, key point by key point, by rounded tag distance then score"}
+      - {text: "OKS replaces the box IOU: sigma 0.05, a missing key point counts 0"}
+      - {text: "OKS mAP@0.5 is the headline; Matched Objects counts any OKS above 0"}
+      - {text: "Exported network outputs candidates, the client groups them"}
+      - {text: "evaluate_checkpoint: maximum_error_images_per_class_pair = None", monospace: true}
+    narration:
+      - "To recap: the network gives candidates, the grouping turns them into objects by their tags, and the object key point similarity scores them, with the trained and the averaged weights."
+      - "The next series, semantic segmentation, keeps the shared backbone and puts a decoder on it to give a class to every pixel."
