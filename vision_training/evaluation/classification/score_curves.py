@@ -419,7 +419,8 @@ def save_score_curve_images(class_curves: List[ScoreCurves], class_names: List[s
     Draws the ROC and precision-recall curves of an evaluated checkpoint (draw_score_curves) and saves them as
     'roc_curves.png' and 'precision_recall_curves.png' in its evaluation folder, for the per-class report, which also
     logs the returned images to TensorBoard: both come from the same arrays, so the saved images and the logged ones
-    are identical. Every title gives its macro mean.
+    are identical. Every title gives its macro mean on a second line, so that the longest titles (the pixels of a
+    segmentation evaluation) stay within the width of the single plot.
 
     Args:
         class_curves (List[ScoreCurves]): The curves and metrics of every class.
@@ -437,11 +438,11 @@ def save_score_curve_images(class_curves: List[ScoreCurves], class_names: List[s
     macro_metrics = compute_macro_curve_metrics(class_curves=class_curves)
     image_paths, images = {}, {}
     for image_name, image_settings in CURVE_IMAGES.items():
-        # Draw the curves with their macro mean in the title, then save them as the TensorBoard image
+        # Draw the curves with their macro mean on the second line of the title, then save them as the TensorBoard image
         macro_name = image_settings["macro_name"]
         images[image_name] = draw_score_curves(
             class_curves=class_curves, class_names=class_names, image_name=image_name,
-            title=f"{image_settings['title']}{title_suffix} · {macro_name} "
+            title=f"{image_settings['title']}{title_suffix}\n{macro_name} "
                   f"{format_report_value(value=macro_metrics[macro_name])}", target_precision=target_precision)
         image_paths[f"{image_name} Image"] = output_folder / image_settings["file_name"]
         cv2.imwrite(filename=str(image_paths[f"{image_name} Image"]),

@@ -189,3 +189,24 @@ def test_curve_images_of_a_few_and_of_many_classes(tmp_path: Path) -> None:
     lowest_values = sorted(curves["roc_auc"] for curves in many_class_curves if curves["roc_auc"] is not None)
     assert sorted(many_class_curves[class_index]["roc_auc"] for class_index in drawn_classes) == \
         lowest_values[:MAXIMUM_GRID_PANELS]
+
+
+def test_curve_image_titles_stay_inside_the_image(tmp_path: Path) -> None:
+    """
+    Verifies that the titles of the curve images of a segmentation evaluation, the longest ones (pixels, iteration and
+    macro mean), stay inside the single plot: the left and right columns of the title rows hold no ink, where a title
+    on one line used to run past both edges.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    probabilities, positive_masks = build_random_scores(number_samples=200, number_classes=10, number_levels=20,
+                                                        seed=5)
+    class_curves = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks)
+    _, images = save_score_curve_images(class_curves=class_curves,
+                                        class_names=[f"class_{index}" for index in range(10)],
+                                        output_folder=tmp_path, title_suffix=" · Pixels · Iteration 20000")
+    for image in images.values():
+        # The title rows are the top tenth of the image, white outside the text
+        title_rows = image[:image.shape[0] // 10]
+        assert (title_rows[:, :3] > 200).all() and (title_rows[:, -3:] > 200).all()
