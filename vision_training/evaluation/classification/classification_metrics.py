@@ -55,8 +55,10 @@ def compute_precision_recall_f1(true_positives: torch.Tensor, predicted_counts: 
 def compute_metrics_from_confusion_matrix(confusion_matrix: torch.Tensor) -> Dict[str, Any]:
     """
     Computes the multi-class metrics of an evaluation from its confusion matrix: the accuracy, the balanced accuracy
-    (mean recall over the classes present in the evaluated samples, insensitive to class imbalance), the macro F1
-    over the same classes, and the precision, recall, F1 and number of evaluated samples (support) of every class.
+    (mean recall over the classes present in the evaluated samples, insensitive to class imbalance, as in
+    scikit-learn), the macro F1 over the classes present or predicted (a class predicted without any sample counting
+    with its F1 of 0, as in scikit-learn), and the precision, recall, F1 and number of evaluated samples (support) of
+    every class.
 
     Args:
         confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
@@ -65,18 +67,19 @@ def compute_metrics_from_confusion_matrix(confusion_matrix: torch.Tensor) -> Dic
         Dict[str, Any]: The 'accuracy', 'balanced_accuracy' and 'macro_f1' floats, the per-class 'precision',
             'recall' and 'f1' lists, and the per-class 'support' list of evaluated samples.
     """
-    actual_counts = confusion_matrix.sum(dim=1)
+    actual_counts, predicted_counts = confusion_matrix.sum(dim=1), confusion_matrix.sum(dim=0)
     class_metrics = compute_precision_recall_f1(true_positives=confusion_matrix.diagonal(),
-                                                predicted_counts=confusion_matrix.sum(dim=0),
-                                                actual_counts=actual_counts)
+                                                predicted_counts=predicted_counts, actual_counts=actual_counts)
 
-    # Averages over the classes present in the evaluated samples
+    # Balanced accuracy over the classes present in the evaluated samples, macro F1 over the classes present or
+    # predicted, so that a class predicted without any sample lowers it
     present_classes = actual_counts > 0
+    averaged_classes = present_classes | (predicted_counts > 0)
     number_samples = int(confusion_matrix.sum())
     return {"accuracy": float(confusion_matrix.diagonal().sum()) / number_samples if number_samples else 0.0,
             "balanced_accuracy": float(class_metrics["recall"][present_classes].mean()) if present_classes.any()
             else 0.0,
-            "macro_f1": float(class_metrics["f1"][present_classes].mean()) if present_classes.any() else 0.0,
+            "macro_f1": float(class_metrics["f1"][averaged_classes].mean()) if averaged_classes.any() else 0.0,
             "precision": class_metrics["precision"].tolist(), "recall": class_metrics["recall"].tolist(),
             "f1": class_metrics["f1"].tolist(), "support": actual_counts.tolist()}
 
@@ -103,8 +106,8 @@ def compute_multi_label_metrics(probabilities: torch.Tensor, labels: torch.Tenso
     """
     Computes the metrics of a multi-label evaluation, every class being predicted when its probability reaches the
     threshold: the subset accuracy (samples whose every class is right), the micro F1 (counts pooled over the
-    classes), the macro F1 (mean over the classes present in the evaluated samples), and the precision, recall, F1 and
-    number of positive samples (support) of every class.
+    classes), the macro F1 (mean over the classes positive or predicted in the evaluated samples), and the precision,
+    recall, F1 and number of positive samples (support) of every class.
 
     Args:
         probabilities (torch.Tensor): The [N, K] class probabilities.
@@ -124,10 +127,11 @@ def compute_multi_label_metrics(probabilities: torch.Tensor, labels: torch.Tenso
                                                  predicted_counts=predicted_counts.sum().unsqueeze(dim=0),
                                                  actual_counts=actual_counts.sum().unsqueeze(dim=0))
 
-    present_classes = actual_counts > 0
+    # Macro F1 over the classes positive or predicted in some sample, a class predicted but never positive lowering it
+    averaged_classes = (actual_counts > 0) | (predicted_counts > 0)
     return {"subset_accuracy": float((predictions == targets).all(dim=1).to(dtype=torch.float64).mean())
             if len(labels) else 0.0,
             "micro_f1": float(pooled_metrics["f1"][0]),
-            "macro_f1": float(class_metrics["f1"][present_classes].mean()) if present_classes.any() else 0.0,
+            "macro_f1": float(class_metrics["f1"][averaged_classes].mean()) if averaged_classes.any() else 0.0,
             "precision": class_metrics["precision"].tolist(), "recall": class_metrics["recall"].tolist(),
             "f1": class_metrics["f1"].tolist(), "support": actual_counts.tolist()}

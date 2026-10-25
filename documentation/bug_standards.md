@@ -3,8 +3,9 @@
 > Audit of the whole repository carried out on 2026-10-20 at commit `165339b`, to go through together. The coding
 > standards S1 to S10 and the bugs B7, B20, B34, B47 and B50 were fixed on 2026-10-20 (not committed yet). On
 > 2026-10-21, C3, C4 (the anchors and `last_max_pooling`), H6, M6, M7, M8, M17, M20, L13, B9, B11, B30 and B44
-> were fixed, with the host waits of `random_black_out`. The items dropped by the user are deleted from this file,
-> the other items are still open. Nine reviewers each read one area end to end (configuration, data generation, data loading, core
+> were fixed, with the host waits of `random_black_out`. On 2026-10-25, B45, B51, B53 and B56 were fixed. The items
+> dropped by the user are deleted from this file, the other items are still open.
+> Nine reviewers each read one area end to end (configuration, data generation, data loading, core
 > models, detection and keypoint models, training loop, task trainers and losses, evaluation and tracking, deployment
 > and scripts) and reproduced their findings with small scripts on the synthetic datasets, the dummy task or hand-made
 > inputs. Every medium and high finding was then read again in the code. The coding standards of the global
@@ -626,8 +627,8 @@
   saving iteration.
 
 #### B45. The console summary treats the correlation metrics as higher-is-better: a rising off-diagonal correlation prints green with "Best"
-- **Area:** training loop · **Severity:** low · **Status:** confirmed (reproduced by the reviewer, code read again) ·
-  **Category:** bug (misleading output)
+- **Area:** training loop · **Severity:** low · **Status:** fixed on 2026-10-25 (found confirmed, reproduced by the
+  reviewer, code read again) · **Category:** bug (misleading output)
 - **Where:** `vision_training/trainers/metric_tracking.py:31-33` (`LOWER_IS_BETTER_SUFFIX = "_loss"`), 185-197, 244-255;
   tracked keys at `self_supervised_trainer.py:41-47`, `classification_trainer.py:155-158, 237-239`.
 - **Problem:** only keys ending in `_loss` improve when they fall, but `cross_correlation_off_diagonal` (Barlow Twins)
@@ -636,6 +637,8 @@
   value.
 - **Fix:** let the tasks declare the direction of every tracked metric (or keep an explicit set of lower-is-better
   keys).
+- **Fixed:** `LOWER_IS_BETTER_KEYS` of `metric_tracking.py` holds the two correlations, which `is_lower_better` reads
+  next to the `_loss` suffix; `test_correlations_improve_when_they_decrease` covers both.
 
 #### B46. "Iterations Per Epoch" and the sample counts logged to MLflow come from the manifest before the label mapping
 - **Area:** training loop · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:** bug
@@ -707,14 +710,17 @@
   deleted.
 
 #### B51. Keypoint "Matched Objects" and mean pixel error count predictions far from the object
-- **Area:** evaluation and tracking · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** bug
+- **Area:** evaluation and tracking · **Severity:** low · **Status:** fixed on 2026-10-25 (found confirmed, reproduced
+  by the reviewer) · **Category:** bug
 - **Where:** `vision_training/evaluation/keypoints/object_keypoint_similarity.py:164` (match when OKS > 0), `299-302`.
 - **Problem:** a ground truth is matched whenever its float64 OKS is above 0, which only fails on underflow (about 3.9
   box sides away), so a far prediction counts as matched and its distance enters "Mean Keypoint Error (pixels)".
 - **Failure scenario:** a 20x20 box with its only prediction 60 pixels away: Matched Objects 1.0, Mean Keypoint Error
   60.0, PCK 0.0.
 - **Fix:** require a minimum OKS for a match (0.5 as in AP@0.5, or a setting).
+- **Fixed:** `match_ground_truth_objects` leaves the pairs below `MINIMUM_MATCH_SIMILARITY` (0.5) out of the assignment
+  and never matches them, so the far prediction of the scenario leaves its object missed (Matched Objects 0, no mean
+  keypoint error); `test_a_far_prediction_is_neither_matched_nor_measured` runs the scenario.
 
 #### B52. Tied probabilities give every tied frame rank 1, inflating top-k selection accuracy and mean rank
 - **Area:** evaluation and tracking · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
@@ -727,8 +733,8 @@
 - **Fix:** break ties pessimistically or use the average rank of the tie.
 
 #### B53. Mean IoU, mean Dice and macro F1 leave out the classes predicted but absent from the ground truth
-- **Area:** evaluation and tracking · **Severity:** low · **Status:** confirmed (measured against the standard
-  definitions and scikit-learn) · **Category:** bug
+- **Area:** evaluation and tracking · **Severity:** low · **Status:** fixed on 2026-10-25 (found confirmed, measured
+  against the standard definitions and scikit-learn) · **Category:** bug
 - **Where:** `vision_training/evaluation/segmentation/segmentation_metrics.py:65-71`;
   `classification/classification_metrics.py:74-79, 127-131`.
 - **Problem:** documented, but unlike mmseg and Cityscapes (every class with a non-empty union) and scikit-learn's macro
@@ -737,6 +743,12 @@
   reported 0.75 where the standard gives 0.5; macro F1 differs from scikit-learn by up to 0.28 on random inputs
   (accuracy, balanced accuracy, per-class metrics and top-k match exactly).
 - **Fix:** average over the classes with TP + FP + FN > 0, or name these metrics "over present classes".
+- **Fixed:** the macro F1 (single and multi-label) and the mean Dice average over the classes present or predicted,
+  the mean IoU over the classes with a non-empty union; the balanced accuracy keeps the classes present, as in
+  scikit-learn. The scenario gives a mean IoU of 0.5, and the macro F1 and balanced accuracy match scikit-learn on
+  random inputs (`test_class_painted_without_true_pixel_lowers_the_mean_iou`,
+  `test_class_predicted_but_absent_lowers_the_macro_f1`). The evaluations written before 2026-10-25 can give higher
+  values when a class was predicted without being present.
 
 #### B54. A standalone evaluation is tracked in another MLflow database than the one the launch panel prints
 - **Area:** evaluation and tracking · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
@@ -760,8 +772,8 @@
 - **Fix:** return None and skip the scalars without ground truth, handling None in the best checkpoint comparison.
 
 #### B56. evaluate_checkpoint.py's default error image setting stops SEG, KPT and SSL runs with a bare KeyError
-- **Area:** deployment and scripts · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** error-handling
+- **Area:** deployment and scripts · **Severity:** low · **Status:** fixed on 2026-10-25 (found confirmed, reproduced
+  by the reviewer) · **Category:** error-handling
 - **Where:** `scripts/evaluation/evaluate_checkpoint.py:36, 59-62`.
 - **Problem:** the default `maximum_error_images_per_class_pair = 100000` is applied by reading
   `experiment_configuration["evaluation"]["error_dumps"]`, which the segmentation, keypoint and self-supervised
@@ -769,6 +781,8 @@
 - **Failure scenario:** the script pointed at a SEG, KPT or SSL run without editing that setting stops with `KeyError:
   'error_dumps'`.
 - **Fix:** skip the override with a message when the section is missing, or raise a ValueError naming the setting.
+- **Fixed:** `apply_error_image_limit` of the script applies the limit, skipped with a yellow warning naming the
+  setting for the tasks without `evaluation.error_dumps`; `test_evaluate_checkpoint.py` covers both cases.
 
 #### B57. A run without checkpoint registry is "evaluated" on nothing and the script ends normally
 - **Area:** deployment and scripts · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·

@@ -2,7 +2,8 @@
 Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics over
 the batches really accumulated, the real frames counted for the frame throughput, the time interval format, the
 interval summary header with the iterations of the interval, spanning its separator lines with centred cells whose
-bars keep their place, and the changes since the previous summary (metric changes and their colours, best marker).
+bars keep their place, and the changes since the previous summary (metric changes and their colours, best marker,
+the off-diagonal correlations improving when they fall).
 """
 
 import pytest
@@ -224,3 +225,27 @@ def test_valid_changes_skip_intervals_without_validation(capsys: pytest.CaptureF
     console_output = capsys.readouterr().out
     assert console_output.count("Moving Average of Valid Total Loss") == 2
     assert color_text(color="green", text=" -0.2000") in console_output
+
+
+@pytest.mark.parametrize("metric_key", ["cross_correlation_off_diagonal", "hidden_feature_correlation"])
+def test_correlations_improve_when_they_decrease(metric_key: str) -> None:
+    """
+    Verifies that the mean absolute off-diagonal correlations (Barlow Twins, decorrelation), which do not end in _loss,
+    improve when they fall: a falling value is green and marked best, a rising one red without the best marker, while
+    the diagonal correlation of Barlow Twins still improves when it rises.
+    """
+    tracker = MetricTracker(tracked_metrics_mapping={metric_key: "Correlation"}, batch_size=2,
+                            validation_iteration_ratio=0, sample_name="Images", counts_frames=False)
+    assert MetricTracker.is_lower_better(metric_key=metric_key)
+    assert not MetricTracker.is_lower_better(metric_key="cross_correlation_diagonal")
+
+    # A falling correlation is an improvement and the best value, a rising one a degradation
+    tracker.format_metric_line(split_name="Train", metric_key=metric_key, display_name="Correlation", current_value=0.2)
+    falling_line = tracker.format_metric_line(split_name="Train", metric_key=metric_key, display_name="Correlation",
+                                              current_value=0.1)
+    rising_line = tracker.format_metric_line(split_name="Train", metric_key=metric_key, display_name="Correlation",
+                                             current_value=0.3)
+    assert color_text(color="green", text=" -0.1000") in falling_line
+    assert color_text(color="blue", text="Best") in falling_line
+    assert color_text(color="red", text=" +0.2000") in rising_line
+    assert color_text(color="blue", text="Best") not in rising_line

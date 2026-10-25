@@ -1,7 +1,7 @@
 """
-Metrics of the semantic segmentation task, computed from the confusion matrix of the labelled pixels (rows true
-classes, columns predicted classes): the pixel accuracy, the IoU and Dice of every class with their means over the
-classes present, the frequency-weighted IoU, and the precision and recall of every class. Used by the segmentation
+Metrics of the semantic segmentation task, computed from the confusion matrix of the labelled pixels (rows true classes,
+columns predicted classes): the pixel accuracy, the IoU and Dice of every class with their means over the classes
+present or predicted, the frequency-weighted IoU, and the precision and recall of every class. Used by the segmentation
 trainer on every training and validation batch and on the whole test split of an evaluated checkpoint, which also
 counts, with the per-class report, the probabilities of the labelled pixels in histograms giving the ROC and
 precision-recall curves of every class (score_curves.py).
@@ -78,9 +78,10 @@ def compute_segmentation_metrics(confusion_matrix: torch.Tensor) -> Dict[str, An
     Computes the segmentation metrics of a batch or of a whole test split from its pixel confusion matrix: the pixel
     accuracy (share of the labelled pixels given their class), the IoU (intersection over union of the predicted and
     true pixels) and Dice (twice the intersection over their sum, the F1 score of the pixels) of every class, their
-    means over the classes present in the true masks, a class absent from them being left out like in the macro
-    averages of the classifiers, and the frequency-weighted IoU (IoU of every class weighted by its share of the
-    pixels).
+    means over the classes present in the true masks or predicted (every class with a non-empty union, as in mmseg and
+    Cityscapes), a class painted without any true pixel counting with its IoU and Dice of 0 and a class neither
+    present nor predicted being left out, and the frequency-weighted IoU (IoU of every class weighted by its share of
+    the pixels).
 
     Args:
         confusion_matrix (torch.Tensor): The [K, K] pixel confusion matrix (rows true classes, columns predicted
@@ -91,7 +92,8 @@ def compute_segmentation_metrics(confusion_matrix: torch.Tensor) -> Dict[str, An
             labelled pixel), the per-class 'iou', 'dice', 'precision' and 'recall' lists (0 for a class neither present
             nor predicted), and the per-class 'support' list of true pixels.
     """
-    # Accuracy, and precision, recall and F1 (the Dice) of every class with their mean over the classes present
+    # Accuracy, and precision, recall and F1 (the Dice) of every class with their mean over the classes present or
+    # predicted
     classification_metrics = compute_metrics_from_confusion_matrix(confusion_matrix=confusion_matrix)
 
     # Intersection over union of every class, from its right pixels, its true pixels and its predicted pixels
@@ -101,11 +103,12 @@ def compute_segmentation_metrics(confusion_matrix: torch.Tensor) -> Dict[str, An
     intersection_over_union = torch.where(condition=union_counts > 0,
                                           input=true_positives / union_counts.clamp(min=1.0), other=0.0)
 
-    # Means over the classes present in the true masks, and the mean weighted by the share of the pixels
-    present_classes = true_counts > 0
+    # Mean over the classes with a non-empty union (present or predicted), and the mean weighted by the share of the
+    # pixels
+    averaged_classes = union_counts > 0
     number_pixels = float(true_counts.sum())
     return {"pixel_accuracy": classification_metrics["accuracy"],
-            "mean_iou": float(intersection_over_union[present_classes].mean()) if present_classes.any() else 0.0,
+            "mean_iou": float(intersection_over_union[averaged_classes].mean()) if averaged_classes.any() else 0.0,
             "frequency_weighted_iou": float((true_counts * intersection_over_union).sum()) / number_pixels
             if number_pixels else 0.0,
             "mean_dice": classification_metrics["macro_f1"],

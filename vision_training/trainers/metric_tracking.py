@@ -28,9 +28,11 @@ SUMMARY_MAXIMUM_FRAMES_PER_SECOND = 999999.9
 # Colour of the metric lines of each split in the console summary
 SPLIT_COLORS = {"Train": "blue", "Valid": "yellow"}
 
-# Suffix of the tracked keys that improve when they decrease (the losses), every other key (accuracy) improves when it
-# increases
+# Suffix of the tracked keys that improve when they decrease (the losses), and the other tracked keys improving when
+# they decrease: the mean absolute off-diagonal correlations of Barlow Twins and of the decorrelation of the hidden
+# features, the redundancy they measure falling. Every other key (accuracy) improves when it increases
 LOWER_IS_BETTER_SUFFIX = "_loss"
+LOWER_IS_BETTER_KEYS = {"cross_correlation_off_diagonal", "hidden_feature_correlation"}
 
 # Number of decimals of the metric values and of their changes, and width of a value or change column
 METRIC_DECIMALS = 4
@@ -185,16 +187,17 @@ class MetricTracker:
     @staticmethod
     def is_lower_better(metric_key: str) -> bool:
         """
-        Gives the direction in which a tracked metric improves, which sets the colour of its changes in the console
-        summary: the losses improve when they decrease, the batch metrics (accuracy) when they increase.
+        Gives the direction in which a tracked metric improves, which sets the colour of its changes and the best
+        marker in the console summary: the losses and the off-diagonal correlations (LOWER_IS_BETTER_KEYS) improve
+        when they decrease, the other batch metrics (accuracy) when they increase.
 
         Args:
             metric_key (str): The model output key of the metric.
 
         Returns:
-            bool: True for the losses, False for the other metrics.
+            bool: True for the losses and the off-diagonal correlations, False for the other metrics.
         """
-        return metric_key.endswith(LOWER_IS_BETTER_SUFFIX)
+        return metric_key.endswith(LOWER_IS_BETTER_SUFFIX) or metric_key in LOWER_IS_BETTER_KEYS
 
     @staticmethod
     def format_change(change: float, lower_is_better: bool, neutral_color: str) -> str:
@@ -205,7 +208,8 @@ class MetricTracker:
 
         Args:
             change (float): The current value minus the previous one.
-            lower_is_better (bool): True when the value improves by decreasing (losses), False otherwise.
+            lower_is_better (bool): True when the value improves by decreasing (losses, off-diagonal correlations),
+                False otherwise.
             neutral_color (str): The colour of a change rounding to zero, the colour of its line.
 
         Returns:

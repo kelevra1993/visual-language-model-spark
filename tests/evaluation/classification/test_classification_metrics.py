@@ -13,6 +13,7 @@ import pytest
 import torch
 
 from pathlib import Path
+from sklearn.metrics import balanced_accuracy_score, f1_score
 
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix,
@@ -48,13 +49,54 @@ def test_confusion_matrix_and_metrics_match_hand_computed_values() -> None:
 
 def test_class_absent_from_the_evaluation_is_left_out_of_the_averages() -> None:
     """
-    Verifies that a class without any evaluated sample does not lower the balanced accuracy and the macro F1, which
-    average over the classes present in the evaluated samples only.
+    Verifies that a class without any evaluated sample and never predicted does not lower the balanced accuracy and
+    the macro F1, which leave out the classes neither present nor predicted.
     """
     confusion_matrix = compute_confusion_matrix(predicted_labels=torch.tensor(data=[0, 1]),
                                                 labels=torch.tensor(data=[0, 1]), number_classes=3)
     metrics = compute_metrics_from_confusion_matrix(confusion_matrix=confusion_matrix)
     assert metrics["balanced_accuracy"] == metrics["macro_f1"] == metrics["accuracy"] == 1.0
+
+
+def test_class_predicted_but_absent_lowers_the_macro_f1() -> None:
+    """
+    Verifies that a class predicted but absent from the evaluated samples counts in the macro F1 with its F1 of 0, as
+    in scikit-learn (the labels of the true and predicted classes), while the balanced accuracy stays the mean recall
+    of the classes present, and that both match scikit-learn on random predictions spread over more classes than the
+    true labels.
+    """
+    # Two samples of class 0 and two of class 1, one of each predicted as class 2, which has no sample
+    confusion_matrix = compute_confusion_matrix(predicted_labels=torch.tensor(data=[0, 2, 1, 2]),
+                                                labels=torch.tensor(data=[0, 0, 1, 1]), number_classes=3)
+    metrics = compute_metrics_from_confusion_matrix(confusion_matrix=confusion_matrix)
+    assert metrics["f1"] == pytest.approx(expected=[2 / 3, 2 / 3, 0.0])
+    assert metrics["macro_f1"] == pytest.approx(expected=(2 / 3 + 2 / 3 + 0.0) / 3)
+    assert metrics["balanced_accuracy"] == pytest.approx(expected=0.5)
+
+    # Random true labels among 4 of 6 classes and predictions among all 6, compared with scikit-learn
+    generator = torch.Generator().manual_seed(0)
+    for _ in range(20):
+        labels = torch.randint(low=0, high=4, size=(50,), generator=generator)
+        predicted_labels = torch.randint(low=0, high=6, size=(50,), generator=generator)
+        metrics = compute_metrics_from_confusion_matrix(confusion_matrix=compute_confusion_matrix(
+            predicted_labels=predicted_labels, labels=labels, number_classes=6))
+        assert metrics["macro_f1"] == pytest.approx(expected=f1_score(y_true=labels.numpy(),
+                                                                      y_pred=predicted_labels.numpy(),
+                                                                      average="macro", zero_division=0))
+        assert metrics["balanced_accuracy"] == pytest.approx(expected=balanced_accuracy_score(
+            y_true=labels.numpy(), y_pred=predicted_labels.numpy()))
+
+
+def test_multi_label_class_predicted_but_absent_lowers_the_macro_f1() -> None:
+    """
+    Verifies that a multi-label class predicted for some sample but positive in none counts in the macro F1 with its F1
+    of 0, and that a class neither positive nor predicted stays out of it.
+    """
+    probabilities = torch.tensor(data=[[0.9, 0.8, 0.1], [0.2, 0.1, 0.1]])
+    labels = torch.tensor(data=[[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    metrics = compute_multi_label_metrics(probabilities=probabilities, labels=labels, threshold=0.5)
+    assert metrics["f1"] == pytest.approx(expected=[1.0, 0.0, 0.0])
+    assert metrics["macro_f1"] == pytest.approx(expected=0.5)
 
 
 def test_top_k_accuracy() -> None:

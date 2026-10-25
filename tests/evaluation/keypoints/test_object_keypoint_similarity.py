@@ -2,11 +2,12 @@
 Tests of vision_training/evaluation/keypoints/object_keypoint_similarity.py, the keypoint evaluation of the keypoint
 trainer on the test split: the sigma table built from the configured COCO sigmas (default, padding positions, merged
 categories and their conflict), the object keypoint similarity on a hand-computed case with the box-area scale, the
-boxes of the predicted objects spanning their keypoints found, the one-to-one matching of the ground truth objects of
-an image to the predicted ones by the largest total similarity, the comparison of the predicted and ground truth
-objects of every image into the detections and ground truths of the average precision and the matched objects of the
-keypoint accuracy, and the matched fraction, PCK and pixel errors of every class and keypoint, with the missed objects,
-the classes and keypoints that have no labelled keypoint, and a split without object.
+boxes of the predicted objects spanning their keypoints found, the one-to-one matching of the ground truth objects of an
+image to the predicted ones by the largest total similarity over the pairs reaching the minimum similarity (a far
+prediction leaving its object missed), the comparison of the predicted and ground truth objects of every image into the
+detections and ground truths of the average precision and the matched objects of the keypoint accuracy, and the matched
+fraction, PCK and pixel errors of every class and keypoint, with the missed objects, the classes and keypoints that have
+no labelled keypoint, and a split without object.
 """
 
 import math
@@ -17,6 +18,7 @@ from typing import Any, Dict, List
 
 from vision_training.evaluation.keypoints.object_keypoint_similarity import (CORRECT_KEYPOINTS_NAME,
                                                                              EVALUATED_OBJECT_KEYS,
+                                                                             MINIMUM_MATCH_SIMILARITY,
                                                                              build_keypoint_sigma_table,
                                                                              compute_keypoint_boxes,
                                                                              compute_object_keypoint_similarity,
@@ -256,6 +258,46 @@ def test_ground_truth_objects_are_matched_by_the_largest_total_similarity() -> N
     assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.0]])).tolist() == [-1]
     assert match_ground_truth_objects(keypoint_overlaps=torch.zeros(size=(0, 2))).tolist() == [-1, -1]
     assert match_ground_truth_objects(keypoint_overlaps=torch.zeros(size=(2, 0))).tolist() == []
+
+
+def test_ground_truth_objects_need_the_minimum_similarity_to_match() -> None:
+    """
+    Verifies that a pair below MINIMUM_MATCH_SIMILARITY never matches, as in the OKS AP@0.5, a pair at the minimum
+    matching, and that the pairs below the minimum are left out of the assignment, so that a prediction goes to the
+    ground truth it reaches the minimum with rather than to the one giving the largest total with a rejected pair.
+    """
+    assert MINIMUM_MATCH_SIMILARITY == 0.5
+    assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.3]])).tolist() == [-1]
+    assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.49, 0.5]])).tolist() == [-1, 0]
+    # The total 0.6 + 0.4 would pair prediction 0 with ground truth 0 and leave the 0.4 pair rejected, one match of
+    # 0.6; without the pairs below the minimum, prediction 0 goes to ground truth 1 with 0.7
+    assignment = match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.6, 0.7], [0.0, 0.4]],
+                                                                           dtype=torch.float64))
+    assert assignment.tolist() == [-1, 0]
+
+
+def test_a_far_prediction_is_neither_matched_nor_measured() -> None:
+    """
+    Verifies the case of the audit (B51): a 20x20 rectangle whose only prediction lies 60 pixels away has a similarity
+    above 0 (it only underflows about 4 box sides away) but far below the minimum, so the object is missed: Matched
+    Objects 0, PCK 0, and no mean keypoint error instead of the 60 pixels of the far prediction.
+    """
+    rectangle = [[1.0, 1.0], [19.0, 1.0], [19.0, 19.0], [1.0, 19.0]]
+    far_rectangle = [[keypoint_x + 60.0, keypoint_y] for keypoint_x, keypoint_y in rectangle]
+    images = [make_image(labels=[2], bounding_boxes=[[0.0, 0.0, 20.0, 20.0]], keypoints=[rectangle],
+                         visibilities=[[2, 2, 2, 2]], predicted_labels=[2], predicted_keypoints=[far_rectangle],
+                         predicted_scores=[0.9])]
+    sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
+                                             keypoint_sigmas={}, maximum_keypoints=MAXIMUM_KEYPOINTS)
+    evaluation = evaluate_image_keypoints(images=images, sigma_table=sigma_table)
+    similarity = evaluation["detections"][0]["keypoint_overlaps"][0, 0].item()
+    assert 0.0 < similarity < MINIMUM_MATCH_SIMILARITY
+    assert evaluation["objects"]["matched"].tolist() == [False]
+
+    summary = summarise_keypoint_accuracy(objects=evaluation["objects"], sigma_table=sigma_table,
+                                          keypoint_categories=KEYPOINT_CATEGORIES, class_names=CLASS_NAMES)
+    assert summary["metrics"]["Matched Objects"] == 0.0 and summary["metrics"][CORRECT_KEYPOINTS_NAME] == 0.0
+    assert summary["metrics"]["Mean Keypoint Error (pixels)"] is None
 
 
 def test_evaluate_image_keypoints_compares_the_predicted_and_ground_truth_objects_of_every_image() -> None:
