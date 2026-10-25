@@ -101,9 +101,8 @@ uv run python -m vision_training.deployment.export_model
 ### Pitfalls
 
 - `residual_nets: True` adds no shortcut in the backbone blocks 2, 4 and 6, which change the channel count with 2 layers, nor in any decoder level, whose input (skip plus upsampled channels) never has the channels of its output (`ConvolutionBlock.residual_parity` of `convolution_block.py`; `suggestions.md` H4, open). The backbone summary lists the shortcuts for blocks 3 and 5 only (Step 2.14).
-- `Mean IoU` and `Mean Dice` average over the classes present in the true masks: a class predicted but absent from the test masks is not penalised (`compute_segmentation_metrics()` of `segmentation_metrics.py`; `bug_standards.md` B53). The batch `Mean IoU` of the console averages the classes of each batch, then the batches (Step 3.20).
+- `Mean IoU` and `Mean Dice` average over the classes present in the true masks or predicted, a class painted without any true pixel counting with 0 (`compute_segmentation_metrics()` of `segmentation_metrics.py`). Before 2026-10-25 they left out the classes predicted but absent (`bug_standards.md` B53), so older evaluations can be higher. The batch `Mean IoU` of the console averages the classes of each batch, then the batches (Step 3.20).
 - The masks are resized with `cv2.INTER_NEAREST`, about half a pixel off their images, and `random_crop` adds another half pixel (`segmentation_dataset.py`, `augmentations.py`; `suggestions.md` M5, open): with `original_resolution: True` on large images the shift can exceed `boundary_tolerance`.
-- `scripts/evaluation/evaluate_checkpoint.py` stops with `KeyError: 'error_dumps'` unless `maximum_error_images_per_class_pair = None` (`bug_standards.md` B56, Step 5.1).
 - The `SegmentationLoss` settings, the head dropout, the deep supervision weights and the tile overlap give no run name token, so changing them resumes the same run folder, `load_model()` setting the class weights of the new configuration again (`build_segmentation_sections()` of `run_name.py`; Step 2.18).
 - A run trained on tiles is exported with one tile as input, the client scaling and tiling the images with `segment_image_by_tiles()` (README, Deployment, Export), while `run_inference.py` times one letterboxed image per request (`bug_standards.md` B59).
 
@@ -857,6 +856,8 @@ Tensorboard/Validation at iteration 10: Total Loss 2.9886, Cross Entropy Loss 2.
 ### Step 3.20 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()`
 The sums of the interval are divided by the number of batches it ran; the batch mean IoU is thus averaged over the batches, each batch having its own classes.
 
+> These outputs were recorded before 2026-10-25, when the mean IoU still left out the classes predicted but absent (`bug_standards.md` B53): a batch whose masks lack a class the network paints now gives a lower batch mean IoU, so the `Mean IoU` lines can be lower in a new run.
+
 **Example: the sums and the averages of the first interval**
 ```text
 before: {'interval_batches': 4, 'total_loss': 11.8839, 'segmentation_loss': 8.085, 'dice_loss': 3.7988, 'pixel_accuracy': 1.6417, 'mean_iou': 0.2646}
@@ -983,7 +984,7 @@ class_scalars     = 60: IoU/background, Dice/background, Boundary IoU/background
 The 819,200 labelled pixels are the 200 test images × 64 × 64: the synthetic images are square, so there is no padding. This run was captured before the ROC and precision-recall curves of the per-class report: with `per_class_report: True`, the current code also gives `'Macro ROC AUC'` and `'Macro Average Precision'` in `metrics`, the files `ROC Curves Image` and `Precision Recall Curves Image` after `Confusion Matrix Image`, and the `ROC AUC/<class>` and `Average Precision/<class>` scalars of the classes defining them (Step 4.13).
 
 ### Step 4.8 — `compute_segmentation_metrics()`
-All the region metrics come from the pixel confusion matrix (rows true classes, columns predicted classes). For a class: its **IoU** is the right pixels over the union of its true and predicted pixels, its **Dice** is the F1 of its pixels (twice the intersection over their sum), its **precision** and **recall** are those of the classification. The **pixel accuracy** is the diagonal over all the labelled pixels, the **mean IoU** and **mean Dice** are the means over the classes present in the test masks, and the **frequency-weighted IoU** weights the IoU of every class by its share of the pixels, which the background dominates.
+All the region metrics come from the pixel confusion matrix (rows true classes, columns predicted classes). For a class: its **IoU** is the right pixels over the union of its true and predicted pixels, its **Dice** is the F1 of its pixels (twice the intersection over their sum), its **precision** and **recall** are those of the classification. The **pixel accuracy** is the diagonal over all the labelled pixels, the **mean IoU** and **mean Dice** are the means over the classes present in the test masks or predicted (a class painted without any true pixel counts with 0, a class neither present nor predicted is left out), and the **frequency-weighted IoU** weights the IoU of every class by its share of the pixels, which the background dominates.
 
 **Example: `Evaluation/Iteration_12/confusion_matrix.csv`** (pixel counts; the network predicts only background, square and star)
 ```text
@@ -1092,7 +1093,7 @@ The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accura
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed, and `maximum_error_images_per_class_pair = None`: the segmentation configurations have no `evaluation.error_dumps` section, and the default of the script (100000) stops with `KeyError: 'error_dumps'` (`documentation/bug_standards.md`, B56).
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed. The segmentation configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the segmentation evaluation saves no error image.
 
 ### Step 5.2 — trainer construction
 The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the output folder, since the counts are cached in the run folder of the trainer.

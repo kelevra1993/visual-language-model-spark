@@ -99,7 +99,6 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 - The `flatten` pooling ties the head to `Data.image_settings.size` and `Backbone.last_max_pooling`: another image size changes the input of the first hidden layer and the run name, and a classification head can only be transferred to a run of the same image size (`compute_pooled_features()` of `classification_head.py`; README, Transfer Between Runs).
 - A synthetic dataset generated now holds the 35 classes of `SHAPE_CATEGORIES`, so the run ends with `MC35`; the README run and the examples of this document use the 9-class dataset generated before the other classes were added (`create_synthetic_dataset.py`; README, Quick Start With Synthetic Data).
 - `Iterations Per Epoch` and the sample counts sent to MLflow count the samples of the manifests before the label mapping, so they are too high when the mapping leaves categories out (`count_split_samples()` of `split_description.py`; `bug_standards.md` B46).
-- With `ClassificationHead.decorrelation` on, the console summary prints a rising `Hidden Feature Correlation` in green with `Best`, only the keys ending in `_loss` improving when they fall (`LOWER_IS_BETTER_SUFFIX` of `metric_tracking.py`; `bug_standards.md` B45).
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -1579,7 +1578,7 @@ tensor([[  0,   0, 579,   0,   0,   0,   0,   0,   0],      <- the 579 squares, 
 ```
 
 ### Step 4.10 — `compute_metrics_from_confusion_matrix()` → `compute_precision_recall_f1()`
-All the multi-class metrics come from the matrix. For a class: the **support** is its row sum (its test images), the **precision** is the diagonal divided by its column sum (how many images predicted as the class are right), the **recall** is the diagonal divided by its row sum (how many images of the class were found) and the **F1** is their harmonic mean. A class that is never predicted gets a precision of 0. The **accuracy** is the diagonal sum over all the images, the **balanced accuracy** is the mean recall over the classes present in the test set, and the **macro F1** the mean F1 over the same classes: they do not depend on how many images each class has.
+All the multi-class metrics come from the matrix. For a class: the **support** is its row sum (its test images), the **precision** is the diagonal divided by its column sum (how many images predicted as the class are right), the **recall** is the diagonal divided by its row sum (how many images of the class were found) and the **F1** is their harmonic mean. A class that is never predicted gets a precision of 0. The **accuracy** is the diagonal sum over all the images, the **balanced accuracy** is the mean recall over the classes present in the test set, and the **macro F1** the mean F1 over the classes present or predicted, a class predicted without any test image counting with its F1 of 0, as in scikit-learn: they do not depend on how many images each class has.
 
 **Example: how the numbers of iteration 6 are obtained**
 ```text
