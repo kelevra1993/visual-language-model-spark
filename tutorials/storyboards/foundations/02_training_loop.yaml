@@ -137,6 +137,7 @@ scenes:
 
   - kind: yaml
     title: "MLflow tracking"
+    font_size: 34
     code_reference: "vision_training/tracking"
     source:
       file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml

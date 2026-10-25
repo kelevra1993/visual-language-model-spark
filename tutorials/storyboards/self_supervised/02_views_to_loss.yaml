@@ -170,6 +170,7 @@ scenes:
 
   - kind: code
     title: "Watching the collapse"
+    font_size: 28
     code_reference: "vision_training/losses/self_supervised_losses.py · compute_embedding_standard_deviation"
     source:
       file: vision_training/losses/self_supervised_losses.py

@@ -173,6 +173,7 @@ scenes:
 
   - kind: yaml
     title: "Weights of the four losses"
+    font_size: 34
     code_reference: "vision_training/trainers/detection_trainer.py · DetectionTrainer.get_loss_weights"
     source:
       file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
