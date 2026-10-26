@@ -162,10 +162,10 @@ main()
 │       │                                         settings, per-class report, number of sample images, MLflow
 │       │                                         tracking settings
 │       ├── check_data_configuration()            loading settings, augmentation types and probabilities, label
-│       │                                         mapping mode, input image size is a power of 2
+│       │                                         mapping mode, input image size is a positive even integer
 │       ├── check_backbone_configuration()        convolution blocks numbered "1".."N", each [layers, channels],
-│       │                                         3 input channels, and the image still has at least 1 pixel after
-│       │                                         every pooling
+│       │                                         3 input channels, and the image size is a multiple of 2 ** the
+│       │                                         number of poolings, every map entering a pooling being even
 │       ├── check_optimization_configuration()    optimizer, weight decay, warm-up / cosine schedule, gradient
 │       │                                         clipping, mixed precision flag, decay of the weight moving average
 │       └── check_classification_configuration()  classification-specific checks:

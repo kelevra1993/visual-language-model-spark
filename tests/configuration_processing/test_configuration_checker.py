@@ -77,7 +77,7 @@ def write_modified_configuration(temporary_directory: Path,
 
 def set_image_size(configuration: Dict[str, Any]) -> None:
     """
-    Sets an image size that is not a power of two.
+    Sets an image size that is not a multiple of 64, the 6 pooling layers of the detection backbone halving it.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
@@ -447,7 +447,8 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                 "'Data.data_augmentation.independent_frames' must be False for this task",
                                 "'Data.data_augmentation.shuffle_frames.probability' must be a probability within "
                                 "[0, 1], got 1.5."]),
-    (set_image_size, ["'Data.image_settings.size' must be a power of two"]),
+    (set_image_size, ["'Data.image_settings.size' (1000) must be a multiple of 64, 2 to the power of the 6 Backbone "
+                      "pooling layers"]),
     (set_overlapping_thresholds, ["'RegionProposal.background_iou_threshold.max' (0.6) must be <="]),
     (remove_level_anchors, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector'], "
                             "got ['detector', 'region_proposal']."]),
@@ -482,7 +483,7 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                             "or False, got 'yes'.",
                                             "'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' "
                                             "must be an integer >= 1, got 0."]),
-    (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
+    (set_multiple_errors, ["'Data.image_settings.size' (1000) must be a multiple of 64",
                            "'Detector.number_training_positives' (500) must be <="]),
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
                                       "got 'yes'."]),
@@ -958,8 +959,8 @@ def test_jigsaw_image_size_is_checked(tmp_path: Path, capsys: pytest.CaptureFixt
     """
     Verifies that an activated random_jigsaw refuses a side of the network input that is not a multiple of its grid
     size, which would stop the training at its first batch, and that the jigsaw turned off leaves the size to the
-    other checks: the image of 1 pixel passes the power of two check but not the 2x2 grid, and a grid of 3x3 pieces in
-    both strength sets stands for a change of the hard-coded grid size.
+    other checks: the image of 1 pixel, refused by the size checks, is refused by the 2x2 grid too, and a grid of 3x3
+    pieces in both strength sets stands for a change of the hard-coded grid size.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -969,7 +970,7 @@ def test_jigsaw_image_size_is_checked(tmp_path: Path, capsys: pytest.CaptureFixt
         image_size (int): The side of the network input, 'Data.image_settings.size'.
         jigsaw_activated (bool): Whether random_jigsaw is activated.
         refused_by_jigsaw (bool): Whether the jigsaw check must refuse the image size.
-        loads (bool): Whether the configuration must load, an image of 1 pixel being refused by the backbone checks too.
+        loads (bool): Whether the configuration must load, an image of 1 pixel being refused by the size checks too.
     """
     monkeypatch.setitem(SUPERVISED_AUGMENTATION_STRENGTHS, "jigsaw_grid_size", jigsaw_grid_size)
     monkeypatch.setitem(SELF_SUPERVISED_AUGMENTATION_STRENGTHS, "jigsaw_grid_size", jigsaw_grid_size)
@@ -991,6 +992,62 @@ def test_jigsaw_image_size_is_checked(tmp_path: Path, capsys: pytest.CaptureFixt
                       f"'Data.data_augmentation.types.random_jigsaw.activated' is True, the jigsaw cutting the image "
                       f"into {jigsaw_grid_size}x{jigsaw_grid_size} pieces of whole pixels, got {image_size}.")
     assert (jigsaw_message in capsys.readouterr().out) == refused_by_jigsaw
+
+
+# Messages of the image size checks for the synthetic classification backbone of 6 blocks, 5 pooling layers without
+# the last max pooling and 6 with it
+POOLING_SIZE_MESSAGE = ("'Data.image_settings.size' ({image_size}) must be a multiple of {required_multiple}, 2 to the "
+                        "power of the {number_pooling_layers} Backbone pooling layers, so that every feature map "
+                        "entering a pooling is even, e.g. {nearest_sizes}.")
+EVEN_SIZE_MESSAGE = "'Data.image_settings.size' must be a positive even integer, got {image_size}."
+
+
+@pytest.mark.parametrize(argnames=("image_size", "last_max_pooling", "expected_messages"), argvalues=[
+    (224, False, []), (96, False, []), (512, False, []),
+    (100, False, [POOLING_SIZE_MESSAGE.format(image_size=100, required_multiple=32, number_pooling_layers=5,
+                                              nearest_sizes="96 or 128")]),
+    (101, False, [EVEN_SIZE_MESSAGE.format(image_size=101),
+                  POOLING_SIZE_MESSAGE.format(image_size=101, required_multiple=32, number_pooling_layers=5,
+                                              nearest_sizes="96 or 128")]),
+    (16, False, [POOLING_SIZE_MESSAGE.format(image_size=16, required_multiple=32, number_pooling_layers=5,
+                                             nearest_sizes="32")]),
+    (224, True, [POOLING_SIZE_MESSAGE.format(image_size=224, required_multiple=64, number_pooling_layers=6,
+                                             nearest_sizes="192 or 256")]),
+    (0, False, [EVEN_SIZE_MESSAGE.format(image_size=0)])])
+def test_image_size_must_keep_every_pooled_feature_map_even(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                            image_size: int, last_max_pooling: bool,
+                                                            expected_messages: List[str]) -> None:
+    """
+    Verifies that the image size is accepted when every feature map entering a max pooling of the Backbone is even,
+    whether or not it is a power of two, the output of the last pooling being allowed to be odd (224 gives 7x7 after
+    5 poolings), and refused otherwise with the nearest valid sizes: 100 gives a map of 25 before the third pooling,
+    an odd size is refused by the even check too, a size below 2 to the power of the poolings is refused with the
+    next multiple only, and the last max pooling adds a halving, which refuses the odd 7x7 map of 224 entering it.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        image_size (int): The side of the network input, 'Data.image_settings.size'.
+        last_max_pooling (bool): Whether the last block of the backbone of 6 blocks ends with a max pooling.
+        expected_messages (List[str]): The messages of the size checks, empty when the configuration must load.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["Data"]["image_settings"]["size"] = image_size
+    configuration["Backbone"]["last_max_pooling"] = last_max_pooling
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    # An accepted size loads, a refused one stops the loading with every message of the size checks
+    if not expected_messages:
+        load_experiment_configuration(configuration_path=configuration_path)
+        return
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
 
 
 def keep_the_removed_view_losses(configuration: Dict[str, Any]) -> None:
