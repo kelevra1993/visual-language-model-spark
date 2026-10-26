@@ -171,9 +171,9 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
 def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Data' section: loading settings, augmentation types with the grid of random_black_out, label
-    mapping mode and the input image size. The image size must be a power of two so that every max pooling layer of the
-    Backbone halves the feature maps exactly, which keeps the anchor strides and the feature map sizes consistent
-    across the detection levels, and a multiple of the grid size of random_jigsaw when it is activated.
+    mapping mode and the input image size. The image size must be a positive even integer, its divisibility by every
+    max pooling layer of the Backbone being checked by check_backbone_configuration, and a multiple of the grid size of
+    random_jigsaw when it is activated.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
@@ -226,11 +226,10 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     if label_mode not in VALID_LABEL_MODES:
         errors.append(f"'Data.label_mapping.mode' must be one of {VALID_LABEL_MODES}, got {label_mode!r}.")
 
-    # The image size must be a power of two to be halved exactly by every pooling layer
+    # The image size must be even, the number of halvings it must survive depending on the Backbone
     image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
-    if isinstance(image_size, bool) or not isinstance(image_size, int) or image_size < 1 or \
-            image_size & (image_size - 1) != 0:
-        errors.append(f"'Data.image_settings.size' must be a power of two, got {image_size!r}.")
+    if isinstance(image_size, bool) or not isinstance(image_size, int) or image_size < 1 or image_size % 2 != 0:
+        errors.append(f"'Data.image_settings.size' must be a positive even integer, got {image_size!r}.")
 
     # Rows and columns of the grid of random_black_out, within the side of the network input
     grid_size_key_path = "Data.data_augmentation.types.random_black_out.grid_size"
@@ -303,7 +302,11 @@ def check_image_only_augmentation_types(model_configuration: Dict[str, Any]) -> 
 def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Backbone' section: the convolution blocks, their normalization and modules, the detection block
-    indices, and that the image survives every pooling layer with at least one pixel.
+    indices, and that the image size is a multiple of 2 to the power of the number of pooling layers, so that every
+    feature map entering a max pooling is even and halved without losing a row or a column. Otherwise the anchor
+    strides of the detection levels (input size // feature map size) and the RoIAlign scales would no longer match the
+    feature maps. The output of the last pooling may be odd, no layer halving it again (the keypoint detector checks
+    the further halvings of its high resolution network in keypoint_checks.py).
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Backbone' section.
@@ -360,13 +363,21 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
     errors += check_batch_normalization_momentum(configuration=model_configuration,
                                                  key_path="Backbone.normalization.batch_normalization_momentum")
 
-    # Every block except the last one is followed by a max pooling layer, the last one only if requested
+    # Every block except the last one is followed by a max pooling layer, the last one only if requested, and every
+    # feature map entering a pooling must be even, the size being a multiple of 2 to the power of the poolings
     image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
     last_max_pooling = get_configuration_value(configuration=model_configuration, key_path="Backbone.last_max_pooling")
     number_pooling_layers = number_blocks - 1 + int(bool(last_max_pooling))
-    if isinstance(image_size, int) and not isinstance(image_size, bool) and image_size < 2 ** number_pooling_layers:
-        errors.append(f"'Data.image_settings.size' ({image_size}) is too small for the {number_pooling_layers} "
-                      f"Backbone pooling layers, it must be at least {2 ** number_pooling_layers}.")
+    required_multiple = 2 ** number_pooling_layers
+    if isinstance(image_size, int) and not isinstance(image_size, bool) and image_size >= 1 and \
+            image_size % required_multiple != 0:
+        # The valid sizes around the refused one, the smaller one only when it is positive
+        larger_size = (image_size // required_multiple + 1) * required_multiple
+        smaller_size = image_size // required_multiple * required_multiple
+        nearest_sizes = f"{smaller_size} or {larger_size}" if smaller_size > 0 else f"{larger_size}"
+        errors.append(f"'Data.image_settings.size' ({image_size}) must be a multiple of {required_multiple}, 2 to the "
+                      f"power of the {number_pooling_layers} Backbone pooling layers, so that every feature map "
+                      f"entering a pooling is even, e.g. {nearest_sizes}.")
 
     # Inception modules start at a valid block and need output channels that are multiples of 8
     inception = get_configuration_value(configuration=model_configuration, key_path="Backbone.modules.inception")

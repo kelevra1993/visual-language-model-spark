@@ -325,7 +325,7 @@ The common checks run first, then `check_keypoint_configuration()`, which calls 
 ------------------------------------------------------
 Invalid Configuration File : configuration_wrong.yaml
 ------------------------------------------------------
-  - 'Data.image_settings.size' must be a power of two, got 500.
+  - 'Data.image_settings.size' (500) must be a multiple of 8, 2 to the power of the 3 Backbone pooling layers, so that every feature map entering a pooling is even, e.g. 496 or 504.
   - The Backbone stem of the keypoint detector must end at 1/4 of the image, got 1/8 from its 3 blocks with 'Backbone.last_max_pooling' True: use 3 blocks without the last max pooling, or 2 blocks with it.
   - 'Data.image_settings.size' (500) must be a multiple of 32, the stride of the lowest resolution branch of the 3 stages of 'HRNet.modules_per_stage'.
   - 'KeypointHead.heatmap_sigma' must be a positive number of heatmap cells, got 0.0.

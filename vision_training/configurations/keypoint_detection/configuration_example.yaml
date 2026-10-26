@@ -171,7 +171,7 @@ Data:
     # Number of batches prepared in advance by every worker.
     prefetch_batches: 2
   image_settings:
-    # Target resolution to resize all input images, a power of two: 512 keeps 80% of the longest side of the COCO
+    # Target resolution to resize all input images: 512 keeps 80% of the longest side of the COCO
     # images (640 pixels), where 1024 would load images upsampled 1.6 times. It is the input of the network, a multiple
     # of the stride of the lowest resolution branch of the high resolution network (4 x 2 ** the number of stages of
     # HRNet.modules_per_stage, 32 for 3 stages), and the evaluation measures the keypoints in its pixels.

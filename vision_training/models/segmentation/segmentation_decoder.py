@@ -124,7 +124,8 @@ class SegmentationDecoder(nn.Module):
             current_tensor = upsampling_layer(current_tensor)
             skip_tensor = skip_tensors[level_key]
 
-            # A backbone input whose size is not a power of two may give an upsampled map one pixel off its skip
+            # A backbone input with an odd map entering a pooling, refused by the configuration check but possible
+            # when the decoder is called directly, may give an upsampled map one pixel off its skip
             if current_tensor.shape[-2:] != skip_tensor.shape[-2:]:
                 current_tensor = torch.nn.functional.interpolate(input=current_tensor, size=skip_tensor.shape[-2:],
                                                                  mode="bilinear", align_corners=False)

@@ -803,7 +803,7 @@ outputs before pooling  '1': [4, 16, 64, 64]   '2': [4, 32, 32, 32]   '3': [4, 3
 ```
 
 ### Step 3.14 — `SegmentationDecoder.forward()` + segmentation head
-From the deepest level to the finest, each level upsamples its input to twice its resolution, concatenates the skip connection of its block before the upsampled features (the upsampled map being resized bilinearly to the skip connection when they differ by a pixel, an input size that is not a power of 2), and refines the result with its convolution block. The head turns the `[B, 16, 64, 64]` output into the `[B, 10, 64, 64]` class logits.
+From the deepest level to the finest, each level upsamples its input to twice its resolution, concatenates the skip connection of its block before the upsampled features (the upsampled map being resized bilinearly to the skip connection when they differ by a pixel, which the configuration check, every map entering a pooling being even, leaves for the inputs that bypass it), and refines the result with its convolution block. The head turns the `[B, 16, 64, 64]` output into the `[B, 10, 64, 64]` class logits.
 
 **Example: shapes through the decoder**
 ```text
