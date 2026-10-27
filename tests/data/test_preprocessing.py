@@ -1,20 +1,17 @@
 """
 Tests of vision_training/data/preprocessing.py: restore_boxes_to_original_image inverts preprocess_boxes, bringing the
 detected boxes back to the original image coordinates, clipped to the image or kept whole for the pasting of the
-instance masks, preprocess_boxes moves polygons like boxes,
-restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images,
-and the square crop of the classification and self-supervised inputs cuts the resized image without padding, centred or
-at every random position along its longer side.
+instance masks, preprocess_boxes moves polygons like boxes, and
+restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images.
 """
 
 import cv2
 import numpy as np
 import pytest
-import random
 import torch
 
-from vision_training.data.preprocessing import (compute_letterbox_region, compute_square_crop_region, preprocess_boxes,
-                                                preprocess_image, restore_boxes_to_original_image,
+from vision_training.data.preprocessing import (compute_letterbox_region, preprocess_boxes, preprocess_image,
+                                                restore_boxes_to_original_image,
                                                 restore_prediction_to_original_image)
 
 
@@ -122,56 +119,3 @@ def test_probabilities_are_restored_without_the_padding() -> None:
     assert restored_probabilities.shape == (2, 30, 60)
     assert torch.allclose(input=restored_probabilities[1], other=torch.full(size=(30, 60), fill_value=0.8))
     assert bool((restored_probabilities.argmax(dim=0) == 1).all())
-
-
-@pytest.mark.parametrize(argnames=("image_height", "image_width", "expected_region"), argvalues=[
-    (300, 400, (0, 42, 256, 341)), (500, 333, (64, 0, 384, 256)), (256, 256, (0, 0, 256, 256))])
-def test_centred_square_crop_cuts_the_resized_image(image_height: int, image_width: int,
-                                                    expected_region: tuple[int, int, int, int]) -> None:
-    """
-    Verifies the centred square crop of the validation, test and inference images: the shorter side is resized to the
-    input size, the square is cut at the centre of the longer side, for landscape, portrait and square images, and the
-    input holds the pixels of the resized image only, without the padding of the letterbox.
-
-    Args:
-        image_height (int): The height of the original image.
-        image_width (int): The width of the original image.
-        expected_region (tuple[int, int, int, int]): The expected top row and left column of the square and the height
-            and width of the resized image.
-    """
-    region = compute_square_crop_region(image_height=image_height, image_width=image_width, image_size=256,
-                                        random_crop_position=False)
-    assert region == expected_region
-
-    # The input is the square of the resized image, with no pixel left black by a padding
-    image = np.random.default_rng(seed=0).integers(low=1, high=256, size=(image_height, image_width, 3), dtype=np.uint8)
-    crop_top, crop_left, resized_height, resized_width = region
-    expected_image = cv2.resize(src=image, dsize=(resized_width, resized_height),
-                                interpolation=cv2.INTER_LINEAR)[crop_top:crop_top + 256, crop_left:crop_left + 256]
-    cropped_image = preprocess_image(image=image, image_size=256, keep_ratio=True, square_crop=True)
-    assert cropped_image.shape == (256, 256, 3)
-    assert np.array_equal(cropped_image, expected_image)
-    assert not (cropped_image == 0).all(axis=2).any()
-
-
-def test_random_square_crop_covers_every_position() -> None:
-    """
-    Verifies the random square crop of the training images: the square moves along the longer side only, and every
-    whole pixel position from one end to the other is drawn, so that the network sees every part of the image across
-    the epochs.
-    """
-    # A 300 x 400 image resized to 256 x 341 leaves 85 extra columns, hence the 86 positions 0 to 85 of the square
-    random.seed(a=0)
-    positions = {compute_square_crop_region(image_height=300, image_width=400, image_size=256,
-                                            random_crop_position=True)[:2] for _ in range(2000)}
-    assert positions == {(0, crop_left) for crop_left in range(86)}
-
-
-def test_square_crop_needs_keep_ratio() -> None:
-    """
-    Verifies that the square crop asked for a stretched image stops with an error instead of silently stretching it,
-    the configuration checks refusing the same combination at launch.
-    """
-    with pytest.raises(expected_exception=ValueError, match="it needs keep_ratio True"):
-        preprocess_image(image=np.zeros(shape=(30, 40, 3), dtype=np.uint8), image_size=32, keep_ratio=False,
-                         square_crop=True)

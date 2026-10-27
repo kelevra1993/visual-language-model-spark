@@ -12,7 +12,7 @@ The other tasks have their own document, written the same way: `object_detection
 
 ## Read This First
 
-The classification task (`task: "classification"`, run name code `CLS`) learns the class of a whole image: a BGR image resized to `Data.image_settings.size` (padded to a square with `keep_ratio`, or cut to a square with `square_crop`) goes through the shared backbone, a global pooling or a flattening of its last feature map, and a fully connected head giving K logits, read with a softmax (`ClassificationHead.output_mode: "multi_class"`, one class per image) or with one sigmoid per class (`"multi_label"`, every class present). Choose it when the label belongs to the whole image; choose DET or INS when the objects must be located, SEG for a class per pixel, KPT for points, the sequence tasks (M2O, M2M, CMP, SEL) when the decision needs several frames, and SSL to pre-train the backbone without labels. The sequence trainers extend `ClassificationTrainer` and reuse its head, its loss and its evaluation, and a backbone trained here initialises any other task (`Backbone.pretrained`).
+The classification task (`task: "classification"`, run name code `CLS`) learns the class of a whole image: a BGR image resized to `Data.image_settings.size` (padded to a square with `keep_ratio`) goes through the shared backbone, a global pooling or a flattening of its last feature map, and a fully connected head giving K logits, read with a softmax (`ClassificationHead.output_mode: "multi_class"`, one class per image) or with one sigmoid per class (`"multi_label"`, every class present). Choose it when the label belongs to the whole image; choose DET or INS when the objects must be located, SEG for a class per pixel, KPT for points, the sequence tasks (M2O, M2M, CMP, SEL) when the decision needs several frames, and SSL to pre-train the backbone without labels. The sequence trainers extend `ClassificationTrainer` and reuse its head, its loss and its evaluation, and a backbone trained here initialises any other task (`Backbone.pretrained`).
 
 ### The Task At A Glance
 
@@ -407,10 +407,9 @@ main()
         │   │   │
         │   │   └── ClassificationDataset.__getitem__() -> read_image() + preprocess_image()
         │   │           Runs in the loader workers, once per sample: read_image (OpenCV, BGR, uint8, a ValueError naming
-        │   │           an unreadable file), resize to image_size with black bars when keep_ratio is true (or, with
-        │   │           square_crop, the shorter side resized and a square cut, at random for the training split and
-        │   │           centred otherwise), conversion to a [3, H, W] tensor, label = class index. The default collate
-        │   │           function stacks B samples into one batch.
+        │   │           an unreadable file), resize to image_size with black bars when keep_ratio is true, conversion to
+        │   │           a [3, H, W] tensor, label = class index. The default collate function stacks B samples into one
+        │   │           batch.
         │   ├── MetricTracker.count_frames()
         │   │       Counts the real frames of the batch for the frame throughput of the sequence tasks; nothing for
         │   │       images.
@@ -751,7 +750,7 @@ The run folder is `experiment_folder / <run name>`. The name is built from the s
 |---|---|
 | `CLS` | task (`DET`, `INS`, `CLS`, `SEG`, `M2O`, `M2M`, `CMP`, `SEL`, `SSL`, `KPT`) |
 | `IN` | `input_normalization`: pixels mapped to [-0.5, 0.5] |
-| `KAR` | `keep_ratio`: aspect ratio kept, the image is padded to a square (`SQC` instead with `square_crop`: aspect ratio kept, a square is cut along the longer side) |
+| `KAR` | `keep_ratio`: aspect ratio kept, the image is padded to a square |
 | `256` | input image size |
 | `SE`, `RES`, `BN` | squeeze-and-excitation, residual shortcuts and batch normalization are used in the backbone |
 | `B1x64.2x64.2x64.4x64.5x64.5x64` | the 6 blocks of the backbone, `<convolution layers>x<filters>` each |
@@ -1260,7 +1259,7 @@ sample_identifiers   [8] torch.int64                [16905, 9751, 89490, 1234, 7
 ```
 
 ### Step 3.9 — `ClassificationDataset.__getitem__()` → `read_image()` + `preprocess_image()`
-These run inside the loader workers, in parallel with the training step, once per sample of the batch. `__getitem__()` reads the image file with `read_image()` (OpenCV, BGR, `uint8`), which raises `ValueError("The image cannot be read : <file link>")` for a missing or corrupted file instead of handing `None` to `preprocess_image()`, so that the dropped batch names the file (Step 3.8). It then calls `preprocess_image()` to get a square image, converts it to a `[3, H, W]` tensor and returns it with its class index and its identifier. `preprocess_image()` resizes the longest side to `image_size`; with `keep_ratio: True` the other side is padded with black bars (centred), otherwise the image is stretched to a square. With `square_crop: True` (and `keep_ratio: True`), `compute_square_crop_region()` resizes the shorter side to `image_size` instead and cuts a square along the longer side, at a random position for the training split (drawn again at every reading, `random_crop_position`) and at the centre for the validation and test splits, so that the input holds no black bars. The default collate function then stacks the samples of the batch.
+These run inside the loader workers, in parallel with the training step, once per sample of the batch. `__getitem__()` reads the image file with `read_image()` (OpenCV, BGR, `uint8`), which raises `ValueError("The image cannot be read : <file link>")` for a missing or corrupted file instead of handing `None` to `preprocess_image()`, so that the dropped batch names the file (Step 3.8). It then calls `preprocess_image()` to get a square image, converts it to a `[3, H, W]` tensor and returns it with its class index and its identifier. `preprocess_image()` resizes the longest side to `image_size`; with `keep_ratio: True` the other side is padded with black bars (centred), otherwise the image is stretched to a square. The default collate function then stacks the samples of the batch.
 
 **Example: three real ImageNet images with `image_size: 256` and `keep_ratio: True`**
 ```text

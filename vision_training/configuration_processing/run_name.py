@@ -68,8 +68,7 @@ def join_level_tokens(level_tokens: List[str]) -> str:
 def build_input_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the input section of the run name, shared by every task: IN (input normalization), PSN (per-sample
-    normalization), KAR (keep aspect ratio, padded to a square) or SQC (keep aspect ratio, cut to a square, the square
-    crop of the classification and self-supervised tasks), then the input size.
+    normalization), KAR (keep aspect ratio), then the input size.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -87,7 +86,7 @@ def build_input_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     if backbone_normalization["per_sample_normalization"]:
         input_tokens.append("PSN")
     if image_settings["keep_ratio"]:
-        input_tokens.append("SQC" if image_settings["square_crop"] else "KAR")
+        input_tokens.append("KAR")
     input_tokens.append(str(image_settings["size"]))
     return input_tokens
 

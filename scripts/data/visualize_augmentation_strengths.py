@@ -98,25 +98,22 @@ def select_example_images(split_folder: Path, number_images: int, seed: int) -> 
              "category": category_names[sample["category_id"]]} for sample in chosen_samples]
 
 
-def load_example_images(image_paths: List[Path], image_size: int, keep_ratio: bool, square_crop: bool) -> torch.Tensor:
+def load_example_images(image_paths: List[Path], image_size: int, keep_ratio: bool) -> torch.Tensor:
     """
     Reads the example images and resizes them as the data loaders do (read_image and preprocess_image of
     vision_training/data/preprocessing.py, as ClassificationDataset), so that the figures show the images the network
-    receives, padded with black to a square when the aspect ratio is kept, or cut to a square at their centre with the
-    square crop, so that every figure shows the same part of an image.
+    receives, padded with black to a square when the aspect ratio is kept.
 
     Args:
         image_paths (List[Path]): The image files.
         image_size (int): The side of the square network input, 'Data.image_settings.size'.
         keep_ratio (bool): Whether the aspect ratio is kept by padding, 'Data.image_settings.keep_ratio'.
-        square_crop (bool): Whether the images are cut to a square instead of padded,
-            'Data.image_settings.square_crop'.
 
     Returns:
         torch.Tensor: The [N, 3, H, W] float32 BGR images in [0, 255].
     """
     resized_images = [preprocess_image(image=read_image(image_path=image_path), image_size=image_size,
-                                       keep_ratio=keep_ratio, square_crop=square_crop) for image_path in image_paths]
+                                       keep_ratio=keep_ratio) for image_path in image_paths]
     return torch.from_numpy(np.ascontiguousarray(a=np.stack(arrays=resized_images))).permute(
         dims=(0, 3, 1, 2)).to(dtype=torch.float32)
 
@@ -418,8 +415,7 @@ def visualize_augmentation_strengths(configuration_path: Path, split_folder: Pat
     # Example images of different trucks and streams, as the network receives them
     examples = select_example_images(split_folder=split_folder, number_images=number_images, seed=seed)
     images = load_example_images(image_paths=[example["path"] for example in examples],
-                                 image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"],
-                                 square_crop=image_settings["square_crop"])
+                                 image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"])
     image_descriptions = [f"{example['truck']}, {example['category']}" for example in examples]
 
     # One figure per type, then the explanations of the crop of the views and of the noise levels

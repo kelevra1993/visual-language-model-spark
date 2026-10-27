@@ -322,7 +322,7 @@ def get_classification_reference_configurations() -> Tuple[Dict[str, Any], Dict[
     # Task, input and backbone of the run, without run name suffix
     experiment_configuration["task"] = "classification"
     experiment_configuration["run_name_suffix"] = None
-    model_configuration["Data"]["image_settings"].update({"size": 256, "keep_ratio": True, "square_crop": False})
+    model_configuration["Data"]["image_settings"].update({"size": 256, "keep_ratio": True})
     model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
                                                              "per_sample_normalization": False,
                                                              "feature_map_normalization": "batch"})
@@ -447,17 +447,6 @@ def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_conf
     model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4}
 
 
-def cut_images_to_a_square(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
-    """
-    Cuts the images resized with their aspect ratio kept to a square instead of padding them.
-
-    Args:
-        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
-        model_configuration (Dict[str, Any]): The model configuration, modified in place.
-    """
-    model_configuration["Data"]["image_settings"]["square_crop"] = True
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, CLASSIFICATION_REFERENCE_RUN_NAME),
     (use_max_pooling_and_two_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_", "_HMAX.256.64_")),
@@ -470,14 +459,13 @@ def cut_images_to_a_square(experiment_configuration: Dict[str, Any], model_confi
     (layer_normalize_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_", "_HAVG.128-HLN_")),
     (change_batch_normalization_momentums, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_",
                                                                                      "_HAVG.128-HBN_")),
-    (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4", "_ML5")),
-    (cut_images_to_a_square, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_IN-KAR-256_", "_IN-SQC-256_"))])
+    (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4", "_ML5"))])
 def test_classification_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                   expected_run_name: str) -> None:
     """
     Verifies the run names of the classification task: the CLS task code, the shared input and backbone sections, the
-    classification head and classes sections, that changing a head setting changes its token, that the square crop
-    replaces KAR by SQC, and that the batch normalization momentums give none.
+    classification head and classes sections, that changing a head setting changes its token, and that the batch
+    normalization momentums give none.
 
     Args:
         modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the settings, or

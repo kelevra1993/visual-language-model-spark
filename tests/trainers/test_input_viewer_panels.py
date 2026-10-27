@@ -219,8 +219,7 @@ def build_grouped_training_loader(tmp_path: Path, activated: bool) -> torch.util
     # Self-supervised loaders with blocks of 4 images of one camera within batches of 8 images of one site
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
                                 for split_name in ["train", "validation", "test"]}
-    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True, "square_crop": False},
-                                    "label_dictionary": {1: 0},
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
                                     "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": activated, "block_key": "camera",
                                                         "images_per_block": 4, "batch_key": "site"}}}

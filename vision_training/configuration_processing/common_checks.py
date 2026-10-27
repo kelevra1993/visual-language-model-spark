@@ -28,9 +28,6 @@ VALID_LABEL_MODES = ["binary", "multi_class"]
 # Channels of the images given by the loaders of every task (BGR) and taken by the exported models
 IMAGE_CHANNELS = 3
 
-# Tasks reading 'Data.image_settings.square_crop', whose images carry no box, mask or keypoint to cut with them
-SQUARE_CROP_TASKS = ["classification", "self_supervised"]
-
 # Characters of the suffix of the run names: letters, digits, '-' and '.', so that the suffix stays one section of the
 # name ('_' separating the sections) and inside the experiment folder ('/' separating the folders)
 RUN_NAME_SUFFIX_PATTERN = re.compile(pattern=r"[A-Za-z0-9.-]+")
@@ -173,10 +170,10 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
 
 def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'Data' section: loading settings, the resizing flags (the square crop needing keep_ratio), augmentation
-    types with the grid of random_black_out, label mapping mode and the input image size. The image size must be a
-    positive even integer, its divisibility by every max pooling layer of the Backbone being checked by
-    check_backbone_configuration, and a multiple of the grid size of random_jigsaw when it is activated.
+    Verifies the 'Data' section: loading settings, augmentation types with the grid of random_black_out, label
+    mapping mode and the input image size. The image size must be a positive even integer, its divisibility by every
+    max pooling layer of the Backbone being checked by check_backbone_configuration, and a multiple of the grid size of
+    random_jigsaw when it is activated.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
@@ -186,16 +183,9 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     errors = []
 
-    # Resizing flags and global augmentation settings
+    # Resizing flag and global augmentation settings
     errors += check_boolean_flags(configuration=model_configuration,
-                                  key_paths=["Data.image_settings.keep_ratio", "Data.image_settings.square_crop",
-                                             "Data.data_augmentation.activated"])
-
-    # The square crop cuts an image resized with its aspect ratio kept, a stretched image having nothing to crop
-    image_settings = model_configuration["Data"]["image_settings"]
-    if image_settings["square_crop"] is True and image_settings["keep_ratio"] is not True:
-        errors.append("'Data.image_settings.square_crop' needs 'Data.image_settings.keep_ratio' True: it cuts a "
-                      "square out of the image resized with its aspect ratio kept, instead of padding it.")
+                                  key_paths=["Data.image_settings.keep_ratio", "Data.data_augmentation.activated"])
     errors += check_probability_value(
         value=get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.probability"),
         key_path="Data.data_augmentation.probability")
@@ -307,27 +297,6 @@ def check_image_only_augmentation_types(model_configuration: Dict[str, Any]) -> 
             errors.append(f"'{key_path}' must be False for this task: {augmentation_type} moves the image only, and "
                           f"its bounding boxes, masks or keypoints cannot follow it.")
     return errors
-
-
-def check_square_crop_task(model_configuration: Dict[str, Any], task: str) -> List[str]:
-    """
-    Refuses 'Data.image_settings.square_crop' for the tasks outside SQUARE_CROP_TASKS: the square crop cuts a part of
-    the image that the boxes, masks and keypoints of the detection, segmentation and keypoint tasks would have to
-    follow, which preprocess_boxes and the restorations of their predictions to the original image do not do, and the
-    sequence datasets do not read it. Run by configuration_checker.py once the task is known.
-
-    Args:
-        model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
-        task (str): The task of 'ExperimentConfiguration.task'.
-
-    Returns:
-        List[str]: The description of the square crop asked for a task that cannot use it.
-    """
-    if get_configuration_value(configuration=model_configuration,
-                               key_path="Data.image_settings.square_crop") is True and task not in SQUARE_CROP_TASKS:
-        return [f"'Data.image_settings.square_crop' must be False for the {task} task: it is only used by the "
-                f"{' and '.join(SQUARE_CROP_TASKS)} tasks, whose targets do not move with the image."]
-    return []
 
 
 def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[str]:
