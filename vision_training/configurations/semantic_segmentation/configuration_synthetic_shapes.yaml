@@ -164,6 +164,12 @@ Data:
     size: 512
     # Flag to maintain the original aspect ratio when resizing, the padding of the masks being ignored.
     keep_ratio: True
+    # Classification and self-supervised tasks only, with keep_ratio True: resizes the shorter side to size and cuts a
+    # square along the longer side instead of padding it, at a random position for the training images (a new one at
+    # every epoch) and at the centre for the validation, test and inference images, so that the input holds no black
+    # band. The geometric types filling the image with black (zoom out, translation, rotation, perspective) bring
+    # black borders back. Its run name token SQC replaces KAR.
+    square_crop: False
   # Training on tiles instead of whole images resized to the network input, for images much larger than the network
   # input holding small objects: the images and masks are scaled by 'scale', the training samples are tiles of
   # image_settings.size pixels cut at random places (at a place fixed per image for the validation), and the whole

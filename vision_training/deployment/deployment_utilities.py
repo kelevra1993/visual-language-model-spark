@@ -60,11 +60,14 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     task = experiment_configuration["task"]
     image_size = model_configuration["Data"]["image_settings"]["size"]
     keep_ratio = model_configuration["Data"]["image_settings"]["keep_ratio"]
+    square_crop = model_configuration["Data"]["image_settings"]["square_crop"]
 
-    # Every image in the channels first layout of the network
+    # Every image in the channels first layout of the network, the square crop of the run cut at the centre like its
+    # test images
     images = []
     for image_path in get_image_paths(folder=image_folder):
-        image = preprocess_image(image=read_image(image_path=image_path), image_size=image_size, keep_ratio=keep_ratio)
+        image = preprocess_image(image=read_image(image_path=image_path), image_size=image_size, keep_ratio=keep_ratio,
+                                 square_crop=square_crop)
         images.append(image.transpose(2, 0, 1).astype(np.float32))
 
     # Every image becomes a batch of one element for the image tasks

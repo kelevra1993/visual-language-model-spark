@@ -207,10 +207,10 @@ def load_embedder(experiment_folder: Path, iteration: int, use_averaged_weights:
 
     Returns:
         Dict[str, Any]: The 'model' in evaluation mode, its 'device', 'task', 'experiment_configuration',
-            'image_size' and 'keep_ratio', the [channels, height, width] 'block_shapes' of the outputs of its blocks
-            before their pooling (block 1 first), the 'hidden_layer_sizes' and 'output_mode' of its classification head
-            (None for the other tasks), 'has_sequence_normalization', the 'class_names' of its record (None without
-            one), 'checkpoint_path', 'checkpoint_sha256' and 'use_averaged_weights'.
+            'image_size', 'keep_ratio' and 'square_crop', the [channels, height, width] 'block_shapes' of the outputs
+            of its blocks before their pooling (block 1 first), the 'hidden_layer_sizes' and 'output_mode' of its
+            classification head (None for the other tasks), 'has_sequence_normalization', the 'class_names' of its
+            record (None without one), 'checkpoint_path', 'checkpoint_sha256' and 'use_averaged_weights'.
 
     Raises:
         FileNotFoundError: If the configuration or the checkpoint of the run is missing.
@@ -247,6 +247,7 @@ def load_embedder(experiment_folder: Path, iteration: int, use_averaged_weights:
 
     return {"model": model, "device": device, "task": task, "experiment_configuration": experiment_configuration,
             "image_size": image_size, "keep_ratio": model_configuration["Data"]["image_settings"]["keep_ratio"],
+            "square_crop": model_configuration["Data"]["image_settings"]["square_crop"],
             "block_shapes": block_shapes,
             "hidden_layer_sizes": None if head_configuration is None else list(head_configuration["fully_connected"]),
             "output_mode": None if head_configuration is None else head_configuration["output_mode"],
@@ -585,7 +586,8 @@ class ImageListDataset(Dataset):
     run: resized to its square input, padded to keep its ratio when the run does.
     """
 
-    def __init__(self, image_paths: List[Path], first_row: int, image_size: int, keep_ratio: bool) -> None:
+    def __init__(self, image_paths: List[Path], first_row: int, image_size: int, keep_ratio: bool,
+                 square_crop: bool) -> None:
         """
         Keeps the images and the preprocessing settings.
 
@@ -594,11 +596,14 @@ class ImageListDataset(Dataset):
             first_row (int): The row of the first image read.
             image_size (int): The size of the square input of the embedding run.
             keep_ratio (bool): Whether the embedding run pads its images to keep their ratio.
+            square_crop (bool): Whether the embedding run cuts its images to a square instead, at their centre here
+                like its test images.
         """
         self.image_paths = image_paths
         self.first_row = first_row
         self.image_size = image_size
         self.keep_ratio = keep_ratio
+        self.square_crop = square_crop
 
     def __len__(self) -> int:
         """
@@ -628,7 +633,8 @@ class ImageListDataset(Dataset):
         if image is None:
             raise ValueError(f"The image cannot be read : {format_path_link(path=self.image_paths[row])}")
         release_file_from_page_cache(path=self.image_paths[row])
-        resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio)
+        resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio,
+                                         square_crop=self.square_crop)
         return {"images": torch.from_numpy(np.ascontiguousarray(a=resized_image)).permute(dims=(2, 0, 1)), "rows": row}
 
 
@@ -911,7 +917,7 @@ def run_extraction_pass(embedder: Dict[str, Any], source: Dict[str, Any], source
     dataset = ImageListDataset(image_paths=[source["data_folder"] / file_name
                                             for file_name in source_images["file_names"]],
                                first_row=first_row, image_size=embedder["image_size"],
-                               keep_ratio=embedder["keep_ratio"])
+                               keep_ratio=embedder["keep_ratio"], square_crop=embedder["square_crop"])
     loader = build_native_loader(dataset=dataset, batch_size=batch_size, shuffle=False,
                                  loading_configuration={"number_workers": number_workers, "prefetch_batches": 2})
     missing_block_requests = {output_key: block_index for output_key, block_index in block_requests.items()

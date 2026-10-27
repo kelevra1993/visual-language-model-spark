@@ -29,8 +29,9 @@ class ClassificationDataset(Dataset):
     'samples', each sample giving its 'file_name' and its 'category_id' (multi-class) or 'category_ids' (multi-label),
     and optionally its 'groups', a dictionary of named attributes (e.g. {"camera": "c042"}) kept in its sample record
     for the grouped batches of the self-supervised task.
-    The images are resized and padded exactly like the detection loaders, and the raw categories are converted to the
-    class indices of the label dictionary; samples whose category is not mapped are left out, unless the unlabelled
+    The images are resized and padded exactly like the detection loaders, or cut to a square along their longer side
+    with 'Data.image_settings.square_crop', and the raw categories are converted to the class indices of the label
+    dictionary; samples whose category is not mapped are left out, unless the unlabelled
     samples are kept (self-supervised task), the label of a multi-class sample without a single mapped category (none,
     or several in the 'category_ids' of a multi-label manifest) being then IGNORED_LABEL_INDEX. The number of these
     samples, left out or kept, is reported by get_classification_dataloaders with the other splits.
@@ -38,7 +39,8 @@ class ClassificationDataset(Dataset):
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
                  label_dictionary: Dict[Any, int], output_mode: str, shuffle: bool = True,
-                 keep_unlabelled_samples: bool = False) -> None:
+                 keep_unlabelled_samples: bool = False, square_crop: bool = False,
+                 random_crop_position: bool = False) -> None:
         """
         Reads the manifest of the split and keeps the samples of the mapped categories, or every sample when the
         unlabelled samples are kept.
@@ -55,10 +57,17 @@ class ClassificationDataset(Dataset):
                 a category missing from the label dictionary, or several mapped categories in the 'category_ids' of a
                 multi-label manifest) without class, for the self-supervised task that trains on every image and
                 evaluates on single classes. Defaults to False.
+            square_crop (bool): Whether to cut a square out of the images resized with their aspect ratio kept instead
+                of padding them ('Data.image_settings.square_crop'). Defaults to False.
+            random_crop_position (bool): With square_crop, whether the square is placed at a random position along the
+                longer side of every image at every reading (training split), centred otherwise (validation and test
+                splits). Defaults to False.
         """
         self.data_directory = data_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
+        self.square_crop = square_crop
+        self.random_crop_position = random_crop_position
         self.output_mode = output_mode
         self.number_classes = len(set(label_dictionary.values()))
 
@@ -127,7 +136,8 @@ class ClassificationDataset(Dataset):
         """
         sample = self.samples[sample_index]
         image = read_image(image_path=os.path.join(self.data_directory, sample["file_name"]))
-        resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio)
+        resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio,
+                                         square_crop=self.square_crop, random_crop_position=self.random_crop_position)
         image_tensor = torch.from_numpy(np.ascontiguousarray(a=resized_image)).permute(dims=(2, 0, 1))
 
         # One class index per sample (the ignored label without class), or a multi-hot vector of its classes

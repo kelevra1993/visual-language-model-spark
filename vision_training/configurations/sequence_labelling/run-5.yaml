@@ -172,6 +172,12 @@ Data:
     size: 256
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
+    # Classification and self-supervised tasks only, with keep_ratio True: resizes the shorter side to size and cuts a
+    # square along the longer side instead of padding it, at a random position for the training images (a new one at
+    # every epoch) and at the centre for the validation, test and inference images, so that the input holds no black
+    # band. The geometric types filling the image with black (zoom out, translation, rotation, perspective) bring
+    # black borders back. Its run name token SQC replaces KAR.
+    square_crop: False
   sequence_settings:
     # Largest number of frames of a sequence, every sequence being fed whole to the model, the sequences of a
     # batch padded with black frames to the longest one (ignored by the model through the sequence mask). A longer

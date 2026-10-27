@@ -455,7 +455,7 @@ def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> 
     trainer = SimpleNamespace(
         experiment_configuration={f"{split_name}_data_folder": str(tmp_path / split_name)
                                   for split_name in split_categories},
-        model_configuration={"Data": {"image_settings": {"size": 32, "keep_ratio": True},
+        model_configuration={"Data": {"image_settings": {"size": 32, "keep_ratio": True, "square_crop": False},
                                       "label_dictionary": {1: 0, 5: 1},
                                       "loading": {"number_workers": 0, "prefetch_batches": 2},
                                       "grouped_batches": {"activated": False, "block_key": "camera",
