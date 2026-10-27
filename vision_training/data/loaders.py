@@ -206,11 +206,9 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
                                    drop_last_training_batch: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the classification task, read from the
-    'labels.json' manifest of every split with the Native loader (OpenCV decoding and CPU resizing). With
-    'Data.image_settings.square_crop', the training images are cut to a square at a random position along their longer
-    side, the validation and test images at their centre. The self-supervised task reads the same layout: every image
-    is kept, labelled or not, the labels of the test images only serving its k-nearest neighbour evaluation, and the
-    training and validation loaders leave out the last
+    'labels.json' manifest of every split with the Native loader (OpenCV decoding and CPU resizing). The
+    self-supervised task reads the same layout: every image is kept, labelled or not, the labels of the test images
+    only serving its k-nearest neighbour evaluation, and the training and validation loaders leave out the last
     incomplete batch of every pass, since its losses compare the views of the images of a batch with each other (a
     batch of a single image would give a loss without gradient). With 'Data.grouped_batches' on, their batches gather
     blocks of images sharing an attribute of their "groups" (GroupedBatchSampler), the hard negatives of each other.
@@ -252,16 +250,11 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
                                    ("test_data_folder", "Test")]:
         split_data_folder = str(experiment_configuration[split_key])
         labels_file = os.path.join(split_data_folder, "labels.json")
-
-        # The square crop moves at random along the longer side of the training images only, the validation and test
-        # images being cut at their centre like the inference images
         dataset = ClassificationDataset(data_directory=os.path.join(split_data_folder, "data"), labels_file=labels_file,
                                         image_size=data_configuration["image_settings"]["size"],
                                         keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                         label_dictionary=data_configuration["label_dictionary"],
-                                        output_mode=output_mode, keep_unlabelled_samples=self_supervised,
-                                        square_crop=data_configuration["image_settings"]["square_crop"],
-                                        random_crop_position=split_key == "train_data_folder")
+                                        output_mode=output_mode, keep_unlabelled_samples=self_supervised)
         if dataset.number_unlabelled_samples:
             unlabelled_sample_lines.append(f"{split_label} : {dataset.number_unlabelled_samples} samples "
                                            f"({format_path_link(path=labels_file)})")

@@ -1,8 +1,7 @@
 """
 Image, mask and bounding box preprocessing shared by the data loaders and the inference clients: the reading of the
 dataset and inference images, naming the files that cannot be read, the resizing to the square network input with
-optional centred padding (bilinear for the images, nearest for the segmentation masks) or, for the classification and
-self-supervised tasks, a square crop along the longer side (random for the training images), the matching box
+optional centred padding (bilinear for the images, nearest for the segmentation masks), the matching box
 transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
 probabilities) to the original image, the latter also used by the evaluation of the segmenter at the original
 resolution.
@@ -10,7 +9,6 @@ resolution.
 
 import cv2
 import numpy as np
-import random
 import torch
 
 from pathlib import Path
@@ -65,50 +63,15 @@ def compute_letterbox_region(image_height: int, image_width: int, image_size: in
     return (image_size - resized_height) // 2, (image_size - resized_width) // 2, resized_height, resized_width
 
 
-def compute_square_crop_region(image_height: int, image_width: int, image_size: int,
-                               random_crop_position: bool) -> Tuple[int, int, int, int]:
-    """
-    Gives the square cut out of an image resized with its aspect ratio kept and its shorter side at the input size
-    ('Data.image_settings.square_crop'), so that the classification and self-supervised inputs hold image pixels only,
-    without the black bands of the letterbox, which would tell a patch position task where the border of the image
-    is. The square moves along the longer side only: at a random position for the training images, a translation
-    drawn again at every epoch, and centred for the validation, the test and the inference images.
-
-    Args:
-        image_height (int): The height of the original image in pixels.
-        image_width (int): The width of the original image in pixels.
-        image_size (int): The size of the square network input.
-        random_crop_position (bool): Whether the square is placed at a random position along the longer side,
-            centred otherwise.
-
-    Returns:
-        Tuple[int, int, int, int]: The top row and left column of the square in the resized image, and the height and
-            width of the resized image.
-    """
-    # Single scaling factor of the shorter side, which lands exactly on the input size, the longer side being rounded
-    scale = image_size / min(image_height, image_width)
-    resized_height = image_size if image_height <= image_width else int(round(image_height * scale))
-    resized_width = image_size if image_width < image_height else int(round(image_width * scale))
-
-    # Offset of the square along the longer side, drawn among every whole pixel position or centred
-    extra_height, extra_width = resized_height - image_size, resized_width - image_size
-    if random_crop_position:
-        return random.randint(a=0, b=extra_height), random.randint(a=0, b=extra_width), resized_height, resized_width
-    return extra_height // 2, extra_width // 2, resized_height, resized_width
-
-
 def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True,
-                     interpolation: int = cv2.INTER_LINEAR, padding_value: int = 0, square_crop: bool = False,
-                     random_crop_position: bool = False) -> np.ndarray:
+                     interpolation: int = cv2.INTER_LINEAR, padding_value: int = 0) -> np.ndarray:
     """
     Preprocesses an image by resizing it to a specified square size, optionally maintaining its aspect ratio. The
     segmentation masks go through the same resizing and padding as their images, with the nearest interpolation so
     that every pixel keeps a category of the mask, and the padding at the ignored value of the masks.
 
     If `keep_ratio` is True, the image is padded with 'padding_value' (black for the images) to make it square before
-    resizing, preventing distortion, or, with `square_crop`, its shorter side is resized to the target size and a
-    square is cut along its longer side (compute_square_crop_region), the classification and self-supervised inputs
-    then holding no padding. If False, the image is simply stretched or squashed to the target size.
+    resizing, preventing distortion. If False, the image is simply stretched or squashed to the target size.
 
     Args:
         image (np.ndarray): The input image array, of shape (Height, Width, Channels), or (Height, Width) for a mask.
@@ -118,29 +81,12 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
         interpolation (int): The OpenCV interpolation of the resizing, bilinear for the images and nearest for the
             masks. Defaults to cv2.INTER_LINEAR.
         padding_value (int): The value of the padding pixels, 0 (black) for the images. Defaults to 0.
-        square_crop (bool): With keep_ratio, whether to cut a square out of the image instead of padding it
-            ('Data.image_settings.square_crop'). Defaults to False.
-        random_crop_position (bool): With square_crop, whether the square is placed at a random position along the
-            longer side (training split), centred otherwise. Defaults to False.
 
     Returns:
         np.ndarray: The preprocessed and resized image of shape (image_size, image_size, Channels), or
             (image_size, image_size) for a mask.
-
-    Raises:
-        ValueError: If square_crop is asked without keep_ratio, the stretched image having nothing to crop.
     """
-    if square_crop and not keep_ratio:
-        raise ValueError("The square crop keeps the aspect ratio of the image: it needs keep_ratio True.")
-
-    if square_crop:
-        # Shorter side resized to the input size, then the square cut out along the longer side
-        crop_top, crop_left, resized_height, resized_width = compute_square_crop_region(
-            image_height=image.shape[0], image_width=image.shape[1], image_size=image_size,
-            random_crop_position=random_crop_position)
-        resized_image = cv2.resize(src=image, dsize=(resized_width, resized_height), interpolation=interpolation)
-        processed_image = resized_image[crop_top: crop_top + image_size, crop_left: crop_left + image_size]
-    elif keep_ratio:
+    if keep_ratio:
         # Place of the resized image in the square input, centred between the padding
         start_y, start_x, new_height, new_width = compute_letterbox_region(image_height=image.shape[0],
                                                                            image_width=image.shape[1],

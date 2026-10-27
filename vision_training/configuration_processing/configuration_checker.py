@@ -11,7 +11,7 @@ from vision_training.configuration_processing.common_checks import (check_backbo
                                                                     check_data_configuration,
                                                                     check_experiment_configuration,
                                                                     check_optimization_configuration,
-                                                                    check_removed_sections, check_square_crop_task)
+                                                                    check_removed_sections)
 from vision_training.configuration_processing.configuration_values import ConfigurationError
 from vision_training.configuration_processing.detection_checks import check_detection_configuration
 from vision_training.configuration_processing.instance_segmentation_checks import (
@@ -74,7 +74,6 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
     if task in TASK_CONFIGURATION_CHECKS:
         errors += TASK_CONFIGURATION_CHECKS[task](experiment_configuration=experiment_configuration,
                                                   model_configuration=model_configuration)
-        errors += check_square_crop_task(model_configuration=model_configuration, task=task)
 
     if errors:
         raise ConfigurationError(errors=errors)
