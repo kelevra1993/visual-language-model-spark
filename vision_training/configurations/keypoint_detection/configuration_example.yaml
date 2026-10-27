@@ -178,6 +178,12 @@ Data:
     size: 512
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
+    # Classification and self-supervised tasks only, with keep_ratio True: resizes the shorter side to size and cuts a
+    # square along the longer side instead of padding it, at a random position for the training images (a new one at
+    # every epoch) and at the centre for the validation, test and inference images, so that the input holds no black
+    # band. The geometric types filling the image with black (zoom out, translation, rotation, perspective) bring
+    # black borders back. Its run name token SQC replaces KAR.
+    square_crop: False
   label_mapping:
     # "multi_class" uses a specific mapping file, the only mode of the keypoint detection: every class has its own
     # keypoints.

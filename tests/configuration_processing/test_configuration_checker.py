@@ -6,7 +6,8 @@ pretrained transfers with the initialisation of their new classes, optimization)
 errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only, and the
 intermediate weight saving 0 (none) or a positive integer smaller than the evaluated weight saving. The
 augmentation types moving the image only are refused for the tasks with boxes, masks or keypoints and accepted for the
-others, the jigsaw refuses an image size that is not a multiple of its grid size, and a section removed from the
+others, the jigsaw refuses an image size that is not a multiple of its grid size, the square crop is refused without the
+kept aspect ratio and for the tasks with boxes or masks, and a section removed from the
 repository is refused alone, before the other checks. The keypoint definitions injected by the loader from the training
 labels are checked too, and so is the label dictionary saved with a run, taken by the configuration of its folder.
 """
@@ -2879,3 +2880,50 @@ def test_merged_keypoint_categories_cannot_give_different_sigmas(tmp_path: Path,
     assert ("The categories merged into the class 'square+rectangle' give different sigmas [0.03, 0.05] to the "
             "keypoint 'top_left' in 'evaluation.keypoint_sigmas'.") in printed_output
     assert "Traceback" not in printed_output
+
+
+# Messages of the square crop checks: without the kept aspect ratio, and for a task whose targets move with the image
+SQUARE_CROP_KEEP_RATIO_MESSAGE = ("'Data.image_settings.square_crop' needs 'Data.image_settings.keep_ratio' True: it "
+                                  "cuts a square out of the image resized with its aspect ratio kept, instead of "
+                                  "padding it.")
+SQUARE_CROP_TASK_MESSAGE = ("'Data.image_settings.square_crop' must be False for the {task} task: it is only used by "
+                            "the classification and self_supervised tasks, whose targets do not move with the image.")
+
+
+@pytest.mark.parametrize(argnames=("task_folder", "keep_ratio", "square_crop", "expected_messages"), argvalues=[
+    ("classification", True, True, []), ("self_supervised", True, True, []), ("classification", True, False, []),
+    ("classification", False, False, []), ("classification", False, True, [SQUARE_CROP_KEEP_RATIO_MESSAGE]),
+    ("semantic_segmentation", True, True, [SQUARE_CROP_TASK_MESSAGE.format(task="semantic_segmentation")]),
+    ("instance_segmentation", True, True, [SQUARE_CROP_TASK_MESSAGE.format(task="instance_segmentation")]),
+    ("semantic_segmentation", True, False, [])])
+def test_square_crop_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str, keep_ratio: bool,
+                                square_crop: bool, expected_messages: List[str]) -> None:
+    """
+    Verifies the checks of 'Data.image_settings.square_crop': accepted for the classification and self-supervised
+    tasks with the aspect ratio kept, refused without it, the crop having nothing to cut in a stretched image, and
+    refused for the tasks whose boxes or masks would have to be cut with the image, which stay accepted without it.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        task_folder (str): The folder of the synthetic shapes configuration of the task.
+        keep_ratio (bool): The value of 'Data.image_settings.keep_ratio'.
+        square_crop (bool): The value of 'Data.image_settings.square_crop'.
+        expected_messages (List[str]): The square crop messages printed, none when the configuration loads.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["Data"]["image_settings"].update({"keep_ratio": keep_ratio, "square_crop": square_crop})
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    # The configuration loads, or stops printing the messages of the square crop
+    if expected_messages:
+        with pytest.raises(expected_exception=SystemExit):
+            load_experiment_configuration(configuration_path=configuration_path)
+    else:
+        load_experiment_configuration(configuration_path=configuration_path)
+    printed_output = capsys.readouterr().out
+    assert [message for message in [SQUARE_CROP_KEEP_RATIO_MESSAGE, SQUARE_CROP_TASK_MESSAGE.format(task=task_folder)]
+            if message in printed_output] == expected_messages

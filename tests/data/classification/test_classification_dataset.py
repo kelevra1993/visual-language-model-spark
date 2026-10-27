@@ -3,7 +3,8 @@ Tests of the classification data of vision_training/data/classification: Classif
 multi-label manifests, keeping the unlabelled samples for the self-supervised task, whose loaders keep full training
 and validation batches, as the training loader of a classifier needing batch statistics does, the console report of
 the samples without mapped category of the three splits, the corrupted images named in their error, the label mapping
-without background class, and the manifests written by create_class_folder_manifests from class folders.
+without background class, the manifests written by create_class_folder_manifests from class folders, and the square
+crop moving at random on the training images only.
 """
 
 import json
@@ -139,7 +140,8 @@ def test_self_supervised_loaders_keep_full_batches(tmp_path: Path) -> None:
                     samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png"}
                              for sample_identifier in range(1, number_samples + 1)])
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
-    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True, "square_crop": False},
+                                    "label_dictionary": {1: 0},
                                     "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": False, "block_key": "camera",
                                                         "images_per_block": 2, "batch_key": None}}}
@@ -179,7 +181,8 @@ def test_loaders_report_the_samples_without_mapped_category(tmp_path: Path, caps
                              for sample_identifier in range(1, 5)])
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
                                 for split_name in ["train", "validation", "test"]}
-    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True, "square_crop": False},
+                                    "label_dictionary": {1: 0},
                                     "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": False, "block_key": "camera",
                                                         "images_per_block": 2, "batch_key": None}},
@@ -215,7 +218,8 @@ def test_classifier_needing_batch_statistics_drops_its_last_training_batch(tmp_p
                     samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1}
                              for sample_identifier in range(1, number_samples + 1)])
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
-    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True, "square_crop": False},
+                                    "label_dictionary": {1: 0},
                                     "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": False, "block_key": "camera",
                                                         "images_per_block": 2, "batch_key": None}},
@@ -322,3 +326,50 @@ def test_class_folder_manifests(tmp_path: Path) -> None:
                                     keep_ratio=True, label_dictionary={1: 0, 2: 1}, output_mode="multi_class",
                                     shuffle=False)
     assert [int(dataset[sample_index]["labels"]) for sample_index in range(len(dataset))] == [0, 1, 1]
+
+
+@pytest.mark.parametrize(argnames="square_crop", argvalues=[True, False])
+def test_square_crop_moves_on_the_training_images_only(tmp_path: Path, square_crop: bool) -> None:
+    """
+    Verifies the square crop of the classification loaders: the 32 x 64 images, whose shorter side is already the
+    input size, are cut to a 32 pixel square without any padding, at a random position along their width at every
+    reading of a training image and at the centre for the validation and test images. Without the square crop, the
+    same images are padded with black bands, which the crop removes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        square_crop (bool): Whether 'Data.image_settings.square_crop' is on.
+    """
+    # One image per split whose column c holds the value c + 10, so that the first column of the input gives the
+    # position of the square and a black pixel can only come from a padding
+    categories = [{"id": 1, "name": "circle"}]
+    column_image = np.tile(A=np.arange(start=10, stop=74, dtype=np.uint8)[None, :, None], reps=(32, 1, 3))
+    for split_name in ["train", "validation", "test"]:
+        write_split(split_folder=tmp_path / split_name, categories=categories,
+                    samples=[{"id": 1, "file_name": "1.png", "category_id": 1}])
+        cv2.imwrite(filename=str(tmp_path / split_name / "data" / "1.png"), img=column_image)
+    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
+                                for split_name in ["train", "validation", "test"]}
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True, "square_crop": square_crop},
+                                    "label_dictionary": {1: 0},
+                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
+                                    "grouped_batches": {"activated": False, "block_key": "camera",
+                                                        "images_per_block": 2, "batch_key": None}},
+                           "ClassificationHead": {"output_mode": "multi_class"}}
+    loaders = get_classification_dataloaders(experiment_configuration=experiment_configuration,
+                                             model_configuration=model_configuration, batch_size=1)
+
+    # Read every image 300 times, keeping the first column of the input and whether it holds any padding
+    first_columns, padded_images = [], []
+    for loader in loaders:
+        images = [loader.dataset[0]["images"] for _ in range(300)]
+        first_columns.append({int(image[0, 0, 0]) for image in images})
+        padded_images.append(any(bool((image == 0).all(dim=0).any()) for image in images))
+
+    if square_crop:
+        # The 33 positions 0 to 32 of the square for the training image, the centre 16 for the other splits
+        assert first_columns == [set(range(10, 43)), {26}, {26}]
+        assert padded_images == [False, False, False]
+    else:
+        # The letterbox of the whole image, the same at every reading
+        assert padded_images == [True, True, True]

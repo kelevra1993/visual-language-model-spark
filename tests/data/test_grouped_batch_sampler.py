@@ -242,7 +242,8 @@ def test_self_supervised_loaders_give_grouped_batches(tmp_path: Path, capsys: py
     # Build the self-supervised loaders with blocks of 2 images of one camera, and check the printed summary
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
                                 for split_name in ["train", "validation", "test"]}
-    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True, "square_crop": False},
+                                    "label_dictionary": {1: 0},
                                     "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": True, "block_key": "camera",
                                                         "images_per_block": 2, "batch_key": None}}}
