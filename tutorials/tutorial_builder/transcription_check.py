@@ -20,7 +20,6 @@ from faster_whisper import WhisperModel
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from tutorial_builder.settings import THREAD_COUNT
 
 # Words of the numbers the narration writes out so that the voice reads them clearly, which the recognizer writes in
 # digits ("five hundred and twelve" heard as "512")
@@ -157,7 +156,8 @@ def compare_with_script(script: str, transcription: str) -> Tuple[float, float, 
     return error_count / word_count, (error_count - spelling_count) / word_count, differences
 
 
-def check_video_narration(video_path: Path, record: Dict[str, Any], whisper_folder: Path) -> Dict[str, Any]:
+def check_video_narration(video_path: Path, record: Dict[str, Any], whisper_folder: Path,
+                          thread_count: int) -> Dict[str, Any]:
     """
     Transcribes the narration of a built video and compares it with the sentences of its chapter record.
 
@@ -165,12 +165,13 @@ def check_video_narration(video_path: Path, record: Dict[str, Any], whisper_fold
         video_path (Path): The MP4 file.
         record (Dict[str, Any]): The record of the chapter written by make_video, with its scenes and sentences.
         whisper_folder (Path): The faster-whisper base.en folder of the models cache.
+        thread_count (int): The threads of the build (--threads), given to faster-whisper.
 
     Returns:
         Dict[str, Any]: The word error rates (all differences, spelling differences excluded) and the differences.
     """
     model = WhisperModel(model_size_or_path=str(whisper_folder), device="cpu", compute_type="int8",
-                         cpu_threads=THREAD_COUNT)
+                         cpu_threads=thread_count)
     segments, _ = model.transcribe(audio=decode_audio(media_path=video_path), beam_size=5)
     transcription = " ".join(segment.text.strip() for segment in segments)
     script = " ".join(sentence["text"] for scene in record["scenes"] for sentence in scene["sentences"])

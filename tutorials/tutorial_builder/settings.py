@@ -27,13 +27,19 @@ CACHE_FOLDER_VARIABLE = "VLMS_TUTORIALS_CACHE"
 EXPERIMENTS_FOLDER_VARIABLE = "VLMS_TUTORIALS_EXPERIMENTS"
 REPOSITORY_PYTHON_VARIABLE = "VLMS_TUTORIALS_REPOSITORY_PYTHON"
 CHROME_VARIABLE = "VLMS_TUTORIALS_CHROME"
+THREADS_VARIABLE = "VLMS_TUTORIALS_THREADS"
 
 # Chrome executables tried in this order when none is given, the bundled Chromium of Playwright being the last resort
 CHROME_CANDIDATES = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
 
-# Lowest CPU priority and threads of the synthesis and of the encoding, so that the trainings keep the machine
+# Lowest CPU priority, and the default threads of the synthesis, the transcription, the encoding and the figure
+# scripts, so that the trainings keep the machine; --threads raises them when the machine is free
 PROCESS_NICENESS = 19
-THREAD_COUNT = 4
+DEFAULT_THREAD_COUNT = 4
+
+# Threads of the figure scripts, run in their own processes, which receive the thread count of the build in
+# VLMS_TUTORIALS_THREADS (make_series_figures of build_tutorials.py)
+THREAD_COUNT = int(os.environ.get(THREADS_VARIABLE) or DEFAULT_THREAD_COUNT)
 
 
 @dataclass(frozen=True)
@@ -47,12 +53,14 @@ class BuildSettings:
         experiments_folder (Path): The folder of the real runs read by the figure scripts.
         repository_python (Path): The Python of the repository environment, running the figure scripts.
         chrome_executable (Optional[Path]): The Chrome capturing the HTML scenes, None for the Chromium of Playwright.
+        thread_count (int): The threads of the synthesis, the transcription, the encoding and the figure scripts.
     """
     output_folder: Path
     cache_folder: Path
     experiments_folder: Path
     repository_python: Path
     chrome_executable: Optional[Path]
+    thread_count: int
 
     @property
     def model_folder(self) -> Path:
@@ -117,7 +125,8 @@ def find_chrome_executable(requested_path: Optional[str]) -> Optional[Path]:
 
 
 def create_build_settings(output_folder: Optional[str], cache_folder: Optional[str], experiments_folder: Optional[str],
-                          repository_python: Optional[str], chrome_executable: Optional[str]) -> BuildSettings:
+                          repository_python: Optional[str], chrome_executable: Optional[str],
+                          thread_count: Optional[int]) -> BuildSettings:
     """
     Gathers the settings of a build from the command line, the environment variables and the defaults, in this order
     of priority: videos in ~/Data/tutorial_videos, caches in ~/.cache/vlms_tutorials, runs in the experiments folder of
@@ -129,10 +138,22 @@ def create_build_settings(output_folder: Optional[str], cache_folder: Optional[s
         experiments_folder (Optional[str]): The experiments folder given on the command line, or None.
         repository_python (Optional[str]): The Python of the repository given on the command line, or None.
         chrome_executable (Optional[str]): The Chrome executable given on the command line, or None.
+        thread_count (Optional[int]): The threads given on the command line, or None for VLMS_TUTORIALS_THREADS or
+            DEFAULT_THREAD_COUNT.
 
     Returns:
         BuildSettings: The settings of the build.
+
+    Raises:
+        ValueError: If the thread count is not a positive integer.
     """
+    # Threads from the argument, else the environment variable, else the default leaving the machine to the trainings
+    resolved_thread_count = (thread_count if thread_count is not None else
+                             int(os.environ.get(THREADS_VARIABLE) or DEFAULT_THREAD_COUNT))
+    if resolved_thread_count < 1:
+        raise ValueError(f"The thread count must be a positive integer (argument --threads or environment variable "
+                         f"{THREADS_VARIABLE}), got {resolved_thread_count}.")
+
     # Every folder from its argument, else its environment variable, else its default
     resolved_output_folder = Path(output_folder or os.environ.get(OUTPUT_FOLDER_VARIABLE) or
                                   Path.home() / "Data" / "tutorial_videos").expanduser()
@@ -144,4 +165,5 @@ def create_build_settings(output_folder: Optional[str], cache_folder: Optional[s
                                       REPOSITORY_ROOT / ".venv" / "bin" / "python").expanduser()
     return BuildSettings(output_folder=resolved_output_folder, cache_folder=resolved_cache_folder,
                          experiments_folder=resolved_experiments_folder, repository_python=resolved_repository_python,
-                         chrome_executable=find_chrome_executable(requested_path=chrome_executable))
+                         chrome_executable=find_chrome_executable(requested_path=chrome_executable),
+                         thread_count=resolved_thread_count)

@@ -65,7 +65,7 @@ def create_test_settings(cache_folder: Path) -> BuildSettings:
     """
     return create_build_settings(output_folder=str(cache_folder / "output"), cache_folder=str(cache_folder),
                                  experiments_folder=str(cache_folder / "experiments"), repository_python=None,
-                                 chrome_executable=None)
+                                 chrome_executable=None, thread_count=None)
 
 
 def test_yaml_excerpt_keeps_parents_and_marks_skipped_lines(tmp_path: Path) -> None:

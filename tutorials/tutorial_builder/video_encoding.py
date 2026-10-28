@@ -22,14 +22,15 @@ from tutorial_builder.frame_generation import generate_frames
 from tutorial_builder.layout import FRAMES_PER_SECOND, VIDEO_HEIGHT, VIDEO_WIDTH, load_fonts
 from tutorial_builder.model_files import ensure_model_files
 from tutorial_builder.narration import build_timeline, synthesize_narration, write_subtitles, write_wav
-from tutorial_builder.settings import THREAD_COUNT, BuildSettings
+from tutorial_builder.settings import BuildSettings
 from tutorial_builder.storyboard_loading import load_storyboard
 
 
-def encode_video(frames: Iterator[numpy.ndarray], narration_path: Path, video_path: Path, log_path: Path) -> None:
+def encode_video(frames: Iterator[numpy.ndarray], narration_path: Path, video_path: Path, log_path: Path,
+                 thread_count: int) -> None:
     """
-    Encodes the frames and the narration into the MP4 file of the video with the ffmpeg of imageio-ffmpeg, on
-    THREAD_COUNT threads: H.264 video in yuv420p for every player, the narration normalized to -16 LUFS and encoded in
+    Encodes the frames and the narration into the MP4 file of the video with the ffmpeg of imageio-ffmpeg, on the
+    threads of the build: H.264 video in yuv420p for every player, the narration normalized to -16 LUFS and encoded in
     AAC at 48 kHz. The video is written under a temporary name and moved into place once complete.
 
     Args:
@@ -37,15 +38,16 @@ def encode_video(frames: Iterator[numpy.ndarray], narration_path: Path, video_pa
         narration_path (Path): The WAV narration track.
         video_path (Path): The MP4 file.
         log_path (Path): The file receiving the messages of ffmpeg.
+        thread_count (int): The threads of the build (--threads), given to ffmpeg and to the H.264 encoder.
 
     Raises:
         RuntimeError: If ffmpeg fails, with the end of its messages.
     """
     partial_path = video_path.with_name(f"{video_path.stem}.partial.mp4")
-    command = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-threads", str(THREAD_COUNT),
+    command = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-threads", str(thread_count),
                "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{VIDEO_WIDTH}x{VIDEO_HEIGHT}",
                "-r", str(FRAMES_PER_SECOND), "-i", "-", "-i", str(narration_path), "-map", "0:v", "-map", "1:a",
-               "-c:v", "libx264", "-threads", str(THREAD_COUNT), "-preset", "medium", "-crf", "18",
+               "-c:v", "libx264", "-threads", str(thread_count), "-preset", "medium", "-crf", "18",
                "-pix_fmt", "yuv420p", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", "48000",
                "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(partial_path)]
     with open(file=log_path, mode="w", encoding="utf-8") as log_file:
@@ -80,7 +82,8 @@ def make_video(storyboard_path: Path, settings: BuildSettings) -> Dict[str, Any]
     sentence_audio, sample_rate, sentence_counts = synthesize_narration(storyboard=storyboard,
                                                                         kokoro_folder=model_folders["kokoro"],
                                                                         narration_folder=settings.narration_folder,
-                                                                        cache_folder=settings.cache_folder)
+                                                                        cache_folder=settings.cache_folder,
+                                                                        thread_count=settings.thread_count)
     timeline, narration, number_frames = build_timeline(scenes=storyboard["scenes"], sentence_audio=sentence_audio,
                                                         sample_rate=sample_rate, pace=storyboard["pace"])
 
@@ -99,7 +102,8 @@ def make_video(storyboard_path: Path, settings: BuildSettings) -> Dict[str, Any]
         encode_video(frames=generate_frames(storyboard=storyboard, timeline=timeline, fonts=load_fonts(),
                                             number_frames=number_frames, html_capture=html_capture),
                      narration_path=narration_path, video_path=video_path,
-                     log_path=settings.cache_folder / "tracks" / f"{output_name}_ffmpeg.log")
+                     log_path=settings.cache_folder / "tracks" / f"{output_name}_ffmpeg.log",
+                     thread_count=settings.thread_count)
 
     # Record of the chapter, read by the index page and the transcription check
     record = {"series": storyboard["series"], "series_folder": storyboard["series_folder"],

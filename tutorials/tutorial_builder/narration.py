@@ -25,7 +25,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from tutorial_builder.layout import FRAMES_PER_SECOND
 from tutorial_builder.model_files import MODEL_FILES
-from tutorial_builder.settings import THREAD_COUNT
 
 # Spoken forms of the words the voice reads wrongly, given to Kokoro in place of the written word (whole words only)
 # while the captions keep the written one: "ONNX" is read "onks", its usual pronunciation is "onyx". A doubtful
@@ -70,20 +69,21 @@ def prepare_espeak_data(cache_folder: Path) -> Path:
     return data_folder
 
 
-def load_kokoro_voice(kokoro_folder: Path, espeak_data_folder: Path) -> Kokoro:
+def load_kokoro_voice(kokoro_folder: Path, espeak_data_folder: Path, thread_count: int) -> Kokoro:
     """
-    Loads the Kokoro model narrating the videos, run by ONNX Runtime on the CPU only and on THREAD_COUNT threads, so
-    that the trainings keep the GPU and most of the processors.
+    Loads the Kokoro model narrating the videos, run by ONNX Runtime on the CPU only and on the threads of the build,
+    so that the trainings keep the GPU and, with the default thread count, most of the processors.
 
     Args:
         kokoro_folder (Path): The Kokoro folder of the models cache, with kokoro-v1.0.onnx and voices-v1.0.bin.
         espeak_data_folder (Path): The espeak-ng data folder of prepare_espeak_data.
+        thread_count (int): The threads of the build (--threads).
 
     Returns:
         Kokoro: The loaded model.
     """
     session_options = onnxruntime.SessionOptions()
-    session_options.intra_op_num_threads = THREAD_COUNT
+    session_options.intra_op_num_threads = thread_count
     session_options.inter_op_num_threads = 1
     session = onnxruntime.InferenceSession(path_or_bytes=str(kokoro_folder / "kokoro-v1.0.onnx"),
                                            sess_options=session_options, providers=["CPUExecutionProvider"])
@@ -165,8 +165,8 @@ def read_wav(wav_path: Path) -> Tuple[numpy.ndarray, int]:
     return samples, sample_rate
 
 
-def synthesize_narration(storyboard: Dict[str, Any], kokoro_folder: Path, narration_folder: Path,
-                         cache_folder: Path) -> Tuple[List[List[numpy.ndarray]], int, Dict[str, int]]:
+def synthesize_narration(storyboard: Dict[str, Any], kokoro_folder: Path, narration_folder: Path, cache_folder: Path,
+                         thread_count: int) -> Tuple[List[List[numpy.ndarray]], int, Dict[str, int]]:
     """
     Gives the samples of every sentence of every scene, read from the narration cache or synthesized with the voice of
     the storyboard and cached, the Kokoro model being loaded only when a sentence is missing from the cache.
@@ -176,6 +176,7 @@ def synthesize_narration(storyboard: Dict[str, Any], kokoro_folder: Path, narrat
         kokoro_folder (Path): The Kokoro folder of the models cache.
         narration_folder (Path): The narration folder of the cache.
         cache_folder (Path): The cache folder, receiving the espeak-ng data of Kokoro.
+        thread_count (int): The threads of the build (--threads), given to Kokoro.
 
     Returns:
         Tuple[List[List[numpy.ndarray]], int, Dict[str, int]]: The int16 samples of every sentence of every scene,
@@ -201,7 +202,8 @@ def synthesize_narration(storyboard: Dict[str, Any], kokoro_folder: Path, narrat
             else:
                 if voice_model is None:
                     voice_model = load_kokoro_voice(kokoro_folder=kokoro_folder,
-                                                    espeak_data_folder=prepare_espeak_data(cache_folder=cache_folder))
+                                                    espeak_data_folder=prepare_espeak_data(cache_folder=cache_folder),
+                                                    thread_count=thread_count)
                 float_samples, sample_rate = voice_model.create(text=spoken_text, voice=voice_settings["name"],
                                                                 speed=storyboard["pace"],
                                                                 lang=voice_settings.get("language", "en-us"))
