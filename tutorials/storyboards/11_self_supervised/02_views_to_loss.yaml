@@ -238,7 +238,7 @@ scenes:
       - {type: text, position: [880, 520], text: "every {{self_supervised.run.information_dump}} iterations · a validation batch every {{self_supervised.run.validation_iteration_ratio}} iterations", font: diagram_small, colour: dim, anchor: ma}
     narration:
       - "Every {{self_supervised.run.information_dump}} iterations in this run, the console prints the moving averages of the training and validation metrics of the method; this is the last summary."
-      - "A metric ends with Best when it improves on its best value; with Barlow Twins, a rising off-diagonal correlation is also marked best, only the losses being better when lower, bug B45 of the audit."
+      - "A metric ends with Best when it improves on its best value: higher for the accuracies, lower for the losses and, with Barlow Twins, for the off-diagonal correlation."
       - "The throughput counts the images, not the views: {{self_supervised.log.last_throughput:.0f}} images per second at the end of this run, on a GPU shared with other trainings."
 
   - kind: summary

@@ -64,7 +64,7 @@ scenes:
       - "With the sequence normalization and the pair scope, the before member of a pair and its after member, B rows later, form one normalization group; this run uses the batch normalization, so the scope is unused."
 
   - kind: html
-    page: sequence_comparison/pair_batches
+    page: 09_sequence_comparison/pair_batches
     title: "2 B sequences"
     code_reference: "vision_training/models/sequence/sequence_comparator.py · SequenceComparator.encode_members"
     data:
@@ -119,7 +119,7 @@ scenes:
     narration:
       - "The fusion combines the two member vectors into the input of the head."
       - "Concatenation puts the before and after vectors side by side, 128 features, the FCAT token."
-      - "Difference adds the after vector minus the before vector, {{sequence_comparison.features.pair}} features, the FDIF of this run: the change between the visits made explicit, so that the head does not have to learn the subtraction."
+      - "Difference adds the after vector minus the before vector, {{sequence_comparison.features.pair}} features, the FDIF of this run: the change between the two members made explicit, so that the head does not have to learn the subtraction."
       - "Cross attention first lets every frame of a member attend to the real frames of the other member, with one attention layer and one layer normalization shared by both directions, the padding reset to zero, then gives the same 192 features, FXA followed by the number of heads."
       - "Suppose you change the number of heads: the channels of the last backbone block must stay a multiple of it, 64 here, for four heads."
 

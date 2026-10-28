@@ -195,7 +195,7 @@ scenes:
       - "With residual nets v two, the pre-activation placement, every layer normalizes and activates its input before its convolution and nothing follows the addition, so the shortcuts form an identity path, and the block ends with a normalization and a ReLU."
 
   - kind: html
-    page: foundations/residual_pairs
+    page: 01_foundations/residual_pairs
     title: "The shortcuts of this run"
     code_reference: "vision_training/models/components/convolution_block.py · ConvolutionBlock.count_residual_additions"
     data:
@@ -257,7 +257,7 @@ scenes:
       - "Inception starts at the block given by inception starting block, the first blocks keeping their plain convolutions, and it adds the token INC with that block to the run name."
 
   - kind: html
-    page: foundations/receptive_field
+    page: 01_foundations/receptive_field
     title: "The receptive field"
     code_reference: "vision_training/models/backbones/backbone.py · Backbone.compute_receptive_field_information"
     data:

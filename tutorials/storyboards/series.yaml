@@ -1,7 +1,8 @@
 # Series of the tutorial videos, in the order of the index page and of a full build. Every series has its storyboards
-# in storyboards/<name>/ (one YAML file per chapter, numbered), its figure scripts in figures/<name>/ when it has
-# figures of its own, and its videos in <output folder>/<name>/.
-#   - name: folder of the series, also its name on the command line (--series)
+# in storyboards/<number>_<name>/ (<number> its two-digit position in this list, one YAML file per chapter), its
+# animated pages in animations/<number>_<name>/, its videos in <output folder>/<number>_<name>/, and its figure scripts
+# in figures/<name>/ (a Python package, so without the number) when it has figures of its own.
+#   - name: name of the series, on the command line (--series) and in the facts, its folders being <number>_<name>
 #   - title: name of the series in the title bar of its videos and on the index page
 #   - description: what the series teaches, shown on the index page
 series:

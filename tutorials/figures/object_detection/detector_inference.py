@@ -3,7 +3,7 @@ Inference figures of the object detection tutorials (the chapters on the anchors
 targets), made by tutorials/figures/object_detection/figures.py from the trained detector of the DET run of
 tutorials/tutorial_sources.yaml, run on the CPU on the test image the series follows (test_014285.png): the anchors of
 one cell of every detection level and the best anchor of every object (the data of the animated page
-animations/object_detection/anchor_grid.html), the proposals of the image before and after the non-maximum suppression
+animations/03_object_detection/anchor_grid.html), the proposals of the image before and after the non-maximum suppression
 of the proposal filter with the final detections, the labels the anchors of the image get for the region proposal loss,
 and the proposals the detection heads are trained on, every count by level. The functions of the repository do the
 work (forward_detection_stages, select_best_proposals, batch_assign_targets_to_anchors, add_ground_truth_proposals,

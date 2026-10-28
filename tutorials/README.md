@@ -79,7 +79,7 @@ tutorials/build_tutorials.sh --series foundations --chapters 3 --previews-only -
 The steps of a build, each stopping it on a problem:
 1. **Figures**: the figure scripts of the series named by the storyboards (`figures:` key) run with the repository Python on the CPU, writing their PNG files and `facts.json` (the numbers the narration quotes) into the cache. They come first so that the next step reads the facts of this build: a fact added to a figure script exists only once its figures are made again. `--check-references` and `--skip-figures` make none.
 2. **Reference check**: every storyboard is loaded, which reads every configuration and code excerpt it quotes, checks every highlight pattern and fills every fact, then the file and function of every scene chip, the modules and configurations of the terminal commands and the `references` of the storyboard are looked up. All the problems of all the storyboards are listed at once.
-3. **Previews**: one settled frame per sentence and contact sheets, in `<cache>/previews/<series>/<storyboard>/`, with a layout check: captions longer than three lines, texts of HTML scenes out of their card or overlapping.
+3. **Previews**: one settled frame per sentence and contact sheets, in `<cache>/previews/<number>_<series>/<storyboard>/`, with a layout check: captions longer than three lines, texts of HTML scenes out of their card or overlapping.
 4. **Videos**: the narration of every sentence (read from the cache when its text, voice and pace did not change), the frames, the MP4 file, the SubRip subtitles and the record of the chapter (`<name>.json`).
 5. **Narration check**: the audio transcribed by faster-whisper and compared with the script, word by word.
 6. **Report and index**: `verification_report.md` (word error rate of every chapter, flagged above 5 %, and every difference; the numbers written one way and heard the other, the British spellings heard in American and the words heard split or joined are spelling differences, left out of the rate) and `index.html` (every chapter with its player, WebVTT subtitles, scenes as timestamps and recap) in the output folder.
@@ -90,7 +90,7 @@ The output folder, movable as it is:
 <output folder>/
 ├── index.html                  # Every series and chapter, with players and scene timestamps
 ├── verification_report.md      # Narration check of every chapter built (and its JSON version)
-└── <series>/
+└── <number>_<series>/      # 01_foundations, numbered in the order of storyboards/series.yaml
     ├── <chapter>.mp4           # The video, 1920 x 1080, H.264 and AAC
     ├── <chapter>.srt / .vtt    # Its subtitles
     └── <chapter>.json          # Its record: scenes, sentences and their times
@@ -104,7 +104,7 @@ Every two to four weeks, or after a change of the code they show:
 4. Rebuild the changed series, then read `verification_report.md` and look at the contact sheets of the chapters you edited.
 
 ## Writing A Chapter
-1. Copy a storyboard of the series and number it after the last chapter (`storyboards/<series>/<number>_<name>.yaml`).
+1. Copy a storyboard of the series and number it after the last chapter (`storyboards/<number>_<series>/<number>_<name>.yaml`).
 2. List in `figures:` the figure series it uses, and in `references:` the files and functions it explains without quoting them.
 3. Write the scenes (next section), every scene with its `narration`, a list of sentences.
 4. Check it with `--previews-only --skip-figures`, look at the contact sheets, then build it.
@@ -162,7 +162,7 @@ An html scene with `page: diagram` draws its `elements` in the content area, 176
 | `curve` | `box`, `series` (`name`, `colour`, `points`, `highlight`, `dim`), `x_range`, `y_range`, `x_ticks`, `y_ticks`, `x_label`, `y_label`; the names written at the last points are moved apart when they would overlap, so leave room right of the box |
 | `listing` | `box`, `source` (like an excerpt), `highlights`, `font` |
 
-Fonts: `diagram_heading`, `diagram_bold`, `diagram_text`, `diagram_small`, `diagram_tiny`, `diagram_monospace`, `diagram_monospace_small`, `diagram_monospace_tiny`, `code_text`. Colours: `text`, `dim`, `accent`, `key`, `value`, `box`, `border`, `card`, and the series colours `blue`, `aqua`, `yellow`, `magenta`, `violet`, `red`, always labelled by their text; or `#rrggbb`. The palette (a dark ink blue with a cyan accent) is defined in `tutorial_builder/layout.py` and copied in `animations/common/tutorial.js` and `tutorial.css`; a test fails when the copies differ, and the figure scripts take their colours from `layout.py`, so a new palette needs `--force-figures`. A page of its own (`animations/<task>/<name>.html`) loads `common/tutorial.js` and adds animated parts with `Tutorial.registerCustom(setup)`, the setup returning the function drawing them at a time.
+Fonts: `diagram_heading`, `diagram_bold`, `diagram_text`, `diagram_small`, `diagram_tiny`, `diagram_monospace`, `diagram_monospace_small`, `diagram_monospace_tiny`, `code_text`. Colours: `text`, `dim`, `accent`, `key`, `value`, `box`, `border`, `card`, and the series colours `blue`, `aqua`, `yellow`, `magenta`, `violet`, `red`, always labelled by their text; or `#rrggbb`. The palette (a dark ink blue with a cyan accent) is defined in `tutorial_builder/layout.py` and copied in `animations/common/tutorial.js` and `tutorial.css`; a test fails when the copies differ, and the figure scripts take their colours from `layout.py`, so a new palette needs `--force-figures`. A page of its own (`animations/<number>_<series>/<name>.html`) loads `common/tutorial.js` and adds animated parts with `Tutorial.registerCustom(setup)`, the setup returning the function drawing them at a time.
 
 ## Figure Scripts
 `figures/<series>/figures.py` holds `make_figures(output_folder, experiments_folder, force)`, called by `figures/make_figures.py` with the repository Python from the repository root, on the CPU. It reads its runs through `figures/figure_utilities.py` and `tutorial_sources.yaml`, writes its PNG files into the output folder, reuses its expensive figures unless forced, and returns its facts (numbers, and the pixel boxes of its panels for the highlights and reveals of the storyboards). Figures are drawn at the size they are shown (1720 x 700 for a figure filling the card) with the palette and fonts of the videos.
@@ -170,7 +170,7 @@ Fonts: `diagram_heading`, `diagram_bold`, `diagram_text`, `diagram_small`, `diag
 ## Narration
 - Write for an engineer with years of computer vision behind them: the repository specifics, the defaults and their measured effects, the pitfalls and where the code is; no textbook explanation.
 - One idea per sentence, short enough for three caption lines; the caption follows the sentence being spoken.
-- Frame a few sentences of every chapter as a situation the viewer might meet, so that the narration does not only state facts: "Suppose you want to...", "Say you need to...", "Imagine that...", "Picture a data set where...", "Should you need to...", "Faced with...", "If, for instance, you...". Two to four per chapter, never the same opener twice in a chapter; the facts of the sentence stay those of the code.
+- Frame a few sentences of every chapter as a situation the viewer might meet, so that the narration does not only state facts: "Suppose you want to...", "Say you need to...", "Imagine that...", "Picture a data set where...", "Should you need to...", "Faced with...", "If, for instance, you...". Two to four per chapter, never the same opener twice in a chapter; the facts of the sentence stay those of the code. The situations use the synthetic shapes shown on screen most of the time, sometimes everyday examples (cats, dogs, parcels on a shelf), never the data of a particular company.
 - Show the real thing: excerpts read from the repository, real runs, real outputs. Never invented console output or numbers.
 - Pronunciation of the voice: write "pre-trained" (not "pretrained"), "data set" (not "dataset"), avoid reading tool names such as pytest aloud; "weighting" and "waiting" sound alike. A doubtful word is checked by synthesizing it alone and transcribing it, and the narration check of every build flags the rest. A word the voice reads wrongly whatever its spelling gets a spoken form in `SPOKEN_FORMS` of `tutorial_builder/narration.py` ("ONNX" read "onyx"), the captions keeping the written word.
 

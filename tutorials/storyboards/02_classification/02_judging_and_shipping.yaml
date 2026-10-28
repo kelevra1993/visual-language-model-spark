@@ -198,8 +198,8 @@ scenes:
           - "flatten: the head is tied to the image"
           - "  size and to last_max_pooling"
           - ""
-          - "decorrelation on: a rising correlation"
-          - "  printed green with Best (B45)"
+          - "decorrelation on: the correlation is"
+          - "  marked Best when it falls (B45 fixed)"
       - heading: "the data and the logs"
         lines:
           - "a synthetic data set generated now:"
@@ -211,9 +211,9 @@ scenes:
           - "RES: no shortcut in blocks {{classification.backbone.blocks_without_shortcut_text}}"
           - "  two layers changing the channels (H4)"
     narration:
-      - "Six pitfalls are specific to this task, or bite it first."
+      - "Here are the pitfalls specific to this task, or that bite it first, and one console marker fixed since."
       - "Label smoothing with balanced weights pulls every image towards the rare classes, and a flattened head only works at the image size and last max pooling it was trained with."
-      - "With the decorrelation on, the console prints a rising hidden feature correlation in green with best, as if higher were better: read its value, not its colour."
+      - "With the decorrelation on, older logs printed a rising hidden feature correlation in green with best; since the fix of bug B45, a falling one is marked best, like a falling loss."
       - "A synthetic data set generated now has {{classification.data.generator_class_count}} classes, so the numbers of this run do not apply to it; and the iterations per epoch and the sample counts sent to MLflow also count the images of unmapped categories."
       - "And the residual token does not put a shortcut in every block: blocks {{classification.backbone.blocks_without_shortcut_text}} change the channels with two layers and add none."
 

@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 import yaml
 
 from tutorial_builder.settings import REPOSITORY_ROOT, STORYBOARDS_FOLDER
+from tutorial_builder.storyboard_loading import find_series_folder
 
 # Look of the index page, the palette of the videos
 PAGE_STYLE = """
@@ -128,7 +129,7 @@ def render_chapter(record: Dict[str, Any]) -> str:
         str: The HTML of the card.
     """
     video_identifier = f"video-{record['output_name']}"
-    series_folder = record["series"]
+    series_folder = record["series_folder"]
     web_subtitles = Path(record["subtitles"]).with_suffix(".vtt").name
 
     # Scenes as timestamps seeking the player, under their file and function when they name one
@@ -165,7 +166,8 @@ def write_index_page(output_folder: Path) -> Path:
     series_list = yaml.safe_load((STORYBOARDS_FOLDER / "series.yaml").read_text(encoding="utf-8"))["series"]
     sections = []
     for series in series_list:
-        record_paths = sorted((output_folder / series["name"]).glob("*.json"))
+        series_folder = output_folder / find_series_folder(series_name=series["name"])
+        record_paths = sorted(series_folder.glob("*.json"))
         records: List[Dict[str, Any]] = sorted((json.loads(record_path.read_text(encoding="utf-8"))
                                                 for record_path in record_paths), key=operator.itemgetter("chapter"))
         if not records:
@@ -173,7 +175,7 @@ def write_index_page(output_folder: Path) -> Path:
 
         # WebVTT subtitles of every chapter, then the section of the series
         for record in records:
-            write_web_subtitles(record=record, subtitles_path=output_folder / series["name"] /
+            write_web_subtitles(record=record, subtitles_path=series_folder /
                                 Path(record["subtitles"]).with_suffix(".vtt").name)
         total_duration = sum(record["duration"] for record in records)
         sections.append(f'<section class="series"><h2>{html.escape(series["title"])}</h2>'

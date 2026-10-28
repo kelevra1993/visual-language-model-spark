@@ -1,7 +1,7 @@
 # Frame selection, chapter 2: the per-frame loss and the selection loss, the two softmaxes on the real logits of a test
 # sequence, the training curves against the losses of equal logits, the Hungarian assignment animated on the real
 # gains of the same sequence (a wrong triangle pick of iteration 1000), its code, and the greedy rule against it on the
-# example of the README. The matrix scenes use the page animations/frame_selection/frame_matrix.html, fed with the
+# example of the README. The matrix scenes use the page animations/10_frame_selection/frame_matrix.html, fed with the
 # matrices written by tutorials/figures/frame_selection (the checkpoint of iteration 1000 run on the CPU) and decoded by
 # the code of the repository; coordinates are in pixels of the content area (1760 x 740).
 series: frame_selection
@@ -47,7 +47,7 @@ scenes:
       - "The frame selector adds it to the per-frame loss, times selection loss weight; if, for instance, you set that weight to zero, the per-frame loss trains alone."
 
   - kind: html
-    page: frame_selection/frame_matrix
+    page: 10_frame_selection/frame_matrix
     title: "Two softmaxes over one matrix"
     code_reference: "vision_training/models/sequence/frame_selector.py · FrameSelector.forward"
     data:
@@ -112,7 +112,7 @@ scenes:
       - "The synthetic task is easy: it is solved long before the end of the run, which the third chapter turns into a pitfall."
 
   - kind: html
-    page: frame_selection/frame_matrix
+    page: 10_frame_selection/frame_matrix
     title: "The Hungarian assignment"
     code_reference: "vision_training/models/sequence/frame_selection_decoding.py · decode_hungarian_selection"
     data:
@@ -208,7 +208,7 @@ scenes:
       - "One might want one decoding everywhere: the file imports numpy and scipy only, so that the same code runs in the evaluation, in the local inference and inside the Triton server."
 
   - kind: html
-    page: frame_selection/frame_matrix
+    page: 10_frame_selection/frame_matrix
     title: "Greedy against Hungarian"
     code_reference: "vision_training/models/sequence/frame_selection_decoding.py · decode_greedy_selection"
     data:

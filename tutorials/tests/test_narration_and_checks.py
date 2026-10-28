@@ -125,9 +125,9 @@ def test_index_page_lists_the_chapters(tmp_path: Path) -> None:
     Verifies that the index page lists a built chapter of a known series with its player, its scene timestamps and its
     recap, and writes its WebVTT subtitles.
     """
-    series_folder = tmp_path / "foundations"
+    series_folder = tmp_path / "01_foundations"
     series_folder.mkdir()
-    record = {"series": "foundations", "chapter": 1, "title": "The repository and a first run",
+    record = {"series": "foundations", "series_folder": "01_foundations", "chapter": 1, "title": "The repository and a first run",
               "output_name": "foundations_01", "video": "foundations_01.mp4", "subtitles": "foundations_01.srt",
               "duration": 75.0, "summary": [{"text": "Iterations, not epochs"}],
               "scenes": [{"title": "Ten tasks", "start": 4.5, "code_reference": "vision_training/main.py · main",
@@ -136,7 +136,7 @@ def test_index_page_lists_the_chapters(tmp_path: Path) -> None:
 
     index_text = write_index_page(output_folder=tmp_path).read_text(encoding="utf-8")
     assert "The repository and a first run" in index_text and 'data-seek="4.50"' in index_text
-    assert "Iterations, not epochs" in index_text and "foundations/foundations_01.mp4" in index_text
+    assert "Iterations, not epochs" in index_text and "01_foundations/foundations_01.mp4" in index_text
     assert (series_folder / "foundations_01.vtt").read_text(encoding="utf-8").splitlines()[2:4] == [
         "00:00:05.000 --> 00:00:07.250", "First sentence."]
 

@@ -532,7 +532,10 @@ def load_storyboard(storyboard_path: Path, settings: BuildSettings, figures_requ
         raise ValueError(f"{storyboard_path}: missing keys {missing_keys}.")
     facts = load_facts(figure_series=storyboard.get("figures", []), settings=settings,
                        figures_required=figures_required)
-    chapter_count = len(sorted((STORYBOARDS_FOLDER / storyboard["series"]).glob("*.yaml")))
+    # Numbered folder of the series holding the storyboard, for its chapter count here and for the output folder of
+    # its videos
+    storyboard["series_folder"] = storyboard_path.parent.name
+    chapter_count = len(sorted(storyboard_path.parent.glob("*.yaml")))
     storyboard["series_label"] = f"{storyboard['series_title']} · {storyboard['chapter']}/{chapter_count}"
     storyboard["storyboard_path"] = str(storyboard_path)
 
@@ -582,6 +585,28 @@ def load_storyboard(storyboard_path: Path, settings: BuildSettings, figures_requ
     return storyboard
 
 
+def find_series_folder(series_name: str) -> str:
+    """
+    Gives the folder of a series, its name after its two-digit position in tutorials/storyboards/series.yaml
+    (01_foundations), so that the storyboards, the animations and the videos of the output folder sort in viewing
+    order, while --series and the facts keep the plain name.
+
+    Args:
+        series_name (str): The name of the series in series.yaml.
+
+    Returns:
+        str: The folder name of the series.
+
+    Raises:
+        ValueError: If the series is not in series.yaml.
+    """
+    series_names = [series["name"] for series in
+                    yaml.safe_load((STORYBOARDS_FOLDER / "series.yaml").read_text(encoding="utf-8"))["series"]]
+    if series_name not in series_names:
+        raise ValueError(f"Unknown series {series_name}, expected one of {series_names}.")
+    return f"{series_names.index(series_name):02d}_{series_name}"
+
+
 def list_storyboards(series_names: Optional[List[str]], chapters: Optional[List[int]]) -> List[Path]:
     """
     Lists the storyboards to build, in the order of their series (the order of tutorials/series.yaml) and chapters.
@@ -605,7 +630,8 @@ def list_storyboards(series_names: Optional[List[str]], chapters: Optional[List[
     for series_name in known_series:
         if series_names and series_name not in series_names:
             continue
-        for storyboard_path in sorted((STORYBOARDS_FOLDER / series_name).glob("*.yaml")):
+        series_folder = STORYBOARDS_FOLDER / find_series_folder(series_name=series_name)
+        for storyboard_path in sorted(series_folder.glob("*.yaml")):
             chapter = yaml.safe_load(storyboard_path.read_text(encoding="utf-8"))["chapter"]
             if chapters is None or chapter in chapters:
                 storyboard_paths.append(storyboard_path)

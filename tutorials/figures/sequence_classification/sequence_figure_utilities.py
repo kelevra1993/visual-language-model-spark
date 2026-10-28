@@ -5,7 +5,7 @@ Python of the repository at every build: the runs compared with the main run of 
 tutorials/tutorial_sources.yaml), the trained sequence models rebuilt on the CPU from their checkpoints, the TensorBoard
 curves, predictions and console logs of the runs, the frames of the datasets copied into the figures folder so that the
 HTML scenes can show them, the frame vectors drawn as small heat squares, the composites of the evaluation images of
-the runs, and the layout files of the animated batch scenes (animations/sequence_classification/frame_batches.js).
+the runs, and the layout files of the animated batch scenes (animations/07_sequence_classification/frame_batches.js).
 """
 
 import csv
@@ -288,7 +288,7 @@ def compute_cosine_similarities(vectors: torch.Tensor) -> List[List[float]]:
 def write_animation_layout(output_path: Path, phases: List[str], tiles: List[Dict[str, Any]],
                            texts: List[Dict[str, Any]]) -> None:
     """
-    Writes the layout file of an animated batch scene, read by animations/sequence_classification/frame_batches.js:
+    Writes the layout file of an animated batch scene, read by animations/07_sequence_classification/frame_batches.js:
     its phases in order, every tile (a frame, a padding frame or a vector square) with its image, relative to the
     layout file, and its box and opacity at the phases where it changes, and every text with the phases it is shown
     in. The storyboard maps the phases to its sentences.

@@ -47,7 +47,7 @@ scenes:
       - "Without a mask, in the exported model, every frame is real, and the whole tensor runs as one fixed-shape batch."
 
   - kind: html
-    page: sequence_classification/frame_batches
+    page: 07_sequence_classification/frame_batches
     title: "Gather, encode, scatter"
     code_reference: "vision_training/models/sequence/frame_encoder.py · encode_frames"
     data:

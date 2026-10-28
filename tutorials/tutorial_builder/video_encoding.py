@@ -86,7 +86,7 @@ def make_video(storyboard_path: Path, settings: BuildSettings) -> Dict[str, Any]
 
     # Narration track and subtitles next to the video, then the frames encoded with the narration, the HTML scenes
     # captured by one Chrome page opened for the whole video
-    series_folder = settings.output_folder / storyboard["series"]
+    series_folder = settings.output_folder / storyboard["series_folder"]
     series_folder.mkdir(parents=True, exist_ok=True)
     output_name = storyboard["output_name"]
     narration_path = settings.cache_folder / "tracks" / f"{output_name}_narration.wav"
@@ -102,7 +102,8 @@ def make_video(storyboard_path: Path, settings: BuildSettings) -> Dict[str, Any]
                      log_path=settings.cache_folder / "tracks" / f"{output_name}_ffmpeg.log")
 
     # Record of the chapter, read by the index page and the transcription check
-    record = {"series": storyboard["series"], "series_title": storyboard["series_title"],
+    record = {"series": storyboard["series"], "series_folder": storyboard["series_folder"],
+              "series_title": storyboard["series_title"],
               "chapter": storyboard["chapter"], "title": storyboard["title"], "output_name": output_name,
               "storyboard": str(storyboard_path), "video": video_path.name, "subtitles": subtitles_path.name,
               "duration": number_frames / FRAMES_PER_SECOND, "sentence_counts": sentence_counts,

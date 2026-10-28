@@ -4,7 +4,7 @@ tutorials/figures/self_supervised/figures.py from the checkpoints of the SimCLR 
 representations of the first test images encoded by the exported InferenceEncoder at the first and last evaluated
 checkpoints, scored by the leave-one-out k-NN of the repository and its effective rank; the neighbourhood of the star
 of the sample images (its nearest test images by cosine similarity, the weighted vote of its 20 neighbours, and a
-list of its nearest images for the animated page animations/self_supervised/knn_vote.html); a mosaic of its
+list of its nearest images for the animated page animations/11_self_supervised/knn_vote.html); a mosaic of its
 five nearest images at both checkpoints; the cosine similarities of the embeddings of the two views of four sample
 images, the InfoNCE matrix of chapter 2; the views similarity of the star at every evaluated checkpoint; and the
 positive pair accuracy of an untrained and of the trained network on colour and on grayscale views, the cue the two

@@ -72,7 +72,7 @@ scenes:
       - "Its position in pixels is the cell plus that offset plus one half, times the stride; on the synthetic test images this cut the error per axis off the pixel centres from 0.458 to 0.363 pixels."
 
   - kind: html
-    page: keypoint_detection/grouping
+    page: 05_keypoint_detection/grouping
     title: "Grouping by tags"
     code_reference: "vision_training/models/keypoints/keypoint_grouping.py · group_keypoint_candidates"
     data: "figures:keypoint_detection/evaluation/grouping.json"
@@ -149,7 +149,7 @@ scenes:
       - "Every evaluation runs on {{keypoint_detection.metrics_test_images}} test images holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
       - "From iteration 2000 to 6000, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_5:.3f}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_95:.3f}}."
       - "At iteration 2000 the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:.3f}} at 0.95; by 6000 they are within a hundredth of the trained weights."
-      - "Faced with a high matched objects score, read it with care: a ground truth matches any object with an OKS above zero, however far, so {{keypoint_detection.metrics_trained_6000_matched:.4f}} matched sits next to a mean error of about seven pixels."
+      - "This run was scored before the fix of bug B51, when a ground truth matched any object with an OKS above zero, so {{keypoint_detection.metrics_trained_6000_matched:.4f}} matched sits next to a mean error of about seven pixels; a new evaluation needs an OKS of 0.5."
 
   - kind: image
     title: "Worst classes and key points"
@@ -167,13 +167,13 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
       - {role: comment, text: "# Training, its data folders and label mapping set in the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# Evaluation of checkpoints: maximum_error_images_per_class_pair = None in its main block"}
+      - {role: comment, text: "# Evaluation of checkpoints: run and iteration set in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
       - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
       - "To reproduce it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration."
-      - "The evaluation script needs maximum error images per class pair set to None in its main block, or it stops on a missing error dumps key."
+      - "The evaluation script skips its maximum error images per class pair with a yellow warning, key point detection saving no error images."
       - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
 
   - kind: html
@@ -200,9 +200,9 @@ scenes:
       - {text: "Candidates: 3x3 local maxima of the averaged heat maps, placed within their cell"}
       - {text: "Grouping on the CPU, key point by key point, by rounded tag distance then score"}
       - {text: "OKS replaces the box IOU: sigma 0.05, a missing key point counts 0"}
-      - {text: "OKS mAP@0.5 is the headline; Matched Objects counts any OKS above 0"}
+      - {text: "OKS mAP@0.5 is the headline; Matched Objects needs an OKS of 0.5 (B51)"}
       - {text: "Exported network outputs candidates, the client groups them"}
-      - {text: "evaluate_checkpoint: maximum_error_images_per_class_pair = None", monospace: true}
+      - {text: "evaluate_checkpoint: no error images, the limit skipped with a warning"}
     narration:
       - "To recap: the network gives candidates, the grouping turns them into objects by their tags, and the object key point similarity scores them, with the trained and the averaged weights."
       - "The next series, semantic segmentation, keeps the shared backbone and puts a decoder on it to give a class to every pixel."

@@ -133,7 +133,7 @@ scenes:
       - "The heads are small here: two convolutions of 32 channels for the proposals, and for the detections two convolutions with squeeze and excitation and residual shortcuts, then fully connected layers of 64 and 32 units."
 
   - kind: html
-    page: object_detection/anchor_grid
+    page: 03_object_detection/anchor_grid
     title: "Anchors on a test image"
     code_reference: "vision_training/models/detection/anchors.py · Anchors.generate_anchors"
     data:

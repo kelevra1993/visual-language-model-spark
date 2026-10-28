@@ -73,11 +73,11 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
       - {role: comment, text: "# SimCLR on the synthetic shapes: data folders and label mapping set in the file"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# The checkpoints scored again: maximum_error_images_per_class_pair = None"}
+      - {role: comment, text: "# The checkpoints scored again: run and iteration set in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
       - "The synthetic configuration reads the shapes data set of the classifier, so the generator runs with its task set to classification; set to self supervised, it draws the counted shapes of the two counted shapes configurations instead."
-      - "The training takes the self-supervised configuration, and the standalone evaluation scores its checkpoints again once its maximum number of error images is set to None, as the last chapter shows."
+      - "The training takes the self-supervised configuration, and the standalone evaluation scores its checkpoints again, as the last chapter shows."
       - "The run of this series is that configuration stopped at {{self_supervised.run.number_iterations:,}} iterations, with batches of {{self_supervised.run.batch_size}} images of {{self_supervised.run.image_size}} pixels and a checkpoint evaluated every {{self_supervised.run.weight_saving_iterations}} iterations."
 
   - kind: yaml

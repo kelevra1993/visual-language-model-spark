@@ -1,7 +1,7 @@
 # Self-supervised learning, chapter 3: how a checkpoint is judged without any classifier (the leave-one-out k-NN, with
 # the real neighbourhood of a star of the test split, and the effective rank), the test metrics of the run across its
 # checkpoints, its sample images and nearest images, Results.txt, the batch normalization pitfall of the first
-# validations, the standalone evaluation (B56), the export of the encoder, the transfer of the backbone and the
+# validations, the standalone evaluation, the export of the encoder, the transfer of the backbone and the
 # pitfalls of the task. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top
 # left corner); the figures named figures:self_supervised/... are made by tutorials/figures/self_supervised from the
 # SimCLR run of tutorial_sources.yaml (key self_supervised), the sample images read from the run folder itself.
@@ -48,7 +48,7 @@ scenes:
       - "The class with the most weight is the prediction, scored like a classifier with the accuracy, the balanced accuracy, the macro F1 and the metrics of every class; no classifier is ever trained."
 
   - kind: html
-    page: self_supervised/knn_vote
+    page: 11_self_supervised/knn_vote
     title: "The neighbours of a star"
     code_reference: "vision_training/evaluation/self_supervised/representation_metrics.py · compute_nearest_neighbour_predictions"
     data: "figures:self_supervised/representations/knn_radial_layout.json"
@@ -163,7 +163,7 @@ scenes:
       - {match: "error_dumps", sentences: [1]}
     narration:
       - "The evaluate checkpoint script scores the checkpoints of a run again, its settings in its main block, as the foundations series showed."
-      - "For a self-supervised run, set the maximum number of error images per pair of classes to None: its default is written into the error dumps section, which a self-supervised configuration does not have, and the script stops on a key error, bug B56 of the audit."
+      - "Say you leave the maximum number of error images per pair of classes as it is: a self-supervised configuration has no error dumps section, so the script skips that limit with a yellow warning and evaluates the run without error images."
 
   - kind: html
     page: diagram
@@ -204,21 +204,17 @@ scenes:
           - "early checkpoints look collapsed"
           - "pair accuracy high, k-NN at chance"
           - "stronger views resume the old run"
-          - "evaluate_checkpoint: KeyError"
-          - "Barlow Twins: rising off-diagonal"
           - "shortcuts in blocks 3 and 5 only"
       - heading: "cause and fix"
         lines:
           - "batch norm running statistics: wait"
           - "a cue both views share: more colour types"
           - "no run name token: run_name_suffix"
-          - "error_dumps (B56): maximum ... = None"
-          - "printed as Best (B45): read the curve"
           - "channel changes in 2 layers (H4)"
     narration:
       - "To sum up the pitfalls: early checkpoints look collapsed because of the running statistics, and a positive pair accuracy far ahead of the nearest neighbour accuracy means the views share a cue."
-      - "Stronger views or larger batches resume the previous run folder unless a suffix is set, and the standalone evaluation needs its error images set to None."
-      - "With Barlow Twins, the console marks a rising off-diagonal correlation as best; and in this backbone layout, only blocks three and five get residual shortcuts, which a transferred backbone keeps."
+      - "Stronger views or larger batches resume the previous run folder unless a suffix is set."
+      - "And in this backbone layout, only blocks three and five get residual shortcuts, which a transferred backbone keeps."
 
   - kind: summary
     title: "Recap"

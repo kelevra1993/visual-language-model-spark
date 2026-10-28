@@ -165,7 +165,7 @@ scenes:
       - "The same function batches the pairs of the comparator, two members per sample, every member padded to the longest member of the batch."
 
   - kind: html
-    page: sequence_classification/frame_batches
+    page: 07_sequence_classification/frame_batches
     title: "A padded batch"
     code_reference: "vision_training/data/sequence/sequence_dataset.py · collate_padded_sequences"
     data:

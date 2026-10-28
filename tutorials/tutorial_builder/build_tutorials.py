@@ -222,9 +222,9 @@ def main() -> None:
         record = make_video(storyboard_path=storyboard_path, settings=settings)
         if not arguments.skip_transcription:
             record["narration_check"] = check_video_narration(
-                video_path=settings.output_folder / record["series"] / record["video"], record=record,
+                video_path=settings.output_folder / record["series_folder"] / record["video"], record=record,
                 whisper_folder=model_folders["faster-whisper-base.en"])
-            (settings.output_folder / record["series"] / f"{record['output_name']}.json").write_text(
+            (settings.output_folder / record["series_folder"] / f"{record['output_name']}.json").write_text(
                 data=json.dumps(obj=record, indent=2), encoding="utf-8")
             print(f"Narration of {record['output_name']}: word error rate "
                   f"{record['narration_check']['word_error_rate_without_spellings']:.1%} without the spelling "
