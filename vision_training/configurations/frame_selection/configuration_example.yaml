@@ -73,7 +73,8 @@ ExperimentConfiguration:
     # Precision that the confidence threshold of every wanted class must reach: the lowest probability from which the
     # frames chosen for the class by Selection.decoding are true frames with that precision, saved in
     # class_thresholds.json. A chosen frame below it is flagged as low confidence (in selections.csv and by the
-    # deployed decoder) for a human to check. Must be within [0, 1].
+    # deployed decoder) for a human to check. Must be within [0, 1], a single number: unlike the other
+    # classification-like tasks, a list is refused, the deployed decoder keeping one threshold per class.
     target_precision: 0.99
     # Saves 'selections.csv' in the evaluation folder of every evaluated checkpoint: one row per test sequence and
     # wanted class with its true frames (probabilities and ranks), the frames chosen by both decodings with their

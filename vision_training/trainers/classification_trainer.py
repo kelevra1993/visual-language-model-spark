@@ -24,7 +24,8 @@ from vision_training.evaluation.classification.classification_metrics import (co
                                                                               compute_top_k_accuracy)
 from vision_training.evaluation.classification.class_metrics_report import (build_class_metric_scalars,
                                                                              build_class_metrics_rows,
-                                                                             build_class_metrics_table)
+                                                                             build_class_metrics_table,
+                                                                             build_class_thresholds_table)
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
 from vision_training.evaluation.classification.score_curves import (compute_class_score_curves,
@@ -82,7 +83,11 @@ class ClassificationTrainer(BaseTrainer):
         self.decorrelation_activated = (self.TASK_NAME == "classification" and
                                         model_configuration["ClassificationHead"]["decorrelation"]["activated"])
         self.top_k = experiment_configuration["evaluation"]["top_k"]
-        self.target_precision = experiment_configuration["evaluation"]["target_precision"]
+        # Precision, or list of precisions, targeted by the class thresholds, the first one being the main target (of
+        # the deployment and of the main fields of 'class_thresholds.json'), the others reported next to it
+        target_precision = experiment_configuration["evaluation"]["target_precision"]
+        self.target_precisions = list(target_precision) if isinstance(target_precision, list) else [target_precision]
+        self.target_precision = self.target_precisions[0]
         self.save_predictions = experiment_configuration["evaluation"]["save_predictions"]
         self.error_dumps_configuration = experiment_configuration["evaluation"]["error_dumps"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
@@ -439,6 +444,24 @@ class ClassificationTrainer(BaseTrainer):
         """
         return []
 
+    def describe_class_thresholds(self, target_thresholds: List[Optional[Tuple[float, float]]]
+                                  ) -> Dict[str, Optional[Dict[str, float]]]:
+        """
+        Describes the thresholds of one target precision in 'class_thresholds.json', keyed by class name, so that the
+        deployment (and a research report) reads the threshold of every class with the recall it keeps.
+
+        Args:
+            target_thresholds (List[Optional[Tuple[float, float]]]): The threshold and recall of every class at the
+                target precision, None for a class never reaching it.
+
+        Returns:
+            Dict[str, Optional[Dict[str, float]]]: The 'threshold' and 'recall' of every class, None for a class never
+                reaching the target precision.
+        """
+        return {class_name: None if class_threshold is None else
+                {"threshold": class_threshold[0], "recall": class_threshold[1]}
+                for class_name, class_threshold in zip(self.class_names, target_thresholds)}
+
     def describe_prediction(self, probabilities: torch.Tensor, label: torch.Tensor) -> Dict[str, Any]:
         """
         Describes the prediction of one evaluated sample (or frame) in the predictions file: its true and predicted
@@ -467,9 +490,10 @@ class ClassificationTrainer(BaseTrainer):
                                                         torch.nonzero(input=predicted_decisions).flatten().tolist()),
                           "correct": int(bool((true_decisions == predicted_decisions).all()))}
 
-        # Probability of every class, with six decimals
+        # Probability of every class with nine significant digits, enough to tell every float32 apart, so that the
+        # thresholds computed again from the file are those of 'class_thresholds.json'
         for class_index, class_name in enumerate(self.class_names):
-            prediction[f"probability_{class_name}"] = f"{float(probabilities[class_index]):.6f}"
+            prediction[f"probability_{class_name}"] = f"{float(probabilities[class_index]):.9g}"
         return prediction
 
     def build_prediction_rows(self, accumulator: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -569,15 +593,19 @@ class ClassificationTrainer(BaseTrainer):
             positive_masks = labels >= 0.5
             support_column = "Positives"
 
-        # Threshold of every class reaching the target precision, saved for the deployment of the checkpoint
-        class_thresholds = find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
-                                                 target_precision=self.target_precision)
+        # Threshold of every class reaching every target precision, saved for the deployment of the checkpoint: the
+        # main target precision in 'target_precision' and 'classes', the others in 'additional_targets'
+        class_thresholds = [find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
+                                                  target_precision=target_precision)
+                            for target_precision in self.target_precisions]
+        target_descriptions = [{"target_precision": target_precision,
+                                "classes": self.describe_class_thresholds(target_thresholds=target_thresholds)}
+                               for target_precision, target_thresholds in zip(self.target_precisions, class_thresholds)]
+        thresholds_file = dict(target_descriptions[0])
+        if len(target_descriptions) > 1:
+            thresholds_file["additional_targets"] = target_descriptions[1:]
         thresholds_path = evaluation_folder / "class_thresholds.json"
-        thresholds_path.write_text(data=json.dumps(obj={
-            "target_precision": self.target_precision,
-            "classes": {class_name: None if class_threshold is None else
-                        {"threshold": class_threshold[0], "recall": class_threshold[1]}
-                        for class_name, class_threshold in zip(self.class_names, class_thresholds)}}, indent=4))
+        thresholds_path.write_text(data=json.dumps(obj=thresholds_file, indent=4))
         files["Class Thresholds"] = thresholds_path
 
         # ROC and precision-recall curves of every class with the per-class report, their macro means following the
@@ -593,7 +621,8 @@ class ClassificationTrainer(BaseTrainer):
 
         # Metrics of every class, saved whatever the per-class report so that they stay available for many classes
         class_rows = build_class_metrics_rows(class_names=self.class_names, metrics=metrics,
-                                              class_thresholds=class_thresholds, class_curves=class_curves)
+                                              class_thresholds=class_thresholds,
+                                              target_precisions=self.target_precisions, class_curves=class_curves)
         files["Class Metrics"] = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
 
         # Confusion matrix image of the per-class report, saved and logged to TensorBoard
@@ -607,7 +636,7 @@ class ClassificationTrainer(BaseTrainer):
         if class_curves is not None:
             curve_files, curve_images = save_score_curve_images(
                 class_curves=class_curves, class_names=self.class_names, output_folder=evaluation_folder,
-                title_suffix=f" · Iteration {iteration}", target_precision=self.target_precision)
+                title_suffix=f" · Iteration {iteration}", target_precisions=self.target_precisions)
             files.update(curve_files)
             images.update(curve_images)
 
@@ -625,10 +654,16 @@ class ClassificationTrainer(BaseTrainer):
             if error_counts:
                 files["Error Images"] = accumulator["errors_folder"]
 
+        # Per-class table at the main target precision, and the thresholds of every target precision in a table of
+        # their own when several are given, so that the per-class table stays within the width of the report
+        tables = [build_class_metrics_table(class_rows=class_rows, target_precision=self.target_precision,
+                                            support_column=support_column)]
+        if len(self.target_precisions) > 1:
+            tables.append(build_class_thresholds_table(class_rows=class_rows, target_precisions=self.target_precisions,
+                                                       class_curves=class_curves))
+
         return {"evaluated_samples": self.describe_evaluated_samples(accumulator=accumulator),
-                "metrics": headline_metrics, "notes": notes,
-                "tables": [build_class_metrics_table(class_rows=class_rows, target_precision=self.target_precision,
-                                                     support_column=support_column)],
+                "metrics": headline_metrics, "notes": notes, "tables": tables,
                 "scalars": dict(headline_metrics),
                 "class_scalars": build_class_metric_scalars(class_names=self.class_names, metrics=metrics,
                                                             class_curves=class_curves),

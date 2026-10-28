@@ -60,11 +60,13 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 from vision_training.utilities.tensor_utilities import get_device
 
 # Evaluation files of a checkpoint sent to the MLflow run, small whatever the size of the test split: the confusion
-# matrix image and the ROC and precision-recall curve images (per-class report only), the metrics of every class, the
-# class thresholds of the classification-like tasks and the proposal recall of the detection tasks. The predictions,
-# the error images and the sample images grow with the test split and stay in the run folder.
+# matrix image and the ROC and precision-recall curve images (per-class report only, with the zoom on the thresholds
+# of the classification-like tasks), the metrics of every class, the class thresholds of the classification-like tasks
+# and the proposal recall of the detection tasks. The predictions, the error images and the sample images grow with
+# the test split and stay in the run folder.
 TRACKED_EVALUATION_FILES = ["Confusion Matrix Image", "ROC Curves Image", "Precision Recall Curves Image",
-                            "Class Metrics", "Class Thresholds", "Proposal Recall"]
+                            "Precision Recall Thresholds Image", "Class Metrics", "Class Thresholds",
+                            "Proposal Recall"]
 
 # MLflow artifact folder of the files written at launch by the analysis of the training data (analyse_training_data)
 TRAINING_DATA_ANALYSIS_ARTIFACT_FOLDER = "analysis"

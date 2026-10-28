@@ -838,6 +838,46 @@ def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None
                                                                    "save_predictions": "yes"})
 
 
+def list_invalid_target_precisions(configuration: Dict[str, Any]) -> None:
+    """
+    Gives a list of target precisions holding a precision above 1.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 1.5]
+
+
+def repeat_a_target_precision(configuration: Dict[str, Any]) -> None:
+    """
+    Gives a list of target precisions holding the same precision twice.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 0.95, 0.99]
+
+
+def list_no_target_precision(configuration: Dict[str, Any]) -> None:
+    """
+    Gives an empty list of target precisions.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = []
+
+
+def list_several_target_precisions(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the thresholds of three target precisions, as for the thresholds of a research report.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration of a classification-like task, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 0.95, 0.90]
+
+
 def dump_multi_label_errors(configuration: Dict[str, Any]) -> None:
     """
     Turns the error images on in multi-label mode, with a maximum of zero images per class pair.
@@ -1132,6 +1172,12 @@ def test_removed_sections_are_refused_alone(tmp_path: Path, capsys: pytest.Captu
                                              "probability within [0, 1], got 1.5.",
                                              "'ExperimentConfiguration.evaluation.save_predictions' must be True or "
                                              "False, got 'yes'."]),
+    (list_invalid_target_precisions, ["'ExperimentConfiguration.evaluation.target_precision[1]' must be a "
+                                      "probability within [0, 1], got 1.5."]),
+    (repeat_a_target_precision, ["'ExperimentConfiguration.evaluation.target_precision' must not repeat a "
+                                 "probability, got [0.99, 0.95, 0.99]."]),
+    (list_no_target_precision, ["'ExperimentConfiguration.evaluation.target_precision' must hold at least one "
+                                "probability, got an empty list."]),
     (dump_multi_label_errors, ["'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' must be an "
                                "integer >= 1, got 0.",
                                "'ExperimentConfiguration.evaluation.error_dumps.activated' must be False with "
@@ -1174,6 +1220,28 @@ def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, c
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "Traceback" not in printed_output
+
+
+@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"),
+                         argvalues=[("classification", "configuration_synthetic_shapes.yaml"),
+                                    ("sequence_classification", "configuration_synthetic_sequences.yaml"),
+                                    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
+                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml")])
+def test_several_target_precisions_are_accepted(tmp_path: Path, task_folder: str, configuration_name: str) -> None:
+    """
+    Verifies that the classification-like tasks sharing the evaluation of the classification accept a list of target
+    precisions, kept in its order for the trainer, whose first precision is the main target.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task_folder (str): The configuration folder of the task.
+        configuration_name (str): The file name of its synthetic configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name=configuration_name,
+                                                  modify_function=list_several_target_precisions)
+    experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
+    assert experiment_configuration["evaluation"]["target_precision"] == [0.99, 0.95, 0.90]
 
 
 def flatten_final_feature_map(configuration: Dict[str, Any]) -> None:
@@ -1455,6 +1523,16 @@ def set_invalid_selection(configuration: Dict[str, Any]) -> None:
                                   "selection_loss_weight": -1.0}
 
 
+def list_target_precisions_for_selection(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the frame selection a list of target precisions, whose deployed decoder keeps one threshold per class.
+
+    Args:
+        configuration (Dict[str, Any]): The raw frame selection configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 0.95]
+
+
 def use_pooling_for_selection(configuration: Dict[str, Any]) -> None:
     """
     Uses an order-blind pooling, which summarises a whole sequence into one vector, for the frame selection.
@@ -1471,13 +1549,16 @@ def use_pooling_for_selection(configuration: Dict[str, Any]) -> None:
                              "'Selection.frames_per_class' must be", "'Selection.selection_loss_weight' must be a "
                              "number >= 0, got -1.0."]),
     (use_pooling_for_selection, ["'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', "
-                                 "'temporal_convolution'] for this task, got 'max_pooling'."])])
+                                 "'temporal_convolution'] for this task, got 'max_pooling'."]),
+    (list_target_precisions_for_selection, ["'ExperimentConfiguration.evaluation.target_precision' must be a single "
+                                            "probability for this task, whose deployment keeps one threshold per "
+                                            "class, got the list [0.99, 0.95]."])])
 def test_inconsistent_frame_selection_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that an invalid 'Selection' section, and a temporal module unable to keep one vector per frame, stop the
-    loading of a frame selection configuration with a short message naming the faulty key.
+    Verifies that an invalid 'Selection' section, a temporal module unable to keep one vector per frame, and a list of
+    target precisions stop the loading of a frame selection configuration with a short message naming the faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

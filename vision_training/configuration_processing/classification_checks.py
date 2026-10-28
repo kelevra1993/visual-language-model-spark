@@ -180,16 +180,53 @@ def check_classification_decorrelation_configuration(model_configuration: Dict[s
     return errors
 
 
+def check_target_precisions(value: Any, key_path: str, allow_several_target_precisions: bool) -> List[str]:
+    """
+    Verifies the precision targeted by the per-class threshold finder of the classification-like tasks: a probability,
+    or, for the tasks reporting several thresholds per class, a non-empty list of distinct probabilities whose first
+    one is the main target (the one of the deployment), e.g. [0.99, 0.95, 0.90] for the thresholds of a research report.
+
+    Args:
+        value (Any): The 'evaluation.target_precision' value read from the configuration.
+        key_path (str): The dotted key path of the value, used in the error messages.
+        allow_several_target_precisions (bool): Whether a list of target precisions is accepted, False for the frame
+            selection, whose deployment keeps a single threshold per class.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    # A single target precision, the form every task accepts
+    if not isinstance(value, list):
+        return check_probability_value(value=value, key_path=key_path)
+    if not allow_several_target_precisions:
+        return [f"'{key_path}' must be a single probability for this task, whose deployment keeps one threshold per "
+                f"class, got the list {value!r}."]
+
+    # Several target precisions: a non-empty list of distinct probabilities
+    if not value:
+        return [f"'{key_path}' must hold at least one probability, got an empty list."]
+    errors = []
+    for index, target_precision in enumerate(value):
+        errors += check_probability_value(value=target_precision, key_path=f"{key_path}[{index}]")
+    if not errors and len(set(value)) != len(value):
+        errors.append(f"'{key_path}' must not repeat a probability, got {value!r}.")
+    return errors
+
+
 def check_classification_evaluation_configuration(experiment_configuration: Dict[str, Any],
-                                                  model_configuration: Dict[str, Any]) -> List[str]:
+                                                  model_configuration: Dict[str, Any],
+                                                  allow_several_target_precisions: bool = True) -> List[str]:
     """
     Verifies the 'ExperimentConfiguration.evaluation' settings of the classification-like tasks: the k of the top-k
-    accuracy, the precision targeted by the per-class threshold finder, whether the predictions of every test
-    sample are saved, and the error images of the misclassified samples, which need one class per sample.
+    accuracy, the precision (or the list of precisions) targeted by the per-class threshold finder, whether the
+    predictions of every test sample are saved, and the error images of the misclassified samples, which need one
+    class per sample.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
         model_configuration (Dict[str, Any]): The processed model sections, giving the output mode of the head.
+        allow_several_target_precisions (bool): Whether 'evaluation.target_precision' may be a list, False for the
+            frame selection. Defaults to True.
 
     Returns:
         List[str]: The description of every inconsistency found.
@@ -201,8 +238,9 @@ def check_classification_evaluation_configuration(experiment_configuration: Dict
                                      allow_zero=False)
     target_precision = get_configuration_value(configuration=configuration,
                                                key_path="ExperimentConfiguration.evaluation.target_precision")
-    errors += check_probability_value(value=target_precision,
-                                      key_path="ExperimentConfiguration.evaluation.target_precision")
+    errors += check_target_precisions(value=target_precision,
+                                      key_path="ExperimentConfiguration.evaluation.target_precision",
+                                      allow_several_target_precisions=allow_several_target_precisions)
     errors += check_boolean_flags(configuration=configuration,
                                   key_paths=["ExperimentConfiguration.evaluation.save_predictions"])
 

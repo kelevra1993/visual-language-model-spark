@@ -270,9 +270,9 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
                                         model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the frame selection task: the data settings, classification head and evaluation
-    settings shared with the classification task, the sequence settings (the largest number of frames of a sequence),
-    a temporal module keeping one vector per frame, possibly causal, and
-    the selection settings.
+    settings shared with the classification task (with a single target precision, the deployment keeping one threshold
+    per class), the sequence settings (the largest number of frames of a sequence), a temporal module keeping one
+    vector per frame, possibly causal, and the selection settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -286,7 +286,8 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
     errors += check_classification_head_configuration(experiment_configuration=experiment_configuration,
                                                       model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
-                                                            model_configuration=model_configuration)
+                                                            model_configuration=model_configuration,
+                                                            allow_several_target_precisions=False)
     errors += check_sequence_settings(model_configuration=model_configuration)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)

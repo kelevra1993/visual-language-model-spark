@@ -1,9 +1,10 @@
 """
 Per-class part of the evaluation reports of the classification-like tasks: the metrics of every class (support,
-precision, recall, F1, with the per-class report its ROC AUC and average precision, and the threshold reaching the
-target precision with the recall it keeps) as the rows of class_metrics.csv, as the per-class table of the report and
-as the per-class TensorBoard scalars. Used by the classification trainer, from which the sequence trainers inherit,
-and, without the curves and thresholds, by the k-nearest neighbour report of the self-supervised trainer.
+precision, recall, F1, with the per-class report its ROC AUC and average precision, and the threshold reaching every
+target precision with the recall it keeps) as the rows of class_metrics.csv, as the per-class table of the report
+(with the table of the thresholds of every target precision when several are given) and as the per-class TensorBoard
+scalars. Used by the classification trainer, from which the sequence trainers inherit, and, without the curves and
+thresholds, by the k-nearest neighbour report of the self-supervised trainer.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,35 +12,66 @@ from typing import Any, Dict, List, Optional, Tuple
 from vision_training.core.contracts import EvaluationTable
 from vision_training.evaluation.classification.score_curves import CURVE_METRIC_NAMES, ScoreCurves
 
-# Name of the per-class table of the report and of its sort column, the worst classes being shown first
+# Name of the per-class table of the report and of its sort column, the worst classes being shown first, and name of
+# the table of the thresholds of every target precision
 CLASS_TABLE_TITLE = "Per Class Metrics"
 CLASS_TABLE_SORT_COLUMN = "F1"
+CLASS_THRESHOLDS_TABLE_TITLE = "Per Class Thresholds"
+
+
+def get_threshold_column_names(target_index: int, target_precision: float) -> Tuple[str, str]:
+    """
+    Names the columns of class_metrics.csv holding the threshold of a target precision and the recall it keeps: the
+    main target precision (the first one, of the deployment) keeps 'threshold_at_target_precision' and
+    'recall_at_target_precision', read by the tools of the repository, and every other one is named by its value,
+    e.g. 'threshold_at_precision_0.95' and 'recall_at_precision_0.95'.
+
+    Args:
+        target_index (int): The position of the target precision in 'evaluation.target_precision', 0 for the main one.
+        target_precision (float): The target precision, e.g. 0.95.
+
+    Returns:
+        Tuple[str, str]: The names of the threshold and recall columns.
+    """
+    if target_index == 0:
+        return "threshold_at_target_precision", "recall_at_target_precision"
+    return f"threshold_at_precision_{target_precision:g}", f"recall_at_precision_{target_precision:g}"
 
 
 def build_class_metrics_rows(class_names: List[str], metrics: Dict[str, Any],
-                             class_thresholds: Optional[List[Optional[Tuple[float, float]]]] = None,
+                             class_thresholds: Optional[List[List[Optional[Tuple[float, float]]]]] = None,
+                             target_precisions: Optional[List[float]] = None,
                              class_curves: Optional[List[ScoreCurves]] = None) -> List[Dict[str, Any]]:
     """
     Gathers the metrics of every class of an evaluated checkpoint, in class index order, for the per-class metrics
     file and the per-class table: its number of evaluated samples (support), its precision, recall and F1, with the
     per-class report its ROC AUC and average precision (None without positive, or negative for the ROC AUC), and, for
-    the evaluations giving thresholds, the threshold reaching the target precision with the recall it keeps (None when
-    no threshold reaches it).
+    the evaluations giving thresholds, the threshold reaching every target precision with the recall it keeps (None
+    when no threshold reaches it).
 
     Args:
         class_names (List[str]): The name of every class, in class index order.
         metrics (Dict[str, Any]): The per-class 'support', 'precision', 'recall' and 'f1' lists of the evaluation.
-        class_thresholds (Optional[List[Optional[Tuple[float, float]]]]): The threshold and recall of every class (None
-            for a class without one), or None for an evaluation without thresholds (the k-nearest neighbour
-            classification of the self-supervised task). Defaults to None.
+        class_thresholds (Optional[List[List[Optional[Tuple[float, float]]]]]): For every target precision, the
+            threshold and recall of every class (None for a class without one), or None for an evaluation without
+            thresholds (the k-nearest neighbour classification of the self-supervised task). Defaults to None.
+        target_precisions (Optional[List[float]]): The target precisions of the thresholds, in the order of
+            'class_thresholds', the first one being the main one, or None without thresholds. Defaults to None.
         class_curves (Optional[List[ScoreCurves]]): The ROC and precision-recall curves of every class, computed with
             the per-class report, or None without them. Defaults to None.
 
     Returns:
         List[Dict[str, Any]]: One row per class, keyed by the columns of class_metrics.csv: 'class_index', 'class',
             'samples', 'precision', 'recall', 'f1', then 'roc_auc' and 'average_precision' when the curves are given,
-            then 'threshold_at_target_precision' and 'recall_at_target_precision' when the thresholds are given.
+            then the threshold and recall columns of every target precision when the thresholds are given
+            (get_threshold_column_names).
+
+    Raises:
+        ValueError: If the thresholds are given without one target precision each.
     """
+    if class_thresholds is not None and (target_precisions is None or len(target_precisions) != len(class_thresholds)):
+        raise ValueError(f"Expected one target precision per list of thresholds, got {target_precisions!r} for "
+                         f"{len(class_thresholds)} lists of thresholds.")
     class_rows = []
     for class_index, class_name in enumerate(class_names):
         class_row = {"class_index": class_index, "class": class_name, "samples": int(metrics["support"][class_index]),
@@ -50,11 +82,13 @@ def build_class_metrics_rows(class_names: List[str], metrics: Dict[str, Any],
         if class_curves is not None:
             class_row.update({metric_key: class_curves[class_index][metric_key] for metric_key in CURVE_METRIC_NAMES})
 
-        # Threshold reaching the target precision and the recall it keeps, for the evaluations giving thresholds
-        if class_thresholds is not None:
-            class_threshold = class_thresholds[class_index]
-            class_row.update({"threshold_at_target_precision": None if class_threshold is None else class_threshold[0],
-                              "recall_at_target_precision": None if class_threshold is None else class_threshold[1]})
+        # Threshold reaching every target precision and the recall it keeps, for the evaluations giving thresholds
+        for target_index, target_thresholds in enumerate(class_thresholds or []):
+            threshold_column, recall_column = get_threshold_column_names(
+                target_index=target_index, target_precision=target_precisions[target_index])
+            class_threshold = target_thresholds[class_index]
+            class_row.update({threshold_column: None if class_threshold is None else class_threshold[0],
+                              recall_column: None if class_threshold is None else class_threshold[1]})
         class_rows.append(class_row)
     return class_rows
 
@@ -112,6 +146,50 @@ def build_class_metrics_table(class_rows: List[Dict[str, Any]], target_precision
         legend += f", or the precision {target_precision:g} is never reached"
     return {"title": title, "columns": columns, "rows": rows, "sort_column": CLASS_TABLE_SORT_COLUMN,
             "per_class": True, "legend": f"{legend}."}
+
+
+def build_class_thresholds_table(class_rows: List[Dict[str, Any]], target_precisions: List[float],
+                                 class_curves: Optional[List[ScoreCurves]] = None) -> EvaluationTable:
+    """
+    Builds the per-class thresholds table of the report of an evaluated checkpoint given several target precisions,
+    shown with the per-class report next to the per-class table (which keeps the main target precision, so that it
+    stays within the width of the report): the threshold of every class reaching every target precision with the
+    recall it keeps, in class index order, to choose a threshold from the report. With the curves, every threshold is
+    written as on precision_recall_thresholds.png, with the fewest decimals selecting the same samples
+    (format_threshold_label), otherwise with the 4 decimals of the report.
+
+    Args:
+        class_rows (List[Dict[str, Any]]): The metrics of every class (build_class_metrics_rows), with the threshold
+            columns of every target precision.
+        target_precisions (List[float]): The precisions targeted by the thresholds, the main one first.
+        class_curves (Optional[List[ScoreCurves]]): The ROC and precision-recall curves of every class, with the
+            written value of every threshold, or None without them. Defaults to None.
+
+    Returns:
+        EvaluationTable: The per-class thresholds table.
+    """
+    rows = []
+    for class_index, class_row in enumerate(class_rows):
+        row = [class_row["class"]]
+        for target_index, target_precision in enumerate(target_precisions):
+            threshold_column, recall_column = get_threshold_column_names(target_index=target_index,
+                                                                         target_precision=target_precision)
+            # Threshold written as on the image when the curves give it, the recall it keeps after it
+            threshold = class_row[threshold_column]
+            if threshold is not None and class_curves is not None:
+                threshold = class_curves[class_index]["threshold_points"][target_index][2]
+            row += [threshold, class_row[recall_column]]
+        rows.append(row)
+
+    # Two columns per target precision, the main one first
+    columns = ["Class"]
+    for target_precision in target_precisions:
+        columns += [f"Threshold\n@ P{target_precision:g}", f"Recall\n@ P{target_precision:g}"]
+    written_precisions = " or ".join(f"{target_precision:g}" for target_precision in target_precisions)
+    legend = (f"Lowest score threshold of every class keeping the precision, which gives the highest recall, in class "
+              f"order, exact in class_thresholds.json. — : the precision {written_precisions} is never reached.")
+    return {"title": CLASS_THRESHOLDS_TABLE_TITLE, "columns": columns, "rows": rows, "sort_column": None,
+            "per_class": True, "legend": legend}
 
 
 def build_class_metric_scalars(class_names: List[str], metrics: Dict[str, Any], tag_prefix: str = "",
