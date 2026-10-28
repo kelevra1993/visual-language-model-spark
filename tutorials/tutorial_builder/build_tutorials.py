@@ -24,7 +24,8 @@ from tutorial_builder.index_page import write_index_page
 from tutorial_builder.model_files import ensure_model_files
 from tutorial_builder.previews import render_storyboard_previews
 from tutorial_builder.reference_check import check_storyboard_references
-from tutorial_builder.settings import PROCESS_NICENESS, REPOSITORY_ROOT, BuildSettings, create_build_settings
+from tutorial_builder.settings import (PROCESS_NICENESS, REPOSITORY_ROOT, THREADS_VARIABLE, BuildSettings,
+                                       create_build_settings)
 from tutorial_builder.storyboard_loading import list_storyboards
 from tutorial_builder.transcription_check import check_video_narration
 from tutorial_builder.video_encoding import make_video
@@ -60,6 +61,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--chrome-executable", default=None,
                         help="Chrome capturing the HTML scenes (default the first Chrome on the PATH, or "
                              "VLMS_TUTORIALS_CHROME, else the Chromium of Playwright).")
+    parser.add_argument("--threads", type=int, default=None,
+                        help="Threads of the voice, the transcription, the encoding and the figure scripts (default 4, "
+                             "or VLMS_TUTORIALS_THREADS), raised when no training needs the processors.")
     parser.add_argument("--check-references", action="store_true",
                         help="Only check the references of the storyboards to the repository.")
     parser.add_argument("--figures-only", action="store_true", help="Stop after making the figures.")
@@ -110,9 +114,10 @@ def make_series_figures(figure_series: List[str], settings: BuildSettings, force
         raise FileNotFoundError(f"No Python of the repository environment at {settings.repository_python}: run "
                                 f"`uv sync` in {REPOSITORY_ROOT} or give --repository-python.")
     # The hints of transparent huge pages of numpy and PyTorch turned off: with the memory fragmented by the trainings,
-    # every large allocation stalled in the kernel (a 16-image CPU inference took 124 s instead of 1.6 s)
+    # every large allocation stalled in the kernel (a 16-image CPU inference took 124 s instead of 1.6 s); the thread
+    # count of the build reaches the THREAD_COUNT of the figure scripts through VLMS_TUTORIALS_THREADS
     environment = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "NUMPY_MADVISE_HUGEPAGE": "0",
-                   "THP_MEM_ALLOC_ENABLE": "0"}
+                   "THP_MEM_ALLOC_ENABLE": "0", THREADS_VARIABLE: str(settings.thread_count)}
     for series_name in figure_series:
         print(f"Making the figures of {series_name}")
         command = [str(settings.repository_python), "-m", "tutorials.figures.make_figures", "--series", series_name,
@@ -180,7 +185,7 @@ def main() -> None:
     settings = create_build_settings(output_folder=arguments.output_folder, cache_folder=arguments.cache_folder,
                                      experiments_folder=arguments.experiments_folder,
                                      repository_python=arguments.repository_python,
-                                     chrome_executable=arguments.chrome_executable)
+                                     chrome_executable=arguments.chrome_executable, thread_count=arguments.threads)
     storyboard_paths = list_storyboards(series_names=arguments.series, chapters=arguments.chapters)
     print(f"{len(storyboard_paths)} storyboards, videos in {settings.output_folder}, cache in {settings.cache_folder}")
 
@@ -223,7 +228,7 @@ def main() -> None:
         if not arguments.skip_transcription:
             record["narration_check"] = check_video_narration(
                 video_path=settings.output_folder / record["series_folder"] / record["video"], record=record,
-                whisper_folder=model_folders["faster-whisper-base.en"])
+                whisper_folder=model_folders["faster-whisper-base.en"], thread_count=settings.thread_count)
             (settings.output_folder / record["series_folder"] / f"{record['output_name']}.json").write_text(
                 data=json.dumps(obj=record, indent=2), encoding="utf-8")
             print(f"Narration of {record['output_name']}: word error rate "

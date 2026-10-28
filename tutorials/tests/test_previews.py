@@ -26,7 +26,7 @@ def test_previews_of_every_scene_kind(tmp_path: Path) -> None:
     """
     settings = create_build_settings(output_folder=str(tmp_path / "output"), cache_folder=str(tmp_path / "cache"),
                                      experiments_folder=str(tmp_path / "experiments"), repository_python=None,
-                                     chrome_executable=None)
+                                     chrome_executable=None, thread_count=None)
     result = render_storyboard_previews(storyboard_path=SMOKE_STORYBOARD_PATH, settings=settings,
                                         preview_folder=tmp_path / "previews")
     assert len(result["previews"]) == 14

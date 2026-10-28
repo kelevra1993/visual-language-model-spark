@@ -70,6 +70,7 @@ tutorials/build_tutorials.sh --series foundations --chapters 3 --previews-only -
 | `--experiments-folder` | Folder of the real runs (default the `experiments/` folder of the repository, or `VLMS_TUTORIALS_EXPERIMENTS`) |
 | `--repository-python` | Python of the repository environment (default `.venv/bin/python` of the repository, or `VLMS_TUTORIALS_REPOSITORY_PYTHON`) |
 | `--chrome-executable` | Chrome capturing the HTML scenes |
+| `--threads` | Threads of the voice, the speech recognition, the encoding and the figure scripts (default 4, or `VLMS_TUTORIALS_THREADS`); 4 leaves the processors to the trainings, raise it when the machine is free |
 | `--check-references` | Stop after the reference check |
 | `--figures-only`, `--previews-only` | Stop after the figures, or after the previews and their layout check |
 | `--skip-figures`, `--force-figures` | Reuse the figures of the cache, or make again the figures the scripts would reuse |
