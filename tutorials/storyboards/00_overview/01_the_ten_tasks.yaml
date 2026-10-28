@@ -43,11 +43,11 @@ scenes:
       - {box: [1116, 761, 2155, 1440], sentences: [5]}
     narration:
       - "Here is one output of nine of the tasks, all trained on synthetic shapes; let's take them one situation at a time, starting with the five that read a single image."
-      - "Suppose you want to sort photos by what they show, a cat or a dog, or tag each one with several labels: classification gives one class per image, or several with the multi-label output."
-      - "Now say you need to know where every object is, for instance to count the parcels on a shelf: object detection draws a box around each object, with its class and a score."
+      - "Suppose you want to sort images by what they show, a hexagon or a pentagon, a cat or a dog, or tag each one with several labels: classification gives one class per image, or several with the multi-label output."
+      - "Now say you need to know where every object is, for instance to count the shapes of an image or the parcels on a shelf: object detection draws a box around each object, with its class and a score."
       - "If a box is too coarse, because objects overlap or you want to measure their area, instance segmentation adds a mask to every box, the exact outline of each object."
       - "Imagine that the outline does not matter, but the position of a few named points does, like the joints of a body or the corners of a square: keypoint detection finds them and groups them into objects."
-      - "And when the question is what covers every pixel, road, grass or sky, without telling two objects of the same class apart, semantic segmentation gives one class per pixel."
+      - "And when the question is which shape covers every pixel, or the background, without telling two shapes of the same class apart, semantic segmentation gives one class per pixel."
 
   - kind: image
     title: "Sequence tasks: several frames in"
@@ -68,7 +68,7 @@ scenes:
       - "Picture a short clip of an object: is it moving up or down? A single frame cannot tell, so sequence classification reads all the frames and gives one class for the whole sequence."
       - "Say you also need to know when something happens, the frame where an object appears or disappears: sequence labelling gives one class per frame."
       - "Suppose you film the same scene before and after an event and want to know what changed, for instance whether an object went missing: sequence comparison reads both sequences and gives one class per pair."
-      - "And when a visit leaves dozens of photos but you only need the best view of each side, frame selection picks, in every sequence, the frames of every wanted class."
+      - "And when a sequence holds many frames but you only want the one showing each wanted shape, the circle, the triangle and the star here, frame selection picks, in every sequence, the frames of every wanted class."
 
   - kind: html
     page: diagram

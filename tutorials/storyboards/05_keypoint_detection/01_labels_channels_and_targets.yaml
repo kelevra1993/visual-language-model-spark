@@ -83,7 +83,7 @@ scenes:
       - "An object without any labelled key point is dropped the same way; for the COCO crowds, ignore unlabelled objects also leaves their pixels out of the heat map loss."
 
   - kind: html
-    page: keypoint_detection/channel_table
+    page: 05_keypoint_detection/channel_table
     title: "One channel per key point of every class"
     code_reference: "vision_training/models/keypoints/keypoint_detector.py · build_keypoint_channel_table"
     data: "figures:keypoint_detection/dataset/channel_table.json"

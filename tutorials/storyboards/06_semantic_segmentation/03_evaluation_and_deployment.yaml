@@ -148,14 +148,14 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
       - {role: comment, text: "# Training until stopped: Ctrl+C saves a checkpoint"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# Evaluation of checkpoints: maximum_error_images_per_class_pair = None in its main block"}
+      - {role: comment, text: "# Evaluation of checkpoints: run and iteration set in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
       - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
       - "To reproduce the run, generate the synthetic data set with the task set in the main block of the script, then train with the synthetic configuration."
       - "Its number of iterations is practically endless, so the training runs until Control C, which saves a checkpoint; the run of these chapters stopped at {{semantic_segmentation.run_iterations}}."
-      - "The standalone evaluation needs maximum error images per class pair set to None, like every task without error images, and the export needs a GPU."
+      - "The standalone evaluation skips its maximum error images per class pair with a warning, as for every task without error images, and the export needs a GPU."
 
   - kind: html
     page: diagram
@@ -184,7 +184,7 @@ scenes:
       - {text: "Boundary IoU and F1 score the contours within 2 pixels"}
       - {text: "Macro ROC AUC is flattered by the negatives; read the macro AP"}
       - {text: "Export: class_map and class_probabilities at the network resolution"}
-      - {text: "evaluate_checkpoint: maximum_error_images_per_class_pair = None", monospace: true}
+      - {text: "evaluate_checkpoint: no error images, the limit skipped with a warning"}
     narration:
       - "To recap: the evaluation counts pixels on the device, the mean IOU compares the checkpoints, the boundary metrics check the contours, and the exported model gives a class and probabilities for every pixel."
       - "The next series, sequence classification, runs the backbone on every frame of a sequence and gives one class per sequence."

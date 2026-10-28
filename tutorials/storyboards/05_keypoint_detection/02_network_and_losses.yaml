@@ -91,7 +91,7 @@ scenes:
       - "Both last layers start with weights of standard deviation 0.001 and a heat map bias at the logit of 0.01, so that every cell starts at a probability of 0.01."
 
   - kind: html
-    page: keypoint_detection/high_resolution_network
+    page: 05_keypoint_detection/high_resolution_network
     title: "Branches that exchange their features"
     code_reference: "vision_training/models/keypoints/hrnet.py · ExchangeModule"
     data: "figures:keypoint_detection/network/high_resolution_network.json"
@@ -172,7 +172,7 @@ scenes:
       - "With the trained weights of iteration 6000, the heat map loss of this image falls to {{keypoint_detection.loss_trained_total:.3f}}."
 
   - kind: html
-    page: keypoint_detection/tag_line
+    page: 05_keypoint_detection/tag_line
     title: "Tags pulled together, objects pushed apart"
     code_reference: "vision_training/losses/keypoint_losses.py · compute_tag_losses"
     data: "figures:keypoint_detection/network/tags.json"

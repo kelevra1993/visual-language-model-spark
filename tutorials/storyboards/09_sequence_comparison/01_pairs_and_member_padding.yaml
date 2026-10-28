@@ -23,7 +23,7 @@ scenes:
     subheading: "One class for a before and an after sequence"
     footnote: "Sequence Comparison (CMP) · chapter 1"
     narration:
-      - "The sequence comparator, CMP, gives one class to a pair of sequences: a before member and an after member, for instance two visits of the same place."
+      - "The sequence comparator, CMP, gives one class to a pair of sequences: a before member and an after member, for instance the same synthetic scene before and after a shape went missing."
       - "This chapter covers the pairs on disk, the configuration, and how two members of their own lengths become one padded batch."
 
   - kind: html
@@ -143,7 +143,7 @@ scenes:
       - "A sample is one tensor of 2T frames, the before member then the after member, so that the augmentation, the input viewer and the evaluation handle a pair as one sequence, and both members get the same augmentation draw."
 
   - kind: html
-    page: sequence_comparison/pair_batches
+    page: 09_sequence_comparison/pair_batches
     title: "A batch of pairs"
     code_reference: "vision_training/data/sequence/sequence_dataset.py · collate_padded_sequences"
     data:

@@ -63,7 +63,7 @@ scenes:
       - "Every value goes to the metric tracker, which writes it to TensorBoard at every iteration and averages it over the interval for the console."
 
   - kind: html
-    page: foundations/iteration_timeline
+    page: 01_foundations/iteration_timeline
     title: "Scheduled in iterations"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_training_iterations"
     data:

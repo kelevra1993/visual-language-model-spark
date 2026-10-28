@@ -24,7 +24,7 @@ scenes:
     subheading: "Frame selection: a fixed number of frames for every wanted class"
     footnote: "Frame Selection (SEL) · chapter 1"
     narration:
-      - "Frame selection chooses, in every sequence, a fixed number of frames for every wanted class: the sharpest view of each side of an object among the photos of a visit, for example."
+      - "Frame selection chooses, in every sequence, a fixed number of frames for every wanted class: in the synthetic sequences, the one frame of the circle, of the triangle and of the star, for example."
       - "This chapter covers when to choose it, its synthetic data, the checks on its labels, its settings and its model."
 
   - kind: html

@@ -101,7 +101,7 @@ scenes:
       - {match: "^\\s*probability:", sentences: [1]}
       - {match: "activated: True, probability", sentences: [2]}
     narration:
-      - "Picture a data set from one fixed camera: augmentation changes the training images at random, so that the model learns the objects rather than one framing or one colour."
+      - "Picture synthetic shapes always drawn centred and in the same light: augmentation changes the training images at random, so that the model learns the shapes rather than one framing or one colour."
       - "Its probability is the share of the training images augmented at all; each of the {{foundations.data.type_count}} types then has its own switch and its own probability."
       - "The classification configuration switches on {{foundations.data.activated_type_count}} of them; the others stay listed and off, every key of the section being required."
 
@@ -120,7 +120,7 @@ scenes:
       - "The self-supervised task takes stronger strengths of its own, the views of SimCLR toned down for the images of the project, and every augmenter takes the set of its task."
 
   - kind: html
-    page: foundations/augmentation_draw
+    page: 01_foundations/augmentation_draw
     title: "How the augmentation draws"
     code_reference: "vision_training/data/augmentations.py · DataAugmenter.augment_sample"
     data:

@@ -4,7 +4,7 @@ tutorials/figures/sequence_classification/figures.py: four sequences drawn by th
 repository (generate_moving_shape_sequence, 2 to 12 frames of 512 pixels, the dataset on disk holding only sequences
 of 8 frames), saved and read back as the sequence dataset reads them (128 pixel frames), batched by the collate of the
 loaders (collate_padded_sequences) and run through the frame encoder of the trained flatten run on the CPU. It writes
-the frames, the frame vectors drawn as heat squares and the layout file of animations/sequence_classification/
+the frames, the frame vectors drawn as heat squares and the layout file of animations/07_sequence_classification/
 frame_batches.js, whose phases are the samples, the padded batch, its mask, the real frames gathered for the backbone,
 their vectors and the vectors scattered back; its facts are the real lengths and shapes the narration quotes.
 """

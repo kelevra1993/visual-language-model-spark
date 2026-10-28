@@ -5,7 +5,7 @@ comparison run: the members read and padded to the longer member by the pair dat
 the collate of the loaders (collate_padded_sequences with two members per sample), split back into the before and
 after members (split_pair_members), stacked as 2B sequences and encoded together like encode_members of the trained
 comparator, run on the CPU. It writes the frames, the frame vectors drawn as heat squares and the layout file of
-animations/sequence_classification/frame_batches.js; its facts are the real lengths, shapes and padding of the batch,
+animations/07_sequence_classification/frame_batches.js; its facts are the real lengths, shapes and padding of the batch,
 and the difference between the masked path of the training and the per-member path of the export on these pairs.
 """
 
