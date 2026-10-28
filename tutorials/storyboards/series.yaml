@@ -5,6 +5,9 @@
 #   - title: name of the series in the title bar of its videos and on the index page
 #   - description: what the series teaches, shown on the index page
 series:
+  - name: overview
+    title: "Overview"
+    description: "The whole repository in one video: the ten tasks, each told through a situation where it is the right tool, how they differ and what they share."
   - name: foundations
     title: "Foundations"
     description: "What every task shares: the repository and a first run, the configuration and the training loop, the data pipeline, the backbone and its modules, the optimization, the evaluation and the deployment."

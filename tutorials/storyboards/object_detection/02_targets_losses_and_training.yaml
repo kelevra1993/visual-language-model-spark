@@ -8,7 +8,7 @@ series_title: "Object Detection (DET)"
 chapter: 2
 title: "Targets, losses and training"
 output_name: object_detection_02_targets_losses_and_training
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [object_detection]
 references:
@@ -47,7 +47,7 @@ scenes:
       - {type: bars, box: [940, 470, 1660, 590], orientation: horizontal, values: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], labels: ["positives", "negatives"], value_labels: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], colours: [blue, border], label_width: 160, appear: 3, highlight: [3]}
     narration:
       - "For the region proposal losses, every anchor is labeled by its best overlap with an object: background below 0.3, foreground from 0.5, and ignored in between."
-      - "The best anchor of every object is made foreground at any overlap above zero, but assigned to the object it overlaps most, so a small box sharing its best anchor with a larger one gets none, bug B40."
+      - "Take a small box sharing its best anchor with a larger one: the best anchor of every object is made foreground at any overlap above zero, but assigned to the object it overlaps most, so the small box gets none, bug B40."
       - "On the test image, {{object_detection.inference.anchor_labels.foreground}} anchors are foreground, {{object_detection.inference.anchor_labels.overlap_foreground}} by overlap and {{object_detection.inference.anchor_labels.fallback_foreground}} by the fallback, {{object_detection.inference.anchor_labels.ignored}} are ignored and {{object_detection.inference.anchor_labels.background:,}} are background."
       - "The losses sample 256 anchors per image with at most 128 positives: here all {{object_detection.inference.anchor_labels.sampled_positives}} positives and {{object_detection.inference.anchor_labels.sampled_negatives}} random negatives."
 
@@ -62,7 +62,7 @@ scenes:
     narration:
       - "Drawn on the image, the foreground anchors hug the objects, several per object at the levels whose scales fit."
       - "The ignored anchors overlap the objects partly; they give no loss, so the head is never pushed either way on ambiguous boxes."
-      - "The negatives are drawn at random among the background anchors, so that the thousands of empty anchors do not swamp the objectness loss."
+      - "To keep the thousands of empty anchors from swamping the objectness loss, the negatives are drawn at random among the background anchors."
 
   - kind: yaml
     title: "The RegionProposal section"
@@ -123,7 +123,7 @@ scenes:
       - {type: text, position: [20, 590], text: "every head trains on the proposals of its own level only", font: diagram_small, colour: dim, appear: 3}
     narration:
       - "The detection heads train on the proposals of the training filter, 500 per image after the suppression at 0.7."
-      - "First the ground truth boxes are written into the last slots, each at the level of its best anchor, so that every object has a positive proposal with a zero regression target, even when the proposals miss it."
+      - "Think of proposals that miss an object: the ground truth boxes are first written into the last slots, each at the level of its best anchor, so that every object still has a positive proposal with a zero regression target."
       - "A proposal takes the class of the object it overlaps by 0.5 or more, the background otherwise, and 128 are sampled with at most 64 positives."
       - "On the test image, {{object_detection.inference.detector_targets.positives}} of the {{object_detection.inference.detector_targets.proposal_count}} proposals are positive and all are kept, with {{object_detection.inference.detector_targets.sampled_negatives}} negatives: block 5 receives {{object_detection.inference.detector_targets.sampled_level_5}} of the 128, block 6 {{object_detection.inference.detector_targets.sampled_level_6}} and block 7 {{object_detection.inference.detector_targets.sampled_level_7}}."
 

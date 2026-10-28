@@ -7,7 +7,7 @@ series_title: "Object Detection (DET)"
 chapter: 3
 title: "Evaluation and export"
 output_name: object_detection_03_evaluation_and_export
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [object_detection]
 references:
@@ -56,7 +56,7 @@ scenes:
       - {box: "{{object_detection.samples.panel_4_box}}", sentences: [2]}
     narration:
       - "The sample images show the same eight test images at every evaluation: at iteration one thousand, at a mAP at 0.5 of {{object_detection.samples.metric_1000:.3f}}, not one detection of the whole test split reaches 0.5."
-      - "At two thousand, where the shipped configuration stops, only the square is found here, and {{object_detection.outcomes.2000.right:,}} right detections over the {{object_detection.data.test_objects:,}} test objects: the samples look empty, item 30 of the suggestions."
+      - "Imagine you stop at two thousand, as the shipped configuration does: only the square is found here, and {{object_detection.outcomes.2000.right:,}} right detections over the {{object_detection.data.test_objects:,}} test objects: the samples look empty, item 30 of the suggestions."
       - "Resumed to five thousand, the run finds five of the six shapes, at a mAP of {{object_detection.samples.metric_5000:.3f}}."
 
   - kind: html
@@ -92,7 +92,7 @@ scenes:
       - "At iteration five thousand the area method gives {{object_detection.report.trained.methods.area.0:.3f}} at an overlap of 0.5, {{object_detection.report.trained.methods.area.1:.3f}} at 0.75, and {{object_detection.report.trained.methods.area.2:.3f}} at 0.95: the boxes are rarely that tight."
       - "The matching follows the PASCAL VOC rule at every threshold, so the average from 0.5 to 0.95, {{object_detection.report.trained.methods.area.3:.3f}}, is not the number of the official COCO tools, audit item L6."
       - "By size, the {{object_detection.report.trained.sizes.small.0}} small test objects score {{object_detection.report.trained.sizes.small.1:.3f}}, against {{object_detection.report.trained.sizes.medium.1:.3f}} for the medium and {{object_detection.report.trained.sizes.large.1:.3f}} for the large ones."
-      - "The mean average recall counts the objects found at all: {{object_detection.report.trained.recall.all.1:.3f}} at 0.5, but {{object_detection.report.trained.recall.small.1:.3f}} for the small ones; a low mAP with a high recall means good boxes ranked below false positives."
+      - "The mean average recall counts the objects found at all: {{object_detection.report.trained.recall.all.1:.3f}} at 0.5, but {{object_detection.report.trained.recall.small.1:.3f}} for the small ones; if, for instance, you see a low mAP with a high recall, good boxes are ranked below false positives."
 
   - kind: html
     page: diagram
@@ -173,7 +173,7 @@ scenes:
       - {role: comment, text: "# experiment_folder, iteration, use_averaged_weights, formats ... in the main block"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
-      - "Set the run folder, the iteration, the formats and whether to export the averaged weights in its main block, then run it as a module."
+      - "One might want to ship the averaged weights: set the run folder, the iteration, the formats and that choice in its main block, then run it as a module."
 
   - kind: text_panel
     title: "Pitfalls"

@@ -9,7 +9,7 @@ series_title: "Self-Supervised Learning (SSL)"
 chapter: 1
 title: "Two views of one image"
 output_name: self_supervised_01_two_views
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [self_supervised]
 references:
@@ -60,10 +60,10 @@ scenes:
       - {type: text, position: [930, 505], text: "image without a mapped category", font: diagram_bold, appear: 3}
       - {type: text, position: [930, 560], text: "kept, label IGNORED_LABEL_INDEX = -100\ntrained on like the others", font: diagram_small, colour: dim, appear: 3}
     narration:
-      - "Choose it when the images far outnumber the labels: the backbone learns from all of them, then initialises another task through the pre-trained settings of its backbone section."
+      - "Imagine a team whose images far outnumber its labels: with this task, the backbone learns from all of them, then initialises another task through the pre-trained settings of its backbone section."
       - "Only the backbone is transferred; the projection head that served the loss is thrown away."
       - "The task reads the data set layout and the loaders of the image classifier, and the categories of the labels files only serve the evaluation, a nearest neighbour classification of the test images."
-      - "An image without a mapped category is not dropped: it gets the ignored label, minus one hundred, and is trained on like the others; when every image is labelled, train the classifier directly."
+      - "An image without a mapped category is not dropped: it gets the ignored label, minus one hundred, and is trained on like the others; should every image be labelled, train the classifier directly."
 
   - kind: terminal
     title: "Generate, train, evaluate"
@@ -213,7 +213,7 @@ scenes:
     narration:
       - "The run name starts with SSL, followed by the input and backbone tokens of every task; it has no class count, since the training reads no label."
       - "The head gives P with the pooling and the layer sizes, then PBN for its batch normalization; the method gives SIMCLR with its temperature, or BT with its off-diagonal weight."
-      - "The views, the batch size, the learning rate and the grouped batches leave no token: a run with stronger views or larger batches resumes the folder of the previous one, unless a run name suffix is set."
+      - "Say you relaunch with stronger views or larger batches: the views, the batch size, the learning rate and the grouped batches leave no token, so the run resumes the folder of the previous one, unless a run name suffix is set."
 
   - kind: summary
     title: "Recap"

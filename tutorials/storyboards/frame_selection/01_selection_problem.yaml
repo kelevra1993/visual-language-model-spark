@@ -9,7 +9,7 @@ series_title: "Frame Selection (SEL)"
 chapter: 1
 title: "The selection problem"
 output_name: frame_selection_01_selection_problem
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [frame_selection]
 references:
@@ -66,7 +66,7 @@ scenes:
       - "The synthetic data set, synthetic selected shapes, holds {{frame_selection.dataset.training_sequences:,}} training, {{frame_selection.dataset.validation_sequences}} validation and {{frame_selection.dataset.test_sequences}} test sequences of {{frame_selection.dataset.minimum_frames}} to {{frame_selection.dataset.maximum_frames}} frames of {{frame_selection.dataset.image_size}} pixels, one shape per frame, in a background and a color shared by the sequence."
       - "In every sequence, the largest circle, the largest triangle and the largest star are the three frames to select, outlined here."
       - "The other frames show a smaller copy of a wanted shape, at most 70% of its size and 60% of its area, or a square, a rectangle or a plus sign."
-      - "So whether a triangle is the one to select depends on the other triangles of its sequence: the model must compare the frames, which come in random order."
+      - "Picture a sequence with several triangles: whether one is to be selected depends on the other triangles of its sequence, so the model must compare the frames, which come in random order."
       - "Each training sequence holds one frame of each wanted class: {{frame_selection.dataset.circle_training_frames:,}} frames each, against {{frame_selection.dataset.unselected_training_frames:,}} unselected ones, {{frame_selection.dataset.unselected_share:.0%}} of the {{frame_selection.dataset.training_frames:,}} frames."
 
   - kind: html
@@ -98,7 +98,7 @@ scenes:
       - {type: box, box: [1040, 280, 1720, 440], text: "every sequence: exactly frames_per_class\nframes of every wanted class", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
     narration:
       - "The labels file gives the category of every frame: one for unselected, then two, three and four for circle, triangle and star."
-      - "The label mapping must map the unselected category named by Selection unselected category, and the frames of an unmapped category become unselected: leaving a wanted class out of the mapping turns its frames into unselected ones."
+      - "The label mapping must map the unselected category named by Selection unselected category, and the frames of an unmapped category become unselected: should a wanted class be left out of the mapping, its frames turn into unselected ones."
       - "Every sequence must hold exactly frames per class frames of every wanted class, since the decoding always picks that many."
       - "Otherwise the launch stops: here the error of the sequence data set of the repository, given the training split and two frames per class, lists the first 20 offending sequences and counts the others."
 

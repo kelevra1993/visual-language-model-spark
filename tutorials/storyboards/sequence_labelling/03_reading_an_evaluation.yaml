@@ -9,7 +9,7 @@ series_title: "Sequence Labelling (M2M)"
 chapter: 3
 title: "Reading an evaluation: a degenerate solution"
 output_name: sequence_labelling_03_reading_an_evaluation
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_labelling]
 references:
@@ -185,7 +185,7 @@ scenes:
     narration:
       - "Put together, a degenerate solution has its accuracy equal to the share of the majority class, its balanced accuracy at one over the number of classes, and its loss on the cross entropy of a prior."
       - "For a sequence task, add one predicted segment per sequence, and an exact match equal to the share of the sequences without any change, {{sequence_labelling.evaluation.sequences_without_change}} of the {{sequence_labelling.evaluation.test_sequences:,}}."
-      - "So read the balanced accuracy, the macro F1 and the segment metrics first, and compute the prior of your own data before trusting a loss curve."
+      - "Faced with a run of your own, read the balanced accuracy, the macro F1 and the segment metrics first, and compute the prior of your data before trusting a loss curve."
       - "The suggestions file lists this run as left to redo, with a longer training and another learning rate."
 
   - kind: yaml
@@ -214,8 +214,8 @@ scenes:
       - {type: box, box: [40, 280, 1720, 440], text: "A causal module with Backbone.normalization.feature_map_normalization \"sequence\":\nthe statistics of every backbone layer come from the whole sequence, future frames included  (B8)", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: box, box: [40, 500, 1720, 660], text: "A sequence without any labelled frame counts as an exact match,\nand a batch without any labelled frame gives a NaN loss  (L11)", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
     narration:
-      - "The test ten thousand subset holds a copy of the labels and a link to the frames of the full test split: generating the data set again makes its labels name other frames, without any error."
-      - "A causal module with the sequence normalization of the backbone still sees the future, the statistics of every layer coming from the whole sequence."
+      - "Imagine that you generate the data set again: the test ten thousand subset holds a copy of the labels and a link to the frames of the full test split, so its labels name other frames, without any error."
+      - "If, for instance, you pair a causal module with the sequence normalization of the backbone, it still sees the future, the statistics of every layer coming from the whole sequence."
       - "And a sequence without any labeled frame counts as an exact match."
 
   - kind: html

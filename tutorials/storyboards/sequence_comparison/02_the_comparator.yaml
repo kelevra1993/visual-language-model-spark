@@ -8,7 +8,7 @@ series_title: "Sequence Comparison (CMP)"
 chapter: 2
 title: "The comparator"
 output_name: sequence_comparison_02_the_comparator
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_comparison]
 references:
@@ -121,7 +121,7 @@ scenes:
       - "Concatenation puts the before and after vectors side by side, 128 features, the FCAT token."
       - "Difference adds the after vector minus the before vector, {{sequence_comparison.features.pair}} features, the FDIF of this run: the change between the visits made explicit, so that the head does not have to learn the subtraction."
       - "Cross attention first lets every frame of a member attend to the real frames of the other member, with one attention layer and one layer normalization shared by both directions, the padding reset to zero, then gives the same 192 features, FXA followed by the number of heads."
-      - "The channels of the last backbone block must be a multiple of the number of heads: 64 here, for four heads."
+      - "Suppose you change the number of heads: the channels of the last backbone block must stay a multiple of it, 64 here, for four heads."
 
   - kind: html
     page: diagram
@@ -153,7 +153,7 @@ scenes:
     narration:
       - "The export, InferenceSequenceComparator, takes two inputs, before images and after images, each with its own number of frames up to 50, and encodes and summarizes every member alone."
       - "On the four pairs of the batch, the masked path of the training and the per-member path of the export give the same probabilities, to less than one in {{sequence_comparison.batch.path_inverse_bound:,}}."
-      - "With the sequence normalization and the pair scope, the export concatenates the two members along one frame axis instead, so that they share their statistics as in training."
+      - "Assuming the backbone uses the sequence normalization with the pair scope, the export concatenates the two members along one frame axis instead, so that they share their statistics as in training."
 
   - kind: html
     page: diagram

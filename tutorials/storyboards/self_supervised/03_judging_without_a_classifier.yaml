@@ -10,7 +10,7 @@ series_title: "Self-Supervised Learning (SSL)"
 chapter: 3
 title: "Judging without a classifier"
 output_name: self_supervised_03_judging_without_a_classifier
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [self_supervised]
 references:
@@ -107,7 +107,7 @@ scenes:
     narration:
       - "Every evaluation also saves {{self_supervised.run.number_sample_images}} fixed test images, each next to two views drawn from its seed, so that every checkpoint compares the same two views."
       - "The caption gives the cosine similarity of the representations of the two views: {{self_supervised.similarity.star_first:.3f}} for this star at iteration {{self_supervised.knn.first_iteration:,}}, and {{self_supervised.similarity.star_last:.3f}} at the last one."
-      - "A similarity near one proves nothing alone, a collapsed backbone giving one to every pair: read it with the nearest neighbour accuracy and the effective rank."
+      - "Faced with a similarity near one, remember that it proves nothing alone, a collapsed backbone giving one to every pair: read it with the nearest neighbour accuracy and the effective rank."
 
   - kind: image
     title: "The nearest images"
@@ -149,7 +149,7 @@ scenes:
       - "The first validation batch, at iteration {{self_supervised.early.validation_iteration_0}}, gave an embedding standard deviation of {{self_supervised.early.spread_validation_0:.4f}}, against {{self_supervised.early.spread_train_at_validation_0:.2f}} for the training batch of the same iteration."
       - "Its loss was exactly the {{self_supervised.curves.random_info_nce:.2f}} of random embeddings, and stayed there up to iteration {{self_supervised.early.last_iteration_at_random}}."
       - "Validation and test images are encoded in evaluation mode, where the batch normalization uses running statistics updated at a momentum of {{self_supervised.run.backbone_momentum}}, still far from the data after a few updates: every image gets almost the same embedding."
-      - "The spread passed one half at iteration {{self_supervised.early.spread_half_iteration}} here; a checkpoint evaluated that early looks collapsed whatever the training."
+      - "The spread passed one half at iteration {{self_supervised.early.spread_half_iteration}} here; take a checkpoint evaluated that early: it looks collapsed whatever the training."
 
   - kind: code
     title: "Evaluating checkpoints again"
@@ -193,7 +193,7 @@ scenes:
     narration:
       - "The export wraps the trained model in the inference encoder, served by Triton as the image encoder: float32 BGR images of 256 pixels in, L2-normalized representations of 128 values out, so that a dot product is a cosine similarity."
       - "The projection head is not in the graph: the export serves the representation, for similarity searches and nearest neighbour classifications."
-      - "To transfer, give the run folder as the experiment folder of the backbone pre-trained settings of another task; its blocks, modules and normalization must be those of this run, and only the backbone is loaded."
+      - "When the goal is to start another task from this backbone, give the run folder as the experiment folder of its backbone pre-trained settings; its blocks, modules and normalization must be those of this run, and only the backbone is loaded."
 
   - kind: text_panel
     title: "Pitfalls"

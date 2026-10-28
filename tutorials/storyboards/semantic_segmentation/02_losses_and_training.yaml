@@ -8,7 +8,7 @@ series_title: "Semantic Segmentation (SEG)"
 chapter: 2
 title: "Losses and training"
 output_name: semantic_segmentation_02_losses_and_training
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [semantic_segmentation]
 references:
@@ -44,7 +44,7 @@ scenes:
       - "Four losses, each multiplied by its weight and left out at zero: the pixel cross entropy and the soft Dice loss are on, the IOU surrogate and the boundary loss are off, and at least one region loss must stay on."
       - "Class weighting none weighs every pixel the same; balanced weighs a class by the total pixels over the number of classes times its pixels, counted once over the training masks and cached in the run folder."
       - "The focal gamma and the label smoothing apply to the cross entropy, and both are zero here."
-      - "None of these settings gives a token to the run name, so changing them resumes the same run folder, the loading of the checkpoint setting the class weights of the new configuration again."
+      - "Take a run whose losses change midway: none of these settings gives a token to the run name, so it resumes the same run folder, the loading of the checkpoint setting the class weights of the new configuration again."
 
   - kind: code
     title: "The pixel cross entropy"
@@ -112,7 +112,7 @@ scenes:
       - "The boundary loss is the same pixel cross entropy, weighted one on the true edges and falling to zero three pixels away, the boundary distance of the section."
       - "It is divided by the sum of these weights, so the errors near the edges count the most whatever the area of the regions."
       - "Like the cross entropy, it leaves the ignored pixels out and is computed in float32."
-      - "The IOU surrogate sorts the errors of every class and weighs them by the gradient of a convex extension of one minus IOU; it is often added for the last part of a training, to push the mean IOU further."
+      - "Should you need to push the mean IOU further in the last part of a training, the IOU surrogate is often added then: it sorts the errors of every class and weighs them by the gradient of a convex extension of one minus IOU."
 
   - kind: code
     title: "Balanced class weights"
@@ -140,7 +140,7 @@ scenes:
       - {match: "compute_segmentation_metrics", sentences: [1]}
     narration:
       - "Every training and validation batch also gives its pixel accuracy and mean IOU, from the argmax of the logits of its forward pass, without a second pass."
-      - "The mean IOU of a batch averages the classes of that batch, and the summaries average the batches, so it is not the IOU of a test evaluation."
+      - "One might read it as a test score, but the mean IOU of a batch averages the classes of that batch, and the summaries average the batches: it is not the IOU of a test evaluation."
 
   - kind: image
     title: "Training curves of the synthetic run"

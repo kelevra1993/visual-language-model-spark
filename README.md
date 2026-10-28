@@ -1363,7 +1363,7 @@ uv run pytest tests
 The checkpoint evaluation and launch comparison scripts are in `scripts/`, also in folders mirroring `vision_training/`, next to the image embedding clustering in `scripts/embedding/`; their tests are in `tests/scripts/`.
 
 ## Tutorials
-Narrated tutorial videos of the repository, a foundations series then one series per task, are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default) with an index page. They quote the configurations and code of the repository as they are at build time, and a reference check lists the storyboards a change of the code broke. `tutorials/README.md` describes the build, its options and how to write a chapter:
+Narrated tutorial videos of the repository, an overview video, a foundations series then one series per task, are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default) with an index page. They quote the configurations and code of the repository as they are at build time, and a reference check lists the storyboards a change of the code broke. `tutorials/README.md` describes the build, its options and how to write a chapter:
 
 ```bash
 # Rebuild every series, or one, or only check the storyboards against the repository

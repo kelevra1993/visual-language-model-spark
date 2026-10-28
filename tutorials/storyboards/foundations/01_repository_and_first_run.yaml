@@ -6,7 +6,7 @@ series_title: "Foundations"
 chapter: 1
 title: "The repository and a first run"
 output_name: foundations_01_repository_and_first_run
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
@@ -106,7 +106,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
     narration:
       - "uv sync installs the environment pinned by the lock file, and every script then runs as a module from the repository root."
-      - "Without data at hand, the synthetic dataset script draws a shapes dataset for any task in a few minutes; like every script but the training, it is set in its main block."
+      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it in a few minutes; like every script but the training, it is set in its main block."
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
 
   - kind: yaml
@@ -114,17 +114,17 @@ scenes:
     code_reference: "vision_training/configuration_processing/configuration_loader.py · load_experiment_configuration"
     source:
       file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
-      keys: [ExperimentConfiguration.task, ExperimentConfiguration.batch_size, ExperimentConfiguration.weight_saving_iterations,
+      keys: [ExperimentConfiguration.task, ExperimentConfiguration.weight_saving_iterations,
              ExperimentConfiguration.number_iterations, ExperimentConfiguration.validation_iteration_ratio, Optimization.optimizer,
-             Data.image_settings, ClassificationHead.output_mode]
+             Data.image_settings, Backbone.input_channels, ClassificationHead.output_mode]
       comments: false
     highlights:
-      - {match: "^(ExperimentConfiguration|Optimization|Data|ClassificationHead):", sentences: [0]}
+      - {match: "^(ExperimentConfiguration|Optimization|Data|Backbone|ClassificationHead):", sentences: [0]}
       - {match: "task:", sentences: [0, 1]}
       - {match: "number_iterations|weight_saving_iterations|validation_iteration_ratio", sentences: [2]}
     narration:
       - "A configuration has one section for the experiment, one for the optimization, one for the data, one for the backbone, and the sections of the task, here the classification head."
-      - "There are no defaults: the file of a task holds every key the task reads, and the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all the mistakes."
+      - "There are no defaults, the file of a task holding every key the task reads: if, for instance, you forget three keys, the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all three."
       - "The training is counted in iterations, not epochs: checkpoints, evaluations and summaries are all set in iterations."
 
   - kind: html
@@ -149,7 +149,7 @@ scenes:
       - "Here: the task, then the input, normalized, with its aspect ratio kept, at five hundred and twelve pixels."
       - "Then the backbone, with squeeze and excitation, residual shortcuts and batch normalization, and the layers by channels of its six blocks."
       - "Then the head: flattened features, a hidden layer of a hundred and twenty eight units with layer normalization, balanced class weights, and nine classes."
-      - "Settings that may change when a run resumes, like the learning rate, the augmentation or the moving average, leave no token; a run name suffix starts a new run of the same settings."
+      - "Settings that may change when a run resumes, like the learning rate, the augmentation or the moving average, leave no token; should you need a second run of the same settings, a run name suffix starts it."
 
   - kind: image
     title: "What the launch prints"
@@ -208,7 +208,7 @@ scenes:
     views:
       - {box: [470, 95, 1500, 265], from_sentence: 0}
     narration:
-      - "With tracking on, every run is also an MLflow run with its parameters, metrics and artifacts, so that launches are compared in one table, here four learning rates of the same configuration."
+      - "Suppose you launch four learning rates of the same configuration: with tracking on, every run is also an MLflow run with its parameters, metrics and artifacts, so the four are compared in one table."
 
   - kind: summary
     title: "Recap"

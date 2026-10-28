@@ -9,7 +9,7 @@ series_title: "Foundations"
 chapter: 5
 title: "Optimization"
 output_name: foundations_05_optimization
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
@@ -115,7 +115,7 @@ scenes:
     narration:
       - "With a warm-up, the learning rate climbs linearly from zero, here over the first {{foundations.learning_rate_schedule.warmup_iterations}} iterations of the synthetic keypoint configuration."
       - "The cosine schedule then lowers it along a half cosine to its minimum ratio, {{foundations.learning_rate_schedule.minimum_learning_rate_ratio}} here, over the decay iterations, and keeps it there."
-      - "The factor only depends on the iteration, so a resumed run continues the schedule exactly, and a transferred component follows the same curve times its multiplier."
+      - "Should a run stop mid-decay, it resumes the schedule exactly, as the factor only depends on the iteration, and a transferred component follows the same curve times its multiplier."
 
   - kind: html
     page: diagram
@@ -133,7 +133,7 @@ scenes:
       - {type: text, position: [1060, 620], text: "gradient_clipping_norm: null", font: diagram_monospace, anchor: la, appear: 2, highlight: [2]}
     narration:
       - "Gradient clipping looks at all the gradients of the model as one long vector: when its norm exceeds the clipping norm, the whole vector is scaled down to that norm."
-      - "The direction of the step stays the same, only its length is limited, which tames the rare batches whose gradients explode."
+      - "Faced with one of the rare batches whose gradients explode, the step keeps its direction and only its length is limited, which tames it."
       - "Null turns it off, as in the synthetic configurations; a value such as one turns it on, and since it gives no run name token, it can change when a run resumes."
 
   - kind: html
@@ -192,7 +192,7 @@ scenes:
     narration:
       - "Every test evaluation then scores the trained weights and the averaged weights of the same checkpoint: the averaged results go to the EMA folder of the evaluation, the Test EMA curves of TensorBoard and the EMA blocks of the results file."
       - "The validation curves keep the trained weights, the export takes the averaged ones with use averaged weights, and a run starting from this one loads them when it keeps an average too."
-      - "The average is saved in the checkpoints and gives no run name token, so it can be turned on when a run resumes, starting from the weights of that checkpoint."
+      - "Take a run trained without it: the average is saved in the checkpoints and gives no run name token, so it can be turned on when the run resumes, starting from the weights of that checkpoint."
 
   - kind: summary
     title: "Recap"

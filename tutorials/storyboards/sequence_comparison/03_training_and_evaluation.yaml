@@ -6,7 +6,7 @@ series_title: "Sequence Comparison (CMP)"
 chapter: 3
 title: "Training and evaluation"
 output_name: sequence_comparison_03_training_and_evaluation
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_comparison]
 references:
@@ -106,7 +106,7 @@ scenes:
     narration:
       - "The predictions file gives every pair with its two probabilities, here the probability of same for both true classes."
       - "The thresholds file keeps a precision of 0.99 for each class: same needs a probability of {{sequence_comparison.probabilities.same_number_of_objects.threshold:.3f}}, which keeps a recall of {{sequence_comparison.probabilities.same_number_of_objects.recall:.2f}}."
-      - "Loss of object needs only {{sequence_comparison.probabilities.loss_of_object.threshold:.2f}}, and keeps a recall of {{sequence_comparison.probabilities.loss_of_object.recall:.2f}}, above the {{sequence_comparison.evaluation_class.loss_recall:.2f}} of the most probable class: a deployment that must not miss a loss reads these thresholds rather than the argmax."
+      - "Loss of object needs only {{sequence_comparison.probabilities.loss_of_object.threshold:.2f}}, and keeps a recall of {{sequence_comparison.probabilities.loss_of_object.recall:.2f}}, above the {{sequence_comparison.evaluation_class.loss_recall:.2f}} of the most probable class: in a situation where a deployment must not miss a loss, it reads these thresholds rather than the argmax."
 
   - kind: html
     page: diagram
@@ -121,7 +121,7 @@ scenes:
       - {type: box, box: [900, 500, 1720, 690], text: "predictions.csv\npair names only,\nrows reshuffled at every evaluation", font: diagram_text, outline: yellow, highlight: [2]}
     narration:
       - "The pitfalls of the task: training encodes 2B padded sequences while the export encodes every member alone, which agree in evaluation mode, but only the exported path takes members of different lengths without padding."
-      - "The data set on this machine holds members of two to six frames of 128 pixels, read at 512, while the generator now writes two to twelve frames of 512 pixels: a new data set gives longer and slower batches."
+      - "Say you generate a new data set: the generator now writes two to twelve frames of 512 pixels, where the one on this machine holds two to six frames of 128 pixels, read at 512, so its batches are longer and slower."
       - "The fusion keys are required even when unused, the iterations per epoch are counted before the label mapping, and the predictions file names a pair by its name only, its rows in a new order at every evaluation, since the test loader shuffles."
 
   - kind: summary

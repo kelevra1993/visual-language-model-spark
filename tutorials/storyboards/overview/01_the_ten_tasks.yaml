@@ -1,0 +1,166 @@
+# Overview, chapter 1: the whole repository in one video, for someone who has never seen it: the ten tasks, each told
+# through a situation where it is the right tool, what sets them apart (the question they answer, the input they read)
+# and what they share. The tour pans over README/tasks_overview.png, one output of every task but the self-supervised
+# one (3272 x 2192 pixels, a 3 x 3 grid of cards of about 1040 x 680 pixels); the self-supervised scene shows the
+# example photo of the foundations figures (tutorials/figures/foundations/augmentation_examples.py) and two of its views.
+# Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left corner).
+series: overview
+series_title: "Overview"
+chapter: 1
+title: "What the repository does"
+output_name: overview_01_the_ten_tasks
+pace: 1.0
+voice: {name: af_heart, language: en-us}
+figures: [foundations]
+references:
+  - "README.md"
+  - "vision_training/main.py · main"
+  - "vision_training/configuration_processing/run_name.py"
+scenes:
+  - kind: title_card
+    heading: "What the repository does"
+    subheading: "Ten tasks, each told by the problem it solves"
+    footnote: "Overview"
+    narration:
+      - "This video gives the whole picture in one go: the ten tasks the repository trains, the question each one answers, and what sets it apart from the others."
+      - "Every task comes with a situation you might meet, so that you know which one to reach for before opening a single configuration file."
+
+  - kind: image
+    title: "Image tasks: one picture in, one answer out"
+    image: "repository:README/tasks_overview.png"
+    views:
+      - {box: [0, 0, 3272, 2192], from_sentence: 0}
+      - {box: [41, 41, 1080, 720], from_sentence: 1}
+      - {box: [1116, 41, 2155, 720], from_sentence: 2}
+      - {box: [2192, 41, 3231, 720], from_sentence: 3}
+      - {box: [41, 761, 1080, 1440], from_sentence: 4}
+      - {box: [1116, 761, 2155, 1440], from_sentence: 5}
+    highlights:
+      - {box: [41, 41, 1080, 720], sentences: [1]}
+      - {box: [1116, 41, 2155, 720], sentences: [2]}
+      - {box: [2192, 41, 3231, 720], sentences: [3]}
+      - {box: [41, 761, 1080, 1440], sentences: [4]}
+      - {box: [1116, 761, 2155, 1440], sentences: [5]}
+    narration:
+      - "Here is one output of nine of the tasks, all trained on synthetic shapes; let's take them one situation at a time, starting with the five that read a single image."
+      - "Suppose you want to sort photos by what they show, a cat or a dog, or tag each one with several labels: classification gives one class per image, or several with the multi-label output."
+      - "Now say you need to know where every object is, for instance to count the parcels on a shelf: object detection draws a box around each object, with its class and a score."
+      - "If a box is too coarse, because objects overlap or you want to measure their area, instance segmentation adds a mask to every box, the exact outline of each object."
+      - "Imagine that the outline does not matter, but the position of a few named points does, like the joints of a body or the corners of a square: keypoint detection finds them and groups them into objects."
+      - "And when the question is what covers every pixel, road, grass or sky, without telling two objects of the same class apart, semantic segmentation gives one class per pixel."
+
+  - kind: image
+    title: "Sequence tasks: several frames in"
+    image: "repository:README/tasks_overview.png"
+    views:
+      - {box: [41, 761, 3231, 2160], from_sentence: 0}
+      - {box: [2192, 761, 3231, 1440], from_sentence: 1}
+      - {box: [41, 1481, 1080, 2160], from_sentence: 2}
+      - {box: [1116, 1481, 2155, 2160], from_sentence: 3}
+      - {box: [2192, 1481, 3231, 2160], from_sentence: 4}
+    highlights:
+      - {box: [2192, 761, 3231, 1440], sentences: [1]}
+      - {box: [41, 1481, 1080, 2160], sentences: [2]}
+      - {box: [1116, 1481, 2155, 2160], sentences: [3]}
+      - {box: [2192, 1481, 3231, 2160], sentences: [4]}
+    narration:
+      - "Some questions cannot be answered from one picture: the next four tasks read a sequence of frames, run the same backbone on every frame, then a temporal module across them."
+      - "Picture a short clip of an object: is it moving up or down? A single frame cannot tell, so sequence classification reads all the frames and gives one class for the whole sequence."
+      - "Say you also need to know when something happens, the frame where an object appears or disappears: sequence labelling gives one class per frame."
+      - "Suppose you film the same scene before and after an event and want to know what changed, for instance whether an object went missing: sequence comparison reads both sequences and gives one class per pair."
+      - "And when a visit leaves dozens of photos but you only need the best view of each side, frame selection picks, in every sequence, the frames of every wanted class."
+
+  - kind: html
+    page: diagram
+    title: "Self-supervised: learning without labels"
+    elements:
+      - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.original_box}}", box: [20, 250, 260, 490], caption: "one image, no label"}
+      - {type: arrow, points: [[270, 330], [370, 175]], colour: violet}
+      - {type: arrow, points: [[270, 410], [370, 565]], colour: violet}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.self_supervised_box}}", box: [380, 40, 580, 240], caption: "view 1"}
+      - {type: image, path: "figures:foundations/augmentation_examples/random_black_out.png", crop: "{{foundations.augmentation_examples.random_black_out.image_1.self_supervised_box}}", box: [380, 460, 580, 660], caption: "view 2"}
+      - {type: arrow, points: [[590, 140], [720, 300]], colour: violet}
+      - {type: arrow, points: [[590, 560], [720, 440]], colour: violet}
+      - {type: box, box: [730, 280, 1010, 460], text: "same\nbackbone", font: diagram_bold, outline: violet}
+      - {type: arrow, points: [[1020, 370], [1110, 370]], colour: violet}
+      - {type: box, box: [1120, 280, 1400, 460], text: "both views\npulled to the\nsame embedding", font: diagram_small, outline: violet, highlight: [0]}
+      - {type: arrow, points: [[1410, 370], [1490, 370]], colour: aqua, appear: 1}
+      - {type: box, box: [1500, 250, 1740, 490], text: "pre-trained\nweights for\nevery other\ntask", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+    narration:
+      - "Finally, picture a million images and no time to label them: the self-supervised task makes two random views of every image and trains the backbone so that both views give the same embedding."
+      - "No label is needed, and the backbone it learns becomes the starting point of every other task, which then begins from learnt features instead of random weights."
+
+  - kind: html
+    page: diagram
+    title: "Which task answers your question"
+    elements:
+      # Starting point: the data, then whether it is labelled, then whether one input is an image or a sequence
+      - {type: box, box: [20, 300, 300, 440], text: "your data", font: diagram_bold, outline: border}
+      - {type: arrow, points: [[160, 445], [160, 590]], colour: violet, label: "no labels", label_position: [175, 520], label_anchor: lm}
+      - {type: box, box: [20, 600, 660, 700], text: "SSL · learn the backbone without labels", font: diagram_small, outline: violet, highlight: [0]}
+      - {type: arrow, points: [[305, 370], [395, 370]], label: "labels", label_position: [350, 345]}
+      - {type: box, box: [400, 300, 660, 440], text: "one input:\nan image or\na sequence?", font: diagram_small, outline: border, highlight: [0]}
+      - {type: arrow, points: [[665, 335], [740, 175]], colour: blue, appear: 1, label: "image", label_position: [665, 240], label_anchor: rm}
+      - {type: arrow, points: [[665, 405], [740, 525]], colour: aqua, appear: 2, label: "sequence", label_position: [665, 485], label_anchor: rm}
+      # Image tasks: the question on the left, the task on the right
+      - {type: box, box: [750, 20, 1290, 76], text: "one answer for the whole image", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1310, 20, 1740, 76], text: "CLS · classification", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [750, 86, 1290, 142], text: "where each object is, as a box", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1310, 86, 1740, 142], text: "DET · object detection", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [750, 152, 1290, 208], text: "the outline of each object", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1310, 152, 1740, 208], text: "INS · instance masks", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [750, 218, 1290, 274], text: "named points on each object", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1310, 218, 1740, 274], text: "KPT · keypoints", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [750, 284, 1290, 340], text: "a class for every pixel", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [1310, 284, 1740, 340], text: "SEG · segmentation", font: diagram_small, outline: blue, appear: 1}
+      # Sequence tasks
+      - {type: box, box: [750, 420, 1290, 476], text: "one answer for the whole sequence", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1310, 420, 1740, 476], text: "M2O · class per sequence", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [750, 486, 1290, 542], text: "one answer per frame", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1310, 486, 1740, 542], text: "M2M · class per frame", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [750, 552, 1290, 608], text: "what changed between two", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1310, 552, 1740, 608], text: "CMP · class per pair", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [750, 618, 1290, 674], text: "which frames to keep", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1310, 618, 1740, 674], text: "SEL · frames to select", font: diagram_small, outline: aqua, appear: 2}
+      - {type: text, position: [1525, 725], text: "the code of the task starts every run name", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+    narration:
+      - "To choose, start from what you have: without labels, the self-supervised task; with labels, ask whether one input is a single image or a sequence of frames."
+      - "For an image, one answer for the whole image is classification; where each object is, detection; its outline, instance segmentation; its named points, keypoint detection; and a class for every pixel, semantic segmentation."
+      - "For a sequence, the choice is one answer for the whole sequence, one per frame, one per pair of sequences, or the frames to keep."
+      - "Each task has a three letter code, CLS, DET and so on, which starts the name of every run and names the task series of these videos."
+
+  - kind: text_panel
+    title: "What changes, what stays"
+    font_size: 34
+    columns:
+      - heading: "shared by every task"
+        lines:
+          - "backbone and its modules"
+          - "training loop, checkpoints, resuming"
+          - "one YAML file per run, checked at launch"
+          - "loading, resizing, augmentation"
+          - "run folder, TensorBoard, MLflow"
+          - "evaluation report, export to Triton"
+      - heading: "specific to each task"
+        lines:
+          - "labels of the data set"
+          - "head on top of the backbone"
+          - "targets and losses"
+          - "metrics and sample images"
+          - "temporal module (sequence tasks)"
+    narration:
+      - "Whichever task you pick, the backbone, the training loop, the configuration format, the data loading and augmentation, the run folder and the export are the same code."
+      - "What changes from one task to the next is the labels of the data set, the head on top of the backbone, its targets and losses, and the metrics of its evaluation."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "Image tasks: CLS, DET, INS, KPT, SEG"}
+      - {text: "Sequence tasks: M2O, M2M, CMP, SEL"}
+      - {text: "SSL: a backbone learnt without labels, for every other task"}
+      - {text: "Pick the task from the question: per image, object, pixel, sequence, frame or pair"}
+      - {text: "Everything around the task is shared"}
+      - {text: "Next: the foundations series, then the series of your task"}
+    narration:
+      - "To recap: start from the question you need answered, and the task follows; everything around the task is shared."
+      - "The foundations series comes next, with what every task shares, then each task has its own series, from its data to its deployment."

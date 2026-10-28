@@ -9,7 +9,7 @@ series_title: "Self-Supervised Learning (SSL)"
 chapter: 2
 title: "From views to a loss"
 output_name: self_supervised_02_views_to_loss
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [self_supervised]
 references:
@@ -180,7 +180,7 @@ scenes:
       - {match: "std\\(dim=0|shape\\[1\\] \\*\\* 0.5", sentences: [0]}
     narration:
       - "Both methods track the embedding standard deviation: the standard deviation over the batch of every feature of the normalized embeddings, averaged, then multiplied by the square root of the dimension."
-      - "Embeddings spread over the sphere give about one, and a collapse, the same embedding whatever the image, gives zero."
+      - "Picture a collapse, the same embedding whatever the image: it gives zero, while embeddings spread over the sphere give about one."
 
   - kind: image
     title: "The training curves"
@@ -219,7 +219,7 @@ scenes:
       - "Look at the very first training batch: before any update, {{self_supervised.curves.positive_pair_accuracy_first:.1%}} of the views already found their partner, {{self_supervised.curves.positive_pair_accuracy_first_over_chance:.0f}} times chance."
       - "An untrained network does the same on {{self_supervised.cue.batch_size}} test images, {{self_supervised.cue.untrained_colour_accuracy:.1%}} with colour views, and falls to {{self_supervised.cue.untrained_grayscale_accuracy:.1%}} once both views are turned to grayscale: the colour of the shape is a cue the two views share."
       - "The trained network leans on it too: {{self_supervised.cue.trained_colour_accuracy:.0%}} on colour views, {{self_supervised.cue.trained_grayscale_accuracy:.0%}} on the same views in grayscale."
-      - "A loss that falls on such a cue learns colours, not shapes; the colour types of the views are there to break it, and only the nearest neighbour accuracy of the next chapter tells whether the shapes were learnt."
+      - "Think of a loss that falls on such a cue: it learns colours, not shapes; the colour types of the views are there to break it, and only the nearest neighbour accuracy of the next chapter tells whether the shapes were learnt."
 
   - kind: html
     page: diagram

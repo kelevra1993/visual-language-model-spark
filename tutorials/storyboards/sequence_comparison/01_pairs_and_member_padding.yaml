@@ -7,7 +7,7 @@ series_title: "Sequence Comparison (CMP)"
 chapter: 1
 title: "Pairs and member padding"
 output_name: sequence_comparison_01_pairs_and_member_padding
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_comparison]
 references:
@@ -65,7 +65,7 @@ scenes:
     narration:
       - "In the synthetic object loss pairs, the before member shows two to six objects in independent views, and the after member shows the same objects, or loses one of them."
       - "No single member gives the class, only their comparison: here a pair keeping its objects, and a test pair that lost its small dark rectangle."
-      - "Choose it rather than the sequence classifier when the class compares two separately recorded sequences, each with its own length."
+      - "Think of a case where the class compares two separately recorded sequences, each with its own length: choose it rather than the sequence classifier."
       - "Its trainer is the sequence classification trainer with pairs: two members per sample, and the loss and evaluation of the classification, computed per pair."
 
   - kind: html
@@ -126,7 +126,7 @@ scenes:
       - "The maximum length applies to every member: a pair with a longer member is left out of its split, with a red warning naming the pair."
       - "This configuration reads the frames at 512 pixels, averages the frame vectors of a member with a mean pooling, and fuses the two members with their difference."
       - "Average pooling is right here, since the class is a count of objects, not a position, the opposite of the moving shapes; and the flips are on, since a mirrored pair keeps its objects."
-      - "The number of heads, the dropout and the normalization scope of the fusion are required for every fusion type, even when it does not read them."
+      - "Should your fusion type ignore the number of heads, the dropout or the normalization scope of the fusion, all three are still required, as for every fusion type."
 
   - kind: code
     title: "A pair, one sample"

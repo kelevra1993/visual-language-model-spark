@@ -8,7 +8,7 @@ series_title: "Keypoint Detection (KPT)"
 chapter: 3
 title: "From candidates to objects, metrics and export"
 output_name: keypoint_detection_03_candidates_objects_and_metrics
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [keypoint_detection]
 references:
@@ -149,7 +149,7 @@ scenes:
       - "Every evaluation runs on {{keypoint_detection.metrics_test_images}} test images holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
       - "From iteration 2000 to 6000, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_5:.3f}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_95:.3f}}."
       - "At iteration 2000 the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:.3f}} at 0.95; by 6000 they are within a hundredth of the trained weights."
-      - "Read matched objects with care: a ground truth matches any object with an OKS above zero, however far, so {{keypoint_detection.metrics_trained_6000_matched:.4f}} matched sits next to a mean error of about seven pixels."
+      - "Faced with a high matched objects score, read it with care: a ground truth matches any object with an OKS above zero, however far, so {{keypoint_detection.metrics_trained_6000_matched:.4f}} matched sits next to a mean error of about seven pixels."
 
   - kind: image
     title: "Worst classes and key points"
@@ -174,7 +174,7 @@ scenes:
     narration:
       - "To reproduce it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration."
       - "The evaluation script needs maximum error images per class pair set to None in its main block, or it stops on a missing error dumps key."
-      - "The export loads the checkpoint on CUDA, hard-coded, so it needs a GPU."
+      - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
 
   - kind: html
     page: diagram
@@ -191,7 +191,7 @@ scenes:
       - {type: box, box: [40, 560, 1740, 700], text: "export check: compare_keypoints pairs the candidates by position, not by rank\n(a cell tied with its neighbour can become a local maximum in one runtime only)", font: diagram_text, outline: yellow, appear: 2, highlight: [2]}
     narration:
       - "The exported network stops at the candidates: the positions, scores and tags of 30 candidates per channel, served by Triton as Torch Script or ONNX."
-      - "The client groups them with the same function, rebuilding the channel table from the categories of the training labels, since the export writes no channel names."
+      - "Imagine a client receiving these outputs: it groups them with the same function, rebuilding the channel table from the categories of the training labels, since the export writes no channel names."
       - "The export check pairs the candidates by position rather than by rank: a cell tied with its neighbour can become a local maximum in one runtime only and shift the ranks."
 
   - kind: summary

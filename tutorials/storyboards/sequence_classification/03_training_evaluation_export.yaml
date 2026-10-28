@@ -7,7 +7,7 @@ series_title: "Sequence Classification (M2O)"
 chapter: 3
 title: "Training, evaluation and export"
 output_name: sequence_classification_03_training_evaluation_export
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_classification]
 references:
@@ -111,7 +111,7 @@ scenes:
       - {box: "{{sequence_classification.truncation.panel_box}}", sentences: [0]}
     narration:
       - "The run only ever saw sequences of eight frames: on the first frames of the test sequences, which show less of the movement, its checkpoint reaches an accuracy of {{sequence_classification.truncation.frames_2.accuracy:.2f}} with two frames, {{sequence_classification.truncation.frames_4.accuracy:.2f}} with 4, and {{sequence_classification.truncation.frames_8.accuracy:.2f}} with all 8."
-      - "The model accepts any length, but what it learnt comes from sequences of eight frames: check the lengths a deployment will send against those of the training data."
+      - "Let's consider a deployment that sends shorter sequences: the model accepts any length, but what it learnt comes from sequences of eight frames, so check those lengths against the training data."
 
   - kind: html
     page: diagram
@@ -132,7 +132,7 @@ scenes:
       - "The export script wraps the run in InferenceSequenceModel, served by Triton as the sequence classifier."
       - "Its input is images: float32 BGR frames in the zero to 255 range at 128 pixels, any number of frames up to 50, traced on 50 frames and checked on 49."
       - "The input normalization, the backbone, the pooling, the GRU, the head and the softmax are in the graph; the resizing stays with the client."
-      - "The export runs the path without mask, where every frame counts: a client batching sequences of different lengths must not pad them, or the GRU reads the black frames as frames."
+      - "Take a client batching sequences of different lengths: the export runs the path without mask, where every frame counts, so it must not pad them, or the GRU reads the black frames as frames."
 
   - kind: html
     page: diagram

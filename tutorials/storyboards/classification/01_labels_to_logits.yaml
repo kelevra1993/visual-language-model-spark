@@ -9,7 +9,7 @@ series_title: "Image Classification (CLS)"
 chapter: 1
 title: "From labels to logits"
 output_name: classification_01_labels_to_logits
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [classification]
 references:
@@ -48,7 +48,7 @@ scenes:
     narration:
       - "The image classifier is the shared backbone, then a global pooling or a flattening of its last feature map, then a fully connected head with one logit per class."
       - "The multi class output reads the logits with a softmax, one class per image; the multi label output gives every class its own sigmoid, for images holding several classes, listed as category identifiers in the manifest."
-      - "To locate objects, choose detection or instance masks; segmentation for a class per pixel, key points for points, and the sequence tasks when the decision needs several frames, which reuse this head and its loss."
+      - "Should you need to locate objects, choose detection or instance masks; segmentation for a class per pixel, key points for points, and the sequence tasks when the decision needs several frames, which reuse this head and its loss."
 
   - kind: html
     page: diagram
@@ -81,7 +81,7 @@ scenes:
       - {type: box, box: [1110, 470, 1740, 640], text: "label_dictionary.json\nthe classes of the run, read back by\nthe evaluation, export and loading tools", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
     narration:
       - "Every split lists its images in a labels json manifest, each sample with its category identifier, and the label mapping file gives every category its class index: hexagon, category six, becomes class five."
-      - "The mapping decides the classes: categories mapped to the same index merge, and the images of a category left out of the mapping are left out of the training."
+      - "Say you want two categories trained as one class: map them to the same index and they merge; and the images of a category left out of the mapping are left out of the training."
       - "The checks at launch want a multi class mapping, indexed from zero to K minus one without gaps, and the run writes its classes to data json, with their images in every split, and to label dictionary json, which the evaluation and export tools read back."
 
   - kind: terminal
@@ -148,7 +148,7 @@ scenes:
       - "The last block keeps its {{classification.head.final_map_size}} by {{classification.head.final_map_size}} map, its max pooling being off, and the head first turns this map of {{classification.head.final_map_channels}} channels into one vector."
       - "An average or max pooling keeps one value per channel, {{classification.head.final_map_channels}} features whatever the image size; the flatten setting of this run keeps all {{classification.head.input_features:,}} values, so the head knows where every feature lies."
       - "The price is the first hidden layer: {{classification.head.first_linear_parameters:,}} parameters, {{classification.head.first_linear_share:.0%}} of the model, where the same head after an average pooling would hold {{classification.head.average_pooling_parameters:,}} in all."
-      - "And a flattened head is tied to the image size: at {{classification.head.half_image_size}} pixels the vector has {{classification.head.flatten_features_at_half_size:,}} features, so the head only transfers to a run of the same image size and last max pooling."
+      - "Now, what if you transfer this head to a run at {{classification.head.half_image_size}} pixels? The vector there has {{classification.head.flatten_features_at_half_size:,}} features, so a flattened head only transfers to a run of the same image size and last max pooling."
 
   - kind: html
     page: diagram
@@ -244,7 +244,7 @@ scenes:
       - "The decorrelation, off in this run, adds a second loss so that the units of one hidden layer carry different information: the squared correlations of every pair of units over the batch, summed and multiplied by the weight."
       - "Over {{classification.hidden_features.image_count}} validation images, the {{classification.hidden_features.unit_count}} units of this trained head have a mean absolute correlation of {{classification.hidden_features.mean_absolute_correlation:.2f}}, which would add {{classification.hidden_features.decorrelation_loss:.2f}} to the loss at the weight of the configuration."
       - "Over a training batch of {{classification.hidden_features.batch_size}} images, sampling noise alone gives a sum of about {{classification.hidden_features.batch_noise_floor:.0f}}, so the term never reaches zero: pick the weight so that the term is about a tenth of the classification loss."
-      - "It gives no run name token, so it can be turned on when a run resumes, after a warm-up of the classification loss."
+      - "Assuming you want it on a trained run: it gives no run name token, so it can be turned on when the run resumes, after a warm-up of the classification loss."
 
   - kind: image
     title: "Batch accuracy and the learning rate"

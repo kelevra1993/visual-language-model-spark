@@ -8,7 +8,7 @@ series_title: "Semantic Segmentation (SEG)"
 chapter: 3
 title: "Evaluation and deployment"
 output_name: semantic_segmentation_03_evaluation_and_deployment
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [semantic_segmentation]
 references:
@@ -80,11 +80,11 @@ scenes:
       function: compute_segmentation_metrics
     highlights:
       - {match: "union_counts = |intersection_over_union = ", sentences: [0]}
-      - {match: "present_classes = true_counts > 0|intersection_over_union\\[present_classes\\]", sentences: [1]}
+      - {match: "averaged_classes = union_counts > 0|intersection_over_union\\[averaged_classes\\]", sentences: [1]}
       - {match: "frequency_weighted_iou", sentences: [2]}
     narration:
       - "The IOU of a class is its right pixels over the union of its true and predicted pixels; its Dice is twice the right pixels over their sum."
-      - "The means average the classes present in the true masks, so a class predicted but absent from them is not penalized: a toy case gives a mean IOU of 0.75 where the usual definition gives 0.5."
+      - "Picture a class predicted but absent from the true masks: its IOU is zero, and the means average every class with a non-empty union, present or predicted, so that false class lowers them, as in mmseg."
       - "The frequency weighted IOU weighs every class by its pixels, so the background dominates it: {{semantic_segmentation.headline_frequency_weighted_iou_2000:.3f}} here."
 
   - kind: image
@@ -138,7 +138,7 @@ scenes:
     narration:
       - "Every evaluation folder holds the class metrics, the confusion matrix as counts and as an image, the ROC and precision-recall curves and the sample images."
       - "The report goes to the results file, its classes sorted by IOU, worst first, and to TensorBoard with {{semantic_segmentation.evaluation_test_scalars}} scalars per evaluation, the per-class ones included."
-      - "Save predicted masks writes one class index image per test image, and original resolution scores the predictions against the original masks, as a deployment uses them."
+      - "If, for instance, you need the masks, save predicted masks writes one class index image per test image, and original resolution scores the predictions against the original masks, as a deployment uses them."
 
   - kind: terminal
     title: "Generate, train, evaluate, export"
@@ -173,14 +173,14 @@ scenes:
     narration:
       - "The exported segmenter takes letterboxed images and gives the class map and the probabilities of every class at the network resolution, without the deep supervision heads."
       - "The client brings them back to its image with restore prediction to original image, which cuts the letterbox and resizes."
-      - "A run trained on tiles is exported with one tile as input: the client scales and tiles its images itself, while the throughput script times one letterboxed image per request."
+      - "Let's consider a run trained on tiles: it is exported with one tile as input, the client scaling and tiling its images itself, while the throughput script times one letterboxed image per request."
       - "The export check wants every probability within 10 to the minus 4 and the same class on 99.9% of the pixels, since a pixel whose two best classes are tied may flip."
 
   - kind: summary
     title: "Recap"
     items:
       - {text: "Counts on the device: confusion [10, 10], boundary [10, 6], histograms [10, 2, 10000]"}
-      - {text: "Mean IoU over the classes present: a hallucinated class goes unpunished"}
+      - {text: "Mean IoU over the classes present or predicted: a hallucinated class counts as 0"}
       - {text: "Boundary IoU and F1 score the contours within 2 pixels"}
       - {text: "Macro ROC AUC is flattered by the negatives; read the macro AP"}
       - {text: "Export: class_map and class_probabilities at the network resolution"}

@@ -8,7 +8,7 @@ series_title: "Sequence Labelling (M2M)"
 chapter: 1
 title: "One class per frame: the task and its data"
 output_name: sequence_labelling_01_task_and_data
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_labelling]
 references:
@@ -63,8 +63,8 @@ scenes:
     narration:
       - "The four sequence tasks share the encoder of the frames, the backbone run on every frame, and a temporal module; they differ by what they predict."
       - "The sequence classification gives one class to the whole sequence, and the sequence comparison one class to a pair of sequences, a before and an after."
-      - "The sequence labeling gives a class to every frame, any number of frames holding any class: choose it when the frame of the event matters."
-      - "The frame selection also scores every frame, but returns a fixed number of frames per wanted class, which its decoding imposes: choose it when that count is known in advance."
+      - "The sequence labeling gives a class to every frame, any number of frames holding any class: when the goal is to find the frame of the event, choose it."
+      - "The frame selection also scores every frame, but returns a fixed number of frames per wanted class, which its decoding imposes: should you know that count in advance, choose it."
 
   - kind: image
     title: "The synthetic changing shapes"
@@ -110,7 +110,7 @@ scenes:
       - "A sequence of the labels file lists its frames in order and, in frame category ids, the category of every frame: here no change twice, then disappearing trapezoid."
       - "The label mapping file maps every category to a class index, category one, no change, becoming class zero."
       - "A frame whose category the mapping leaves out gets the label minus 100: the loss and the metrics ignore it, and it ends a segment."
-      - "Nothing checks that the list holds exactly one category per frame: a longer list labels padding frames, and a shorter one silently drops real frames, an open item of the suggestions file."
+      - "Imagine a list one category too long or too short: nothing checks it, so a longer list labels padding frames, and a shorter one silently drops real frames, an open item of the suggestions file."
 
   - kind: image
     title: "The class balance and the position prior"
