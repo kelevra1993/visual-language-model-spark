@@ -8,7 +8,7 @@ series_title: "Instance Segmentation (INS)"
 chapter: 2
 title: "Scoring and shipping masks"
 output_name: instance_segmentation_02_scoring_and_shipping_masks
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [instance_segmentation, object_detection]
 references:
@@ -123,7 +123,7 @@ scenes:
     image: "figures:instance_segmentation/evaluation/mask_box_average_precision.png"
     narration:
       - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:.3f}} on its masks against {{instance_segmentation.classes.star.box_ap_75:.3f}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:.3f}} against {{instance_segmentation.classes.l_shape.box_ap_75:.3f}}."
-      - "Masks of 28 pixels pooled from strides of 32 and 64 cannot follow the points of a star, item 5 of the suggestions."
+      - "Think of thin, pointed objects: masks of 28 pixels pooled from strides of 32 and 64 cannot follow the points of a star, item 5 of the suggestions."
       - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:.3f}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:.3f}} on its boxes."
 
   - kind: html
@@ -153,7 +153,7 @@ scenes:
       - {match: "mask_threshold", sentences: [1]}
     narration:
       - "By default the masks are scored at the network resolution, the objects whose mask vanished at 512 pixels being left out."
-      - "With the original resolution on, the boxes are restored to the original images, the masks pasted at that size and thresholded there, and the objects are those of the original annotations, as COCO evaluates them."
+      - "When the goal is a score as COCO computes it, turn the original resolution on: the boxes are restored to the original images, the masks pasted and thresholded at that size, and the objects are those of the original annotations."
 
   - kind: html
     page: diagram
@@ -174,7 +174,7 @@ scenes:
       - "The export writes the segmenter with the four outputs of the detector, then the detection masks: a hundred probability masks of 28 pixels per image in the frame of their boxes, zero for the padding."
       - "In the graph, every level's mask head runs on all the detections, each keeping its own level, the class channel picked by a gather, then the sigmoid; the export is checked to a thousandth on the masks."
       - "The client pastes the masks itself with paste instance masks, at the boxes brought back to the original image, and keeps the pixels from the mask threshold, which the export does not apply."
-      - "Restore the boxes without clipping them: a box clipped at the border squeezes its mask, audit item L22, which the README recipe does not say."
+      - "Take an object at the border: restore its box unclipped, since a box clipped at the border squeezes its mask, audit item L22, which the README recipe does not say."
 
   - kind: text_panel
     title: "Pitfalls"

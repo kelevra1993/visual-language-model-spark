@@ -9,7 +9,7 @@ series_title: "Foundations"
 chapter: 4
 title: "The backbone and its modules"
 output_name: foundations_04_backbone_and_modules
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
@@ -220,7 +220,7 @@ scenes:
       - "A shortcut can only add two maps with the same channels, so in a block whose first layer changes the channels, the pairs start one layer later, from the output of that first layer."
       - "The first block never has one, and blocks {{foundations.listings.non_residual_blocks}} change the channels with only two layers, so only blocks {{foundations.listings.residual_blocks}} add a shortcut in this run."
       - "A block of three layers that changes the channels keeps one pair, over its last two layers."
-      - "The summary printed at launch names the shortcuts of these blocks only; the logs of older runs name them in every block from the second, so trust this count."
+      - "Think of the log of an older run: it names shortcuts in every block from the second, while the summary printed at launch names those of these blocks only, so trust this count."
 
   - kind: html
     page: diagram
@@ -275,7 +275,7 @@ scenes:
       - "The receptive field of a value of a feature map is the square of input pixels it depends on: every three by three convolution widens it, and every pooling doubles the step between two neighbouring values."
       - "The squares are drawn around the strongest value of the final map for the test star, one per block, and the bars give their sides."
       - "After the last block, one value sees {{foundations.listings.final_receptive_field}} pixels a side, enough to hold the whole star, and squeeze and excitation adds the context of the whole image through its averages."
-      - "With compute receptive field in the diagnosis modes, the launch prints it for every layer: on your own images, check that the last blocks see the objects as a whole."
+      - "Suppose your objects fill much of the image: with compute receptive field in the diagnosis modes, the launch prints it for every layer, to check that the last blocks see them as a whole."
 
   - kind: html
     page: diagram
@@ -309,7 +309,7 @@ scenes:
       - {match: "experiment_folder|iteration", sentences: [0]}
       - {match: "freeze:|freeze_normalization_parameters|learning_rate_multiplier", sentences: [2]}
     narration:
-      - "Every component can start from the weights of another run: its experiment folder names that run folder, and its iteration the checkpoint, null taking the last one."
+      - "Say you want to reuse another run: every component can start from its weights, the experiment folder naming that run folder, and the iteration the checkpoint, null taking the last one."
       - "The backbone needs the same blocks, modules and normalization as the source, or the first blocks of the source backbone; the image size and the batch normalization momentum may differ."
       - "Freeze keeps its weights and batch statistics fixed, freeze normalization parameters fixes only the scale and shift of its normalization layers, and the learning rate multiplier lets it learn at another speed than the new layers."
       - "The transfer adds PT to the run name, with FRZ when frozen and FBN for the fixed normalization; the multiplier gives no token, so it can change when the run resumes."
@@ -344,7 +344,7 @@ scenes:
     narration:
       - "Squeeze and excitation was launched six times on and six times off: over the whole run, the mean test accuracy is {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_average:.3f}} on against {{foundations.benchmark.launch_noise.squeeze_excitation_off_whole_mean_average:.3f}} off, while the six launches of one setting spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.3f}}."
       - "Over the last evaluations, the means are {{foundations.benchmark.launch_noise.squeeze_excitation_on_last_mean_average:.3f}} on and {{foundations.benchmark.launch_noise.squeeze_excitation_off_last_mean_average:.3f}} off, inside the spread of the launches, while squeeze and excitation took twenty five gigabytes per launch instead of twenty, and about a third more time."
-      - "These results come from synthetic shapes: on your own data, compare the settings that matter with at least two launches each."
+      - "These results come from synthetic shapes: when the goal is to choose settings for your own data, compare the ones that matter with at least two launches each."
 
   - kind: summary
     title: "Recap"

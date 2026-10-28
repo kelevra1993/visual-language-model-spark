@@ -9,7 +9,7 @@ series_title: "Foundations"
 chapter: 3
 title: "The data pipeline"
 output_name: foundations_03_data_pipeline
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
@@ -57,7 +57,7 @@ scenes:
       - "The loader workers read the images listed in the labels file and resize them to the input size, each decoding with a single OpenCV thread."
       - "Every worker keeps its prefetch batches ready in advance, and the training, validation and test loaders each have their own workers, alive for the whole run."
       - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
-      - "With zero workers, the images load in the main process, which only serves for debugging."
+      - "Should you need to debug the loading, zero workers load the images in the main process, which only serves that purpose."
 
   - kind: yaml
     title: "Loading, image size and pixel range"
@@ -101,7 +101,7 @@ scenes:
       - {match: "^\\s*probability:", sentences: [1]}
       - {match: "activated: True, probability", sentences: [2]}
     narration:
-      - "Data augmentation changes the training images at random, so that the model learns the objects rather than one framing or one colour."
+      - "Picture a data set from one fixed camera: augmentation changes the training images at random, so that the model learns the objects rather than one framing or one colour."
       - "Its probability is the share of the training images augmented at all; each of the {{foundations.data.type_count}} types then has its own switch and its own probability."
       - "The classification configuration switches on {{foundations.data.activated_type_count}} of them; the others stay listed and off, every key of the section being required."
 
@@ -166,8 +166,8 @@ scenes:
       - {type: image, path: "figures:foundations/augmentation_examples/random_black_out.png", crop: "{{foundations.augmentation_examples.random_black_out.image_1.self_supervised_box}}", box: [1060, 510, 1260, 710], highlight: [2]}
       - {type: text, position: [1320, 610], text: "more grid cells hidden,\nin the second view only", font: diagram_small, colour: dim, anchor: lm, appear: 2}
     narration:
-      - "Here are three types applied alone to a validation image, with the strengths of the supervised tasks and with those of the self-supervised views."
-      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps half of the area or more with another aspect ratio, and can cut the object out, as for this triangle."
+      - "Here are three types applied alone to a photo of a cat, where the changes are easier to see than on a synthetic shape, with the strengths of the supervised tasks and with those of the self-supervised views."
+      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps half of the area or more with another aspect ratio, so that a view can lose a large part of the object."
       - "The colour changes and the black-out are stronger too, the black-out and the solarization hitting the second view only: the two views of one image must differ enough for the self-supervised loss to learn something."
 
   - kind: html

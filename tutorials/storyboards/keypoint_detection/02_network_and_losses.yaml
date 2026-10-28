@@ -8,7 +8,7 @@ series_title: "Keypoint Detection (KPT)"
 chapter: 2
 title: "The network and its losses"
 output_name: keypoint_detection_02_network_and_losses
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [keypoint_detection]
 references:
@@ -46,7 +46,7 @@ scenes:
       - "The stem is the backbone of the other tasks cut at a quarter of the image: three blocks without the last max pooling, or two with it, which the checks enforce."
       - "The high resolution network has a base width of 16, one, two and two exchange modules in its three stages, and two residual pairs per branch."
       - "With three stages its lowest branch has a stride of 32, so the image size must be a multiple of 32."
-      - "Sigma, the tag weights and the grouping thresholds give no token to the run name, so they may change when a run resumes."
+      - "Should you want to change sigma, the tag weights or the grouping thresholds, a resumed run accepts it: they give no token to the run name."
 
   - kind: html
     page: diagram
@@ -86,7 +86,7 @@ scenes:
     narration:
       - "The stem brings the 512 pixel image to 64 channels at a quarter of its size, with a receptive field of only {{keypoint_detection.stem_receptive_field}} pixels: the context comes from the lower branches of the high resolution network."
       - "The network returns its quarter resolution branch of 16 channels, and a three by three convolution of 256 channels feeds a one by one convolution of 486 channels: 243 heat map logits, then 243 tags."
-      - "The hidden layer is there because a one by one convolution of 16 channels cannot raise 243 heat maps each on its own key points: without it, an early test raised the heat maps of a few classes only."
+      - "Think of the head without the hidden layer: a one by one convolution of 16 channels cannot raise 243 heat maps each on its own key points, and an early test without it raised the heat maps of a few classes only."
       - "The higher resolution branch concatenates the features with these predictions, 502 channels, doubles their resolution with a four by four transposed convolution, refines them and predicts 243 more heat maps at half the image."
       - "Both last layers start with weights of standard deviation 0.001 and a heat map bias at the logit of 0.01, so that every cell starts at a probability of 0.01."
 
@@ -198,7 +198,7 @@ scenes:
       - "The run trained {{keypoint_detection.run_iterations}} iterations of {{keypoint_detection.run_batch_size}} images on the GPU at about {{keypoint_detection.training_throughput:.0f}} images per second, with a cosine decay after {{keypoint_detection.run_warmup_iterations}} warm-up iterations."
       - "The total loss starts at {{keypoint_detection.curves_total_loss_first:.1f}} and ends near {{keypoint_detection.curves_total_loss_last_smoothed:.2f}}, almost all of it heat map loss."
       - "The weighted pull loss settles near {{keypoint_detection.curves_tag_pull_loss_last_smoothed:.4f}}, but the push loss stays near {{keypoint_detection.curves_tag_push_loss_last_smoothed:.3f}} from start to end: it does not fall."
-      - "This run logs no validation curve, its validation iteration ratio being zero: the test evaluations every 2000 iterations take its place."
+      - "Take a run like this one, with a validation iteration ratio of zero: it logs no validation curve, and the test evaluations every 2000 iterations take its place."
 
   - kind: summary
     title: "Recap"

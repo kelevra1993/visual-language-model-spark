@@ -14,10 +14,12 @@
 - [Tests](#tests)
 
 ## Description
-Narrated tutorial videos of the repository, for engineers who know deep learning and are new to the repository. A
-foundations series covers what every task shares (the repository and a first run, the configuration and the training
-loop, the data pipeline, the backbone, the optimization, the evaluation and the deployment), then one series per task
-covers its data, model, targets, losses, evaluation outputs and pitfalls.
+Narrated tutorial videos of the repository, for engineers who know deep learning and are new to the repository. An
+overview video gives the whole repository in one chapter (the ten tasks, each told through a situation where it is the
+right tool, how they differ and what they share), a foundations series covers what every task shares (the repository
+and a first run, the configuration and the training loop, the data pipeline, the backbone, the optimization, the
+evaluation and the deployment), then one series per task covers its data, model, targets, losses, evaluation outputs
+and pitfalls.
 
 The videos are not stored in the repository: everything needed to rebuild them is. A build reads the storyboards of
 `storyboards/` (one YAML file per chapter), the configurations and code of the repository they quote, and the figures
@@ -114,7 +116,7 @@ The keys of a storyboard:
 | `series`, `series_title` | Folder of the series and its title in the title bar |
 | `chapter`, `title` | Number and title of the chapter |
 | `output_name` | Name of the video files |
-| `pace`, `voice` | Pace of the narration (1.16) and its voice (`{name: af_heart, language: en-us}`) |
+| `pace`, `voice` | Pace of the narration (1.0, the natural speed of the voice) and its voice (`{name: af_heart, language: en-us}`) |
 | `figures` | Figure series whose figures and facts the chapter uses |
 | `references` | Files, or `file · Class.method` and `file · Yaml.key` names, checked to exist |
 | `scenes` | The scenes, in order |
@@ -168,6 +170,7 @@ Fonts: `diagram_heading`, `diagram_bold`, `diagram_text`, `diagram_small`, `diag
 ## Narration
 - Write for an engineer with years of computer vision behind them: the repository specifics, the defaults and their measured effects, the pitfalls and where the code is; no textbook explanation.
 - One idea per sentence, short enough for three caption lines; the caption follows the sentence being spoken.
+- Frame a few sentences of every chapter as a situation the viewer might meet, so that the narration does not only state facts: "Suppose you want to...", "Say you need to...", "Imagine that...", "Picture a data set where...", "Should you need to...", "Faced with...", "If, for instance, you...". Two to four per chapter, never the same opener twice in a chapter; the facts of the sentence stay those of the code.
 - Show the real thing: excerpts read from the repository, real runs, real outputs. Never invented console output or numbers.
 - Pronunciation of the voice: write "pre-trained" (not "pretrained"), "data set" (not "dataset"), avoid reading tool names such as pytest aloud; "weighting" and "waiting" sound alike. A doubtful word is checked by synthesizing it alone and transcribing it, and the narration check of every build flags the rest. A word the voice reads wrongly whatever its spelling gets a spoken form in `SPOKEN_FORMS` of `tutorial_builder/narration.py` ("ONNX" read "onyx"), the captions keeping the written word.
 

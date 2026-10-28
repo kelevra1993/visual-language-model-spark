@@ -10,7 +10,7 @@ series_title: "Image Classification (CLS)"
 chapter: 2
 title: "Judging and shipping a classifier"
 output_name: classification_02_judging_and_shipping
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [classification]
 references:
@@ -114,7 +114,7 @@ scenes:
       - {type: text, position: [880, 680], text: "rectangle never reaches the precision: null in class_thresholds.json, a dash in the report", font: diagram_small, colour: dim, anchor: mm, appear: 2}
     narration:
       - "Sorted by F1, the classes split in two: plus sign, star and triangle above {{classification.class_metrics.triangle.f1:.2f}}, the six others between {{classification.class_metrics.square.f1:.2f}} and {{classification.class_metrics.circle.f1:.2f}}."
-      - "For every class, one against the rest, the evaluation finds the lowest probability threshold whose precision reaches {{classification.class_metrics.target_precision}}, and saves it with the recall it keeps in class thresholds json, for the deployment."
+      - "Imagine a deployment where errors are costly: for every class, one against the rest, the evaluation finds the lowest probability threshold whose precision reaches {{classification.class_metrics.target_precision}}, and saves it with the recall it keeps in class thresholds json."
       - "At that precision, plus sign keeps {{classification.class_metrics.plus_sign.recall_at_target_precision:.1%}} of its images and circle {{classification.class_metrics.circle.recall_at_target_precision:.0%}}, but square keeps {{classification.class_metrics.square.recall_at_target_precision:.2%}}, and rectangle never gets there."
 
   - kind: image
@@ -139,7 +139,7 @@ scenes:
       - {box: "{{classification.confidence.confidence_panel_box}}", sentences: [1]}
       - {box: "{{classification.confidence.pair_panel_box}}", sentences: [2]}
     narration:
-      - "The predictions file holds one row per test image, {{classification.confidence.test_images:,}} here, with the probability of every class, to study the errors and the thresholds again without running the model."
+      - "When the goal is to study the errors and the thresholds again without running the model, the predictions file holds one row per test image, {{classification.confidence.test_images:,}} here, with the probability of every class."
       - "For the {{classification.confidence.wrong_count:,}} wrong predictions, the probability of the predicted class has a median of {{classification.confidence.wrong_median:.2f}}, and only {{classification.confidence.wrong_confident_count}} of them pass {{classification.confidence.confident_probability}}, where {{classification.confidence.correct_confident_share:.0%}} of the right ones do."
       - "The test pentagons show a confusion at work: hexagon takes the probability pentagon loses, and {{classification.confidence.pair_wrong:,}} of the {{classification.confidence.pair_images:,}} pentagons tip over, nearly all to hexagon."
 
@@ -233,7 +233,7 @@ scenes:
     narration:
       - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to 512 pixels like the training, and returns the class probabilities only."
       - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it, so the thresholds of the class thresholds file apply to its outputs as they are."
-      - "Deploy the thresholds of the exported checkpoint: they are computed again at every evaluation, from the probabilities of that checkpoint."
+      - "Faced with several evaluated checkpoints, deploy the thresholds of the exported one: they are computed again at every evaluation, from the probabilities of that checkpoint."
 
   - kind: summary
     title: "Recap"

@@ -8,7 +8,7 @@ series_title: "Object Detection (DET)"
 chapter: 1
 title: "Data, levels and anchors"
 output_name: object_detection_01_data_levels_and_anchors
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [object_detection]
 references:
@@ -112,7 +112,7 @@ scenes:
       - "Its training split holds {{object_detection.data.train_images:,}} images and {{object_detection.data.train_objects:,}} objects of {{object_detection.data.category_count}} shapes, one to six per image, at 512 pixels."
       - "The detector reads the bbox of every annotation, x, y, width and height, turns it into corners, and ignores the segmentation, which only the mask task reads."
       - "The mapping file gives every category its class, and the label dictionary saved in the run adds the background as class zero, so the heads predict {{object_detection.data.class_count}} classes."
-      - "A category missing from the mapping is announced in yellow at launch, and its objects are dropped like the background."
+      - "Say a category is missing from the mapping: it is announced in yellow at launch, and its objects are dropped like the background."
 
   - kind: yaml
     title: "The levels in the configuration"
@@ -129,7 +129,7 @@ scenes:
     narration:
       - "Detection Levels names the backbone blocks the detector reads, as quoted keys in increasing order, and gives every level its anchors, its region proposal head and its detection head."
       - "The backbone divides the resolution by two in every block; with the last max pooling off, block 7 keeps the eight by eight map of block 6, so the levels have strides of 32, 64 and 64."
-      - "No top-down path merges the levels: the finest stride is 32, and the small objects pay for it, as the last chapter shows."
+      - "Picture a data set of small objects: no top-down path merges the levels, the finest stride is 32, and those objects pay for it, as the last chapter shows."
       - "The heads are small here: two convolutions of 32 channels for the proposals, and for the detections two convolutions with squeeze and excitation and residual shortcuts, then fully connected layers of 64 and 32 units."
 
   - kind: html
@@ -281,7 +281,7 @@ scenes:
       - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
-      - "To reproduce the run, generate the data set of the instance masks with the synthetic data set script, its task set in its main block; a new data set has 35 shapes, the one of this run 20."
+      - "Assuming you would like to reproduce the run, generate the data set of the instance masks with the synthetic data set script, its task set in its main block; a new data set has 35 shapes, the one of this run 20."
       - "The training takes the synthetic detection configuration, which stops at two thousand iterations; the run shown here was resumed to five thousand."
       - "The evaluation script evaluates any checkpoint again, set in its main block like every script but the training."
 

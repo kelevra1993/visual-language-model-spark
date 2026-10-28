@@ -7,7 +7,7 @@ series_title: "Foundations"
 chapter: 2
 title: "The training loop"
 output_name: foundations_02_training_loop
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
@@ -88,7 +88,7 @@ scenes:
       - "Everything else is scheduled in iterations: in this run, a console summary every {{foundations.run.information_dump}} iterations."
       - "A checkpoint every {{foundations.run.intermediate_weight_saving_iterations}} iterations, and every {{foundations.run.weight_saving_iterations}}, a checkpoint that is also evaluated on the whole test split."
       - "Within one iteration the order is fixed: the optimizer step, the checkpoint, the validation batch, the console summary, and the test evaluation last."
-      - "The synthetic configurations set ten to the power of ten iterations, so a run goes on until you stop it."
+      - "Take a run launched from a synthetic configuration: it sets ten to the power of ten iterations, so the run goes on until you stop it."
 
   - kind: image
     title: "The console summary"
@@ -162,7 +162,7 @@ scenes:
     narration:
       - "Control C saves a checkpoint of the last step; an evaluation checkpoint left unevaluated by the stop is announced, to be evaluated apart."
       - "Launched again with resume training on, the run restarts from its last checkpoint with its optimizer state, and prints every setting changed since the previous start."
-      - "The number of iterations is the total of the run: resumed at five thousand with eight thousand iterations, it trains the last three thousand."
+      - "Let's consider a run stopped at five thousand and resumed with eight thousand iterations: the number of iterations being the total of the run, it trains the last three thousand."
 
   - kind: html
     page: diagram
@@ -182,7 +182,7 @@ scenes:
       - "The settings without a run name token can change between two resumptions: the batch size, the learning rate and its schedule, the augmentation, the dropout and the other training settings."
       - "Any setting with a token gives another run name, so the training starts in a new folder."
       - "A run name suffix starts a new run of the same settings, and with resume training off, the previous training is moved aside so that two trainings never mix."
-      - "And when the labels file of a split changed since the run started, the resume stops, unless the data change is allowed."
+      - "And imagine that the labels file of a split was corrected since the run started: the resume then stops, unless the data change is allowed."
 
   - kind: summary
     title: "Recap"

@@ -8,7 +8,7 @@ series_title: "Sequence Classification (M2O)"
 chapter: 2
 title: "Frame encoder, temporal module and head"
 output_name: sequence_classification_02_frame_encoder_temporal_module_head
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_classification]
 references:
@@ -75,9 +75,9 @@ scenes:
     narration:
       - "The global pooling of the head decides what the temporal module can see of a frame."
       - "Average pooling keeps one value per channel: through the encoder of the average pooling run, the eight frames of a test sequence get the same vector, a cosine similarity of {{sequence_classification.similarity.average.minimum:.2f}} between every pair, to the sixth decimal."
-      - "The shape moved, but its position was averaged away, so no temporal module can find the direction, and max pooling removes it the same way."
+      - "Picture the shape crossing the image: it moved, but its position was averaged away, so no temporal module can find the direction, and max pooling removes it the same way."
       - "Flatten keeps every position of the eight by eight map: the frame vectors of the flatten run drift apart with the distance between the frames, down to a similarity of {{sequence_classification.similarity.flatten.minimum:.2f}} between the first and the last one."
-      - "The cost is that the frame vector follows the image size: 4096 features at 128 pixels, 65,536 at 512."
+      - "Think of a run at 512 pixels: the cost of flatten is a frame vector that follows the image size, 4096 features at 128 pixels, 65,536 at 512."
 
   - kind: html
     page: diagram
@@ -97,7 +97,7 @@ scenes:
       - "The temporal module summarizes the frame vectors into one vector per sequence; seven types exist, and each keeps the padding out."
       - "The three poolings ignore the order: the masked mean, the max with the padding at minus infinity, and the attention pooling, whose frame scores are set to minus infinity on the padding before their softmax."
       - "The four ordered modules follow it: the GRU and the LSTM on packed sequences, the transformer with its key padding mask and a masked mean of its outputs, and the temporal convolution, whose dilation doubles at every layer, with the padding zeroed before every convolution."
-      - "A causal module is refused here: it only sees the past frames, which is meant for the sequence labeller."
+      - "Should you pick a causal module here, it is refused: it only sees the past frames, which is meant for the sequence labeller."
 
   - kind: code
     title: "The GRU of the configuration"

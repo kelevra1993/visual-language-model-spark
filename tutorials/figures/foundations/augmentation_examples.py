@@ -1,13 +1,17 @@
 """
 Augmentation examples of the foundations tutorials (the data pipeline chapter), made by
 tutorials/figures/foundations/figures.py with the review figures of the repository
-(scripts/data/visualize_augmentation_strengths.py): for two validation images of the classification run, resized to its
-input as the data loaders give them to the network, one figure per augmentation type of DataAugmenter holds the image,
-the type applied alone at the strengths of the supervised tasks and at those of the self-supervised views, and two more
-figures explain the aspect ratio of the crop of the views and the levels of the noise. The scenes crop single cells
-out of these figures, so the facts give the pixel box of every cell of every figure, and the name and class of the two
-images. The figures take a while to draw, so they are reused from the previous build unless forced.
+(scripts/data/visualize_augmentation_strengths.py): for a photo of a cat (example_images/, where the changes show better
+than on the synthetic shapes), resized to the input of the classification run as the data loaders give images to the
+network, one figure per augmentation type of DataAugmenter holds the image, the type applied alone at the strengths of
+the supervised tasks and at those of the self-supervised views, and two more figures explain the aspect ratio of the
+crop of the views and the levels of the noise. The scenes crop single cells out of these figures, so the facts give the
+pixel box of every cell of every figure, and the name and class of the image. The figures take a while to draw, so they
+are reused from the previous build unless forced.
 """
+
+import json
+import shutil
 
 from fractions import Fraction
 from pathlib import Path
@@ -21,8 +25,16 @@ from tutorials.figures.figure_utilities import read_reused_facts, read_run_confi
 from vision_training.data.augmentations import AUGMENTATION_TYPES
 
 # Number of example images, one per row of every figure, and the seed of their choice and of the draws
-EXAMPLE_IMAGE_COUNT = 2
+EXAMPLE_IMAGE_COUNT = 1
 EXAMPLE_SEED = 0
+
+# Example photo of the figures: Chelsea the cat of scikit-image (skimage.data.chelsea, CC0 by Stefan van der Walt),
+# cropped to its 300 x 300 pixel square around the face, so that the square input of the run gets no black band
+EXAMPLE_IMAGE_PATH = Path(__file__).parent / "example_images" / "chelsea_the_cat.png"
+EXAMPLE_CATEGORY_NAME = "cat"
+
+# Folder of the one-image split written next to the figures, in the layout visualize_augmentation_strengths reads
+EXAMPLE_SPLIT_FOLDER_NAME = "example_split"
 
 # Names of the two explanation figures written by visualize_augmentation_strengths next to the figures of the types
 CROP_RATIO_FIGURE_NAME = "random_crop_aspect_ratio_explained"
@@ -97,11 +109,28 @@ def measure_cell_boxes(figure_path: Path, image_size: int) -> Dict[str, List[int
     return boxes
 
 
+def write_example_split(split_folder: Path) -> None:
+    """
+    Writes the example photo as a split of one labelled image (data/ and labels.json, the layout of the classification
+    data sets), so that visualize_augmentation_strengths of the repository draws its figures from the photo as it
+    draws them from a real split.
+
+    Args:
+        split_folder (Path): The folder of the split, created or replaced.
+    """
+    # The photo copied into data/, and the manifest naming it with its single category
+    (split_folder / "data").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src=EXAMPLE_IMAGE_PATH, dst=split_folder / "data" / EXAMPLE_IMAGE_PATH.name)
+    manifest = {"categories": [{"id": 1, "name": EXAMPLE_CATEGORY_NAME}],
+                "samples": [{"id": 1, "file_name": EXAMPLE_IMAGE_PATH.name, "category_id": 1}]}
+    (split_folder / "labels.json").write_text(data=json.dumps(obj=manifest, indent=2), encoding="utf-8")
+
+
 def make_augmentation_examples(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
     """
-    Writes the augmentation figures of the repository for validation images of the classification run, resized to its
-    input with the image settings and the augmentation section of its saved configuration, into the
-    augmentation_examples folder of the series, and gives the boxes of their cells and the example images; the figures
+    Writes the augmentation figures of the repository for the example photo of a cat, resized to the input of the
+    classification run with the image settings and the augmentation section of its saved configuration, into the
+    augmentation_examples folder of the series, and gives the boxes of their cells and the example image; the figures
     of the previous build are reused unless forced or incomplete.
 
     Args:
@@ -112,22 +141,25 @@ def make_augmentation_examples(output_folder: Path, run_folder: Path, force: boo
     Returns:
         Dict[str, Any]: The facts of the figures, named augmentation_examples.*.
     """
-    # Figures of the previous build, complete for every augmentation type of the repository
+    # Figures of the previous build, complete for every augmentation type of the repository and drawn from the photo
+    # (the figures of the synthetic shapes of older builds have no example split)
     examples_folder = output_folder / "augmentation_examples"
+    split_folder = examples_folder / EXAMPLE_SPLIT_FOLDER_NAME
     facts_path = examples_folder / FACTS_FILE_NAME
     reused_facts = read_reused_facts(facts_path=facts_path, force=force, required_paths=[
-        examples_folder / f"{augmentation_type}.png" for augmentation_type in AUGMENTATION_TYPES])
+        examples_folder / f"{augmentation_type}.png" for augmentation_type in AUGMENTATION_TYPES] + [
+        split_folder / "data" / EXAMPLE_IMAGE_PATH.name])
     if reused_facts is not None:
         return reused_facts
 
-    # Every figure drawn by the repository from the validation split and the configuration of the run
+    # Every figure drawn by the repository from the split of the photo and the configuration of the run
     run_configuration = read_run_configuration(run_folder=run_folder)
-    split_folder = Path(run_configuration["ExperimentConfiguration"]["validation_data_folder"])
+    write_example_split(split_folder=split_folder)
     written_paths = visualize_augmentation_strengths(configuration_path=run_folder / "training_configuration.yaml",
                                                      split_folder=split_folder, output_folder=examples_folder,
                                                      number_images=EXAMPLE_IMAGE_COUNT, seed=EXAMPLE_SEED)
 
-    # Boxes of the cells of every figure, then the name and class of the example images, chosen again with the seed
+    # Boxes of the cells of every figure, then the name and class of the example image
     facts = {}
     for figure_path in written_paths:
         facts.update(measure_cell_boxes(figure_path=figure_path,

@@ -9,7 +9,7 @@ series_title: "Semantic Segmentation (SEG)"
 chapter: 1
 title: "Masks, classes and the decoder"
 output_name: semantic_segmentation_01_masks_classes_and_decoder
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [semantic_segmentation]
 references:
@@ -47,7 +47,7 @@ scenes:
     narration:
       - "The model is a U-shaped network: the shared backbone is the encoder, its block outputs before pooling are the skip connections, and a decoder brings the last feature map back to the input resolution, level by level."
       - "A one by one head gives ten logits per pixel, the background being class zero and the nine shapes classes one to nine."
-      - "Choose it when every pixel needs a class and the objects need not be told apart: two touching squares form one region, while instance segmentation gives every object its own mask."
+      - "When the goal is to give every pixel a class without telling the objects apart, choose it: two touching squares form one region, while instance segmentation gives every object its own mask."
 
   - kind: html
     page: diagram
@@ -117,7 +117,7 @@ scenes:
     narration:
       - "The geometric augmentations move the masks with their images, with the nearest interpolation, the pixels uncovered by a rotation becoming ignored; the photometric ones leave the masks alone."
       - "Flips are fine here, a class per pixel having no left nor right, but the perspective and the jigsaw move the image only and are refused."
-      - "For images much larger than the input, tiling trains on random tiles of the scaled images, validates on fixed tiles, and segments every test image tile by tile, averaging the overlapping probabilities."
+      - "Suppose your images are much larger than the input: tiling trains on random tiles of the scaled images, validates on fixed tiles, and segments every test image tile by tile, averaging the overlapping probabilities."
 
   - kind: html
     page: diagram
@@ -171,7 +171,7 @@ scenes:
       - {match: "return_level_outputs", sentences: [1]}
     narration:
       - "The forward pass is that loop, from the deepest level to the finest; an input size that is not a power of two gives an upsampled map one pixel off its skip, resized to it with a bilinear interpolation."
-      - "The outputs of the intermediate levels are only returned for the deep supervision heads, and the head stays outside the decoder, so that a decoder transferred from another run can serve other classes."
+      - "The outputs of the intermediate levels are only returned for the deep supervision heads, and the head stays outside the decoder, so that if you transfer a decoder from another run, it can serve other classes."
 
   - kind: yaml
     title: "The decoder section"

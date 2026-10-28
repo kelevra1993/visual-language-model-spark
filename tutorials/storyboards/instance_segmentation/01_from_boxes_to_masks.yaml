@@ -8,7 +8,7 @@ series_title: "Instance Segmentation (INS)"
 chapter: 1
 title: "From boxes to masks"
 output_name: instance_segmentation_01_from_boxes_to_masks
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [instance_segmentation]
 references:
@@ -86,7 +86,7 @@ scenes:
       - "This task reads the segmentation of every annotation: polygons, or a run length encoding, uncompressed as a list as here, or compressed as a string."
       - "The counts alternate background and object runs, column by column from the top left pixel: {{instance_segmentation.annotation.run_length_values}} values summing to the {{instance_segmentation.annotation.run_length_sum:,}} pixels of the image."
       - "The loader decodes them into a mask at the network resolution, here the {{instance_segmentation.annotation.category}} of the first test image, {{instance_segmentation.annotation.mask_pixels:,}} pixels, its area in the manifest."
-      - "The box field of the annotation is not read: every box is the tight box of the mask at the network resolution, so that boxes and masks always agree and an annotation needs no box at all."
+      - "Suppose your annotations come without boxes: the box field is not read anyway, every box being the tight box of the mask at the network resolution, so that boxes and masks always agree."
       - "An object whose mask vanishes once resized is removed with its box, except in the evaluation at the original resolution."
 
   - kind: html
@@ -103,7 +103,7 @@ scenes:
     narration:
       - "A sample carries one full-size mask per object, 512 by 512, in 8-bit integers, next to its boxes and labels, and a batch keeps them as lists of 64 tensors."
       - "The geometric augmentations move the masks with the image, and the box of every object is recomputed from its moved mask; the synthetic configuration only turns random haze on."
-      - "Full-size masks through the loaders cost memory where the reference design can keep small crops, audit item L19."
+      - "Picture images with many objects: full-size masks through the loaders cost memory, where the reference design can keep small crops, audit item L19."
 
   - kind: yaml
     title: "The mask head in the configuration"
@@ -120,7 +120,7 @@ scenes:
     narration:
       - "Every level configures its mask head in its Detection Levels entry: a ROI Align pool of 14, and a convolution block of three layers of 32 channels."
       - "The Mask Head section sets what the levels share: masks of 28 pixels, a transposed convolution to double the pool, residual shortcuts and batch normalization, no squeeze and excitation."
-      - "The pool is doubled as many times as fits in the mask resolution, once from 14 to 28; a pool of 10 would be doubled to 20, then resized to 28."
+      - "The pool is doubled as many times as fits in the mask resolution, once from 14 to 28; should you set a pool of 10, it would be doubled to 20, then resized to 28."
       - "The mask threshold of 0.5 serves the evaluation and the sample images; the export leaves it to the client."
 
   - kind: html

@@ -8,7 +8,7 @@ series_title: "Sequence Labelling (M2M)"
 chapter: 2
 title: "The model and the loss"
 output_name: sequence_labelling_02_model_and_loss
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_labelling]
 references:
@@ -136,8 +136,8 @@ scenes:
     narration:
       - "The loss is the cross entropy of every frame, the logits flattened to one row per frame, with the ignore index minus 100: padding and unmapped frames drop out of the mean."
       - "Balanced class weights give every class the frames over the number of classes times its frames: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no change against {{sequence_labelling.dataset.balanced_weight_change_minimum:.2f}} to {{sequence_labelling.dataset.balanced_weight_change_maximum:.2f}} for a change class on this training split."
-      - "With label smoothing on top, those weights also enter the smoothing term and pull every frame towards the rarest classes, item C2 of the suggestions file."
-      - "And a batch without any labeled frame gives a loss that is not a number, the mean having nothing to average, item L11."
+      - "Suppose you add label smoothing on top: those weights also enter the smoothing term and pull every frame towards the rarest classes, item C2 of the suggestions file."
+      - "Take a batch without any labeled frame: its loss is not a number, the mean having nothing to average, item L11."
 
   - kind: html
     page: diagram
@@ -153,7 +153,7 @@ scenes:
       - "The run name of the README run starts like every run name: the task, the input normalized and resized to 512 pixels with its aspect ratio kept, then the backbone and its blocks."
       - "Then T fifty, the maximum sequence length, and GRU one by 128, one layer of 128 units, which gets BI when bidirectional; a causal transformer or temporal convolution gets CAU."
       - "Then the head, average pooling and 64 hidden units, and 71 classes; balanced class weights would add CWB, and label smoothing LS with its rate."
-      - "The batch size, the learning rate, the dropout, the augmentation and the test split leave no token, so a launch of the same settings resumes in the same folder."
+      - "Say you relaunch with another learning rate: the batch size, the learning rate, the dropout, the augmentation and the test split leave no token, so it resumes in the same folder."
 
   - kind: image
     title: "The training curves"

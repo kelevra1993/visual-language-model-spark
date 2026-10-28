@@ -9,7 +9,7 @@ series_title: "Keypoint Detection (KPT)"
 chapter: 1
 title: "Labels, channels and targets"
 output_name: keypoint_detection_01_labels_channels_and_targets
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [keypoint_detection]
 references:
@@ -79,7 +79,7 @@ scenes:
       - "The data is the COCO layout of object detection, every object with a flat list of key points: x, y and a visibility, zero for unlabelled, one for occluded, two for visible."
       - "The names and the skeleton come from the categories of the training labels file, not from the configuration, so every class has its own key points: four corners for this trapezoid, twelve for a hollow capsule."
       - "Any other field of a category, like this maximum rotation, is ignored."
-      - "The {{keypoint_detection.labels_distractor_name}} is one of four distractors without key points: left out of the label mapping, its objects are not loaded, and the heat maps learn to stay silent on them."
+      - "Suppose the data set holds objects without key points, like the {{keypoint_detection.labels_distractor_name}}, one of four distractors: left out of the label mapping, its objects are not loaded, and the heat maps learn to stay silent on them."
       - "An object without any labelled key point is dropped the same way; for the COCO crowds, ignore unlabelled objects also leaves their pixels out of the heat map loss."
 
   - kind: html
@@ -105,7 +105,7 @@ scenes:
       - {match: "channel_names.append", sentences: [1]}
     narration:
       - "The table is filled with minus one, then every key point of every class takes the next free channel."
-      - "Its names exist only here: a key point head transferred from another run is checked on its class names and tensor shapes alone, and the export writes no channel names, so keep the categories of the training labels with the model."
+      - "Its names exist only here: if you transfer a key point head from another run, it is checked on its class names and tensor shapes alone, and the export writes no channel names, so keep the categories of the training labels with the model."
 
   - kind: yaml
     title: "Augmentations move key points, never rename them"
@@ -126,7 +126,7 @@ scenes:
     narration:
       - "The geometric augmentations move the key points with the image; a key point leaving the image becomes unlabelled, and an object is removed only when less than a quarter of its box and none of its key points stay inside."
       - "They never rename a key point: after a flip, the top left corner lies on the right and is still trained in the top left channel."
-      - "So the synthetic configuration turns both flips and the ninety degree rotation off and keeps rotations within five degrees; a data set whose names depend on the side is augmented offline."
+      - "So the synthetic configuration turns both flips and the ninety degree rotation off and keeps rotations within five degrees; picture a data set whose names depend on the side, like a left and a right eye: augment it offline."
       - "The perspective and the jigsaw move the image only, so the checks refuse them for this task."
 
   - kind: code

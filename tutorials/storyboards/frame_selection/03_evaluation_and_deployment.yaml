@@ -9,7 +9,7 @@ series_title: "Frame Selection (SEL)"
 chapter: 3
 title: "Evaluation and deployment"
 output_name: frame_selection_03_evaluation_and_deployment
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [frame_selection]
 references:
@@ -116,7 +116,7 @@ scenes:
       - "frame selector decoder is a Python backend model run on the CPU: its folder holds a copy of the decoding file of the evaluation, and a decoding settings json file with the decoding, the frames per class, the unselected class, the thresholds and the class names."
       - "It gives the selected frames with their probabilities and low confidence flags, three by one per sequence here, and the top-k candidate frames of every class with their probabilities, k being the top k of the evaluation, two."
       - "frame selector Torch Script ensemble, or ONNX ensemble, chains the two: the model the clients query."
-      - "Without a mask, the sequences of one request share their number of frames, from one to the maximum sequence length."
+      - "Picture a client with mixed lengths: without a mask, the sequences of one request share their number of frames, from one to the maximum sequence length."
 
   - kind: code
     title: "The settings of the decoder"
@@ -132,8 +132,8 @@ scenes:
       - {match: "thresholds_path =", sentences: [2]}
     narration:
       - "The decoding settings read the class thresholds file of the evaluation of the exported iteration."
-      - "Export a checkpoint that was never evaluated, and every threshold is zero, nothing is ever flagged, and the wanted classes are named by their indices: evaluate before exporting."
-      - "And an export of the moving average of the weights still reads the thresholds of the trained weights, issue B 17 of the audit."
+      - "Take a checkpoint that was never evaluated: once exported, every threshold is zero, nothing is ever flagged, and the wanted classes are named by their indices, so evaluate before exporting."
+      - "Say you export the moving average of the weights: it still reads the thresholds of the trained weights, issue B 17 of the audit."
 
   - kind: html
     page: diagram

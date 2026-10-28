@@ -8,7 +8,7 @@ series_title: "Foundations"
 chapter: 6
 title: "After the training"
 output_name: foundations_06_after_the_training
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
@@ -40,7 +40,7 @@ scenes:
       - {match: "^    iteration = |^    test_data_folder = |^    batch_size = |^    track_evaluation = ", sentences: [1]}
       - {match: "^    maximum_error_images_per_class_pair = ", sentences: [2]}
     narration:
-      - "To evaluate a trained run again, on another labelled split or with a larger batch, set the run name and its folder in the main block of the evaluate checkpoint script; the run folder itself is never modified."
+      - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: set the run name and its folder in the main block of the evaluate checkpoint script; the run folder itself is never modified."
       - "The iteration is None for the last checkpoint, a number, or all for every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
       - "The maximum number of error images per pair of classes turns the error images on; set it to None for the tasks without error images, which otherwise stop on their missing error dumps section, then run the script as a module with uv."
 
@@ -121,7 +121,7 @@ scenes:
       - "To pick diverse images from a data set of video frames, many of them nearly identical, the cluster image embeddings script embeds the images with a trained run: the output of a convolution block, or of a hidden layer of a classification head."
       - "Every layer is normalized and reduced by a PCA, then clustered category by category with HDBSCAN, DBSCAN or k-means, the images in no cluster being the isolated images."
       - "It keeps the images closest to the centre of every cluster and the isolated images, and as many images drawn at random or spread over the groups of the file names, to compare by training a smaller model on each."
-      - "The features are stored, so a relaunch with other clustering settings skips the model, and the clusters get their tables, their links and a mosaic of their images."
+      - "One might want to try other clustering settings: the features are stored, so the relaunch skips the model, and the clusters get their tables, their links and a mosaic of their images."
 
   - kind: code
     title: "Exporting a model"
@@ -172,7 +172,7 @@ scenes:
       - {role: comment, text: "# one folder only, e.g. after changing a model"}
     narration:
       - "The tests mirror the folders of the training framework: {{foundations.repository.test_file_count}} test files, short trainings of every task on tiny synthetic data sets included."
-      - "Run them all with the first command, or only one folder after a change, and compare with the results from before the change."
+      - "Assuming you changed a model, run only its folder with the second command, or them all with the first, and compare with the results from before the change."
 
   - kind: html
     page: diagram

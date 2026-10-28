@@ -7,7 +7,7 @@ series_title: "Sequence Classification (M2O)"
 chapter: 1
 title: "Sequences and padded batches"
 output_name: sequence_classification_01_sequences_and_padded_batches
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_classification]
 references:
@@ -51,7 +51,7 @@ scenes:
       # The trainer it extends
       - {type: box, box: [40, 540, 1730, 690], text: "SequenceClassificationTrainer extends ClassificationTrainer\nthe loss, the batch accuracy and the evaluation of CLS, computed per sequence", font: diagram_text, outline: yellow, appear: 2, highlight: [2]}
     narration:
-      - "Choose it when the class needs several frames: in the synthetic moving shapes, one shape moves left, right, up or down across the frames, and no single frame shows the direction."
+      - "Suppose the class needs several frames, as in the synthetic moving shapes, where one shape moves left, right, up or down and no single frame shows the direction: choose this task."
       - "Take the image classifier when one image carries the class, the sequence labeller or the frame selector when the answer is per frame, and the comparator when a before and an after sequence are compared."
       - "Its trainer extends the image classification trainer: the loss, the batch accuracy and the whole evaluation are those of the classification, computed on sequences."
 
@@ -135,7 +135,7 @@ scenes:
     narration:
       - "The data set reads the labels file of the split, and every sequence becomes one sample, read in full, with no window and no subsampling."
       - "A sequence of an unmapped category, or without frames, is counted in one yellow note."
-      - "A sequence longer than the maximum length is left out with a red line naming it, then a red total for the split: a limit set too low shrinks every split, the test split included."
+      - "Say you set the maximum length too low: every longer sequence is left out with a red line naming it, then a red total for the split, and every split shrinks, the test split included."
 
   - kind: image
     title: "What the launch prints"
@@ -160,7 +160,7 @@ scenes:
       - {match: "if sample\\[key\\].dim\\(\\) > 0", sentences: [1]}
       - {match: "member_lengths = |unflatten", sentences: [2]}
     narration:
-      - "Every sample keeps its own length, so the collate of the loaders pads the sequences of a batch with black frames up to the longest sequence of that batch, not up to the maximum length."
+      - "Imagine a batch mixing short and long sequences: every sample keeps its own length, so the collate of the loaders pads them with black frames up to the longest one of that batch, not up to the maximum length."
       - "The mask is padded with False, and the frame labels of the tasks that have them with the ignored index; the class of a whole sequence has no frame axis and is left as it is."
       - "The same function batches the pairs of the comparator, two members per sample, every member padded to the longest member of the batch."
 

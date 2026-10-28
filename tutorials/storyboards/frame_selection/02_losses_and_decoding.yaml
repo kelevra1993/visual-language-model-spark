@@ -9,7 +9,7 @@ series_title: "Frame Selection (SEL)"
 chapter: 2
 title: "Two losses and two decodings"
 output_name: frame_selection_02_losses_and_decoding
-pace: 1.16
+pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [frame_selection]
 references:
@@ -44,7 +44,7 @@ scenes:
       - "The selection loss answers the other question, which frames of this sequence are best for this class."
       - "For every wanted class, the softmax of its logit is taken over the frames of the sequence, dimension one, the padding frames masked out."
       - "Its target puts one over N on each of the N true frames of the class, and the cross entropy is averaged over the wanted classes holding true frames."
-      - "The frame selector adds it to the per-frame loss, times selection loss weight; at zero, the per-frame loss trains alone."
+      - "The frame selector adds it to the per-frame loss, times selection loss weight; if, for instance, you set that weight to zero, the per-frame loss trains alone."
 
   - kind: html
     page: frame_selection/frame_matrix
@@ -105,7 +105,7 @@ scenes:
       - {box: "{{frame_selection.training.loss_panel_box}}", sentences: [0, 1, 2]}
       - {box: "{{frame_selection.training.accuracy_panel_box}}", sentences: [3]}
     narration:
-      - "A model giving the same logit to every frame scores the log of T on a sequence of T frames, {{frame_selection.dataset.mean_log_length:.2f}} on average over the training sequences."
+      - "Imagine a model giving the same logit to every frame: it scores the log of T on a sequence of T frames, {{frame_selection.dataset.mean_log_length:.2f}} on average over the training sequences."
       - "The first selection loss of the README run is {{frame_selection.training.train_selection_loss.first:.2f}}, close to that line, and its first per-frame loss {{frame_selection.training.train_classification_loss.first:.2f}}, near the log of four."
       - "Both fall within a few hundred iterations, on a logarithmic axis: by iteration 1000, the smoothed selection loss is {{frame_selection.training.train_selection_loss.smoothed_at_1000:.3f}} and the per-frame loss {{frame_selection.training.train_classification_loss.smoothed_at_1000:.3f}}."
       - "The frame accuracy starts at {{frame_selection.training.train_accuracy.first:.2f}}, about the share of unselected frames, and reaches {{frame_selection.training.train_accuracy.last:.0f}}."
@@ -205,7 +205,7 @@ scenes:
     narration:
       - "In the code, the gains are one subtraction of log probabilities, clipped to a tiny minimum so that a probability of zero still gives a finite cost."
       - "Every column is repeated frames per class times, and linear sum assignment maximizes the total gain."
-      - "The file imports numpy and scipy only, so that the same code runs in the evaluation, in the local inference and inside the Triton server."
+      - "One might want one decoding everywhere: the file imports numpy and scipy only, so that the same code runs in the evaluation, in the local inference and inside the Triton server."
 
   - kind: html
     page: frame_selection/frame_matrix
