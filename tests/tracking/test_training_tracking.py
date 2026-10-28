@@ -320,7 +320,7 @@ def test_classification_training_and_evaluation_are_tracked(tmp_path: Path, trac
                                                                       path="evaluation/iteration_4")) == [
         "evaluation/iteration_4/class_metrics.csv", "evaluation/iteration_4/class_thresholds.json",
         "evaluation/iteration_4/confusion_matrix.png", "evaluation/iteration_4/precision_recall_curves.png",
-        "evaluation/iteration_4/roc_curves.png"]
+        "evaluation/iteration_4/precision_recall_thresholds.png", "evaluation/iteration_4/roc_curves.png"]
     checkpoint = torch.load(f=trainer.weights_directory / "Iteration_5" / "model_000005.pt", map_location="cpu",
                             weights_only=True)
     assert checkpoint["mlflow_run_id"] == training_run_id

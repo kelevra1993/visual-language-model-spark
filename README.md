@@ -237,7 +237,7 @@ CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1; DET, INS, KPT and SEG p
 ### Classification (CLS)
 Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`, softmax) or every class present in it (`"multi_label"`, sigmoid). The manifest lists every image with its `category_id` (or `category_ids`). `vision_training/data/classification/class_folder_manifests.py` converts one folder of images per class without copying them, and `imagenet_download.py` downloads ImageNet-1k.
 - **Configuration**: `classification/configuration_example.yaml`, with `ClassificationHead` (global pooling, fully connected layers and their normalization, label smoothing, class weighting, decorrelation of the hidden features) and the evaluation keys `top_k`, `target_precision`, `save_predictions` and `error_dumps`.
-- **Evaluation**: accuracy, balanced accuracy, macro F1, top-k accuracy, the precision, recall, F1, ROC AUC and average precision of every class, the confusion matrix, the score threshold of every class reaching `target_precision`, and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/`.
+- **Evaluation**: accuracy, balanced accuracy, macro F1, top-k accuracy, the precision, recall, F1, ROC AUC and average precision of every class, the confusion matrix, the score threshold of every class reaching `target_precision` (a number, or a list such as `[0.99, 0.95, 0.90]` giving the threshold and recall of every class at each precision, written on `precision_recall_thresholds.png`), and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/`.
 
 <p align="center">
   <img src="README/classification_sample.png" width="60%" />

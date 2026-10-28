@@ -127,7 +127,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
         "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
-        "precision_recall_curves.png", "predictions.csv", "roc_curves.png"]
+        "precision_recall_curves.png", "precision_recall_thresholds.png", "predictions.csv", "roc_curves.png"]
     check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6,
                              per_class_report=True)
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],

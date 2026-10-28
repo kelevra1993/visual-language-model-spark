@@ -23,7 +23,7 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 | `DetectionLevels`, `RegionProposal`, `Detector`, `Optimization.loss_weights`, `evaluation.score_threshold` | DET, INS |
 | `MaskHead` | INS |
 | `evaluation.original_resolution` | INS, SEG |
-| `evaluation.target_precision`, `evaluation.error_dumps` | DET, INS, CLS, M2O, M2M, CMP, SEL |
+| `evaluation.target_precision`, `evaluation.error_dumps` | DET, INS, CLS, M2O, M2M, CMP, SEL (`target_precision` a list of precisions, the first one the main target, for CLS, M2O, M2M, CMP) |
 | `ClassificationHead`, `evaluation.top_k`, `evaluation.save_predictions` | CLS, M2O, M2M, CMP, SEL |
 | `ClassificationHead.decorrelation` | CLS |
 | `TemporalModel`, `Data.sequence_settings` | M2O, M2M, CMP, SEL |
@@ -72,6 +72,7 @@ Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`
 | `confusion_matrix.csv` | DET, INS, CLS multi-class, M2O, M2M, CMP, SEG, SEL | every evaluation |
 | `confusion_matrix.png` and its Test image | the same | with `per_class_report` |
 | `roc_curves.png`, `precision_recall_curves.png` and their Test images `ROC Curves` and `Precision Recall Curves` | CLS, M2O, M2M, CMP, SEG | with `per_class_report` |
+| `precision_recall_thresholds.png` and its Test image `Precision Recall Thresholds`, the precision-recall curves zoomed on the thresholds of every target precision, each threshold written in the colour of its curve | CLS, M2O, M2M, CMP | with `per_class_report` |
 | `predictions.csv` | CLS, M2O, M2M, CMP | with `save_predictions` |
 | `selections.csv` | SEL | with `save_predictions` |
 | `Errors/<TRUE>-TO-<PREDICTED>/` | CLS multi-class, M2O, M2M, CMP | with `error_dumps.activated` |
@@ -83,7 +84,7 @@ Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`
 
 | Tasks | Columns of `class_metrics.csv` |
 |---|---|
-| CLS, M2O, M2M, CMP | samples, precision, recall, F1, ROC AUC and average precision (with `per_class_report`), threshold and recall at the target precision |
+| CLS, M2O, M2M, CMP | samples, precision, recall, F1, ROC AUC and average precision (with `per_class_report`), threshold and recall at the target precision (`threshold_at_target_precision`, `recall_at_target_precision`), then at every other target precision of a list (`threshold_at_precision_<p>`, `recall_at_precision_<p>`) |
 | SEL | true frames, accuracy with both decodings, top-k accuracy, mean rank, threshold and recall at the target precision |
 | DET, INS | ground truths, average precisions of all the objects and of every size (and of the masks for INS), threshold and recall at the target precision |
 | SEG | pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall, ROC AUC and average precision (with `per_class_report`) |
@@ -203,7 +204,7 @@ With `ExperimentConfiguration.tracking.activated: True`, every run is recorded i
 | `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
 | `test_ema/` and `test_ema_class/` metrics, and the files under `evaluation/iteration_<n>/ema/` | all, with the moving average on |
 | `test/mAP@0.5`, `mAP@0.75`, `mAP@0.95`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test/mAP@0.5 By Size/<size>`, `mAP@[0.5:0.95] By Size/<size>`; `test/Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>`, `Proposals Per Image/<group>`; `test_class/AP@0.5/<class>`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `proposal_recall.csv`; `anchor_recall.csv` under `analysis/` (`anchor_recall_resume_<n>.csv` for a resume from iteration n) | DET, INS (with the `Mask` metrics) |
-| `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`), `Macro ROC AUC`, `Macro Average Precision`; `test_class/Precision`, `Recall`, `F1`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` | CLS, M2O, M2M, CMP |
+| `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`), `Macro ROC AUC`, `Macro Average Precision`; `test_class/Precision`, `Recall`, `F1`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` | CLS, M2O, M2M, CMP |
 | `test/Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `Segment F1@25`, `Segment F1@50` | M2M |
 | `test/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision`, `<Decoding> Unselected Recall`, `Top-<k> Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`; `test_class/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `Mean True Frame Rank`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | SEL |
 | `test/Mean IoU`, `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, `Macro ROC AUC`, `Macro Average Precision`; `test_class/IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` | SEG |

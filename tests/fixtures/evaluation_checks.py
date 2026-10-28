@@ -45,17 +45,22 @@ def read_results_blocks(results_path: Path) -> List[Dict[str, Any]]:
 
 
 def check_class_metrics_file(evaluation_folder: Path, class_names: List[str], number_samples: int,
-                             per_class_report: bool) -> List[Dict[str, str]]:
+                             per_class_report: bool,
+                             additional_target_precisions: Optional[List[float]] = None) -> List[Dict[str, str]]:
     """
     Verifies the per-class metrics file of a classification-like evaluation: one row per class in class index order,
-    with the columns of the report (the ROC AUC and average precision with the per-class report), the samples of the
-    classes summing to the evaluated samples (or labelled frames).
+    with the columns of the report (the ROC AUC and average precision with the per-class report, the threshold and
+    recall of every target precision), the samples of the classes summing to the evaluated samples (or labelled
+    frames).
 
     Args:
         evaluation_folder (Path): The evaluation folder of the checkpoint.
         class_names (List[str]): The class names of the run, in class index order.
         number_samples (int): The number of evaluated samples, or of labelled frames for the sequence labelling task.
         per_class_report (bool): Whether the evaluation ran with the per-class report, adding the curve columns.
+        additional_target_precisions (Optional[List[float]]): The target precisions following the main one in
+            'evaluation.target_precision', each adding its threshold and recall columns, or None for a single target
+            precision. Defaults to None.
 
     Returns:
         List[Dict[str, str]]: The rows of 'class_metrics.csv', keyed by column name.
@@ -65,8 +70,11 @@ def check_class_metrics_file(evaluation_folder: Path, class_names: List[str], nu
     assert [row["class"] for row in rows] == class_names
     assert [row["class_index"] for row in rows] == [str(class_index) for class_index in range(len(class_names))]
     curve_columns = ["roc_auc", "average_precision"] if per_class_report else []
+    additional_threshold_columns = [f"{column_kind}_at_precision_{target_precision:g}"
+                                    for target_precision in additional_target_precisions or []
+                                    for column_kind in ["threshold", "recall"]]
     assert list(rows[0]) == ["class_index", "class", "samples", "precision", "recall", "f1"] + curve_columns + [
-        "threshold_at_target_precision", "recall_at_target_precision"]
+        "threshold_at_target_precision", "recall_at_target_precision"] + additional_threshold_columns
     assert sum(int(row["samples"]) for row in rows) == number_samples
     return rows
 

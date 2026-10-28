@@ -82,7 +82,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `ClassificationHead.label_smoothing` | `0.0` | above 0 gives `LS<rate>`; combined with balanced weights it favours the rare classes (pitfall below) |
 | `ClassificationHead.decorrelation` | `activated: False` | adds the squared off-diagonal correlations of one hidden layer to the loss, no run name token |
 | `ExperimentConfiguration.evaluation.top_k` | `2` | the `Top-2 Accuracy` headline metric |
-| `ExperimentConfiguration.evaluation.target_precision` | `0.99` | the threshold of every class in `class_thresholds.json` and the `@ P0.99` columns |
+| `ExperimentConfiguration.evaluation.target_precision` | `0.99` | the threshold of every class in `class_thresholds.json` and the `@ P0.99` columns; a list such as `[0.99, 0.95, 0.90]` adds the thresholds of the other precisions (Step 4.13) |
 | `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class scalars, confusion matrix image, ROC and precision-recall curves |
 
 ### What A Run Writes
@@ -536,8 +536,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       Writes the matrix to Evaluation/Iteration_N/confusion_matrix.csv, with the class names as headers.
 │   ├── find_class_thresholds()
 │   │       For each class (one against the rest), finds the lowest probability threshold whose precision stays at or
-│   │       above target_precision, with the recall kept at that threshold, or None when no threshold reaches it. Saved
-│   │       in class_thresholds.json.
+│   │       above target_precision, with the recall kept at that threshold, or None when no threshold reaches it, for
+│   │       every target precision of a list. Saved in class_thresholds.json.
 │   ├── compute_class_score_curves() + compute_macro_curve_metrics()   (only with per_class_report)
 │   │       For each class (one against the rest), counts the positive and negative images at every distinct
 │   │       probability and gives its ROC curve and ROC AUC, its precision-recall curve and average precision (as
@@ -551,8 +551,9 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       saves confusion_matrix.png. The same image is later sent to TensorBoard.
 │   ├── save_score_curve_images()   (only with per_class_report)
 │   │       Draws the ROC and precision-recall curves of every class (one plot up to 10 classes, a grid of panels
-│   │       above, the thresholds marked) and saves roc_curves.png and precision_recall_curves.png. The same images are
-│   │       later sent to TensorBoard.
+│   │       above, the thresholds marked) and saves roc_curves.png, precision_recall_curves.png and
+│   │       precision_recall_thresholds.png (the zoom on the thresholds, written). The same images are later sent to
+│   │       TensorBoard.
 │   ├── write_predictions_file()   (only with save_predictions)
 │   │       Writes predictions.csv: one row per test image with its file name, true class, predicted class, whether it
 │   │       is correct and the probability of every class.
@@ -1615,7 +1616,7 @@ octagon,0,0,590,0,0,0,0,0,0
 ```
 
 ### Step 4.13 — `find_class_thresholds()`
-A deployment can ask for a prediction to be trusted only above a probability threshold. For every class, treated one against the rest, this function sorts the test images by decreasing probability of the class and looks for the lowest threshold where the precision stays at or above `target_precision` (0.99 here), together with the recall kept at this threshold. If no threshold reaches the target precision, or the class has no sample, the result is `null`. The thresholds are saved in `class_thresholds.json`, for the deployment of the checkpoint.
+A deployment can ask for a prediction to be trusted only above a probability threshold. For every class, treated one against the rest, this function sorts the test images by decreasing probability of the class and looks for the lowest threshold where the precision stays at or above `target_precision` (0.99 here), together with the recall kept at this threshold. If no threshold reaches the target precision, or the class has no sample, the result is `null`. The thresholds are saved in `class_thresholds.json`, for the deployment of the checkpoint. With a list of target precisions, e.g. `target_precision: [0.99, 0.95, 0.90]`, the thresholds are found for each: the first precision stays the main target, in `target_precision` and `classes` as below, and the others follow in `additional_targets`, a list of `{"target_precision": ..., "classes": {...}}` of the same form.
 
 **Example: `Evaluation/Iteration_6/class_thresholds.json`** (only `hexagon` reaches it, with a single image)
 ```text
@@ -1636,7 +1637,7 @@ A deployment can ask for a prediction to be trusted only above a probability thr
 ```
 
 ### Step 4.14 — `build_class_metrics_rows()` + `write_class_metrics_file()`
-`build_class_metrics_rows()` merges, for every class, its support, precision, recall, F1 and its threshold and recall at the target precision into one row, in class index order. `write_class_metrics_file()` saves them as `class_metrics.csv`, with 6 decimals and an empty cell for a missing value. It is written at every evaluation, whatever `per_class_report`, so that the details of all the classes (a 1000 class run included) stay on the disk even when they are not displayed.
+`build_class_metrics_rows()` merges, for every class, its support, precision, recall, F1 and its threshold and recall at the target precision into one row, in class index order, followed by `threshold_at_precision_<p>` and `recall_at_precision_<p>` for every other target precision of a list. The per-class table of the report keeps the main target precision, and with several target precisions `build_class_thresholds_table()` adds the `Per Class Thresholds` table (class order, the threshold and recall of every target precision, the thresholds written as on `precision_recall_thresholds.png`). `write_class_metrics_file()` saves them as `class_metrics.csv`, with 6 decimals and an empty cell for a missing value. It is written at every evaluation, whatever `per_class_report`, so that the details of all the classes (a 1000 class run included) stay on the disk even when they are not displayed.
 
 With `per_class_report`, `compute_class_score_curves()` first scores every class one against the rest from the probabilities of the test images: the images are counted, positive or negative, at every distinct probability of the class, from the highest down, every probability being a threshold, which gives the ROC curve (false and true positive rates) with its trapezoidal area, the ROC AUC, and the step-wise precision-recall curve with its average precision (the precision of every threshold weighted by the recall it adds), as scikit-learn computes them. A class without image has neither, a class made of every image no ROC AUC. Their means over the classes defining them, `compute_macro_curve_metrics()`, are the `Macro ROC AUC` and `Macro Average Precision` headline metrics, placed after the other headline metrics and before the extra metrics of the task, and the rows then hold `roc_auc` and `average_precision` after `f1`. The first example below comes from the run of Stage 3, made before the curves, without these two columns; the second from the README run, with them.
 
@@ -1663,7 +1664,7 @@ class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshol
 ```
 
 ### Step 4.15 — `save_confusion_matrix_image()` + `save_score_curve_images()`   (only with `per_class_report`)
-`save_score_curve_images()` draws the curves of Step 4.14 and saves them as `roc_curves.png` and `precision_recall_curves.png`, the same image arrays being returned to be logged to TensorBoard as `ROC Curves` and `Precision Recall Curves` (Step 4.18) and to MLflow (Step 4.19). Up to 10 classes, every class is a curve of its own colour on a single plot, its ROC AUC or average precision in the legend; above, every class has a small panel titled with its metric, 10 panels per row at most, and above 100 classes only the 100 classes with the lowest metric are drawn. The ROC curves come with the chance diagonal; the precision-recall curves with a dotted line at `target_precision` and a point at the recall and precision of the threshold of Step 4.13 on every class having one. The titles give the iteration and the macro mean.
+`save_score_curve_images()` draws the curves of Step 4.14 and saves them as `roc_curves.png` and `precision_recall_curves.png`, the same image arrays being returned to be logged to TensorBoard as `ROC Curves` and `Precision Recall Curves` (Step 4.18) and to MLflow (Step 4.19). Up to 10 classes, every class is a curve of its own colour on a single plot, its ROC AUC or average precision in the legend; above, every class has a small panel titled with its metric, 10 panels per row at most, and above 100 classes only the 100 classes with the lowest metric are drawn. The ROC curves come with the chance diagonal; the precision-recall curves with a dotted line at every target precision and a point at the recall and precision of the threshold of Step 4.13 on every class having one. The titles give the iteration and the macro mean. `precision_recall_thresholds.png` (TensorBoard `Precision Recall Thresholds`) draws the precision-recall curves again, zoomed on these points, and writes every threshold next to its point in the colour of its curve, rounded down to the fewest decimals (at least 4, at most 9 significant digits) that select the same images as the exact threshold, so that a threshold can be chosen from the image.
 
 `save_confusion_matrix_image()` draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0%) to dark blue (100%); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`.
 
