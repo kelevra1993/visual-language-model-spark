@@ -104,7 +104,7 @@ uv run python -m vision_training.deployment.export_model
 - `Mean IoU` and `Mean Dice` average over the classes present in the true masks or predicted, a class painted without any true pixel counting with 0 (`compute_segmentation_metrics()` of `segmentation_metrics.py`). Before 2026-10-25 they left out the classes predicted but absent (`bug_standards.md` B53), so older evaluations can be higher. The batch `Mean IoU` of the console averages the classes of each batch, then the batches (Step 3.20).
 - The masks are resized with `cv2.INTER_NEAREST`, about half a pixel off their images, and `random_crop` adds another half pixel (`segmentation_dataset.py`, `augmentations.py`; `suggestions.md` M5, open): with `original_resolution: True` on large images the shift can exceed `boundary_tolerance`.
 - The `SegmentationLoss` settings, the head dropout, the deep supervision weights and the tile overlap give no run name token, so changing them resumes the same run folder, `load_model()` setting the class weights of the new configuration again (`build_segmentation_sections()` of `run_name.py`; Step 2.18).
-- A run trained on tiles is exported with one tile as input, the client scaling and tiling the images with `segment_image_by_tiles()` (README, Deployment, Export), while `run_inference.py` times one letterboxed image per request (`bug_standards.md` B59).
+- A run trained on tiles is exported with one tile as input, the client scaling and tiling the images with `segment_image_by_tiles()` ([tools reference, Export](../reference/tools_reference.md#export)), while `run_inference.py` times one letterboxed image per request (`bug_standards.md` B59).
 
 ## Table of Contents
 - [Read This First](#read-this-first)
