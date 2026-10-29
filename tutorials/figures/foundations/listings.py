@@ -329,8 +329,7 @@ def make_listings(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     # Summary panels of the model of the run, built on the CPU from its saved configuration
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=run_folder / "training_configuration.yaml")
-    model = ImageClassifier(configuration=model_configuration, verbose=False, device=torch.device(device="cpu"),
-                            dtype=torch.float32)
+    model = ImageClassifier(configuration=model_configuration, device=torch.device(device="cpu"), dtype=torch.float32)
     (listings_folder / "backbone_summary.txt").write_text(
         data=capture_printed_text(printing_function=model.backbone.print_summary), encoding="utf-8")
     (listings_folder / "receptive_field_summary.txt").write_text(

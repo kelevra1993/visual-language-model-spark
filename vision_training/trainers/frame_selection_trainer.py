@@ -75,6 +75,20 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
+    def get_top_k(self, experiment_configuration: Dict[str, Any]) -> int:
+        """
+        Gives the number of candidate frames of every class returned by the deployment, 'evaluation.top_k', a setting
+        of the frame selection only, also the k of its top-k accuracies in place of the fixed k of the other
+        classification-like tasks.
+
+        Args:
+            experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
+
+        Returns:
+            int: The number of candidate frames of every class.
+        """
+        return experiment_configuration["evaluation"]["top_k"]
+
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
         Builds the loaders of the whole sequences of the three splits, takes the class names from the categories of

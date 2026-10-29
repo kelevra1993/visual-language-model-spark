@@ -40,10 +40,10 @@ scenes:
       keys: [ExperimentConfiguration.evaluation]
       comments: false
     highlights:
-      - {match: "per_class_report|number_sample_images|top_k|target_precision", sentences: [0]}
+      - {match: "per_class_report|number_sample_images|target_precision", sentences: [0]}
       - {match: "save_predictions|error_dumps|activated|maximum_per_class_pair", sentences: [1]}
     narration:
-      - "The evaluation section of a classification run sets the per class report, eight sample images, the top two accuracy, and the target precision of the thresholds."
+      - "The evaluation section of a classification run sets the per class report, eight sample images, and the target precision of the thresholds, while the top-k accuracy needs no setting."
       - "Save predictions writes the probabilities of every test image, and the error images, off in this run, save the misclassified images up to a number per pair of classes; the checks refuse them in the multi label mode."
 
   - kind: html

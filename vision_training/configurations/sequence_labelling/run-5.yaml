@@ -13,7 +13,7 @@ ExperimentConfiguration:
   # backbone modules, normalization and blocks, maximum sequence length, temporal module, classification head, classes,
   # optimizer and weight decay unless plain Adam), so that the same settings resume in the same folder and changed
   # settings start a new one, e.g. M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71. The
-  # augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision and dropout rates give
+  # augmentation, batch size, learning rate and its schedule, gradient clipping and dropout rates give
   # no token, so that a run can be resumed in its folder with changed values. The format is described in
   # vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/hyperparameter_experiments/sequence_labelling/run_5"
@@ -63,9 +63,6 @@ ExperimentConfiguration:
     # The sequences are spread over the class of most of their frames, then evenly over the sequences of each class.
     # 0 to disable.
     number_sample_images: 8
-    # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
-    # integer, values above the number of classes counting every sample as right.
-    top_k: 5
     # Precision that the score threshold of every class must reach, the threshold keeping the most samples of the
     # class (highest recall) at that precision being saved for deployment. Must be within [0, 1].
     target_precision: 0.99
@@ -100,23 +97,15 @@ ExperimentConfiguration:
     tracking_uri: null
     # MLflow experiment grouping the runs, null for the task name (e.g. "sequence_labelling").
     experiment_name: null
-    # Sends the configuration, the confusion matrices, the class metrics and thresholds and Results.txt as artifacts.
-    log_artifacts: True
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
-  # Flag to attempt loading the most recent checkpoint to resume training.
-  resume_training: true
   # Flag to let a resumed run train on data whose labels.json changed since its last start, the previous data.json
   # being kept as data_until_iteration_<n>.json. False stops such a resume with an error: changed data asks for a
-  # new run (resume_training false, or another experiment_folder). A moved data folder with the same labels resumes.
+  # new run (another run_name_suffix or experiment_folder). A moved data folder with the same labels resumes.
   allow_data_change_on_resume: false
   diagnosis_modes:
-      # Choice to print out everything about the model
-      verbose: False
       # Choice to compute Receptive-Field
       compute_receptive_field: True
-      # Choice to compute final model size
-      compute_model_size: True
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
       # frames of a sequence on a grid, each captioned with its class. SPACE shows the next sequences, ENTER closes the
       # viewer and exits the program without training, so set it to False to train. Requires a display (skipped with a
@@ -140,9 +129,6 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum norm of all the gradients together, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
-  # the test evaluation staying in float32 (the data type of every model).
-  mixed_precision: True
   # Exponential moving average (EMA) of the weights: a second copy of the model, never trained itself, moved towards
   # the trained weights after every optimizer step:
   #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
@@ -159,14 +145,6 @@ Optimization:
     decay: 0.9998
 
 Data:
-  loading:
-    # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
-    # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
-    # workers. 2 workers keep the GPU of two launches side by side about 95% busy at batch 64, both using about 54
-    # Gigabytes; 8 exhausted the 121 Gigabytes of the machine. 0 loads in the main process (debugging).
-    number_workers: 2
-    # Number of batches prepared in advance by every worker.
-    prefetch_batches: 2
   image_settings:
     # Target resolution to resize all the frames.
     size: 256
@@ -190,11 +168,11 @@ Data:
     # Probability that a training sequence is augmented at all. Each activated type below is then applied to that
     # sequence with its own probability, all the frames of a sequence sharing the same augmentation.
     probability: 0.4
-    # Sequence tasks only (False for the image tasks): draws the photometric augmentations below frame by frame,
+    # Sequence tasks only: draws the photometric augmentations below frame by frame,
     # every frame of an augmented sequence getting its own brightness, noise, colour... while the geometric
     # augmentations stay the same for all its frames, a crop or a rotation per frame making the objects jump.
     independent_frames: False
-    # Sequence tasks only (activated False for the image tasks): shuffles the real frames of a training sequence with
+    # Sequence tasks only: shuffles the real frames of a training sequence with
     # this probability, independently of the probability above, the padding frames staying last and each member of
     # a pair being shuffled on its own. For the sequences whose frame order carries no information (sets of photos).
     shuffle_frames: { activated: False, probability: 0.5 }
@@ -307,10 +285,6 @@ Backbone:
     # normalization) or "sequence" (Batch Normalization with the statistics of each sequence, at training
     # and at inference alike, a sequence being normalised by its own frames).
     feature_map_normalization: "batch"
-    # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
-    # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
-    # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
-    batch_normalization_momentum: 0.1
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
@@ -328,15 +302,12 @@ Backbone:
     # Output channels of every block using inception must be multiples of 8
     inception: False
 
-    # Convolution block (1-indexed) from which inception modules replace the plain convolutions
-    inception_starting_block: 3
-
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
   # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
   # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
-  # the ones above, the detection levels, the image size and the batch normalization momentum may differ.
+  # the ones above, the detection levels and the image size may differ.
   pretrained:
     # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load it again.
@@ -411,10 +382,6 @@ ClassificationHead:
   # the vectors of the batch), "layer" (statistics of every vector over its features) or "none". Needs at least one
   # hidden layer unless "none", and gives the HBN or HLN run name token.
   fully_connected_normalization: "layer"
-  # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
-  # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
-  # 100. Unused unless "batch", it gives no run name token and can change when a run resumes.
-  batch_normalization_momentum: 0.1
   # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.
   dropout_rate: 0.2
   # Must be "multi_class" for the sequence tasks: one class per frame (softmax).
@@ -425,8 +392,8 @@ ClassificationHead:
   # same, the weights being inversely proportional to the number of labelled training frames of each class).
   class_weighting: "balanced"
   # Classification head of another training run initialising this run instead of random weights. Its fully_connected
-  # layers and fully_connected_normalization must be identical in both runs (the dropout rate and the batch
-  # normalization momentum may differ), as well as the size of the vectors it reads. The classes of the source run, read
+  # layers and fully_connected_normalization must be identical in both runs (the dropout rate may
+  # differ), as well as the size of the vectors it reads. The classes of the source run, read
   # from its data.json, must be the first classes of this run, in the same order: classes may be appended after them,
   # keeping the random initialisation of this run.
   pretrained:

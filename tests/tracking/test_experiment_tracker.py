@@ -16,8 +16,7 @@ from vision_training.tracking.experiment_tracker import (ARTIFACTS_FOLDER_NAME, 
                                                          resolve_tracking_uri, write_run_record)
 
 # Tracking settings of the tests, on with the local database
-ACTIVATED_TRACKING_CONFIGURATION = {"activated": True, "tracking_uri": None, "experiment_name": None,
-                                    "log_artifacts": True}
+ACTIVATED_TRACKING_CONFIGURATION = {"activated": True, "tracking_uri": None, "experiment_name": None}
 
 
 def test_disabled_tracker_does_nothing(tmp_path: Path) -> None:

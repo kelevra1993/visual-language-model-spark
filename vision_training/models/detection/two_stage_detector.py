@@ -19,8 +19,6 @@ from vision_training.models.detection.target_assignment import (turn_boxes_to_tr
                                                                 add_ground_truth_proposals)
 from vision_training.models.detection.postprocessing import postprocess_detections
 from vision_training.losses.detection_losses import compute_detection_losses, compute_region_proposal_losses
-from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.tensor_utilities import print_tensor_shape
 
 
 class TwoStageDetector(TaskModel):
@@ -29,8 +27,7 @@ class TwoStageDetector(TaskModel):
     region proposal, and detector modules based on the configuration.
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False,
-                 device: torch.device = None, dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the detector of the object detection task, and the base of the instance segmenter: the shared backbone
         with its outputs at the detection levels, the region proposal head and the detection head of every level, the
@@ -39,8 +36,6 @@ class TwoStageDetector(TaskModel):
 
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary for the experiment.
-            verbose (bool): If True, prints a structural summary of the instantiated model architecture. Defaults to
-                False.
             device (torch.device): The device for parameter allocation.
             dtype (torch.dtype): The data type for parameter allocation.
         """
@@ -49,7 +44,6 @@ class TwoStageDetector(TaskModel):
         # Assign device and dtype globally for the model
         self.device = device
         self.dtype = dtype
-        self.verbose = verbose
 
         # Get configuration for each component of our model
         self.data_configuration = configuration['Data']
@@ -363,8 +357,8 @@ class TwoStageDetector(TaskModel):
                                                              dim=0) if has_labels else None}
 
     def _rearrange_predictions_by_batch(self, batch_size: int, detection_batch_indices: torch.Tensor,
-                                        prediction_tensors_dictionary: Dict[str, Optional[torch.Tensor]],
-                                        verbose: bool = False, ) -> Dict[str, Optional[torch.Tensor]]:
+                                        prediction_tensors_dictionary: Dict[str, Optional[torch.Tensor]]
+                                        ) -> Dict[str, Optional[torch.Tensor]]:
         """
         Re-arranges the flattened network predictions back into a batched list format.
         
@@ -380,8 +374,6 @@ class TwoStageDetector(TaskModel):
             prediction_tensors_dictionary (Dict[str, Optional[torch.Tensor]]): A dictionary containing the flattened
                 prediction tensors (e.g., classification_scores, detection_boxes). Each valid tensor must have a first
                 dimension of size K.
-            verbose (bool): If True, prints a structural summary of the resulting rearranged tensors. Defaults to
-                False.
 
         Returns:
             Dict[str, Optional[torch.Tensor]]: A dictionary where each key maps to a batched tensor of shape
@@ -407,16 +399,11 @@ class TwoStageDetector(TaskModel):
             if tensor_list is not None and len(tensor_list) > 0:
                 rearranged_predictions[tensor_name] = torch.stack(tensors=tensor_list, dim=0)
 
-        if verbose:
-            print_color(color="yellow", output=f"Re-Arranged Detection Output Information", add_separators=True)
-            for tensor_name, tensor_value in rearranged_predictions.items():
-                print_tensor_shape(tensor=tensor_value, name=tensor_name, indent=1)
-
         return rearranged_predictions
 
     def _prepare_detector_inputs(self, filtered_boxes: torch.Tensor, filtered_origins: torch.Tensor,
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
-                                 ground_truth_labels: Optional[List[torch.Tensor]] = None, verbose: bool = False
+                                 ground_truth_labels: Optional[List[torch.Tensor]] = None
                                  ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor],
                                             torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -433,7 +420,6 @@ class TwoStageDetector(TaskModel):
                 [Batch, Num_Proposals].
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes.
             ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth class labels.
-            verbose (bool): If True, prints a structural summary of the generated inputs. Defaults to False.
             
         Returns:
             Tuple containing:
@@ -474,7 +460,7 @@ class TwoStageDetector(TaskModel):
             sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
                 labels=detector_proposal_labels,
                 desired_positives=self.detector_configuration['number_training_positives'],
-                desired_total=self.detector_configuration['total_training_samples'], verbose=self.verbose)
+                desired_total=self.detector_configuration['total_training_samples'])
 
             sampled_mask = sampled_positive_mask | sampled_negative_mask
 
@@ -501,15 +487,6 @@ class TwoStageDetector(TaskModel):
             detection_labels = None
             detection_regression_targets = None
             detection_matched_ground_truth_indices = None
-
-        # Calculate and display the final breakdown detection input proposals for debugging
-        if verbose:
-            print_color(color="yellow", output="Detector Information", add_separators=True)
-            print_tensor_shape(tensor=detection_proposals, indent=1)
-            print_tensor_shape(tensor=detection_proposals_origins, indent=1)
-            if self.training:
-                print_tensor_shape(tensor=detection_labels, indent=1)
-                print_tensor_shape(tensor=detection_regression_targets, indent=1)
 
         return (detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets,
                 detection_batch_indices, detection_matched_ground_truth_indices)
@@ -694,8 +671,7 @@ class TwoStageDetector(TaskModel):
          detection_labels, detection_regression_targets, detection_batch_indices,
          detection_matched_ground_truth_indices) = self._prepare_detector_inputs(
             filtered_boxes=filtered_boxes, filtered_origins=filtered_origins,
-            ground_truth_bounding_boxes=ground_truth_bounding_boxes, ground_truth_labels=ground_truth_labels,
-            verbose=self.verbose)
+            ground_truth_bounding_boxes=ground_truth_bounding_boxes, ground_truth_labels=ground_truth_labels)
 
         # Route the formatted proposals to their appropriate detection heads to compute final box scores and regressions
         detection_output_tensor_dictionary = self._forward_detections(
@@ -715,7 +691,7 @@ class TwoStageDetector(TaskModel):
         model_output_dictionary = self._rearrange_predictions_by_batch(
             batch_size=input_tensor.shape[0],
             detection_batch_indices=aggregated_detections_dictionary["sliced_batch_indices"],
-            prediction_tensors_dictionary=aggregated_detections_dictionary, verbose=self.verbose)
+            prediction_tensors_dictionary=aggregated_detections_dictionary)
 
         # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections
         if not self.training:

@@ -38,12 +38,12 @@ scenes:
       - {match: "batch_size|^\\s*learning_rate:", sentences: [0]}
       - {match: "optimizer:|weight_decay", sentences: [1]}
       - {match: "learning_rate_schedule|warmup_iterations|decay_iterations|minimum_learning_rate_ratio", sentences: [2]}
-      - {match: "gradient_clipping_norm|mixed_precision|exponential_moving_average|activated|decay:", sentences: [3]}
+      - {match: "gradient_clipping_norm|exponential_moving_average|activated|decay:", sentences: [3]}
     narration:
       - "The experiment section sets the batch size and the learning rate of the run."
       - "The Optimization section picks the optimizer, Adam, AdamW or SGD, with its weight decay."
       - "Then comes the schedule of the learning rate: an optional linear warm-up, followed by a constant learning rate or a cosine decay."
-      - "Last, the clipping of the gradients, the mixed precision of the forward passes and the moving average of the weights."
+      - "Last, the clipping of the gradients and the moving average of the weights, the mixed precision needing no setting."
 
   - kind: html
     page: diagram
@@ -148,11 +148,11 @@ scenes:
       - {type: text, position: [1270, 320], text: "GPU memory per launch", font: diagram_small, colour: dim, anchor: mm, appear: 1}
       - {type: bars, box: [800, 350, 1740, 510], orientation: horizontal, values: [38.7, 20.4], maximum: 45, labels: ["float32", "mixed precision"], value_labels: ["38.7 GB", "20.4 GB"], label_width: 190, value_width: 160, colours: [blue, aqua], appear: 1, highlight: [1]}
       - {type: text, position: [1270, 590], text: "test accuracy level from iteration 750 on", font: diagram_text, anchor: mm, appear: 1}
-      - {type: text, position: [20, 520], text: "mixed_precision: True", font: diagram_monospace, anchor: la, appear: 2, highlight: [2]}
+      - {type: text, position: [20, 520], text: "always on, for every task: no setting", font: diagram_text, anchor: la, appear: 2, highlight: [2]}
     narration:
       - "With mixed precision, the training and validation forward passes run in bfloat16, half the bits of float32, while the weights, the optimizer and the test evaluation stay in float32."
       - "In the benchmark, a float32 launch took about one and a half times longer and thirty nine gigabytes instead of twenty, the test accuracy being level from iteration seven hundred and fifty on."
-      - "It is on in the synthetic configurations, and since it gives no run name token, it can change when a run resumes."
+      - "It is always on, for every task, so no configuration file has a setting for it."
 
   - kind: image
     title: "The moving average of the weights"
@@ -201,8 +201,8 @@ scenes:
       - {text: "Adam by default; AdamW, SGD and a weight decay enter the run name"}
       - {text: "A learning rate that learns: 2e-4 on the synthetic shapes"}
       - {text: "Warm-up, then constant or cosine, from the iteration alone"}
-      - {text: "Mixed precision: bfloat16 forward passes, faster and lighter"}
+      - {text: "Mixed precision always on: bfloat16 forward passes, faster and lighter"}
       - {text: "The averaged weights were ahead at every evaluation of the benchmark"}
     narration:
-      - "To sum up: pick a learning rate that learns, an optimizer and a schedule, keep the mixed precision on, and consider the moving average of the weights, ahead at every evaluation of the benchmark."
+      - "To sum up: pick a learning rate that learns, an optimizer and a schedule, the mixed precision being always on, and consider the moving average of the weights, ahead at every evaluation of the benchmark."
       - "The next chapter reads the results of a run: the evaluation files, the comparison of runs and the export of a model."

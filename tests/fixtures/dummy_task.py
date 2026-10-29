@@ -406,12 +406,10 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                 "batch_size": 2, "information_dump": 2, "weight_saving_iterations": 4,
                                 "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
                                 "validation_iteration_ratio": 2, "learning_rate": 0.01,
-                                "resume_training": True, "allow_data_change_on_resume": False,
+                                "allow_data_change_on_resume": False,
                                 "evaluation": {"per_class_report": True, "number_sample_images": 0},
-                                "tracking": {"activated": False, "tracking_uri": None, "experiment_name": None,
-                                             "log_artifacts": True},
-                                "diagnosis_modes": {"verbose": False, "compute_receptive_field": False,
-                                                    "compute_model_size": False, "view_input_images": False}}
+                                "tracking": {"activated": False, "tracking_uri": None, "experiment_name": None},
+                                "diagnosis_modes": {"compute_receptive_field": False, "view_input_images": False}}
     # Every augmentation type listed but turned off, the dummy samples being used as they are, the black-out grid
     # within the side of the dummy images as the checks require
     augmentation_types = {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}
@@ -419,8 +417,6 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
     model_configuration = {"Data": {"label_dictionary": {"negative": 0, "positive": 1},
                                     "image_settings": {"size": DUMMY_IMAGE_SIZE},
                                     "data_augmentation": {"activated": False, "probability": 0.0,
-                                                          "independent_frames": False,
-                                                          "shuffle_frames": {"activated": False, "probability": 0.0},
                                                           "types": augmentation_types}},
                            # No pretrained backbone, and plain Adam at a constant learning rate without moving average
                            "Backbone": {"pretrained": {"experiment_folder": None, "iteration": None, "freeze": False,
@@ -429,6 +425,6 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                            "Optimization": {"optimizer": "adam", "weight_decay": 0.0,
                                             "learning_rate_schedule": "constant", "warmup_iterations": 0,
                                             "decay_iterations": 100000, "minimum_learning_rate_ratio": 0.01,
-                                            "gradient_clipping_norm": None, "mixed_precision": False,
+                                            "gradient_clipping_norm": None,
                                             "exponential_moving_average": {"activated": False, "decay": 0.9998}}}
     return experiment_configuration, model_configuration

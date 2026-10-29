@@ -140,7 +140,6 @@ def test_self_supervised_loaders_keep_full_batches(tmp_path: Path) -> None:
                              for sample_identifier in range(1, number_samples + 1)])
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
     model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
-                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": False, "block_key": "camera",
                                                         "images_per_block": 2, "batch_key": None}}}
 
@@ -180,7 +179,6 @@ def test_loaders_report_the_samples_without_mapped_category(tmp_path: Path, caps
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
                                 for split_name in ["train", "validation", "test"]}
     model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
-                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": False, "block_key": "camera",
                                                         "images_per_block": 2, "batch_key": None}},
                            "ClassificationHead": {"output_mode": "multi_class"}}
@@ -216,7 +214,6 @@ def test_classifier_needing_batch_statistics_drops_its_last_training_batch(tmp_p
                              for sample_identifier in range(1, number_samples + 1)])
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
     model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
-                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": False, "block_key": "camera",
                                                         "images_per_block": 2, "batch_key": None}},
                            "ClassificationHead": {"output_mode": "multi_class"}}

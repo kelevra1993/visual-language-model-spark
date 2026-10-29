@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Tuple
 from tutorials.figures.figure_utilities import read_network_input, read_run_configuration
 from tutorials.tutorial_builder.settings import THREAD_COUNT
 from vision_training.data.augmentations import AugmentationReport, DataAugmenter
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.self_supervised.inference_encoder import InferenceEncoder
 from vision_training.models.self_supervised.self_supervised_model import SelfSupervisedModel
@@ -260,4 +261,4 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
             "run.number_sample_images": int(experiment_configuration["evaluation"]["number_sample_images"]),
             "run.activated_type_count": sum(bool(settings["activated"]) for settings in augmentation_types.values()),
             "run.type_count": len(augmentation_types),
-            "run.backbone_momentum": float(configuration["Backbone"]["normalization"]["batch_normalization_momentum"])}
+            "run.backbone_momentum": BATCH_NORMALIZATION_MOMENTUM}

@@ -50,15 +50,12 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "test_data_folder": str(dataset_folder / "test"), "batch_size": 2,
                                      "information_dump": 2, "weight_saving_iterations": 4,
                                      "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
-                                     "validation_iteration_ratio": 2, "resume_training": True})
-    experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": True, "compute_model_size": True,
-                                                        "view_input_images": False})
+                                     "validation_iteration_ratio": 2})
+    experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": True, "view_input_images": False})
 
     # Small frames, short members, a recurrent temporal module, the cross attention fusion and the generated label
     # mapping
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
-    # Two loader workers per split, enough for the small generated dataset
-    configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = SMOKE_NUMBER_FRAMES
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["TemporalModel"].update({"type": "gru", "hidden_size": 128, "bidirectional": True})

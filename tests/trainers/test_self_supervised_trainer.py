@@ -74,12 +74,11 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "test_data_folder": str(dataset_folder / "test"), "batch_size": 4,
                                      "information_dump": 2, "weight_saving_iterations": 4,
                                      "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
-                                     "validation_iteration_ratio": 2, "resume_training": True,
+                                     "validation_iteration_ratio": 2,
                                      "run_name_suffix": run_name_suffix})
 
-    # Small images, two loader workers per split, the label mapping of the generated dataset and a small head
+    # Small images, the label mapping of the generated dataset and a small head
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
-    configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ProjectionHead"].update({"fully_connected": [32, 16], **head_settings})
     configuration["Optimization"]["exponential_moving_average"]["activated"] = moving_average_activated
@@ -457,7 +456,6 @@ def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> 
                                   for split_name in split_categories},
         model_configuration={"Data": {"image_settings": {"size": 32, "keep_ratio": True},
                                       "label_dictionary": {1: 0, 5: 1},
-                                      "loading": {"number_workers": 0, "prefetch_batches": 2},
                                       "grouped_batches": {"activated": False, "block_key": "camera",
                                                           "images_per_block": 2, "batch_key": None}}}, batch_size=2)
     SelfSupervisedTrainer.build_dataloaders(self=trainer)

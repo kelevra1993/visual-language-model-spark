@@ -106,7 +106,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
                         number_sample_images: int, configuration_text: str = "dummy: true\n",
                         moving_average_activated: bool = False, number_training_samples: int = 8,
                         allow_data_change_on_resume: bool = False, run_name: Optional[str] = None,
-                        resume_training: bool = True, label_dictionary: Optional[Dict[Any, int]] = None,
+                        label_dictionary: Optional[Dict[Any, int]] = None,
                         training_dataset: Optional[Dataset] = None) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
@@ -124,8 +124,6 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         allow_data_change_on_resume (bool): Whether the run may resume on changed labels. Defaults to False.
         run_name (Optional[str]): The name of the run folder, as given by a standalone evaluation, None for the name
             of the dummy trainer. Defaults to None.
-        resume_training (bool): Whether the run resumes from the last checkpoint of its folder, False to train from
-            scratch. Defaults to True.
         label_dictionary (Optional[Dict[Any, int]]): The label dictionary given by the mapping file, None for the one
             of the dummy configuration. Defaults to None.
         training_dataset (Optional[Dataset]): The training split, None for number_training_samples readable samples.
@@ -142,7 +140,6 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
     experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
     experiment_configuration["allow_data_change_on_resume"] = allow_data_change_on_resume
     experiment_configuration["run_name"] = run_name
-    experiment_configuration["resume_training"] = resume_training
     if label_dictionary is not None:
         model_configuration["Data"]["label_dictionary"] = label_dictionary
     model_configuration["Optimization"]["exponential_moving_average"] = {"activated": moving_average_activated,
@@ -602,7 +599,7 @@ def test_resumed_run_keeps_its_classes_when_the_mapping_changes(tmp_path: Path,
     """
     Verifies that the label dictionary of a run is saved in its folder ('label_dictionary.json') and in its
     checkpoints, that a run resumed after its mapping file swapped the two classes keeps the classes it was trained
-    with, with a message, and that a run started from scratch takes the classes of the edited mapping file.
+    with, with a message, and that a new run, in another folder, takes the classes of the edited mapping file.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -628,58 +625,15 @@ def test_resumed_run_keeps_its_classes_when_the_mapping_changes(tmp_path: Path,
     assert json.loads(s=run_label_dictionary_path.read_text()) == trained_label_dictionary
     assert "The Label Mapping Changed Since The Run Started, The Run Keeps Its Own Classes" in capsys.readouterr().out
 
-    # A run started from scratch trains the classes of the edited mapping file
-    new_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False,
-                                      number_sample_images=0, label_dictionary=swapped_label_dictionary,
-                                      resume_training=False)
+    # A new run, in another folder, trains the classes of the edited mapping file
+    new_run_directory = tmp_path / "new_run"
+    new_run_directory.mkdir()
+    new_trainer = build_dummy_trainer(temporary_directory=new_run_directory, number_iterations=4,
+                                      view_input_images=False, number_sample_images=0,
+                                      label_dictionary=swapped_label_dictionary)
     assert new_trainer.label_dictionary == swapped_label_dictionary
-    assert json.loads(s=run_label_dictionary_path.read_text()) == swapped_label_dictionary
-
-
-def test_fresh_start_moves_the_previous_training_aside(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that a run started from scratch ('resume_training' false) in the folder of a previous training of the
-    same settings moves that folder aside as 'v1_<run name>', then 'v2_<run name>' at the next restart, so that the
-    checkpoints, registry and results of two trainings are never mixed, and that a standalone evaluation naming the run
-    folder moves nothing.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    experiments_folder = tmp_path / "experiments"
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
-                                  number_sample_images=0)
-    trainer.run_training_loop()
-    assert trainer.previous_run_folder is None
-
-    # A first restart moves the trained run aside, the new training starting from iteration 1 in an empty run folder
-    restarted_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
-                                            number_sample_images=0, resume_training=False)
-    assert restarted_trainer.previous_run_folder == experiments_folder / "v1_dummy_run"
-    assert (experiments_folder / "v1_dummy_run" / "Weights" / "Iteration_2" / "model_000002.pt").is_file()
-    assert restarted_trainer.start_iteration == 1
-    assert list(restarted_trainer.weights_directory.glob(pattern="Iteration_*")) == []
-    restarted_trainer.run_training_loop()
-    assert (restarted_trainer.weights_directory / "full-checkpoint").read_text().splitlines()[1:] == [
-        'all_model_checkpoint_paths: "Iteration_2"']
-    assert "The Previous Training Of The Same Settings Is Moved To" in capsys.readouterr().out
-
-    # A second restart keeps the first training and moves the second one aside
-    second_restarted_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2,
-                                                   view_input_images=False, number_sample_images=0,
-                                                   resume_training=False)
-    assert second_restarted_trainer.previous_run_folder == experiments_folder / "v2_dummy_run"
-    assert sorted(path.name for path in experiments_folder.iterdir()) == ["dummy_run", "v1_dummy_run",
-                                                                         "v2_dummy_run"]
-
-    # A standalone evaluation names the run folder it reads, which is never moved
-    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2,
-                                             view_input_images=False, number_sample_images=0, run_name="dummy_run",
-                                             resume_training=False)
-    assert evaluation_trainer.previous_run_folder is None
-    assert sorted(path.name for path in experiments_folder.iterdir()) == ["dummy_run", "v1_dummy_run",
-                                                                         "v2_dummy_run"]
+    assert json.loads(s=(new_trainer.experiment_folder / RUN_LABEL_DICTIONARY_FILE_NAME).read_text()) == \
+        swapped_label_dictionary
 
 
 def test_unreadable_images_drop_their_batches_without_stopping_the_training(tmp_path: Path,

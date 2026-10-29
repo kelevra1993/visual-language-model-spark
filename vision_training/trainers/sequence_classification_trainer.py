@@ -44,6 +44,9 @@ class SequenceClassificationTrainer(ClassificationTrainer):
     # Real frames of the training batches counted for the frame throughput of the console summaries
     COUNTS_FRAMES = True
 
+    # Sequence settings of the data augmentation, the photometric types drawn frame by frame and the shuffled frames
+    SEQUENCE_AUGMENTATION = True
+
     # Sequences of a sample stored one after the other along its frame axis: one sequence, two members for the pairs
     MEMBERS_PER_SAMPLE = 1
 

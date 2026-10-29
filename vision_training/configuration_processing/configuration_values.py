@@ -145,9 +145,10 @@ def check_probability_value(value: Any, key_path: str) -> List[str]:
 
 def check_batch_normalization_momentum(configuration: Dict[str, Any], key_path: str) -> List[str]:
     """
-    Verifies that the momentum of the batch normalization layers of a component (backbone, task heads, decoder) is a
-    number within (0, 1]: the fraction by which every training batch moves their running mean and variance (PyTorch
-    convention), 0 leaving the statistics of an untrained network forever and 1 keeping the last batch only.
+    Verifies that the momentum of the batch normalization layers of a component (task heads, decoder, high resolution
+    network, projection head) is a number within (0, 1]: the fraction by which every training batch moves their
+    running mean and variance (PyTorch convention), 0 leaving the statistics of an untrained network forever and 1
+    keeping the last batch only.
 
     Args:
         configuration (Dict[str, Any]): The configuration dictionary containing the momentum.

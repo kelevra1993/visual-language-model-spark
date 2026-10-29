@@ -101,9 +101,9 @@ A dataset generated now holds the 35 classes of `SHAPE_CATEGORIES` (a k-NN chanc
 
 ### Pitfalls
 
-- The first checkpoints look collapsed whatever the training: the test images and the validation batches are encoded in evaluation mode, whose batch normalization uses running statistics updated at momentum 0.1 (`Backbone.normalization.batch_normalization_momentum`, `ProjectionHead.batch_normalization_momentum`). After 12 iterations every test image got almost the same representation (mean pairwise cosine 1.0, against 0.774 in training mode), hence an effective rank of 1.05, a views similarity of 1.000 and a validation InfoNCE of exactly ln(2N - 1) (Step 4.9 and Step 3.20 of this document).
+- The first checkpoints look collapsed whatever the training: the test images and the validation batches are encoded in evaluation mode, whose batch normalization uses running statistics updated at momentum 0.1 (`BATCH_NORMALIZATION_MOMENTUM`, fixed for the backbone, and `ProjectionHead.batch_normalization_momentum`). After 12 iterations every test image got almost the same representation (mean pairwise cosine 1.0, against 0.774 in training mode), hence an effective rank of 1.05, a views similarity of 1.000 and a validation InfoNCE of exactly ln(2N - 1) (Step 4.9 and Step 3.20 of this document).
 - A cue shared by both views lets the loss fall without learning the content: the colour of a shape when the colour types are off, or its position when the crops are too large. A `Positive Pair Accuracy` near 1 long before the k-NN accuracy rises shows it, and the input viewer shows the views with their drawn augmentations before a training ([tasks reference, Self-Supervised Learning](../reference/tasks_reference.md#self-supervised-learning-ssl), Views and Training metrics; `self_supervised.md`, Checks Left To Run).
-- The views, the batch size, the learning rate and the grouped batches give no run name token: a run of the same settings with stronger views or another batch size resumes the previous run folder (`resume_training: true`) unless `run_name_suffix` is set (`build_self_supervised_sections()` of `run_name.py`; the comment of `run_name_suffix` in the configuration).
+- The views, the batch size, the learning rate and the grouped batches give no run name token: a run of the same settings with stronger views or another batch size resumes the previous run folder, a run always resuming, unless `run_name_suffix` is set (`build_self_supervised_sections()` of `run_name.py`; the comment of `run_name_suffix` in the configuration).
 - Blocks 2, 4 and 6 of the synthetic configuration (16 to 32, 32 to 64 and 64 to 128 channels, 2 layers each) add no residual shortcut, so only blocks 3 and 5 list `Residual Shortcuts` in the backbone summary, and a backbone transferred to another task keeps this layout (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`; `suggestions.md` H4, open).
 
 ## Table of Contents
@@ -140,13 +140,14 @@ main()
 │   │       Reads the mapping file {category identifier: class index}, without background. The classes only serve
 │   │       the k-nearest neighbour evaluation: the training never reads a label.
 │   └── check_configuration()
-│       ├── common checks                         the removed sections first (Data.view_augmentation), then
-│       │                                         experiment, data (with the flag and probability of every
-│       │                                         augmentation type), backbone, optimization (see classification)
+│       ├── common checks                         the removed settings and sections first (resume_training,
+│       │                                         Data.loading, Data.view_augmentation...), then experiment, data
+│       │                                         (with the flag and probability of every augmentation type),
+│       │                                         backbone, optimization (see classification)
 │       └── check_self_supervised_configuration()
 │               ├── data:       multi_class label mode, classes 0..K-1, Data.data_augmentation on (its types draw the
 │               │               views) and random_crop at probability 1.0 when it is activated
-│               ├── no sequence settings (check_image_task_sequence_settings)
+│               ├── no sequence normalization (check_image_task_sequence_settings)
 │               ├── grouped:    Data.grouped_batches: activated flag, block_key a string, batch_key null or a string,
 │               │               images_per_block >= 2, dividing the batch size when the section is on
 │               ├── head:       check_projection_head_configuration(): pooling, layers, normalization, method
@@ -162,8 +163,8 @@ main()
 │   │
 │   └── BaseTrainer.__init__()
 │       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, refusal
-│       │   of a resume on changed labels, previous training moved aside, paths, loaders and their check, record of
-│       │   the data, sample images, model, pretrained components, optimizer and moving average of the weights,
+│       │   of a resume on changed labels, paths, loaders and their check, record of the data, sample images,
+│       │   model, pretrained components, optimizer and moving average of the weights,
 │       │   metric tracker, printouts, input viewer, analysis of the training data (nothing for this task),
 │       │   restoration.
 │       │
@@ -172,11 +173,10 @@ main()
 │       │       (SIMCLR-T<temperature> or BT-OD<off-diagonal weight>) and the run_name_suffix if not null.
 │       │       The DataAugmenter takes SELF_SUPERVISED_AUGMENTATION_STRENGTHS: it draws the two random views
 │       │       of every image.
-│       ├── restore_run_label_dictionary() / check_resumed_data() / move_previous_run_folder() / setup_training_paths()
+│       ├── restore_run_label_dictionary() / check_resumed_data() / setup_training_paths()
 │       │       A resumed run keeps the classes of its label_dictionary.json and is refused when the labels.json of
-│       │       a split changed since its data.json, a training from scratch renames the run folder of a previous
-│       │       training of the same settings v<n>_<run name>, then the run folder is created with the configuration
-│       │       and label_dictionary.json (classification_workflow.md, Step 2.6).
+│       │       a split changed since its data.json, then the run folder is created with the configuration and
+│       │       label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Builds the three loaders and names the classes after the categories of the three manifests.
 │       │   │
@@ -294,7 +294,7 @@ raw number_iterations:  '1e10'                       -> after loading: 100000000
 experiment keys:        task, experiment_folder, run_name_suffix, train_data_folder, validation_data_folder,
                         test_data_folder, batch_size, information_dump, weight_saving_iterations,
                         intermediate_weight_saving_iterations, number_iterations, validation_iteration_ratio, evaluation,
-                        tracking, learning_rate, resume_training, allow_data_change_on_resume, diagnosis_modes,
+                        tracking, learning_rate, allow_data_change_on_resume, diagnosis_modes,
                         tracking_root, run_name
 model keys:             ['Optimization', 'Data', 'Backbone', 'ProjectionHead']
 task:                   'self_supervised'
@@ -342,9 +342,9 @@ Invalid Configuration File : configuration_wrong.yaml
 SystemExit code 1
 ```
 
-A configuration still holding `Data.view_augmentation`, the section of the views before they were drawn by the data augmentation, is refused alone, before any other check, by `check_removed_sections()`.
+A configuration still holding `Data.view_augmentation`, the section of the views before they were drawn by the data augmentation, is refused alone, before any other check, by `check_removed_settings()`, as are the settings fixed in the code since (`resume_training`, `mixed_precision`, `Data.loading`...).
 
-**Example output: the configuration of the synthetic shapes before the merge of the two augmentations**
+**Example output: the configuration of the synthetic shapes before the merge of the two augmentations** (recorded before the fixed settings were removed: the same file now also gets a line for every fixed setting it holds)
 ```text
 --------------------------------------------------------------------------------
 Invalid Configuration File : configuration_before_single_data_augmentation.yaml
@@ -381,7 +381,7 @@ The constructor of every task (see `classification_workflow.md`, Step 2.2).
 **Example: the settings it stores**
 ```text
 device: cpu   per_class_report: True   number_sample_images: 8   input_image_size: 256   batch_size: 128
-mixed_precision: True   start_iteration: 1   dtype: torch.float32
+start_iteration: 1   dtype: torch.float32
 ```
 
 ### Step 2.3 — `get_device()`
@@ -424,7 +424,7 @@ black_out_grid_size: 8   second view only: ['random_solarize', 'random_black_out
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-Creates the run folder, copies the YAML file into it and writes the label dictionary of the run (`label_dictionary.json`), then the constructor writes the data record once the loaders exist. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading. Before it, `restore_run_label_dictionary()` keeps the classes of a resumed run, `check_resumed_data()` refuses the resume of a run whose `labels.json` changed since its `data.json` (unless `allow_data_change_on_resume` is true) and `move_previous_run_folder()` renames the folder of a previous training of the same settings when the run starts from scratch, as for every task (see `classification_workflow.md`, Step 2.6).
+Creates the run folder, copies the YAML file into it and writes the label dictionary of the run (`label_dictionary.json`), then the constructor writes the data record once the loaders exist. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading. Before it, `restore_run_label_dictionary()` keeps the classes of a resumed run, `check_resumed_data()` refuses the resume of a run whose `labels.json` changed since its `data.json` (unless `allow_data_change_on_resume` is true), as for every task (see `classification_workflow.md`, Step 2.6).
 
 **Example: the run folder after the construction**
 ```text
@@ -478,7 +478,7 @@ dataset[0]:       images [3, 256, 256] torch.uint8 in [14, 231]   labels () torc
 ### Step 2.10 — `build_native_loader()`
 Same torch DataLoader as the classification. With grouped batches, the DataLoader receives the `GroupedBatchSampler` as its `batch_sampler` instead of the batch size, the shuffling and `drop_last`, which it refuses next to a batch sampler: it then reads `batch_size None` and `drop_last False`, its length being the number of batches of the sampler.
 
-**Example: the training loader**
+**Example: the training loader** (recorded with 2 workers, when the number of workers was a setting; every loader now has 4)
 ```text
 len 3906   batch_size 128   num_workers 2   prefetch_factor 2   pin_memory True   persistent_workers True   drop_last True
 ```
@@ -638,15 +638,13 @@ barlow_twins: {'total_loss': 'Total Loss', 'barlow_twins_loss': 'Barlow Twins Lo
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
 - Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
-- Mixed Precision         : True
-- Resume Training         : True
 - Validation Iter. Ratio  : 5
 - MLflow Tracking         : Off
 ```
 The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up, except the classification and sequence tasks whose training loader drops it too, for a batch normalized classification head (see `classification_workflow.md`, Step 2.10).
 
 ### Step 2.20 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the receptive field and the size of every component.
+The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the receptive field (with `diagnosis_modes.compute_receptive_field`) and the size of every component, always printed.
 
 **Example output** (shortened)
 ```text

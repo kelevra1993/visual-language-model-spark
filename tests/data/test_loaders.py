@@ -10,7 +10,7 @@ import torch
 
 from torch.utils.data import Dataset
 
-from vision_training.data.loaders import build_native_loader
+from vision_training.data.loaders import NUMBER_LOADER_WORKERS, PREFETCH_BATCHES, build_native_loader
 
 
 class OpenCVThreadsDataset(Dataset):
@@ -43,19 +43,19 @@ class OpenCVThreadsDataset(Dataset):
 
 def test_native_loader_with_workers() -> None:
     """
-    Verifies that the loader of a dataset uses the 'Data.loading' settings: worker processes kept alive between
-    epochs, the prefetch depth, pinned memory, and workers decoding with a single OpenCV thread, also when OpenCV has
-    already run its thread pool in the main process (setting the threads inside a forked worker then blocks forever).
+    Verifies that the loader of a dataset uses the fixed loading settings of the trainings: NUMBER_LOADER_WORKERS worker
+    processes kept alive between epochs, PREFETCH_BATCHES batches prefetched by each, pinned memory, and workers
+    decoding with a single OpenCV thread, also when OpenCV has already run its thread pool in the main process (setting
+    the threads inside a forked worker then blocks forever).
     """
     number_threads = cv2.getNumThreads()
 
     # OpenCV thread pool started in this process before the loader exists
     cv2.resize(src=np.zeros(shape=(2000, 2000, 3), dtype=np.uint8), dsize=(500, 500))
-    loader = build_native_loader(dataset=OpenCVThreadsDataset(), batch_size=2,
-                                 loading_configuration={"number_workers": 2, "prefetch_batches": 3})
-    assert loader.num_workers == 2
+    loader = build_native_loader(dataset=OpenCVThreadsDataset(), batch_size=2)
+    assert loader.num_workers == NUMBER_LOADER_WORKERS
     assert loader.persistent_workers is True
-    assert loader.prefetch_factor == 3
+    assert loader.prefetch_factor == PREFETCH_BATCHES
     assert loader.pin_memory is True
 
     # Two epochs read by the same workers, every one of them with a single OpenCV thread
@@ -71,8 +71,7 @@ def test_native_loader_without_workers() -> None:
     """
     Verifies that 0 workers loads the samples in the main process, without the settings that need worker processes.
     """
-    loader = build_native_loader(dataset=OpenCVThreadsDataset(), batch_size=2,
-                                 loading_configuration={"number_workers": 0, "prefetch_batches": 2})
+    loader = build_native_loader(dataset=OpenCVThreadsDataset(), batch_size=2, number_workers=0)
     assert loader.num_workers == 0
     assert loader.persistent_workers is False
     assert loader.prefetch_factor is None
@@ -86,12 +85,10 @@ def test_native_loader_keeps_the_sample_order_without_shuffle() -> None:
     default loader shuffles them.
     """
     dataset = torch.utils.data.TensorDataset(torch.arange(end=64))
-    ordered_loader = build_native_loader(dataset=dataset, batch_size=8, shuffle=False,
-                                         loading_configuration={"number_workers": 0, "prefetch_batches": 2})
+    ordered_loader = build_native_loader(dataset=dataset, batch_size=8, shuffle=False, number_workers=0)
     for _ in range(2):
         assert torch.cat(tensors=[batch[0] for batch in ordered_loader]).tolist() == list(range(64))
 
     # The default loader shuffles, 64 samples left in their order by chance having a probability of 1 / 64!
-    shuffled_loader = build_native_loader(dataset=dataset, batch_size=8,
-                                          loading_configuration={"number_workers": 0, "prefetch_batches": 2})
+    shuffled_loader = build_native_loader(dataset=dataset, batch_size=8, number_workers=0)
     assert torch.cat(tensors=[batch[0] for batch in shuffled_loader]).tolist() != list(range(64))

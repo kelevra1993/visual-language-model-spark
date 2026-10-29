@@ -139,7 +139,7 @@ The classes and shape rules of every dataset are in the [tasks reference](docume
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/my_configuration.yaml"
 ```
 
-The configuration is checked before anything starts: a missing key, a value the task cannot use or an inconsistent combination stops the program with the list of every problem found.
+The configuration is checked before anything starts: a missing key, a value the task cannot use or an inconsistent combination stops the program with the list of every problem found. A setting removed from the configuration files, such as `resume_training` or `mixed_precision` now fixed in the code, is refused with a message naming what replaced it.
 
 ### Run Folder
 A run is saved in `<experiment_folder>/<run name>/`, the run name being built from its settings ([Run Names](#run-names)):
@@ -179,10 +179,10 @@ Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the 
 
 ### Stopping And Resuming
 - Ctrl+C stops the training and saves a checkpoint of the last training step.
-- With `resume_training: true`, launching the same configuration again resumes from the last checkpoint of its run folder, with its optimizer state. `number_iterations` is the total of the run, not the iterations left.
-- The settings that give no run name token, such as the augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision, moving average of the weights and dropout rates, can change between two resumptions. The changed settings are printed, and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
+- Launching the same configuration again always resumes from the last checkpoint of its run folder, with its optimizer state. `number_iterations` is the total of the run, not the iterations left.
+- The settings that give no run name token, such as the augmentation, batch size, learning rate and its schedule, gradient clipping, moving average of the weights and dropout rates, can change between two resumptions. The changed settings are printed, and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
 - Changed labels (another SHA-256 of a `labels.json`) stop the resume, unless `ExperimentConfiguration.allow_data_change_on_resume` is true.
-- With `resume_training: false`, a run folder already holding a training of the same settings is moved aside as `v<n>_<run name>`. To keep a new run next to the previous one instead, give it a `run_name_suffix`.
+- To train the same settings from scratch, give the run another `run_name_suffix` or `experiment_folder`, or move its run folder away.
 - A failing iteration is reported in yellow and the training goes on; more than 5 failing iterations in a row stop it, saving a checkpoint.
 
 The rules of every case are in the [training reference](documentation/reference/training_reference.md#stopping-and-resuming).
@@ -236,8 +236,8 @@ CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1; DET, INS, KPT and SEG p
 
 ### Classification (CLS)
 Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`, softmax) or every class present in it (`"multi_label"`, sigmoid). The manifest lists every image with its `category_id` (or `category_ids`). `vision_training/data/classification/class_folder_manifests.py` converts one folder of images per class without copying them, and `imagenet_download.py` downloads ImageNet-1k.
-- **Configuration**: `classification/configuration_example.yaml`, with `ClassificationHead` (global pooling, fully connected layers and their normalization, label smoothing, class weighting, decorrelation of the hidden features) and the evaluation keys `top_k`, `target_precision`, `save_predictions` and `error_dumps`.
-- **Evaluation**: accuracy, balanced accuracy, macro F1, top-k accuracy, the precision, recall, F1, ROC AUC and average precision of every class, the confusion matrix, the score threshold of every class reaching `target_precision` (a number, or a list such as `[0.99, 0.95, 0.90]` giving the threshold and recall of every class at each precision, written on `precision_recall_thresholds.png`), and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/`.
+- **Configuration**: `classification/configuration_example.yaml`, with `ClassificationHead` (global pooling, fully connected layers and their normalization, label smoothing, class weighting, decorrelation of the hidden features) and the evaluation keys `target_precision`, `save_predictions` and `error_dumps`.
+- **Evaluation**: accuracy, balanced accuracy, macro F1, top-5 accuracy, the precision, recall, F1, ROC AUC and average precision of every class, the confusion matrix, the score threshold of every class reaching `target_precision` (a number, or a list such as `[0.99, 0.95, 0.90]` giving the threshold and recall of every class at each precision, written on `precision_recall_thresholds.png`), and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/`.
 
 <p align="center">
   <img src="README/classification_sample.png" width="60%" />
@@ -468,7 +468,7 @@ Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.y
 The keys of every task and the values they accept are tabled in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
 
 ## Run Names
-The run name is built from the configuration by `vision_training/configuration_processing/run_name.py`, so that the same settings resume in the same folder and changed settings start a new one. It is made of sections joined with `_`, the tokens of a section being joined with `-`. The settings that can change between two resumptions give no token, such as the augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision, moving average of the weights, dropout rates and loss weights. `ExperimentConfiguration.run_name_suffix` (letters, digits, `-` and `.`) ends the name, to start a run of its own with the same settings.
+The run name is built from the configuration by `vision_training/configuration_processing/run_name.py`, so that the same settings resume in the same folder and changed settings start a new one. It is made of sections joined with `_`, the tokens of a section being joined with `-`. The settings that can change between two resumptions give no token, such as the augmentation, batch size, learning rate and its schedule, gradient clipping, moving average of the weights, dropout rates and loss weights. `ExperimentConfiguration.run_name_suffix` (letters, digits, `-` and `.`) ends the name, to start a run of its own with the same settings.
 
 | Task | Run name |
 |---|---|
@@ -548,6 +548,7 @@ tutorials/build_tutorials.sh --check-references
 │   ├── deployment/                    # Export, Triton configuration and server, frame selection decoder, throughput measurement
 │   └── utilities/                     # File, tensor, mask morphology and visualization helpers
 ├── scripts/                           # Checkpoint evaluation, launch comparison and image embedding clustering scripts
+│   ├── configuration_processing/      # Removal of the fixed settings from the configuration files written before
 │   ├── data/                          # Random subset of the sequences of a split, figures of the augmentation strengths
 │   ├── embedding/                     # Clustering of the image embeddings of a run, kept diverse images
 │   └── evaluation/                    # Checkpoint evaluation, launch comparison, best evaluations of runs

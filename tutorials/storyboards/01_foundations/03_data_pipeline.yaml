@@ -36,14 +36,13 @@ scenes:
       - {type: box, box: [30, 290, 290, 450], text: "images\n+ labels.json\nof the split", font: diagram_small}
       - {type: arrow, points: [[300, 370], [380, 370]], appear: 0}
       - {type: box, box: [390, 90, 760, 650], outline: blue, appear: 0, highlight: [0]}
-      - {type: text, position: [575, 125], text: "number_workers processes", font: diagram_small, colour: dim, anchor: mm, appear: 0}
+      - {type: text, position: [575, 125], text: "4 worker processes", font: diagram_small, colour: dim, anchor: mm, appear: 0}
       - {type: box, box: [410, 170, 740, 230], text: "worker 1 · read, resize", font: diagram_small, appear: 0}
-      - {type: box, box: [410, 260, 740, 320], text: "worker 2 · read, resize", font: diagram_small, appear: 0}
-      - {type: box, box: [410, 350, 740, 410], text: "worker 3 · read, resize", font: diagram_small, appear: 0}
-      - {type: text, position: [575, 460], text: "...", font: diagram_bold, colour: dim, anchor: mm, appear: 0}
-      - {type: box, box: [410, 520, 740, 580], text: "worker n · read, resize", font: diagram_small, appear: 0}
+      - {type: box, box: [410, 287, 740, 347], text: "worker 2 · read, resize", font: diagram_small, appear: 0}
+      - {type: box, box: [410, 403, 740, 463], text: "worker 3 · read, resize", font: diagram_small, appear: 0}
+      - {type: box, box: [410, 520, 740, 580], text: "worker 4 · read, resize", font: diagram_small, appear: 0}
       - {type: arrow, points: [[770, 370], [860, 370]], appear: 1}
-      - {type: box, box: [870, 290, 1130, 450], text: "prefetch_batches\nready per worker", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [870, 290, 1130, 450], text: "2 batches\nready per worker", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1140, 370], [1220, 370]], appear: 2, flow: true, highlight: [2]}
       - {type: box, box: [1230, 100, 1740, 640], outline: aqua, appear: 2, highlight: [2]}
       - {type: text, position: [1485, 140], text: "GPU", font: diagram_bold, anchor: mm, appear: 2}
@@ -52,26 +51,26 @@ scenes:
       - {type: box, box: [1270, 340, 1700, 440], text: "input normalization\nfirst layer of the model", font: diagram_small, outline: violet, appear: 2}
       - {type: arrow, points: [[1485, 445], [1485, 485]], appear: 2}
       - {type: box, box: [1270, 490, 1700, 590], text: "backbone\nand head of the task", font: diagram_small, outline: blue, appear: 2}
-      - {type: text, position: [575, 715], text: "number_workers: 0 loads in the main process, for debugging", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+      - {type: text, position: [575, 715], text: "fixed in the code: 4 workers, 2 batches ahead each", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
     narration:
-      - "The loader workers read the images listed in the labels file and resize them to the input size, each decoding with a single OpenCV thread."
-      - "Every worker keeps its prefetch batches ready in advance, and the training, validation and test loaders each have their own workers, alive for the whole run."
+      - "Four loader workers read the images listed in the labels file and resize them to the input size, each decoding with a single OpenCV thread."
+      - "Every worker keeps two batches ready in advance, and the training, validation and test loaders each have their own workers, alive for the whole run."
       - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
-      - "Should you need to debug the loading, zero workers load the images in the main process, which only serves that purpose."
+      - "The four workers and their two batches in advance are fixed in the code, the same for every task, so no configuration file sets them."
 
   - kind: yaml
-    title: "Loading, image size and pixel range"
+    title: "Image size and pixel range"
     code_reference: "vision_training/models/components/input_normalization.py · InputNormalizer.forward"
     source:
       file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
-      keys: [Data.loading, Data.image_settings, Backbone.normalization.input_normalization, Backbone.normalization.per_sample_normalization]
+      keys: [Data.image_settings, Backbone.normalization.input_normalization, Backbone.normalization.per_sample_normalization]
       comments: false
     highlights:
-      - {match: "number_workers|prefetch_batches", sentences: [0]}
+      - {match: "image_settings:", sentences: [0]}
       - {match: "size:|keep_ratio", sentences: [1]}
       - {match: "input_normalization|per_sample_normalization", sentences: [2]}
     narration:
-      - "In the data section, the loading sets the number of workers and the batches each one prepares in advance."
+      - "In the data section, the image settings tell the loaders how to prepare every image for the network."
       - "The image settings give the square input size of the network, and whether the images keep their aspect ratio."
       - "In the backbone section, the input normalization maps the pixels from zero to two hundred and fifty five onto minus one half to one half, and the per-sample normalization would also standardize every image on its own."
 

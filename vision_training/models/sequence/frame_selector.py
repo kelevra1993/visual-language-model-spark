@@ -29,19 +29,17 @@ class FrameSelector(SequenceLabeller):
     'selection_loss' when labels are given.
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
-                 dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the sequence labeller and reads the weight of the selection loss.
 
         Args:
             configuration (Dict[str, Any]): The model configuration (Data with its label dictionary and sequence
                 settings, Backbone, TemporalModel, ClassificationHead and Selection sections).
-            verbose (bool): Unused, kept so that every task model is built with the same arguments.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
         """
-        super(FrameSelector, self).__init__(configuration=configuration, verbose=verbose, device=device, dtype=dtype)
+        super(FrameSelector, self).__init__(configuration=configuration, device=device, dtype=dtype)
         self.selection_loss_weight = configuration["Selection"]["selection_loss_weight"]
 
         # Wanted classes (1) and unselected class (0), every class being wanted until the trainer sets the unselected

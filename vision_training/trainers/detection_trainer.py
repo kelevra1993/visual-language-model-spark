@@ -143,8 +143,7 @@ class DetectionTrainer(CocoSplitTrainer):
         Returns:
             TwoStageDetector: The untrained detector.
         """
-        return TwoStageDetector(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
-                                verbose=self.diagnosis_modes["verbose"])
+        return TwoStageDetector(configuration=self.model_configuration, device=self.device, dtype=self.dtype)
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """

@@ -7,7 +7,6 @@ mixed precision training.
 import math
 import pytest
 import torch
-import yaml
 
 from pathlib import Path
 from typing import Any, Dict
@@ -32,7 +31,7 @@ def get_optimization_configuration(learning_rate_schedule: str) -> Dict[str, Any
     """
     return {"optimizer": "adam", "weight_decay": 0.0, "learning_rate_schedule": learning_rate_schedule,
             "warmup_iterations": 4, "decay_iterations": 10, "minimum_learning_rate_ratio": 0.1,
-            "gradient_clipping_norm": None, "mixed_precision": False,
+            "gradient_clipping_norm": None,
             "exponential_moving_average": {"activated": False, "decay": 0.9998}}
 
 
@@ -97,9 +96,9 @@ def test_optimizer_schedule_and_clipping_in_training(tmp_path: Path, optimizer_n
 
 def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies a short classification training with mixed precision: the run name carries no token for it (a run can
-    be resumed with or without mixed precision), the forward passes run in bfloat16 without failing any iteration, and
-    the test evaluation, in float32, is written to Results.txt.
+    Verifies a short classification training under mixed precision, always on: the run name carries no token for it,
+    the forward passes run in bfloat16 without failing any iteration, and the test evaluation, in float32, is written
+    to Results.txt.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -111,9 +110,6 @@ def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture)
                              minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
     configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
                                                    number_iterations=5, head_settings={}, evaluation_settings={})
-    configuration = yaml.safe_load(stream=configuration_path.read_text())
-    configuration["Optimization"]["mixed_precision"] = True
-    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
 
     trainer = build_trainer(configuration_path=configuration_path)
     assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC35")

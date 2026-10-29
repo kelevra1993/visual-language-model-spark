@@ -98,7 +98,8 @@ def build_configuration(enabled_types: List[str], probability: float = 1.0, inde
             DEFAULT_BLACK_OUT_GRID_SIZE.
 
     Returns:
-        Dict[str, Any]: The augmentation configuration.
+        Dict[str, Any]: The augmentation configuration, with the sequence settings read only by the augmenter of a
+            sequence task.
     """
     types = {name: {"activated": name in enabled_types, "probability": 1.0} for name in AUGMENTATION_TYPES}
     types["random_black_out"]["grid_size"] = black_out_grid_size
@@ -672,8 +673,8 @@ def test_shuffling_permutes_the_real_frames_of_every_sequence() -> None:
     frames = torch.arange(8, dtype=torch.float32)[None, :, None, None, None].expand(2, 8, 3, 4, 4).clone()
     sequence_mask = torch.tensor(data=[[True, True, True, False, True, True, True, True],
                                        [True, True, False, False, True, True, True, False]])
-    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[],
-                                                                             shuffle_probability=1.0))
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[], shuffle_probability=1.0),
+                              sequence_augmentation=True)
     shuffled_frames, frame_orders = augmenter.shuffle_frames(images=frames, sequence_mask=sequence_mask,
                                                              frame_block_length=4)
 
@@ -691,9 +692,29 @@ def test_shuffling_permutes_the_real_frames_of_every_sequence() -> None:
 
     # Without shuffling, every frame keeps its position
     unshuffled_frames, identity_orders = DataAugmenter(augmentation_configuration=build_configuration(
-        enabled_types=[])).shuffle_frames(images=frames, sequence_mask=sequence_mask, frame_block_length=4)
+        enabled_types=[]), sequence_augmentation=True).shuffle_frames(images=frames, sequence_mask=sequence_mask,
+                                                                       frame_block_length=4)
     assert torch.equal(input=unshuffled_frames, other=frames)
     assert identity_orders.tolist() == [list(range(8))] * 2
+
+
+def test_image_tasks_keep_the_sequence_settings_off() -> None:
+    """
+    Verifies that the augmenter of a task without frames needs no sequence settings, its section holding neither
+    'independent_frames' nor 'shuffle_frames', and keeps the per-frame draws and the shuffling off.
+    """
+    frames = torch.arange(4, dtype=torch.float32)[None, :, None, None, None].expand(1, 4, 3, 4, 4).clone()
+    sequence_mask = torch.ones(size=(1, 4), dtype=torch.bool)
+
+    # The section of an image task, without the sequence settings
+    image_configuration = build_configuration(enabled_types=[])
+    del image_configuration["independent_frames"], image_configuration["shuffle_frames"]
+    augmenter = DataAugmenter(augmentation_configuration=image_configuration)
+    assert not augmenter.independent_frames and not augmenter.shuffle_frames_activated
+    assert augmenter.shuffle_frames_probability == 0.0
+    unshuffled_frames, identity_orders = augmenter.shuffle_frames(images=frames, sequence_mask=sequence_mask,
+                                                                  frame_block_length=4)
+    assert torch.equal(input=unshuffled_frames, other=frames) and identity_orders.tolist() == [list(range(4))]
 
 
 def test_independent_frames_draw_the_photometric_types_frame_by_frame() -> None:
@@ -709,7 +730,8 @@ def test_independent_frames_draw_the_photometric_types_frame_by_frame() -> None:
 
     # Independent brightness draws on top of a shared flip, the bright half moving to the right in every frame
     independent_augmenter = DataAugmenter(augmentation_configuration=build_configuration(
-        enabled_types=["random_left_right_flip", "brightness_contrast_saturation"], independent_frames=True))
+        enabled_types=["random_left_right_flip", "brightness_contrast_saturation"], independent_frames=True),
+        sequence_augmentation=True)
     augmented_sequence = independent_augmenter.augment_batch(images=sequences)[0][0]
     right_half_means = augmented_sequence[:, :, :, IMAGE_SIZE // 2:].mean(dim=(1, 2, 3))
     left_half_means = augmented_sequence[:, :, :, :IMAGE_SIZE // 2].mean(dim=(1, 2, 3))
@@ -718,7 +740,7 @@ def test_independent_frames_draw_the_photometric_types_frame_by_frame() -> None:
 
     # Shared draws keep the frames identical
     shared_augmenter = DataAugmenter(augmentation_configuration=build_configuration(
-        enabled_types=["random_left_right_flip", "brightness_contrast_saturation"]))
+        enabled_types=["random_left_right_flip", "brightness_contrast_saturation"]), sequence_augmentation=True)
     shared_sequence = shared_augmenter.augment_batch(images=sequences)[0][0]
     assert all(torch.allclose(input=sequence_frame, other=shared_sequence[0]) for sequence_frame in shared_sequence)
 
@@ -1151,7 +1173,7 @@ def test_report_lines_of_sequences_and_of_unaugmented_samples() -> None:
 
     # Every frame gets its own brightness draw, the padding frames 2 and 3 being left out of the lines
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(
-        enabled_types=["brightness_contrast_saturation"], independent_frames=True))
+        enabled_types=["brightness_contrast_saturation"], independent_frames=True), sequence_augmentation=True)
     _, _, _, _, _, _, reports = augmenter.augment_batch(images=sequences)
     assert len(reports[0]["photometric_augmentations"]) == 4 and reports[0]["removed_labels"] is None
     lines = augmenter.describe_report(report=reports[0], real_frames=[0, 1])

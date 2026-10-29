@@ -15,6 +15,7 @@ from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
                                                                        compute_pooled_features,
                                                                        print_classification_head_summary)
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.sequence.temporal_modules import build_temporal_module, print_sequence_module_summary
 from vision_training.models.task_model import TaskModel
@@ -71,8 +72,7 @@ class SequenceFrameModel(TaskModel):
                                                       fully_connected=self.head_configuration["fully_connected"],
                                                       fully_connected_normalization=self.head_configuration[
                                                           "fully_connected_normalization"],
-                                                      batch_normalization_momentum=self.head_configuration[
-                                                          "batch_normalization_momentum"],
+                                                      batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
                                                       dropout_rate=self.head_configuration["dropout_rate"],
                                                       number_classes=self.number_classes, device=device, dtype=dtype)
 

@@ -654,18 +654,22 @@ class DataAugmenter:
     of the task, SUPERVISED_AUGMENTATION_STRENGTHS or SELF_SUPERVISED_AUGMENTATION_STRENGTHS.
     """
 
-    def __init__(self, augmentation_configuration: Dict[str, Any], self_supervised: bool = False) -> None:
+    def __init__(self, augmentation_configuration: Dict[str, Any], self_supervised: bool = False,
+                 sequence_augmentation: bool = False) -> None:
         """
         Reads the 'Data.data_augmentation' configuration section and takes the strengths of the task.
 
         Args:
             augmentation_configuration (Dict[str, Any]): The section holding the global 'activated' flag, the
                 'probability' of augmenting an image, the 'independent_frames' flag and the 'shuffle_frames' settings
-                of the sequences and, for every augmentation type, its own 'activated' flag and 'probability' of
-                being applied to an augmented image, with the 'grid_size' of random_black_out.
+                of the sequences (sequence tasks only) and, for every augmentation type, its own 'activated' flag
+                and 'probability' of being applied to an augmented image, with the 'grid_size' of random_black_out.
             self_supervised (bool): Whether the augmenter draws the views of the self-supervised task, with
                 SELF_SUPERVISED_AUGMENTATION_STRENGTHS, instead of augmenting the training batches of a supervised task
                 with SUPERVISED_AUGMENTATION_STRENGTHS. Defaults to False.
+            sequence_augmentation (bool): Whether the section holds the sequence settings, 'independent_frames' and
+                'shuffle_frames', which only the sequence tasks have, the other tasks keeping them off. Defaults to
+                False.
         """
         self.activated = augmentation_configuration["activated"]
         self.probability = augmentation_configuration["probability"]
@@ -675,10 +679,15 @@ class DataAugmenter:
         self.strengths = (SELF_SUPERVISED_AUGMENTATION_STRENGTHS if self_supervised else
                           SUPERVISED_AUGMENTATION_STRENGTHS)
 
-        # Sequences only: the photometric types drawn frame by frame, and the shuffling of the frames of a sequence
-        self.independent_frames = augmentation_configuration["independent_frames"]
-        self.shuffle_frames_activated = augmentation_configuration["shuffle_frames"]["activated"]
-        self.shuffle_frames_probability = augmentation_configuration["shuffle_frames"]["probability"]
+        # Sequences only: the photometric types drawn frame by frame, and the shuffling of the frames of a sequence, off
+        # for the tasks without frames
+        self.independent_frames = False
+        self.shuffle_frames_activated = False
+        self.shuffle_frames_probability = 0.0
+        if sequence_augmentation:
+            self.independent_frames = augmentation_configuration["independent_frames"]
+            self.shuffle_frames_activated = augmentation_configuration["shuffle_frames"]["activated"]
+            self.shuffle_frames_probability = augmentation_configuration["shuffle_frames"]["probability"]
 
         # Keep the activation flag and probability of every supported augmentation type
         types_configuration = augmentation_configuration["types"]

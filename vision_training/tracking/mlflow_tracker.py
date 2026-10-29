@@ -220,7 +220,7 @@ class MlflowTracker(ExperimentTracker):
     """
 
     def __init__(self, tracking_uri: str, artifact_root: Optional[str], experiment_name: str, run_name: str,
-                 run_record_path: Optional[Path], log_artifacts: bool) -> None:
+                 run_record_path: Optional[Path]) -> None:
         """
         Keeps the settings of the tracking, without any MLflow call: the run is opened by the worker thread started by
         start().
@@ -232,14 +232,12 @@ class MlflowTracker(ExperimentTracker):
             run_name (str): The name of the MLflow run.
             run_record_path (Optional[Path]): The 'mlflow_run.json' file recording the run in its run folder, None
                 for a run that is never continued.
-            log_artifacts (bool): Whether the files of the run are sent as artifacts.
         """
         self.tracking_uri = tracking_uri
         self.artifact_root = artifact_root
         self.experiment_name = experiment_name
         self.run_name = run_name
         self.run_record_path = run_record_path
-        self.log_artifacts = log_artifacts
 
         # A tracking server must answer quickly and only once, since the worker retries itself; the variables set by
         # the user are kept
@@ -350,7 +348,7 @@ class MlflowTracker(ExperimentTracker):
     def log_artifact(self, file_path: Path, artifact_folder: Optional[str],
                      artifact_name: Optional[str] = None) -> None:
         """
-        Queues a file to send as an artifact, copied by the worker, when the artifacts are on.
+        Queues a file to send as an artifact, copied by the worker.
 
         Args:
             file_path (Path): The file to send.
@@ -358,9 +356,8 @@ class MlflowTracker(ExperimentTracker):
             artifact_name (Optional[str]): The name of the artifact, None to keep the file name.
         """
         try:
-            if self.log_artifacts:
-                self.put_event(event={"type": "artifact", "file_path": Path(file_path),
-                                      "artifact_folder": artifact_folder, "artifact_name": artifact_name})
+            self.put_event(event={"type": "artifact", "file_path": Path(file_path), "artifact_folder": artifact_folder,
+                                  "artifact_name": artifact_name})
         except Exception as error:
             self.report_queue_error(error=error)
 
@@ -876,13 +873,13 @@ class MlflowTracker(ExperimentTracker):
 
     def build_finish_operations(self) -> List[Callable[[], None]]:
         """
-        Builds the last writes of the run: the original metric names when the artifacts are on, then the final status.
+        Builds the last writes of the run: the original metric names when metrics were logged, then the final status.
 
         Returns:
             List[Callable[[], None]]: The write operations.
         """
         operations = []
-        if self.log_artifacts and self.metric_names:
+        if self.metric_names:
             operations.append(self.write_metric_names)
         operations.append(functools.partial(self.client.set_terminated, run_id=self.run_id, status=self.final_status))
         return operations

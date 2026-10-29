@@ -368,7 +368,7 @@ def test_heatmap_loss_leaves_out_the_ignored_regions(higher_resolution: bool) ->
 @pytest.mark.parametrize("higher_resolution", [False, True])
 def test_detector_trains_under_the_bfloat16_autocast(higher_resolution: bool) -> None:
     """
-    Verifies the keypoint detector under the bfloat16 autocast of 'Optimization.mixed_precision', on the CPU, against
+    Verifies the keypoint detector under the bfloat16 autocast of the mixed precision, always on, on the CPU, against
     float32 with the same weights and images: its predicted heatmap logits and tags come out in bfloat16, and its three
     losses are finite and those of these predictions computed in float32, the heatmap and push losses within 1 % of
     the float32 ones (the pull loss of the untrained tags, about 1e-9, being only their rounding); the backward pass of

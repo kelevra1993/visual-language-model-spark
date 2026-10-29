@@ -140,7 +140,7 @@ class SelfSupervisedTrainer(BaseTrainer):
             TaskModel: The untrained model.
         """
         return TASK_MODEL_CLASSES[self.TASK_NAME](configuration=self.model_configuration, device=self.device,
-                                                  dtype=self.dtype, verbose=self.diagnosis_modes["verbose"])
+                                                  dtype=self.dtype)
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """

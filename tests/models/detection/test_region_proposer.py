@@ -9,7 +9,7 @@ import torch
 from pathlib import Path
 
 from vision_training.models.detection.region_proposer import (RegionProposal, RegionProposalFilter,
-                                                               suppress_overlapping_proposals)
+                                                               select_best_proposals, suppress_overlapping_proposals)
 from tests.testing_utilities import check_nn_module_method, create_deterministic_tensor
 
 
@@ -110,6 +110,29 @@ def test_per_image_and_batched_suppressions_keep_the_same_proposals() -> None:
                                                   suppress_per_image=False)
     assert torch.equal(input=per_image_mask, other=batched_mask)
     assert 0 < int(per_image_mask.sum()) < per_image_mask.numel()
+
+
+def test_proposals_are_ranked_in_float32_under_mixed_precision() -> None:
+    """
+    Verifies that the proposals are ranked on float32 probabilities when the region proposal heads give bfloat16
+    logits, as under the mixed precision of the training: the confident logits, whose bfloat16 sigmoids collapse to a
+    few values, keep their order and distinct scores, the best proposal coming first.
+    """
+    # Disjoint boxes with distinct confident logits in bfloat16, the best ones last
+    number_proposals, number_selected = 64, 16
+    corners = torch.arange(end=number_proposals, dtype=torch.float32) * 20.0
+    boxes = torch.stack(tensors=[corners, corners, corners + 10.0, corners + 10.0], dim=1).unsqueeze(dim=0)
+    logits = torch.linspace(start=4.0, end=9.0, steps=number_proposals).to(dtype=torch.bfloat16).unsqueeze(dim=0)
+    levels = torch.arange(end=number_proposals).unsqueeze(dim=0)
+
+    # Selection under the bfloat16 autocast of the training, the levels giving the index of every selected proposal
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        _, selected_scores, selected_levels, valid_mask = select_best_proposals(
+            proposal_scores=logits, proposal_boxes=boxes, proposal_levels=levels, pre_nms_proposals=number_selected,
+            post_nms_proposals=number_selected, nms_iou_threshold=0.5, input_image_size=2000, suppress_per_image=True)
+    assert selected_scores.dtype == torch.float32 and bool(valid_mask.all())
+    assert selected_levels[0].tolist() == list(range(number_proposals - 1, number_proposals - number_selected - 1, -1))
+    assert len(set(selected_scores[0].tolist())) == number_selected
 
 
 if __name__ == "__main__":

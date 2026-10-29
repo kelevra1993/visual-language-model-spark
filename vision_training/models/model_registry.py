@@ -35,5 +35,5 @@ TASK_MODEL_CLASSES: Dict[str, Type[TaskModel]] = {"object_detection": TwoStageDe
                                                   "keypoint_detection": KeypointDetector}
 
 # Data type of the weights and inputs of every model, set here only: the trainings run in float32, mixed precision
-# computing their forward passes in bfloat16 on top of it (Optimization.mixed_precision)
+# computing their forward passes in bfloat16 on top of it (the autocast of BaseTrainer.run_model_iteration)
 MODEL_DTYPE = torch.float32

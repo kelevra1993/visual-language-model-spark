@@ -119,7 +119,7 @@ scenes:
           - {match: "label_smoothing|class_weighting|output_mode", sentences: [2]}
       - {type: text, position: [960, 90], font: code_text, segments: [{text: "..._", colour: dim}, {text: "HFLAT.128", highlight: [0]}, {text: "-", colour: dim}, {text: "HLN", highlight: [1]}, {text: "-", colour: dim}, {text: "CWB", highlight: [2]}, {text: "_", colour: dim}, {text: "MC9", highlight: [2]}]}
       - {type: box, box: [960, 150, 1740, 270], text: "HFLAT.128 · flatten, one hidden layer of 128\nHAVG, HMAX · average or max pooling", font: diagram_small, outline: violet, appear: 0, highlight: [0]}
-      - {type: box, box: [960, 300, 1740, 420], text: "HLN · layer normalization · HBN · batch\ndropout and its momentum: no token", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [960, 300, 1740, 420], text: "HLN · layer normalization · HBN · batch\ndropout rate: no token", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: box, box: [960, 450, 1740, 570], text: "LS<rate> · label smoothing above 0\nCWB · balanced class weights", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: box, box: [960, 600, 1740, 720], text: "MC9 · multi_class, 9 classes\nML<classes> · multi_label", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
     narration:

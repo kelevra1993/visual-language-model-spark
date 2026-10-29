@@ -62,16 +62,14 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "test_data_folder": str(dataset_folder / "test"), "batch_size": 2,
                                      "information_dump": 2, "weight_saving_iterations": 4,
                                      "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
-                                     "validation_iteration_ratio": 2, "resume_training": True})
-    experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": False,
-                                                        "compute_model_size": False, "view_input_images": False})
+                                     "validation_iteration_ratio": 2})
+    experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": False, "view_input_images": False})
     experiment_configuration["evaluation"]["number_sample_images"] = SMOKE_NUMBER_SAMPLE_IMAGES
     # Trained weights only, the evaluation of the moving average of the weights being tested by the base trainer tests
     configuration["Optimization"]["exponential_moving_average"]["activated"] = False
 
-    # Read the small images with two loader workers per split, and map the generated categories to the model classes
+    # Read the small images, and map the generated categories to the model classes
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
-    configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
 
     # Leave the objects without labelled keypoint out of the heatmap loss when asked
@@ -283,8 +281,7 @@ def test_ignored_regions_go_from_the_loader_to_the_heatmap_loss(tmp_path: Path) 
                           for name in AUGMENTATION_TYPES}
     augmentation_types["random_black_out"]["grid_size"] = 8
     trainer.data_augmenter = DataAugmenter(augmentation_configuration={
-        "activated": True, "probability": 1.0, "independent_frames": False,
-        "shuffle_frames": {"activated": False, "probability": 0.0}, "types": augmentation_types})
+        "activated": True, "probability": 1.0, "types": augmentation_types})
     augmented_batch = trainer.augment_batch(batch=prepared_batch)
     assert torch.equal(input=augmented_batch["ignored_regions"], other=flipped_regions)
 

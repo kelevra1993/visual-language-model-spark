@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME
+from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
@@ -63,9 +64,8 @@ def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dic
     return {"Data": {"image_settings": {"size": 512}, "label_dictionary": {1: 0, 2: 1}},
             "Backbone": backbone_configuration,
             "ClassificationHead": {"global_pooling": "average", "fully_connected": [],
-                                   "fully_connected_normalization": "none", "batch_normalization_momentum": 0.1,
-                                   "dropout_rate": 0.0, "output_mode": "multi_class", "label_smoothing": 0.0,
-                                   "class_weighting": "none",
+                                   "fully_connected_normalization": "none", "dropout_rate": 0.0,
+                                   "output_mode": "multi_class", "label_smoothing": 0.0, "class_weighting": "none",
                                    "decorrelation": {"activated": False, "weight": 0.001, "hidden_layer": 1}},
             "Optimization": {"exponential_moving_average": {"activated": False, "decay": 0.9998}}}
 
@@ -605,11 +605,12 @@ def test_source_run_written_before_the_head_normalization_is_rejected(tmp_path: 
                                   device=torch.device("cpu"))
 
 
-def test_components_of_another_batch_normalization_momentum_are_transferred(tmp_path: Path) -> None:
+def test_components_of_a_run_holding_the_fixed_settings_are_transferred(tmp_path: Path) -> None:
     """
-    Verifies that the batch normalization momentum, which changes no tensor, does not stop the transfer: the backbone
-    of a run written before the momentum existed and its normalized classification head initialise a run of other
-    momentums with exactly their weights and batch statistics.
+    Verifies that a source run written before the backbone and head settings were fixed, still holding their batch
+    normalization momentums and the inception starting block, initialises a run with exactly the weights and batch
+    statistics of its backbone and normalized classification head, the momentums changing no tensor, while a source
+    run whose inception modules started at another block than the fixed one is refused.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -617,25 +618,35 @@ def test_components_of_another_batch_normalization_momentum_are_transferred(tmp_
     configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
     configuration["ClassificationHead"]["fully_connected_normalization"] = "batch"
     source_model = build_task_model(task="sequence_classification", configuration=configuration, seed=0)
+
+    # Source run written before the settings were fixed, of other momentums and of the fixed inception starting block
     old_configuration = copy.deepcopy(configuration)
-    del old_configuration["Backbone"]["normalization"]["batch_normalization_momentum"]
+    old_configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0.01
+    old_configuration["Backbone"]["modules"]["inception_starting_block"] = INCEPTION_STARTING_BLOCK
+    old_configuration["ClassificationHead"]["batch_normalization_momentum"] = 0.01
     write_source_run(run_folder=tmp_path / "source_run", configuration=old_configuration, model=source_model)
 
-    # Run of other momentums receiving the backbone and the head of the source run
-    target_configuration = copy.deepcopy(configuration)
-    target_configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0.01
-    target_configuration["ClassificationHead"]["batch_normalization_momentum"] = 0.01
-    target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    # Run receiving the backbone and the head of the source run, with exactly their tensors
+    target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
     for section_name in ["Backbone", "ClassificationHead"]:
         load_pretrained_component(component=getattr(target_model, TRANSFERABLE_COMPONENTS[section_name]),
                                   section_name=section_name, device=torch.device("cpu"),
-                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                  model_configuration=point_to_source_run(configuration=configuration,
                                                                           section_name=section_name,
                                                                           source_folder=tmp_path / "source_run"))
         source_state = getattr(source_model, TRANSFERABLE_COMPONENTS[section_name]).state_dict()
         target_state = getattr(target_model, TRANSFERABLE_COMPONENTS[section_name]).state_dict()
         for tensor_name, tensor_value in source_state.items():
             assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+
+    # A source run whose inception modules started at another block has other layers
+    old_configuration["Backbone"]["modules"]["inception_starting_block"] = INCEPTION_STARTING_BLOCK + 1
+    write_source_run(run_folder=tmp_path / "other_source_run", configuration=old_configuration, model=source_model)
+    with pytest.raises(expected_exception=ValueError, match="'Backbone.modules' is"):
+        load_pretrained_component(component=target_model.backbone, section_name="Backbone", device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(configuration=configuration,
+                                                                          section_name="Backbone",
+                                                                          source_folder=tmp_path / "other_source_run"))
 
 
 def test_head_with_another_dropout_rate_is_transferred(tmp_path: Path) -> None:

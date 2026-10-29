@@ -1,0 +1,418 @@
+"""
+When run, removes from configuration files written before the fixed settings the settings whose value is now fixed in
+the code (FIXED_SETTINGS, refused by check_removed_settings of
+vision_training/configuration_processing/common_checks.py), so that the training_configuration.yaml of the saved runs,
+reloaded to resume a run, by scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of
+vision_training/main.py load again.
+The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
+sections left empty are removed, and the settings still held by some tasks are kept in their files (the sequence
+settings of the sequence tasks, the number of candidate frames of the frame selection). Every converted file is first
+copied to a backup, and a conversion changing anything else than the removed settings stops the script. A file holding
+another value than the fixed one is listed with the values its runs change to, and a file whose backbone would change
+(inception modules starting at another block) is refused, the code no longer building its layers.
+"""
+
+import re
+import shutil
+import yaml
+
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
+
+from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS
+from vision_training.data.loaders import NUMBER_LOADER_WORKERS, PREFETCH_BATCHES
+from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
+from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
+from vision_training.tracking.experiment_tracker import ARTIFACTS_FOLDER_NAME
+from vision_training.utilities.os_utilities import format_path_link, print_color
+
+# Removed settings whose value is fixed in the code, the code taking the value of FIXED_VALUES instead of the one of the
+# file. The other removed settings of REMOVED_SETTINGS (the views of the self-supervised task, the view losses) moved
+# to other settings, which a deletion would lose
+FIXED_SETTINGS = ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfiguration.tracking.log_artifacts",
+                  "ExperimentConfiguration.resume_training",
+                  "ExperimentConfiguration.diagnosis_modes.compute_model_size",
+                  "ExperimentConfiguration.diagnosis_modes.verbose", "Optimization.mixed_precision", "Data.loading",
+                  "Backbone.modules.inception_starting_block", "Backbone.normalization.batch_normalization_momentum",
+                  "ClassificationHead.batch_normalization_momentum", "Data.data_augmentation.independent_frames",
+                  "Data.data_augmentation.shuffle_frames"]
+
+# Value the code always uses for every fixed setting, by the path of the setting in a file: a file holding another
+# value changes the behaviour of its runs once converted
+FIXED_VALUES = {"ExperimentConfiguration.evaluation.top_k": TOP_K_ACCURACY_CLASSES,
+                "ExperimentConfiguration.tracking.log_artifacts": True, "ExperimentConfiguration.resume_training": True,
+                "ExperimentConfiguration.diagnosis_modes.compute_model_size": True,
+                "ExperimentConfiguration.diagnosis_modes.verbose": False, "Optimization.mixed_precision": True,
+                "Data.loading.number_workers": NUMBER_LOADER_WORKERS, "Data.loading.prefetch_batches": PREFETCH_BATCHES,
+                "Backbone.modules.inception_starting_block": INCEPTION_STARTING_BLOCK,
+                "Backbone.normalization.batch_normalization_momentum": BATCH_NORMALIZATION_MOMENTUM,
+                "ClassificationHead.batch_normalization_momentum": BATCH_NORMALIZATION_MOMENTUM,
+                "Data.data_augmentation.independent_frames": False,
+                "Data.data_augmentation.shuffle_frames.activated": False}
+
+# Name of the configuration saved in every run folder, and the suffix of the backups of the converted files
+RUN_CONFIGURATION_NAME = "training_configuration.yaml"
+BACKUP_SUFFIX = "_before_fixed_settings"
+
+# Folder of a configuration folder keeping the backups of its launch files, mirroring their subfolders
+PREVIOUS_CONFIGURATIONS_FOLDER_NAME = "previous_configurations"
+
+# Key line of a YAML file: its indentation, its key and what follows the colon
+KEY_LINE_PATTERN = re.compile(pattern=r"^(\s*)([A-Za-z0-9_]+):(.*)$")
+
+
+def get_indentation(line: str) -> int:
+    """
+    Counts the leading spaces of a line of a configuration file, which give its depth in the YAML sections.
+
+    Args:
+        line (str): The line.
+
+    Returns:
+        int: The number of leading spaces.
+    """
+    return len(line) - len(line.lstrip(" "))
+
+
+def is_comment_or_blank(line: str) -> bool:
+    """
+    Tells whether a line of a configuration file holds no setting, a comment or an empty line.
+
+    Args:
+        line (str): The line.
+
+    Returns:
+        bool: True for a comment or blank line.
+    """
+    return not line.strip() or line.strip().startswith("#")
+
+
+def find_key_paths(lines: List[str]) -> List[Optional[str]]:
+    """
+    Gives the dotted path of the key of every line of a configuration file (e.g. 'Data.loading.number_workers'), so
+    that the lines of the fixed settings are found whatever their indentation and their neighbours.
+
+    Args:
+        lines (List[str]): The lines of the file.
+
+    Returns:
+        List[Optional[str]]: The key path of every line, None for the comments, blank lines and list items.
+    """
+    open_keys = []
+    key_paths = []
+    for line in lines:
+        # Lines without a key of their own
+        key_match = KEY_LINE_PATTERN.match(line)
+        if is_comment_or_blank(line=line) or key_match is None:
+            key_paths.append(None)
+            continue
+
+        # Close the sections at the same or a deeper indentation, then open the key of the line
+        indentation = len(key_match.group(1))
+        while open_keys and open_keys[-1][0] >= indentation:
+            open_keys.pop()
+        open_keys.append((indentation, key_match.group(2)))
+        key_paths.append(".".join(key for _, key in open_keys))
+    return key_paths
+
+
+def find_block_end(lines: List[str], start_index: int) -> int:
+    """
+    Finds the end of the block of the key of a line, its own line and the deeper lines below it (its settings and the
+    comments among them), the blank lines after its last setting staying in the file.
+
+    Args:
+        lines (List[str]): The lines of the file.
+        start_index (int): The index of the line of the key.
+
+    Returns:
+        int: The index after the last line of the block.
+    """
+    indentation = get_indentation(line=lines[start_index])
+    last_content_index = start_index
+    for line_index in range(start_index + 1, len(lines)):
+        # Blank lines are skipped, the first line at the indentation of the key or above closing the block
+        if not lines[line_index].strip():
+            continue
+        if get_indentation(line=lines[line_index]) <= indentation:
+            break
+        last_content_index = line_index
+    return last_content_index + 1
+
+
+def mark_block_with_comments(lines: List[str], start_index: int, end_index: int, removed_indices: Set[int]) -> None:
+    """
+    Marks the lines of a block for removal with the comment lines directly above it at its indentation, which
+    describe it.
+
+    Args:
+        lines (List[str]): The lines of the file.
+        start_index (int): The index of the line of the key.
+        end_index (int): The index after the last line of the block.
+        removed_indices (Set[int]): The indices of the lines to remove, completed in place.
+    """
+    removed_indices.update(range(start_index, end_index))
+
+    # Comment lines of the block, directly above its key and at its indentation
+    indentation = get_indentation(line=lines[start_index])
+    line_index = start_index - 1
+    while line_index >= 0 and lines[line_index].strip().startswith("#") and \
+            get_indentation(line=lines[line_index]) == indentation:
+        removed_indices.add(line_index)
+        line_index -= 1
+
+
+def remove_fixed_settings(configuration_text: str, task: str) -> str:
+    """
+    Removes the fixed settings from the text of a configuration file, keeping those still held by its task, then the
+    sections left without any setting, each with the comment lines directly above it.
+
+    Args:
+        configuration_text (str): The text of the configuration file.
+        task (str): The 'ExperimentConfiguration.task' of the file.
+
+    Returns:
+        str: The text without the fixed settings, identical when the file holds none.
+    """
+    lines = configuration_text.split("\n")
+    removed_indices: Set[int] = set()
+
+    # Blocks of the fixed settings the task no longer holds
+    for line_index, key_path in enumerate(find_key_paths(lines=lines)):
+        if key_path in FIXED_SETTINGS and task not in REMOVED_SETTINGS[key_path][1]:
+            mark_block_with_comments(lines=lines, start_index=line_index, removed_indices=removed_indices,
+                                     end_index=find_block_end(lines=lines, start_index=line_index))
+
+    # Sections left without any setting, until none is left
+    section_removed = True
+    while section_removed:
+        section_removed = False
+        for line_index, line in enumerate(lines):
+            key_match = KEY_LINE_PATTERN.match(line)
+            if line_index in removed_indices or key_match is None or is_comment_or_blank(line=line) or \
+                    key_match.group(3).strip():
+                continue
+            end_index = find_block_end(lines=lines, start_index=line_index)
+            setting_indices = [index for index in range(line_index + 1, end_index)
+                               if not is_comment_or_blank(line=lines[index])]
+            if setting_indices and all(index in removed_indices for index in setting_indices):
+                mark_block_with_comments(lines=lines, start_index=line_index, end_index=end_index,
+                                         removed_indices=removed_indices)
+                section_removed = True
+
+    # Kept lines, the blank line following a removed block dropped when the line before the block is blank too, so
+    # that a block removed between two blank lines leaves a single one
+    kept_lines: List[str] = []
+    previous_kept_index = -1
+    for line_index, line in enumerate(lines):
+        if line_index in removed_indices:
+            continue
+        if not line.strip() and kept_lines and not kept_lines[-1].strip() and previous_kept_index != line_index - 1:
+            continue
+        kept_lines.append(line)
+        previous_kept_index = line_index
+    return "\n".join(kept_lines)
+
+
+def flatten_settings(settings: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    """
+    Gives every setting of a loaded configuration under its dotted path, so that a converted file can be compared
+    with the original setting by setting.
+
+    Args:
+        settings (Dict[str, Any]): The loaded configuration, or one of its sections.
+        prefix (str): The path of the section. Defaults to "" for the whole configuration.
+
+    Returns:
+        Dict[str, Any]: The value of every setting, an empty section counting as one setting.
+    """
+    flattened_settings = {}
+    for key, value in settings.items():
+        key_path = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict) and value:
+            flattened_settings.update(flatten_settings(settings=value, prefix=key_path))
+        else:
+            flattened_settings[key_path] = value
+    return flattened_settings
+
+
+def check_conversion(original_text: str, converted_text: str, task: str, configuration_path: Path) -> List[str]:
+    """
+    Checks that a conversion only removed the fixed settings the task no longer holds, every other setting keeping
+    its value so that a mistake of the text edition never changes a run, and that the backbone of the file keeps its
+    layers. Lists the removed settings whose value differs from the one the code now uses, which change the runs of
+    the file once converted (e.g. a launch file with 'resume_training: false' resuming its run).
+
+    Args:
+        original_text (str): The text of the file before the conversion.
+        converted_text (str): The text after the conversion.
+        task (str): The 'ExperimentConfiguration.task' of the file.
+        configuration_path (Path): The file, named in the error.
+
+    Returns:
+        List[str]: Every removed setting holding another value than the fixed one, as '<path> <value> -> <fixed>'.
+
+    Raises:
+        ValueError: If the converted file loses or changes another setting, or keeps a removed one, or if the inception
+            modules of its backbone start at another block than the fixed one.
+    """
+    removed_paths = [key_path for key_path in FIXED_SETTINGS if task not in REMOVED_SETTINGS[key_path][1]]
+    original_settings = flatten_settings(settings=yaml.safe_load(original_text))
+    converted_settings = flatten_settings(settings=yaml.safe_load(converted_text))
+
+    # Inception modules starting at another block give other layers, which the code no longer builds, so that the
+    # checkpoints of the run would no longer load
+    inception_path, starting_block_path = "Backbone.modules.inception", "Backbone.modules.inception_starting_block"
+    if inception_path in original_settings and original_settings[inception_path] is True and \
+            starting_block_path in original_settings and \
+            original_settings[starting_block_path] != INCEPTION_STARTING_BLOCK:
+        raise ValueError(f"The backbone of {format_path_link(path=configuration_path)} starts its inception modules at "
+                         f"block {original_settings[starting_block_path]}, the code always starting them at block "
+                         f"{INCEPTION_STARTING_BLOCK}: its runs cannot be rebuilt, the file is not converted.")
+
+    # The original settings without the removed ones, the sections left empty disappearing
+    expected_settings = {key_path: value for key_path, value in original_settings.items()
+                         if not any(key_path == removed_path or key_path.startswith(f"{removed_path}.")
+                                    for removed_path in removed_paths)}
+    expected_settings = {key_path: value for key_path, value in expected_settings.items()
+                         if value != {} or key_path in converted_settings}
+    if converted_settings != expected_settings:
+        # Settings lost or added by the conversion, and settings whose value changed
+        changed_paths = sorted(set(expected_settings) ^ set(converted_settings) |
+                               {key_path for key_path in set(expected_settings) & set(converted_settings)
+                                if expected_settings[key_path] != converted_settings[key_path]})
+        raise ValueError(f"The conversion of {format_path_link(path=configuration_path)} changes other settings than "
+                         f"the fixed ones: {', '.join(changed_paths)}.")
+
+    # Removed settings holding another value than the one the code now uses
+    return [f"{key_path} {original_settings[key_path]!r} -> {fixed_value!r}"
+            for key_path, fixed_value in FIXED_VALUES.items()
+            if key_path in original_settings and key_path not in converted_settings and
+            original_settings[key_path] != fixed_value]
+
+
+def get_backup_path(configuration_path: Path, configuration_folder: Optional[Path]) -> Path:
+    """
+    Gives the backup of a converted file: next to it for the configuration of a run folder, as the backups of the
+    earlier conversions, and in the 'previous_configurations' folder of its configuration folder, at the same place,
+    for a launch file, so that the backups are not taken for launch files.
+
+    Args:
+        configuration_path (Path): The converted file.
+        configuration_folder (Optional[Path]): The configuration folder holding the launch file, None for the
+            configuration of a run folder.
+
+    Returns:
+        Path: The backup file.
+    """
+    backup_name = f"{configuration_path.stem}{BACKUP_SUFFIX}{configuration_path.suffix}"
+    if configuration_folder is None:
+        return configuration_path.with_name(backup_name)
+    return (configuration_folder / PREVIOUS_CONFIGURATIONS_FOLDER_NAME /
+            configuration_path.parent.relative_to(configuration_folder) / backup_name)
+
+
+def list_configuration_files(run_roots: List[Path], configuration_folders: List[Path]) -> List[Dict[str, Any]]:
+    """
+    Lists the files to convert: the training_configuration.yaml of every run folder under the run roots, without the
+    copies MLflow keeps in its artifacts folder, and the launch files of the configuration folders, without their
+    'previous_configurations' backups, each with the configuration folder deciding where its backup goes.
+
+    Args:
+        run_roots (List[Path]): The folders searched for run folders, e.g. the 'experiment_folder' of the launches.
+        configuration_folders (List[Path]): The folders of launch files, searched with their subfolders.
+
+    Returns:
+        List[Dict[str, Any]]: Every file as {"path": Path, "configuration_folder": Optional[Path]}.
+    """
+    configuration_files = []
+
+    # Configurations saved in the run folders
+    for run_root in run_roots:
+        configuration_files += [{"path": path, "configuration_folder": None}
+                                for path in sorted(run_root.rglob(RUN_CONFIGURATION_NAME))
+                                if ARTIFACTS_FOLDER_NAME not in path.parts]
+
+    # Launch files, without their backups
+    for configuration_folder in configuration_folders:
+        configuration_files += [
+            {"path": path, "configuration_folder": configuration_folder}
+            for path in sorted(configuration_folder.rglob("*.yaml"))
+            if PREVIOUS_CONFIGURATIONS_FOLDER_NAME not in path.relative_to(configuration_folder).parts]
+    return configuration_files
+
+
+def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Path], write_files: bool) -> List[Path]:
+    """
+    Converts the configuration files of the saved runs and of the launch folders to the fixed settings, each checked
+    by check_conversion and copied to its backup before being written, or only lists them without writing anything.
+
+    Args:
+        run_roots (List[Path]): The folders searched for the training_configuration.yaml of run folders.
+        configuration_folders (List[Path]): The folders of launch files.
+        write_files (bool): True to write the converted files and their backups, False to only list them.
+
+    Returns:
+        List[Path]: The files holding fixed settings, converted when write_files is True.
+
+    Raises:
+        FileExistsError: If the backup of a file to convert already exists, which would be overwritten.
+    """
+    converted_paths = []
+    for configuration_file in list_configuration_files(run_roots=run_roots,
+                                                       configuration_folders=configuration_folders):
+        # Only the configurations of a task, not the other YAML files of the folders
+        configuration_path = configuration_file["path"]
+        original_text = configuration_path.read_text(encoding="utf-8")
+        settings = yaml.safe_load(original_text)
+        if not isinstance(settings, dict) or "ExperimentConfiguration" not in settings:
+            continue
+
+        # Conversion of the text, checked setting by setting, the files without fixed settings left as they are
+        task = settings["ExperimentConfiguration"]["task"]
+        converted_text = remove_fixed_settings(configuration_text=original_text, task=task)
+        if converted_text == original_text:
+            continue
+        changed_values = check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                          configuration_path=configuration_path)
+        converted_paths.append(configuration_path)
+        removed_lines = len(original_text.split("\n")) - len(converted_text.split("\n"))
+        path_link = format_path_link(path=configuration_path, label=str(configuration_path))
+
+        # The values the runs of the file change to once converted, listed before anything is written
+        if changed_values:
+            print_color(color="yellow", output=f"Values changed by the conversion of {path_link}: "
+                                               f"{', '.join(changed_values)}")
+        if not write_files:
+            print_color(color="blue", output=f"To convert ({removed_lines} lines removed): {path_link}")
+            continue
+
+        # Backup of the original, never overwritten, then the converted file
+        backup_path = get_backup_path(configuration_path=configuration_path,
+                                      configuration_folder=configuration_file["configuration_folder"])
+        if backup_path.exists():
+            raise FileExistsError(f"The backup {format_path_link(path=backup_path)} of "
+                                  f"{format_path_link(path=configuration_path)} already exists.")
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src=configuration_path, dst=backup_path)
+        configuration_path.write_text(data=converted_text, encoding="utf-8")
+        print_color(color="green", output=f"Converted ({removed_lines} lines removed): {path_link}, backup "
+                                          f"{format_path_link(path=backup_path)}")
+    return converted_paths
+
+
+if __name__ == "__main__":
+    repository_folder = Path(__file__).absolute().parents[2]
+    # Folders searched for run folders, whose training_configuration.yaml is converted (the 'experiment_folder' of the
+    # launches); the copies of the configurations in the MLflow artifacts folder are left as they were logged
+    run_roots = [repository_folder / "experiments", repository_folder / "ficha-experiments-staged-schedule",
+                 repository_folder / "ficha_previous_experiments", repository_folder / "hyperparameter_experiments"]
+    # Folders of launch files, converted with their subfolders, their backups going to 'previous_configurations'
+    configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files"]
+    # False to only list the files holding fixed settings, True to convert them
+    write_files = False
+
+    files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
+                                              write_files=write_files)
+    print_color(color="green", output=f"{len(files_to_convert)} Files {'Converted' if write_files else 'To Convert'}")

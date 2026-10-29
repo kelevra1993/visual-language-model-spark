@@ -15,6 +15,11 @@ from vision_training.models.components.inception import InceptionConvolution
 from vision_training.models.components.sequence_normalization import SequenceBatchNormalization
 from vision_training.models.components.squeeze_and_excitation import SqueezeAndExcitation
 
+# Momentum of the running mean and variance of the batch normalization layers of the backbone and of the
+# classification heads (PyTorch convention): every training batch moves them by this fraction, about the last 10
+# batches being followed
+BATCH_NORMALIZATION_MOMENTUM = 0.1
+
 
 class ChannelLayerNormalizer(nn.Module):
     """

@@ -12,9 +12,12 @@ from rich.console import Console
 from rich.panel import Panel
 
 from vision_training.core.contracts import SequenceGrouping
-from vision_training.models.components.convolution_block import ConvolutionBlock
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM, ConvolutionBlock
 from vision_training.models.components.input_normalization import InputNormalizer
 from vision_training.utilities.os_utilities import print_color
+
+# Convolution block (1-indexed) from which inception modules replace the plain convolutions of a backbone using them
+INCEPTION_STARTING_BLOCK = 3
 
 
 class Backbone(nn.Module):
@@ -38,11 +41,11 @@ class Backbone(nn.Module):
             input_channels (int): The number of initial input channels for the images.
             convolutions (Dict[str, List[int]]): Dictionary mapping block indices to [number_layers, output_channels].
             modules (Dict[str, Any]): Dictionary specifying which advanced modules to use ('squeeze_and_excite',
-                'residual_nets', 'residual_nets_v2' for the pre-activation placement of the shortcuts, 'inception')
-                and the block from which inception starts ('inception_starting_block').
+                'residual_nets', 'residual_nets_v2' for the pre-activation placement of the shortcuts, 'inception'
+                from block INCEPTION_STARTING_BLOCK).
             last_max_pooling (bool): Whether to apply max pooling at the very end of the last convolution block.
-            normalization (Dict[str, Any]): Dictionary containing the 'feature_map_normalization' strategy, the
-                'batch_normalization_momentum' of its batch statistics and the 'input_normalization' /
+            normalization (Dict[str, Any]): Dictionary containing the 'feature_map_normalization' strategy, whose
+                batch statistics follow BATCH_NORMALIZATION_MOMENTUM, and the 'input_normalization' /
                 'per_sample_normalization' input image flags.
             detection_convolution_block_indices (List[int]): A list of block indices (1-indexed) whose intermediate
                 feature maps are explicitly captured and returned for downstream multi-scale feature enhancement.
@@ -72,9 +75,8 @@ class Backbone(nn.Module):
         # Set the current input channels to the initial provided argument
         current_input_channels = input_channels
 
-        # Extract chosen feature map normalization strategy and the momentum of its batch statistics
+        # Extract chosen feature map normalization strategy, its batch statistics following the fixed momentum
         self.feature_map_normalization = normalization["feature_map_normalization"]
-        self.batch_normalization_momentum = normalization["batch_normalization_momentum"]
 
         # Normalize the raw [0, 255] input images before feature extraction
         self.input_normalizer = InputNormalizer(input_normalization=normalization["input_normalization"],
@@ -85,7 +87,6 @@ class Backbone(nn.Module):
         self.residual_nets = bool(modules["residual_nets"])
         self.residual_nets_v2 = bool(modules["residual_nets_v2"])
         self.inception = bool(modules["inception"])
-        self.inception_starting_block = int(modules["inception_starting_block"])
 
         # Count total blocks to identify the last block during iteration
         number_of_blocks = len(convolutions)
@@ -100,19 +101,19 @@ class Backbone(nn.Module):
             add_pooling = last_max_pooling if is_last_block else True
 
             # Residual shortcuts, in their original or pre-activation placement, start at the second block and
-            # inception at the configured starting block, so the first block always extracts plain low-level features
+            # inception at block INCEPTION_STARTING_BLOCK, so the first block always extracts plain low-level features
             # from the raw image with a convolution, a normalization and an activation
             block_number = index + 1
             use_residual = self.residual_nets and block_number > 1
             use_pre_activation = use_residual and self.residual_nets_v2
-            use_inception = self.inception and block_number >= self.inception_starting_block
+            use_inception = self.inception and block_number >= INCEPTION_STARTING_BLOCK
 
             # Instantiate the convolution block with the explicitly provided parameters
             convolution_block = ConvolutionBlock(input_channels=current_input_channels, output_channels=output_channels,
                                                  bias=True, number_layers=number_layers,
                                                  kernel_size=3, stride=1, padding=1,
                                                  feature_map_normalization=self.feature_map_normalization,
-                                                 batch_normalization_momentum=self.batch_normalization_momentum,
+                                                 batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
                                                  activation=True, dropout_rate=0.0,
                                                  add_pooling=add_pooling, device=device, dtype=dtype,
                                                  squeeze_and_excite=self.squeeze_and_excite, residual=use_residual,

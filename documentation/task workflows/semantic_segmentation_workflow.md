@@ -155,17 +155,16 @@ main()
 │   │   Data.tiling, and the evaluation settings save_predicted_masks, original_resolution and boundary_tolerance.
 │   │
 │   └── BaseTrainer.__init__()
-│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, previous
-│       │   training moved aside, paths, loaders and their check, sample images, model, pretrained components,
-│       │   optimizer, metric tracker, printouts, restoration.
+│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, paths,
+│       │   loaders and their check, sample images, model, pretrained components, optimizer, metric tracker,
+│       │   printouts, restoration.
 │       │
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name ends with the decoder (upsampling, normalization, D<layers>x<channels> of every level) and
 │       │       the classes (MC<foreground classes>), plus TL<scale> when the run trains on tiles.
-│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
-│       │       A resumed run keeps the classes of its label_dictionary.json, a training from scratch renames the
-│       │       run folder of a previous training of the same settings v<n>_<run name>, then the run folder is
-│       │       created with the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
+│       ├── restore_run_label_dictionary() / setup_training_paths()
+│       │       A resumed run keeps the classes of its label_dictionary.json, then the run folder is created with
+│       │       the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Builds the three loaders, keeps class_names (background first) and class_colours (one BGR colour per
 │       │   │   class, for the overlays and the sample images).
@@ -297,7 +296,7 @@ It splits the YAML into the two dictionaries read by every later stage, converts
 **Example: the sections and the evaluation settings**
 ```text
 model_configuration keys: Optimization, Data, Backbone, SegmentationDecoder, SegmentationLoss
-Data keys after loading:  loading, image_settings, tiling, label_mapping, data_augmentation, label_mode, label_dictionary
+Data keys after loading:  image_settings, tiling, label_mapping, data_augmentation, label_mode, label_dictionary
 evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'save_predicted_masks': False,
                            'original_resolution': False, 'boundary_tolerance': 2}
 SegmentationDecoder:      {'upsampling': 'transposed', 'convolutions': {'5': [2, 64], '4': [2, 64], '3': [2, 32], '2': [2, 32],
@@ -374,7 +373,7 @@ The shared constructor (see `classification_workflow.md`, Step 2.2) checks the t
 **Example: some attributes set by the constructor**
 ```text
 self.device = device(type='cpu')   self.per_class_report = True   self.number_sample_images = 8   self.input_image_size = 512
-self.batch_size = 16   self.mixed_precision = False   self.start_iteration = 1
+self.batch_size = 16   self.start_iteration = 1
 ```
 
 ### Step 2.3 — `get_device()`
@@ -402,7 +401,7 @@ activated True   probability 0.4
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category, background included.
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category, background included.
 
 **Example: the run folder after this step**
 ```text
@@ -448,7 +447,7 @@ dataset[0]:   images [3, 512, 512] torch.uint8, masks [512, 512] torch.int64 hol
 ### Step 2.10 — `build_native_loader()`
 The same PyTorch `DataLoader` as for the classification (see `classification_workflow.md`, Step 2.10).
 
-**Example output**
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
 ```text
 len(loader) = 125   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
@@ -641,8 +640,6 @@ Every path is a terminal link showing the name of its file or folder (`format_pa
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
 - Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
-- Mixed Precision         : False
-- Resume Training         : True
 - Validation Iter. Ratio  : 25
 - MLflow Tracking         : Off
 ```

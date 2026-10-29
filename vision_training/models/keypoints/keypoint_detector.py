@@ -238,8 +238,7 @@ class KeypointDetector(TaskModel):
     'candidate_tags').
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
-                 dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the stem, the high resolution network, the heatmap and tag head and the optional higher resolution
         branch from the configuration.
@@ -247,7 +246,6 @@ class KeypointDetector(TaskModel):
         Args:
             configuration (Dict[str, Any]): The model configuration (Data with its 'image_settings' and injected
                 'keypoint_categories', Backbone, HRNet and KeypointHead sections).
-            verbose (bool): Unused, kept so that every task model is built with the same arguments.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
         """

@@ -6,12 +6,13 @@ Keys, values and outputs of the configurations, completing the [Configurations](
 - [Configurations](#configurations)
   - [Keys Per Task](#keys-per-task)
   - [Values Per Task](#values-per-task)
+  - [Fixed Settings](#fixed-settings)
   - [Evaluation Outputs](#evaluation-outputs)
 - [Run Names](#run-names)
 - [MLflow Tracking](#mlflow-tracking)
 
 ## Configurations
-Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check lists every missing key, and a section of another task is ignored.
+Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check lists every missing key, and a section of another task is ignored. The settings fixed in the code are refused ([Fixed Settings](#fixed-settings)).
 
 The tasks are written with their codes: DET `object_detection`, INS `instance_segmentation`, CLS `classification`, M2O `sequence_classification`, M2M `sequence_labelling`, CMP `sequence_comparison`, SEG `semantic_segmentation`, SEL `frame_selection`, SSL `self_supervised`, KPT `keypoint_detection`.
 
@@ -24,12 +25,12 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 | `MaskHead` | INS |
 | `evaluation.original_resolution` | INS, SEG |
 | `evaluation.target_precision`, `evaluation.error_dumps` | DET, INS, CLS, M2O, M2M, CMP, SEL (`target_precision` a list of precisions, the first one the main target, for CLS, M2O, M2M, CMP) |
-| `ClassificationHead`, `evaluation.top_k`, `evaluation.save_predictions` | CLS, M2O, M2M, CMP, SEL |
+| `ClassificationHead`, `evaluation.save_predictions` | CLS, M2O, M2M, CMP, SEL |
 | `ClassificationHead.decorrelation` | CLS |
-| `TemporalModel`, `Data.sequence_settings` | M2O, M2M, CMP, SEL |
+| `TemporalModel`, `Data.sequence_settings`, `Data.data_augmentation.independent_frames` and `shuffle_frames` | M2O, M2M, CMP, SEL |
 | `Fusion` | CMP |
 | `SegmentationDecoder`, `SegmentationLoss`, `Data.tiling`, `evaluation.save_predicted_masks`, `evaluation.boundary_tolerance` | SEG |
-| `Selection` | SEL |
+| `Selection`, `evaluation.top_k` | SEL |
 | `ProjectionHead`, `Data.grouped_batches`, `evaluation.number_neighbours` | SSL |
 | `HRNet`, `KeypointHead`, `evaluation.default_keypoint_sigma`, `evaluation.keypoint_sigmas` | KPT |
 
@@ -40,7 +41,6 @@ The check of a task refuses a value it cannot use. Every key not listed accepts 
 - `Data.image_settings.size`: a positive even integer, multiple of 2 to the power of the number of max poolings of `Backbone` (every block but the last, and the last with `last_max_pooling: True`), so that no pooling drops a row or a column. With 5 poolings, 96, 224, 384 and 512 are accepted and 100 is refused. The output of the last pooling may be odd (7x7 for 224).
 - `Data.label_mapping.mode`: `binary` or `multi_class` for DET, INS and SEG, `multi_class` for the others.
 - `Data.data_augmentation.activated`: `True` for SSL, whose views need it.
-- `Data.data_augmentation.independent_frames` and `shuffle_frames.activated`: `False` except for M2O, M2M, CMP and SEL.
 - `Data.data_augmentation.types.random_perspective` and `random_jigsaw`, which move the image without its targets: off for DET, INS, SEG and KPT.
 - `Data.data_augmentation.types.random_crop.probability`: `1.0` when activated for SSL.
 - `Backbone.normalization.feature_map_normalization`: `sequence` only for M2O, M2M, CMP and SEL.
@@ -55,6 +55,29 @@ The check of a task refuses a value it cannot use. Every key not listed accepts 
 - DET: every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`. INS adds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`.
 - SEG: the keys of `SegmentationDecoder.convolutions` are the backbone blocks whose output is a skip connection, blocks 1 to N-1 of N blocks (and N with `last_max_pooling: True`). The keys of `deep_supervision_weights` are keys of `convolutions` other than the finest level. The categories of a `multi_class` mapping are the mask values 1 to 254.
 - KPT: `Backbone` ends at 1/4 of the image (3 blocks, or 2 with `last_max_pooling: True`), and `Data.image_settings.size` is a multiple of 4 x 2 to the power of the length of `HRNet.modules_per_stage`. `hidden_width` and the tag loss weights are at least 0, `inference.maximum_candidates` at least 1, `inference.keypoint_threshold` within ]0, 1[, `inference.tag_threshold` positive and `inference.object_score_threshold` within [0, 1]. The categories and keypoints of `evaluation.keypoint_sigmas` must exist in the training split.
+
+### Fixed Settings
+These settings were removed from the configuration files, the code always using the behaviour below. A file still holding one is refused before any other check, with a message naming what replaced it (`REMOVED_SETTINGS` of `vision_training/configuration_processing/common_checks.py`): `'<key>' was removed: <what replaced it>. Delete it from the configuration file.`
+
+| Removed setting | Fixed behaviour |
+|---|---|
+| `ExperimentConfiguration.resume_training` | A run always resumes from the last checkpoint of its folder. To train the same settings from scratch, set another `run_name_suffix` or `experiment_folder`, or move the run folder away. |
+| `ExperimentConfiguration.evaluation.top_k` | The top-k accuracy counts the 5 most probable classes (`TOP_K_ACCURACY_CLASSES`). SEL keeps the key, the number of candidate frames of every class. |
+| `ExperimentConfiguration.tracking.log_artifacts` | A tracked run always sends its files as MLflow artifacts. |
+| `ExperimentConfiguration.diagnosis_modes.compute_model_size` | The model size is always printed at launch. |
+| `ExperimentConfiguration.diagnosis_modes.verbose` | Removed. |
+| `Optimization.mixed_precision` | Mixed precision is always on: the training and validation forward passes run in bfloat16, the weights and the test evaluation in float32. |
+| `Data.loading` (`number_workers`, `prefetch_batches`) | Every loader (training, validation and test) uses 4 worker processes (`NUMBER_LOADER_WORKERS` of `vision_training/data/loaders.py`), each preparing 2 batches in advance (`PREFETCH_BATCHES`). 4 was the fastest of 2, 4, 6 and 8 workers on the small ImageNet model (455, 471, 471 and 456 images per second, 1 GB more memory than 2 workers). |
+| `Backbone.modules.inception_starting_block` | The inception modules start at block 3 (`INCEPTION_STARTING_BLOCK`). |
+| `Backbone.normalization.batch_normalization_momentum`, `ClassificationHead.batch_normalization_momentum` | 0.1 (`BATCH_NORMALIZATION_MOMENTUM`). The momentum of the other sections stays configurable. |
+| `Data.data_augmentation.independent_frames`, `shuffle_frames` | Kept in M2O, M2M, CMP and SEL only, off for the other tasks. |
+
+The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, removed earlier, are refused the same way.
+
+`scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the files written before, the `training_configuration.yaml` of the run folders and the launch files set in its main block, keeping their comments:
+- Every converted file is first copied to a backup: `training_configuration_before_fixed_settings.yaml` next to a run configuration, `previous_configurations/<subfolder>/<name>_before_fixed_settings.yaml` for a launch file. The copies of MLflow (`mlartifacts`) are left as logged.
+- A file holding another value than the fixed one is listed with the values its runs change to (e.g. `ExperimentConfiguration.resume_training False -> True`), and a backbone whose inception modules start at another block than 3 is refused, the code no longer building its layers.
+- `write_files = False` only lists the files to convert.
 
 ### Evaluation Outputs
 Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`, headed `Iteration <n> · <evaluated samples> · <date and time>`, with its global metrics, notes and tables, the per-class table sorted worst first. Its files go to `<run>/Evaluation/Iteration_<n>/`, and those of the moving average to its `EMA/` subfolder. `ExperimentConfiguration.evaluation.per_class_report: False` keeps the global metrics only, for runs with many classes, the files keeping the details.
@@ -111,9 +134,9 @@ The sample images are chosen once from the test split, so every evaluation shows
 - The class counts give the foreground classes of the label dictionary, merged categories counting once.
 
 **Settings without a token**, which may change between two resumptions of a run (two runs differing only by them share a folder, unless one has a `run_name_suffix`):
-- the augmentation (with `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up and cosine schedule, `pretrained.learning_rate_multiplier`, gradient clipping, mixed precision, `Optimization.exponential_moving_average`, the `batch_normalization_momentum` of every section, and the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`);
+- the augmentation (with `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up and cosine schedule, `pretrained.learning_rate_multiplier`, gradient clipping, `Optimization.exponential_moving_average`, the `batch_normalization_momentum` of the sections holding one, and the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`);
 - `Optimization.loss_weights` (DET, INS), `ClassificationHead.decorrelation` (CLS), `SegmentationLoss`, the deep supervision weights and `Data.tiling.overlap` (SEG), `Selection.decoding` (SEL), `Data.grouped_batches` (SSL), `MaskHead.inference.mask_threshold` (INS), and `KeypointHead.heatmap_sigma`, `ignore_unlabelled_objects`, `tag_pull_weight`, `tag_push_weight` and `inference` (KPT);
-- `Data.loading` and the evaluation settings.
+- the evaluation settings.
 
 The optimizer keeps its token, as the state of one optimizer cannot be resumed by another.
 
@@ -125,7 +148,7 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Input | `KAR` | `Data.image_settings.keep_ratio` | all |
 | Input | `<size>` | `Data.image_settings.size` | all |
 | Backbone | `SE`, `RES`, or `RES2` for pre-activation shortcuts | `Backbone.modules.squeeze_and_excite`, `residual_nets`, `residual_nets_v2` | all |
-| Backbone | `INC<block>` | `Backbone.modules.inception`, from `inception_starting_block` | all |
+| Backbone | `INC3` | `Backbone.modules.inception`, the inception modules starting at block 3 | all |
 | Backbone | `BN`, `LN`, `NN`, `SN` | `Backbone.normalization.feature_map_normalization`: batch, layer, none, sequence | all (`SN`: M2O, M2M, CMP, SEL) |
 | Backbone | `B<layers>x<filters>.…` | `Backbone.convolutions`, one per block | all |
 | Backbone | `LMP` | `Backbone.last_max_pooling` | all |
@@ -188,7 +211,7 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Optimizer | `WD<decay>` | `Optimization.weight_decay` above 0 | all |
 | Suffix | `<suffix>` | `ExperimentConfiguration.run_name_suffix` | all |
 
-The suffix starts a run of its own among runs of the same settings, and resuming it needs the same suffix: with `run_name_suffix: "v1"`, the SSL example trains in `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2_v1`. It holds letters, digits, `-` and `.` only. It is not the `v<n>_` prefix of the run folders moved aside by `resume_training: false`. The README lists [an example of every task](../../README.md#run-names).
+The suffix starts a run of its own among runs of the same settings, and resuming it needs the same suffix: with `run_name_suffix: "v1"`, the SSL example trains in `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2_v1`. It holds letters, digits, `-` and `.` only. The README lists [an example of every task](../../README.md#run-names).
 
 ## MLflow Tracking
 With `ExperimentConfiguration.tracking.activated: True`, every run is recorded in `<experiment_folder>/mlflow.db`, its files in `<experiment_folder>/mlartifacts/`, next to TensorBoard and `Results.txt`.
@@ -204,13 +227,13 @@ With `ExperimentConfiguration.tracking.activated: True`, every run is recorded i
 | `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
 | `test_ema/` and `test_ema_class/` metrics, and the files under `evaluation/iteration_<n>/ema/` | all, with the moving average on |
 | `test/mAP@0.5`, `mAP@0.75`, `mAP@0.95`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test/mAP@0.5 By Size/<size>`, `mAP@[0.5:0.95] By Size/<size>`; `test/Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>`, `Proposals Per Image/<group>`; `test_class/AP@0.5/<class>`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `proposal_recall.csv`; `anchor_recall.csv` under `analysis/` (`anchor_recall_resume_<n>.csv` for a resume from iteration n) | DET, INS (with the `Mask` metrics) |
-| `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`), `Macro ROC AUC`, `Macro Average Precision`; `test_class/Precision`, `Recall`, `F1`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` | CLS, M2O, M2M, CMP |
+| `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`), `Macro ROC AUC`, `Macro Average Precision`; `test_class/Precision`, `Recall`, `F1`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` | CLS, M2O, M2M, CMP |
 | `test/Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `Segment F1@25`, `Segment F1@50` | M2M |
 | `test/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision`, `<Decoding> Unselected Recall`, `Top-<k> Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`; `test_class/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `Mean True Frame Rank`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | SEL |
 | `test/Mean IoU`, `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, `Macro ROC AUC`, `Macro Average Precision`; `test_class/IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` | SEG |
 | `test/k-NN Accuracy`, `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank`, `Representation Standard Deviation`; `test_class/k-NN Precision`, `k-NN Recall`, `k-NN F1`; `class_metrics.csv` | SSL |
 | `test/OKS mAP@0.5`, `OKS mAP@0.75`, `OKS mAP@0.95`, `OKS mAP@[0.5:0.95]` per method, by size, the OKS mean average recalls, `Keypoint Accuracy/PCK@0.05`, `Keypoint Accuracy/Mean OKS`, `Keypoint Accuracy/Mean Keypoint Error (pixels)`; `test_class/OKS AP@0.5/<class>`; `class_metrics.csv`, `keypoint_metrics.csv` | KPT |
 
-- The `test_class/` metrics, the macro ROC AUC and average precision, and the curve and confusion images need `evaluation.per_class_report: True`; the files need `tracking.log_artifacts: True`.
+- The `test_class/` metrics, the macro ROC AUC and average precision, and the curve and confusion images need `evaluation.per_class_report: True`. The files are always sent.
 - MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names.
 - `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a run of their own, `<run name>-evaluation`.
