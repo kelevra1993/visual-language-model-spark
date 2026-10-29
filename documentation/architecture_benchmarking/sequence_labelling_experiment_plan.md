@@ -100,3 +100,21 @@ Kept: **balanced** (run_9 and run_10), the highest mean (0.0645 against 0.0139 f
 
 - Without class weighting the launches barely learn a change: run_12 stays at 0.0090 from the first to the last evaluation, the score of a model that only predicts `no_change`, and run_11 only starts rising after iteration 1500 (0.0375 at iteration 6000).
 - The two balanced launches part after iteration 3000 (0.0686 and 0.1727 at iteration 6000), run_10 still rising at iteration 6000 while run_9 levels off at about 0.07.
+
+### Stage 3: Direction (2 new launches, 6000 iterations)
+
+The unidirectional launches are run_9 and run_10 of the class weighting stage. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000).
+
+| Direction | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| uni | run_9 | 0.0068 | 0.0164 | 0.0221 | 0.0262 | 0.0341 | 0.0536 | 0.0624 | 0.0629 | 0.0714 | 0.0745 | 0.0760 | 0.0686 | 0.0465 |
+| uni | run_10 | 0.0069 | 0.0154 | 0.0194 | 0.0302 | 0.0430 | 0.0657 | 0.0885 | 0.1131 | 0.1374 | 0.1593 | 0.1712 | 0.1727 | 0.0824 |
+| uni | **Mean** | 0.0068 | 0.0159 | 0.0208 | 0.0282 | 0.0386 | 0.0596 | 0.0754 | 0.0880 | 0.1044 | 0.1169 | 0.1236 | 0.1207 | 0.0645 |
+| bidirectional | run_13 | 0.0114 | 0.0193 | 0.0175 | 0.0243 | 0.0395 | 0.0643 | 0.0793 | 0.0961 | 0.1196 | 0.1486 | 0.1916 | 0.2411 | 0.0818 |
+| bidirectional | run_14 | 0.0078 | 0.0072 | 0.0201 | 0.0230 | 0.0253 | 0.0338 | 0.0427 | 0.0532 | 0.0719 | 0.0925 | 0.1189 | 0.1461 | 0.0500 |
+| bidirectional | **Mean** | 0.0096 | 0.0133 | 0.0188 | 0.0236 | 0.0324 | 0.0491 | 0.0610 | 0.0746 | 0.0957 | 0.1206 | 0.1553 | 0.1936 | 0.0659 |
+
+Kept: **bidirectional** (run_13 and run_14), the highest mean (0.0659 against 0.0645 for unidirectional); the temporal module stage trains the bidirectional GRU (run_15 and run_16), the non-causal transformer (run_17 and run_18) and the non-causal temporal convolution (run_19 and run_20) against the bidirectional LSTM of run_13 and run_14.
+
+- The means over all the evaluations lie within the spread of the launches (0.0818 and 0.0500 against 0.0465 and 0.0824), so the gap of 0.0014 alone would not tell the two directions apart.
+- The bidirectional launches end far higher, 0.1936 at iteration 6000 against 0.1207, both still rising at a steeper slope (0.2411 for run_13), the advantage showing after iteration 4500, once every launch has learned to find the changes.
