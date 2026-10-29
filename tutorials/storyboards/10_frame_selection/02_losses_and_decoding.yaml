@@ -1,9 +1,10 @@
 # Frame selection, chapter 2: the per-frame loss and the selection loss, the two softmaxes on the real logits of a test
 # sequence, the training curves against the losses of equal logits, the Hungarian assignment animated on the real
 # gains of the same sequence (a wrong triangle pick of iteration 1000), its code, and the greedy rule against it on the
-# example of the README. The matrix scenes use the page animations/10_frame_selection/frame_matrix.html, fed with the
-# matrices written by tutorials/figures/frame_selection (the checkpoint of iteration 1000 run on the CPU) and decoded by
-# the code of the repository; coordinates are in pixels of the content area (1760 x 740).
+# example of documentation/reference/tasks_reference.md. The matrix scenes use the page
+# animations/10_frame_selection/frame_matrix.html, fed with the matrices written by tutorials/figures/frame_selection
+# (the checkpoint of iteration 1000 run on the CPU) and decoded by the code of the repository; coordinates are in
+# pixels of the content area (1760 x 740).
 series: frame_selection
 series_title: "Frame Selection (SEL)"
 chapter: 2
@@ -26,7 +27,7 @@ scenes:
     footnote: "Frame Selection (SEL) · chapter 2"
     narration:
       - "A frame selector is trained with two losses and read through a decoding; this chapter covers both, on the real probabilities of the README run."
-      - "The decoding is animated on one of its wrong picks, then compared with the greedy rule on the example of the README."
+      - "The decoding is animated on one of its wrong picks, then compared with the greedy rule on the example of the tasks reference."
 
   - kind: code
     title: "The selection loss"
@@ -220,7 +221,7 @@ scenes:
       states:
         - sentence: 0
           values: probabilities
-          title: "Example of the README: classes A and B, 3 frames"
+          title: "Tasks reference example: classes A and B, 3 frames"
           notes:
             - {text: "Greedy:", font: diagram_bold}
             - {text: "1. every frame takes its most probable class"}
@@ -229,7 +230,7 @@ scenes:
             - {text: "    takes the unselected frames best for it"}
         - sentence: 1
           values: probabilities
-          title: "Example of the README: classes A and B, 3 frames"
+          title: "Tasks reference example: classes A and B, 3 frames"
           picks: [greedy]
           pick_delay: 0.5
           notes:
@@ -238,7 +239,7 @@ scenes:
             - {text: "0.50 × 0.50 × 0.08 = {{frame_selection.readme.greedy_labelling_probability:.3f}}"}
         - sentence: 2
           values: probabilities
-          title: "Example of the README: classes A and B, 3 frames"
+          title: "Tasks reference example: classes A and B, 3 frames"
           picks: [greedy, hungarian]
           pick_delay: 0.5
           notes:
@@ -249,7 +250,7 @@ scenes:
             - {text: "{{frame_selection.readme.probability_ratio:.1f}} times more probable", colour: accent}
         - sentence: 3
           values: probabilities
-          title: "Example of the README: classes A and B, 3 frames"
+          title: "Tasks reference example: classes A and B, 3 frames"
           picks: [greedy, hungarian]
           bands: [{row: 0, colour: yellow}]
           notes:
@@ -258,7 +259,7 @@ scenes:
             - {text: "greedy gives frame 1 to A, and B loses most", colour: dim}
         - sentence: 4
           values: probabilities
-          title: "Example of the README: classes A and B, 3 frames"
+          title: "Tasks reference example: classes A and B, 3 frames"
           picks: [hungarian]
           notes:
             - {text: "Both decodings scored at every evaluation", font: diagram_bold}
@@ -266,8 +267,8 @@ scenes:
             - {text: "the best checkpoint and the deployed decoder"}
     narration:
       - "The greedy decoding gives every frame its most probable class, trims a class taken by too many frames to its most probable ones, then completes the classes short of frames, in class order, with the unselected frames most probable for them."
-      - "On the example of the README, two classes A and B over three frames, greedy gives A to frame one, leaves frame two unselected, and completes B with frame three: a labeling of probability {{frame_selection.readme.greedy_labelling_probability:.2f}}."
-      - "The Hungarian assignment gives B to frame one and A to frame two: a labeling of probability {{frame_selection.readme.hungarian_labelling_probability:.3f}}, {{frame_selection.readme.probability_ratio:.1f}} times more probable, which the README rounds to ten."
+      - "On the example of the tasks reference, two classes A and B over three frames, greedy gives A to frame one, leaves frame two unselected, and completes B with frame three: a labeling of probability {{frame_selection.readme.greedy_labelling_probability:.2f}}."
+      - "The Hungarian assignment gives B to frame one and A to frame two: a labeling of probability {{frame_selection.readme.hungarian_labelling_probability:.3f}}, {{frame_selection.readme.probability_ratio:.1f}} times more probable, which the tasks reference rounds to ten."
       - "Greedy is cheaper, but it gives a frame to a class that only slightly prefers it over a class with no better frame."
       - "Both decodings are scored at every evaluation, and Selection decoding picks the one drawn in the images, behind the thresholds, the best checkpoint and the deployed decoder."
 

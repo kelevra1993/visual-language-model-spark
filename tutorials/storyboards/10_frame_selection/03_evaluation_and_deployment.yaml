@@ -81,6 +81,7 @@ scenes:
       - "Triangle gets {{frame_selection.thresholds.iteration_1000_triangle_threshold:.2f}}: from there on, its choices reach 0.99 with the third wrong pick still among them, a recall of {{frame_selection.thresholds.iteration_1000_triangle_recall:.3f}}."
       - "So the two doubtful wrong picks fall under it and are flagged low confidence, while the third, at {{frame_selection.picks.test_000052.chosen_probability:.2f}}, goes through unflagged."
       - "At iteration two thousand, every choice is right and the thresholds become {{frame_selection.thresholds.iteration_2000_circle_threshold:.2f}}, {{frame_selection.thresholds.iteration_2000_triangle_threshold:.2f}} and {{frame_selection.thresholds.iteration_2000_star_threshold:.2f}}; a class never reaching the target precision would get a null threshold, every frame chosen for it flagged."
+      - "Unlike the classifiers, the frame selection takes a single target precision and refuses a list, its deployed decoder keeping one threshold per class."
 
   - kind: code
     title: "The low confidence flags"

@@ -34,15 +34,27 @@ scenes:
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
       start: "^if __name__ == \"__main__\":"
-      end: "^    maximum_error_images_per_class_pair = "
+      end: "^    track_evaluation = "
     highlights:
       - {match: "^    run_name = |^    experiment_folder = ", sentences: [0]}
       - {match: "^    iteration = |^    test_data_folder = |^    batch_size = |^    track_evaluation = ", sentences: [1]}
-      - {match: "^    maximum_error_images_per_class_pair = ", sentences: [2]}
     narration:
       - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: set the run name and its folder in the main block of the evaluate checkpoint script; the run folder itself is never modified."
       - "The iteration is None for the last checkpoint, a number, or all for every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
-      - "The maximum number of error images per pair of classes turns the error images on; set it to None for the tasks without error images, which otherwise stop on their missing error dumps section, then run the script as a module with uv."
+
+  - kind: code
+    title: "Error images and thresholds"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py · apply_target_precisions"
+    source:
+      file: scripts/evaluation/evaluate_checkpoint.py
+      start: "^    # Largest number of error images saved"
+      end: "^    target_precisions = "
+    highlights:
+      - {match: "^    maximum_error_images_per_class_pair = ", sentences: [0]}
+      - {match: "^    target_precisions = ", sentences: [1]}
+    narration:
+      - "The maximum number of error images per pair of classes turns the error images on, and the tasks without error images skip it with a yellow warning."
+      - "Target precisions replaces the precision of the class thresholds, a list giving the classifiers the threshold of every class at each precision; then run the script as a module with uv."
 
   - kind: html
     page: diagram
@@ -187,12 +199,12 @@ scenes:
       - {type: text, position: [40, 350], text: "│   └── evaluation/ · embedding/ · data/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 400], text: "├── tests/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 450], text: "├── documentation/", font: diagram_monospace, anchor: ls, highlight: [1]}
-      - {type: text, position: [40, 500], text: "│   └── architecture_benchmarking/ · task workflows/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 500], text: "│   └── architecture_benchmarking/ · reference/ · task workflows/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 550], text: "├── tutorials/", font: diagram_monospace, anchor: ls, highlight: [2]}
       - {type: text, position: [40, 600], text: "└── README.md · pyproject.toml · uv.lock", font: diagram_monospace, anchor: ls}
     narration:
       - "To find your way, the training framework holds the entry point, the configurations, the data, the models and losses, the trainers, the evaluation, the tracking and the deployment."
-      - "Next to it, the scripts folder holds the evaluation, comparison and clustering scripts, the tests mirror the framework, and the documentation keeps the benchmark and one run of every task followed function by function."
+      - "Next to it, the scripts folder holds the evaluation, comparison and clustering scripts, the tests mirror the framework, and the documentation keeps the reference documents, the benchmark and one run of every task followed function by function."
       - "And the tutorials folder rebuilds these videos from the repository and its runs, so that they follow the code."
 
   - kind: summary

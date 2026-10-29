@@ -263,11 +263,13 @@ scenes:
       start: "# Keep the best pre-NMS"
       end: "suppress_per_image=suppress_per_image\\)"
     highlights:
-      - {match: "torch.topk\\(input=torch.sigmoid", sentences: [0]}
-      - {match: "kept_mask = suppress_overlapping_proposals", sentences: [1]}
-      - {match: "suppress_per_image=suppress_per_image", sentences: [1]}
+      - {match: "torch.topk\\(input=torch.sigmoid", sentences: [0, 1]}
+      - {match: "precision of the boxes|confident anchors", sentences: [1]}
+      - {match: "kept_mask = suppress_overlapping_proposals", sentences: [2]}
+      - {match: "suppress_per_image=suppress_per_image", sentences: [2]}
     narration:
       - "select_best_proposals does this for the whole batch, and both the training filter and the exported detector call it, so they keep the same proposals."
+      - "The scores are ranked in the float32 of the boxes, since the bfloat16 logits of the mixed precision would give the confident anchors only a few distinct probabilities."
       - "Only the suppression differs: one torchvision call per image in the eager model, and one batched call over the batch in the export, the form the ONNX export keeps for any batch size."
 
   - kind: terminal

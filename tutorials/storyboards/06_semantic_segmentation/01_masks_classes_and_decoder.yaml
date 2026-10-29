@@ -170,7 +170,7 @@ scenes:
       - {match: "torch.cat\\(tensors=\\[skip_tensor, current_tensor\\]", sentences: [0]}
       - {match: "return_level_outputs", sentences: [1]}
     narration:
-      - "The forward pass is that loop, from the deepest level to the finest; an input size that is not a power of two gives an upsampled map one pixel off its skip, resized to it with a bilinear interpolation."
+      - "The forward pass is that loop, from the deepest level to the finest; the configuration check keeps every map entering a pooling even, so the bilinear interpolation to the size of the skip only serves a decoder called directly."
       - "The outputs of the intermediate levels are only returned for the deep supervision heads, and the head stays outside the decoder, so that if you transfer a decoder from another run, it can serve other classes."
 
   - kind: yaml

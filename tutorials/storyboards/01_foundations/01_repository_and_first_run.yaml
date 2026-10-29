@@ -88,11 +88,13 @@ scenes:
           - "scripts/        after training"
           - "tests/          mirrors the package"
           - "documentation/  benchmark, audit, workflows"
+          - "  reference/    the details of the README"
           - "tutorials/      these videos"
-          - "README.md       every task, every key"
+          - "README.md       commands, main settings"
     narration:
       - "The training framework is one package: its main module is the entry point of every training, and every task adds its trainer, dataset, model, loss and metrics to the matching folders."
       - "Around it, the scripts run after training, the tests mirror the package, and the documentation holds the benchmark results, the audit of known problems, and one workflow document per task that follows a real run function by function."
+      - "The README keeps the commands and the main settings of every task, and the reference documents of the documentation folder give the details: the keys and their values, the outputs, the tools."
 
   - kind: terminal
     title: "Install, generate, train"
