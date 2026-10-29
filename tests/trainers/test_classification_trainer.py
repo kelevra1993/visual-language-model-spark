@@ -2,8 +2,9 @@
 Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
 multi-class and multi-label training save, evaluate and resume, with the report, the per-class metrics, the
 predictions file, the error images and the sample images checked, the per-class report, the predictions file and the
-sample images can be turned off, a head reading the flattened feature map trains, and the decorrelation of the hidden
-features turned on when a run resumes is tracked and summed into the total loss.
+sample images can be turned off, a head reading the flattened feature map trains, the decorrelation of the hidden
+features turned on when a run resumes is tracked and summed into the total loss, and a checkpoint evaluated with a
+logit temperature gets the softened probabilities, thresholds and temperature explorer of that temperature.
 """
 
 import json
@@ -17,9 +18,11 @@ from typing import Any, Dict
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.evaluation.checkpoint_evaluation import evaluate_checkpoints
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 from vision_training.trainers.classification_trainer import ClassificationTrainer
+from tests.evaluation.classification.test_temperature_explorer import read_explorer_data
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
                                               check_sample_images, read_predictions_file, read_results_blocks)
 
@@ -156,7 +159,8 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
         "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
-        "precision_recall_curves.png", "precision_recall_thresholds.png", "predictions.csv", "roc_curves.png"]
+        "precision_recall_curves.png", "precision_recall_thresholds.png", "predictions.csv", "roc_curves.png",
+        "temperature_explorer.html"]
     class_rows = check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names,
                                           number_samples=6, per_class_report=True, additional_target_precisions=[0.1])
     assert len(results["class_scalars"]) == 3 * len(trainer.class_names) + sum(
@@ -178,6 +182,7 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     # missing thresholds
     class_thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text())
     assert list(class_thresholds["classes"]) == trainer.class_names and class_thresholds["target_precision"] == 0.99
+    assert class_thresholds["logit_temperature"] == 1.0
     assert [target["target_precision"] for target in class_thresholds["additional_targets"]] == [0.1]
     file_probabilities = torch.tensor(data=[[float(row[f"probability_{class_name}"])
                                              for class_name in trainer.class_names] for row in rows],
@@ -253,7 +258,7 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir()) == [
         "Samples", "class_metrics.csv", "class_thresholds.json", "precision_recall_curves.png",
-        "precision_recall_thresholds.png", "predictions.csv", "roc_curves.png"]
+        "precision_recall_thresholds.png", "predictions.csv", "roc_curves.png", "temperature_explorer.html"]
     multi_label_rows = read_predictions_file(evaluation_folder=evaluation_folder)
     assert len(multi_label_rows) == 4
     assert list(multi_label_rows[0])[:4] == ["sample", "true_classes", "predicted_classes", "correct"]
@@ -306,6 +311,77 @@ def test_predictions_file_per_class_report_and_sample_images_can_be_turned_off(t
     test_events.Reload()
     assert sorted(test_events.Tags()["scalars"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-5 Accuracy"]
     assert test_events.Tags()["images"] == []
+
+
+def test_logit_temperature_softens_the_evaluated_probabilities(tmp_path: Path) -> None:
+    """
+    Verifies the evaluation of a checkpoint with a logit temperature of 2, as scripts/evaluation/evaluate_checkpoint.py
+    sets it: the probabilities of predictions.csv are those of the evaluation of the training (temperature 1) with
+    their logits divided by 2, the predicted classes are unchanged, class_thresholds.json records the temperature with
+    the thresholds found on the softened probabilities, the report notes the temperature, and the temperature explorer
+    opens on it with the thresholds of class_thresholds.json.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={},
+        evaluation_settings={"target_precision": [0.99, 0.1]}))
+    trainer.run_training_loop()
+
+    # Predictions of the evaluation of the training at the temperature 1, then of the same checkpoint at 2
+    evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
+    reference_rows = read_predictions_file(evaluation_folder=evaluation_folder)
+    trainer.logit_temperature = 2.0
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        evaluate_checkpoints(trainer=trainer, experiment_folder=trainer.experiment_folder, iterations=[4])
+    results = report_mock.call_args_list[0].kwargs["results"]
+    rows = read_predictions_file(evaluation_folder=evaluation_folder)
+
+    # Same predicted classes, the probabilities being the softmax of the logits divided by 2, the logits being the log
+    # probabilities of the temperature 1 up to a constant per image
+    assert [row["predicted_class"] for row in rows] == [row["predicted_class"] for row in reference_rows]
+    probability_columns = [f"probability_{class_name}" for class_name in trainer.class_names]
+    reference_probabilities = torch.tensor(data=[[float(row[column]) for column in probability_columns]
+                                                 for row in reference_rows], dtype=torch.float64)
+    file_probabilities = torch.tensor(data=[[float(row[column]) for column in probability_columns] for row in rows],
+                                      dtype=torch.float64)
+    assert torch.allclose(input=file_probabilities, other=torch.softmax(input=reference_probabilities.log() / 2.0,
+                                                                        dim=1), atol=1e-5)
+    assert (file_probabilities.max(dim=1).values < reference_probabilities.max(dim=1).values).all()
+
+    # Thresholds of the softened probabilities, recorded with their temperature and noted in the report
+    class_thresholds = json.loads(s=(evaluation_folder / "class_thresholds.json").read_text())
+    assert class_thresholds["logit_temperature"] == 2.0
+    file_positives = torch.tensor(data=[[row["true_class"] == class_name for class_name in trainer.class_names]
+                                        for row in rows])
+    for target_thresholds in [class_thresholds] + class_thresholds["additional_targets"]:
+        found_thresholds = find_class_thresholds(probabilities=file_probabilities.to(dtype=torch.float32),
+                                                 positive_masks=file_positives,
+                                                 target_precision=target_thresholds["target_precision"])
+        assert [None if class_threshold is None else {"threshold": class_threshold[0], "recall": class_threshold[1]}
+                for class_threshold in found_thresholds] == list(target_thresholds["classes"].values())
+    assert "Logit Temperature : 2 (class logits divided by it before the softmax)" in results["notes"]
+    assert results["files"]["Temperature Explorer"] == evaluation_folder / "temperature_explorer.html"
+
+    # The explorer opens on the evaluated temperature, whose thresholds are those of class_thresholds.json (computed
+    # again on the CPU from the kept logits)
+    explorer_data = read_explorer_data(explorer_path=evaluation_folder / "temperature_explorer.html")
+    assert explorer_data["evaluated_temperature"] == 2.0
+    evaluated_state = next(state for state in explorer_data["states"] if state["temperature"] == 2.0)
+    shown_thresholds = dict(zip(explorer_data["class_names"], evaluated_state["classes"]))
+    for target_index, target_thresholds in enumerate([class_thresholds] + class_thresholds["additional_targets"]):
+        for class_name, class_threshold in target_thresholds["classes"].items():
+            explorer_threshold = shown_thresholds[class_name]["thresholds"][target_index]
+            if class_threshold is None:
+                assert explorer_threshold is None
+            else:
+                assert explorer_threshold == pytest.approx(expected=[class_threshold["threshold"],
+                                                                     class_threshold["recall"]], abs=1e-6)
 
 
 def test_intermediate_weight_saving_can_be_turned_off(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

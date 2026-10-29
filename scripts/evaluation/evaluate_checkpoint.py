@@ -3,7 +3,9 @@ When run, evaluates the last, a given or every checkpoint of a trained experimen
 labelled split) through vision_training.evaluation.checkpoint_evaluation.evaluate_checkpoints, the trainer of the task
 being built from the copied configuration, the results written to a separate evaluations folder and, when the tracking
 is on, tracked in an MLflow run of their own. The precisions targeted by the class thresholds can be replaced, e.g. by
-[0.99, 0.95, 0.90] to read the thresholds of a research report without training again.
+[0.99, 0.95, 0.90] to read the thresholds of a research report without training again, and the class logits of a
+classifier divided by a logit temperature chosen on 'temperature_explorer.html', so that class_thresholds.json holds
+the thresholds of the probabilities of an export built with that temperature.
 """
 
 from pathlib import Path
@@ -91,6 +93,29 @@ def apply_target_precisions(experiment_configuration: Dict[str, Any],
     evaluation_configuration["target_precision"] = target_precisions
 
 
+def check_logit_temperature(task: str, logit_temperature: float) -> None:
+    """
+    Checks the temperature dividing the class logits of the evaluated classifier before the softmax, read before the
+    trainer loads any data: a number above 0, and 1 for the tasks other than the image classification, whose exports
+    have no logit temperature (the thresholds of another temperature could not be deployed with them).
+
+    Args:
+        task (str): The task of the evaluated run.
+        logit_temperature (float): The logit temperature, 1 for the probabilities of the classifier.
+
+    Raises:
+        ValueError: If the temperature is not a number above 0, or differs from 1 for another task than the
+            classification.
+    """
+    # A boolean is an integer for Python, but never a temperature
+    is_number = isinstance(logit_temperature, (int, float)) and not isinstance(logit_temperature, bool)
+    if not is_number or not logit_temperature > 0:
+        raise ValueError(f"logit_temperature must be a number above 0, got {logit_temperature!r}.")
+    if task != "classification" and logit_temperature != 1:
+        raise ValueError(f"logit_temperature must be 1 for the {task} task: only the classification exports divide "
+                         f"their logits by a temperature, got {logit_temperature}.")
+
+
 if __name__ == "__main__":
     # Run name of the trained experiment whose configuration and checkpoints are evaluated, it is only read, in the
     # experiments root folder of its configuration ('experiment_folder')
@@ -119,6 +144,12 @@ if __name__ == "__main__":
     # A list is refused by the frame selection and the detection tasks; skipped with a warning for the tasks without
     # class thresholds (semantic segmentation, keypoint detection, self-supervised)
     target_precisions = None
+    # Classification only: temperature dividing the class logits before the softmax (sigmoid in multi-label mode), 1
+    # for the probabilities of the classifier. Above 1 it spreads probabilities squeezed against 0 and 1 without
+    # changing the predicted class; choose it on 'temperature_explorer.html' (written with the per-class report). The
+    # thresholds of class_thresholds.json are then found at this temperature, which the file records and
+    # vision_training/deployment/export_model.py builds into the exported model given that file
+    logit_temperature = 1.0
     # Root folder of the evaluations, kept apart from the experiment so that its files are untouched. Like a training
     # run, Results.txt, Tensorboard/Test and the Evaluation folder are written in a subfolder of it with the name of
     # the evaluated run folder
@@ -144,6 +175,8 @@ if __name__ == "__main__":
                             maximum_error_images_per_class_pair=maximum_error_images_per_class_pair)
     # Target precisions of the class thresholds replaced, for the tasks giving class thresholds
     apply_target_precisions(experiment_configuration=experiment_configuration, target_precisions=target_precisions)
+    # Logit temperature checked before the trainer loads the data of the run
+    check_logit_temperature(task=experiment_configuration["task"], logit_temperature=logit_temperature)
 
     # The weights come from the evaluated checkpoints, so the pretrained components the run started from are not loaded
     disable_pretrained_settings(model_configuration=model_configuration)
@@ -151,6 +184,9 @@ if __name__ == "__main__":
     trainer_class = get_trainer_class(task=experiment_configuration["task"])
     trainer = trainer_class(experiment_configuration=experiment_configuration,
                             model_configuration=model_configuration, configuration_path=configuration_path)
+    # The class logits of the classifier divided by the logit temperature before the softmax of the evaluation
+    if experiment_configuration["task"] == "classification":
+        trainer.logit_temperature = float(logit_temperature)
 
     # Every checkpoint of the registry from the last saved one, so that the most trained weights are evaluated first,
     # the last one, or the given one
