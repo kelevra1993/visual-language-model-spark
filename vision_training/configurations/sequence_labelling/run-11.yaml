@@ -240,7 +240,8 @@ Data:
       # Random Haze : blend with a uniform grey airlight of 180 to 255 intensity levels taking 20% to 60% of every
       # pixel, the fog or condensation of a camera lowering the contrast (applied after the blurs, before the
       # solarization, the black-out and the erasing)
-      random_haze: { activated: True, probability: 0.3 }
+      # Kept off in the hyperparameter experiment, whose launches up to run_10 were trained before the haze existed
+      random_haze: { activated: False, probability: 0.3 }
       # Random Solarize : every pixel at or above 128 intensity levels inverted
       random_solarize: { activated: False, probability: 0.2 }
       # Random Black Out : image cut into a grid of grid_size x grid_size cells (smaller cells hiding smaller

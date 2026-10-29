@@ -27,6 +27,7 @@ Every launch keeps a moving average of its weights, and the settings are compare
 - Adam, no weight decay, constant learning rate without warm-up, no gradient clipping
 - Mixed precision (bfloat16), moving average of the weights with a decay of 0.9998
 - Data augmentation with a probability of 0.4: left-right flip (0.5), and with a probability of 0.3 each brightness, contrast and saturation, CLAHE, sharpening, luminance histogram equalization, histogram equalization of the BGR channels, noise, grayscale and the swap of the blue and red channels, the same for all the frames of a sequence
+- Every augmentation type added after the start of the experiment kept off, the haze included (on by default since 2026-10-20), so that the launches from run_11 on, restarted on 2026-10-29, train with the augmentations of run_1 to run_10
 - `top_k`: 5 (now fixed in the code, no longer a setting), no per-class report, no saved predictions, 8 sample sequences
 
 ## Starting Values
@@ -81,3 +82,21 @@ Kept: **1e-3** (run_1 and run_2), the highest mean (0.0136 against 0.0117 for 2e
 - The higher the learning rate, the faster the launches learn up to 1e-3: at iteration 2000 the means are 0.0125 (1e-4), 0.0183 (2e-4) and 0.0244 (1e-3).
 - 2e-3 gives the best single launch (run_7, 0.0294 at iteration 2000), but run_8 stays at about 0.0068 from iteration 500 to 2000, the score of a model that only learns that the first frame of a sequence is `no_change`: 2e-3 lies at the edge of the usable learning rates.
 - Every launch that learns is still rising at iteration 2000, so the following stages train 6000 iterations.
+
+### Stage 2: Class Weighting (4 launches, 6000 iterations)
+
+The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000).
+
+| `class_weighting` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| balanced | run_9 | 0.0068 | 0.0164 | 0.0221 | 0.0262 | 0.0341 | 0.0536 | 0.0624 | 0.0629 | 0.0714 | 0.0745 | 0.0760 | 0.0686 | 0.0465 |
+| balanced | run_10 | 0.0069 | 0.0154 | 0.0194 | 0.0302 | 0.0430 | 0.0657 | 0.0885 | 0.1131 | 0.1374 | 0.1593 | 0.1712 | 0.1727 | 0.0824 |
+| balanced | **Mean** | 0.0068 | 0.0159 | 0.0208 | 0.0282 | 0.0386 | 0.0596 | 0.0754 | 0.0880 | 0.1044 | 0.1169 | 0.1236 | 0.1207 | 0.0645 |
+| none | run_11 | 0.0090 | 0.0090 | 0.0090 | 0.0155 | 0.0168 | 0.0189 | 0.0200 | 0.0189 | 0.0208 | 0.0254 | 0.0298 | 0.0375 | 0.0187 |
+| none | run_12 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 | 0.0090 |
+| none | **Mean** | 0.0090 | 0.0090 | 0.0090 | 0.0123 | 0.0129 | 0.0140 | 0.0145 | 0.0140 | 0.0149 | 0.0172 | 0.0194 | 0.0233 | 0.0139 |
+
+Kept: **balanced** (run_9 and run_10), the highest mean (0.0645 against 0.0139 for none); the direction stage trains bidirectional (run_13 and run_14) against the unidirectional run_9 and run_10.
+
+- Without class weighting the launches barely learn a change: run_12 stays at 0.0090 from the first to the last evaluation, the score of a model that only predicts `no_change`, and run_11 only starts rising after iteration 1500 (0.0375 at iteration 6000).
+- The two balanced launches part after iteration 3000 (0.0686 and 0.1727 at iteration 6000), run_10 still rising at iteration 6000 while run_9 levels off at about 0.07.
