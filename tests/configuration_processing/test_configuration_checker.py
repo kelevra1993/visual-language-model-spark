@@ -19,7 +19,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from vision_training.configuration_processing.common_checks import REMOVED_SECTIONS
+from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
 from vision_training.data.augmentations import SELF_SUPERVISED_AUGMENTATION_STRENGTHS, SUPERVISED_AUGMENTATION_STRENGTHS
@@ -290,27 +290,6 @@ def use_sequence_normalization(configuration: Dict[str, Any]) -> None:
     configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
 
 
-def augment_detection_frames(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the sequence augmentations on in the detection configuration, with a shuffling probability above 1.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Data"]["data_augmentation"]["independent_frames"] = True
-    configuration["Data"]["data_augmentation"]["shuffle_frames"] = {"activated": True, "probability": 1.5}
-
-
-def set_invalid_loading(configuration: Dict[str, Any]) -> None:
-    """
-    Sets the detection loaders without worker, which loads in the main process, and without prefetched batch.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Data"]["loading"] = {"number_workers": 0, "prefetch_batches": 0}
-
-
 def write_per_class_report_as_text(configuration: Dict[str, Any]) -> None:
     """
     Writes the switch of the per-class evaluation report as a quoted string instead of a boolean.
@@ -333,25 +312,24 @@ def set_negative_number_sample_images(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_tracking(configuration: Dict[str, Any]) -> None:
     """
-    Writes every MLflow tracking setting with an invalid value: the switches as text, an empty server address and an
+    Writes every MLflow tracking setting with an invalid value: the switch as text, an empty server address and an
     experiment name that is not a string.
 
     Args:
         configuration (Dict[str, Any]): The raw configuration, modified in place.
     """
-    configuration["ExperimentConfiguration"]["tracking"].update({"activated": "yes", "log_artifacts": "no",
-                                                                 "tracking_uri": " ", "experiment_name": 12})
+    configuration["ExperimentConfiguration"]["tracking"].update({"activated": "yes", "tracking_uri": " ",
+                                                                 "experiment_name": 12})
 
 
 def set_invalid_batch_normalization_momentums(configuration: Dict[str, Any]) -> None:
     """
-    Sets a batch normalization momentum of 0 in the backbone, above 1 in the region proposal heads and written as text
-    in the detection heads.
+    Sets a batch normalization momentum above 1 in the region proposal heads and written as text in the detection
+    heads.
 
     Args:
         configuration (Dict[str, Any]): The raw configuration, modified in place.
     """
-    configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0
     configuration["RegionProposal"]["normalization"]["batch_normalization_momentum"] = 1.5
     configuration["Detector"]["normalization"]["batch_normalization_momentum"] = "fast"
 
@@ -428,25 +406,17 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0."]),
     (set_empty_black_out_grid, ["'Data.data_augmentation.types.random_black_out.grid_size' must be an integer within "
                                 "[1, 'Data.image_settings.size' (1024)], got 0: a grid finer than the image would "
                                 "hide cells holding no pixel."]),
     (set_pre_activation_without_residual_shortcuts, ["'Backbone.modules.residual_nets_v2' must be False when "
                                                      "'Backbone.modules.residual_nets' is False"]),
-    (set_invalid_batch_normalization_momentums, ["'Backbone.normalization.batch_normalization_momentum' must be a "
-                                                 "number within (0, 1], got 0.",
-                                                 "'RegionProposal.normalization.batch_normalization_momentum' must be "
+    (set_invalid_batch_normalization_momentums, ["'RegionProposal.normalization.batch_normalization_momentum' must be "
                                                  "a number within (0, 1], got 1.5.",
                                                  "'Detector.normalization.batch_normalization_momentum' must be a "
                                                  "number within (0, 1], got 'fast'."]),
     (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
                                      "this task, whose samples have no frames."]),
-    (augment_detection_frames, ["'Data.data_augmentation.shuffle_frames.activated' must be False for this task, "
-                                "whose samples have no frames.",
-                                "'Data.data_augmentation.independent_frames' must be False for this task",
-                                "'Data.data_augmentation.shuffle_frames.probability' must be a probability within "
-                                "[0, 1], got 1.5."]),
     (set_image_size, ["'Data.image_settings.size' (1000) must be a multiple of 64, 2 to the power of the 6 Backbone "
                       "pooling layers"]),
     (set_overlapping_thresholds, ["'RegionProposal.background_iou_threshold.max' (0.6) must be <="]),
@@ -490,7 +460,6 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
     (set_negative_number_sample_images, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
                                          "integer >= 0, got -1."]),
     (set_invalid_tracking, ["'ExperimentConfiguration.tracking.activated' must be True or False, got 'yes'.",
-                            "'ExperimentConfiguration.tracking.log_artifacts' must be True or False, got 'no'.",
                             "'ExperimentConfiguration.tracking.tracking_uri' must be null or a non-empty string, "
                             "got ' '.",
                             "'ExperimentConfiguration.tracking.experiment_name' must be null or a non-empty string, "
@@ -763,16 +732,6 @@ def write_task_configuration(temporary_directory: Path, task_folder: str, config
     return configuration_path
 
 
-def set_negative_number_workers(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a negative number of loader workers.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["Data"]["loading"]["number_workers"] = -1
-
-
 def use_binary_labels(configuration: Dict[str, Any]) -> None:
     """
     Uses the binary label mapping, which only makes sense next to the background class of the object detector.
@@ -796,14 +755,12 @@ def set_invalid_head(configuration: Dict[str, Any]) -> None:
 
 def normalize_head_without_hidden_layers(configuration: Dict[str, Any]) -> None:
     """
-    Turns the batch normalization of the hidden layers on in a head without hidden layers, with a momentum written as
-    a boolean.
+    Turns the batch normalization of the hidden layers on in a head without hidden layers.
 
     Args:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
-    configuration["ClassificationHead"].update({"fully_connected": [], "fully_connected_normalization": "batch",
-                                                "batch_normalization_momentum": True})
+    configuration["ClassificationHead"].update({"fully_connected": [], "fully_connected_normalization": "batch"})
 
 
 def use_sequence_normalization_in_head(configuration: Dict[str, Any]) -> None:
@@ -829,13 +786,12 @@ def write_head_normalization_as_boolean(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None:
     """
-    Sets a top-k accuracy of zero classes, a target precision above 1 and the predictions setting as a quoted string.
+    Sets a target precision above 1 and the predictions setting as a quoted string.
 
     Args:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
-    configuration["ExperimentConfiguration"]["evaluation"].update({"top_k": 0, "target_precision": 1.5,
-                                                                   "save_predictions": "yes"})
+    configuration["ExperimentConfiguration"]["evaluation"].update({"target_precision": 1.5, "save_predictions": "yes"})
 
 
 def list_invalid_target_precisions(configuration: Dict[str, Any]) -> None:
@@ -1113,26 +1069,71 @@ def keep_the_removed_view_augmentation(configuration: Dict[str, Any]) -> None:
     configuration["ProjectionHead"]["method"] = "byol"
 
 
-@pytest.mark.parametrize(argnames=("task_folder", "modify_function", "removed_section", "hidden_message"), argvalues=[
-    ("classification", keep_the_removed_view_losses, "ClassificationHead.view_losses",
-     "'ClassificationHead.global_pooling' must be one of"),
-    ("self_supervised", keep_the_removed_view_augmentation, "Data.view_augmentation",
-     "'ProjectionHead.method' must be one of")])
-def test_removed_sections_are_refused_alone(tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str,
-                                            modify_function: Callable[[Dict[str, Any]], None], removed_section: str,
-                                            hidden_message: str) -> None:
+def keep_the_fixed_settings(configuration: Dict[str, Any]) -> None:
     """
-    Verifies that a configuration still holding a section removed from the repository (the view losses of the image
-    classifier, the views of the self-supervised task now drawn by the data augmentation) is refused with a message
-    naming the section, what replaced it and that it must be deleted, and alone: the other checks do not run, so that
-    the reason of the refusal is never hidden behind the keys the removed section leaves missing.
+    Keeps every setting removed from the configuration files for its fixed value (top-k, artifacts, resumption,
+    diagnosis modes, mixed precision, loaders, inception start, batch normalization momentums), next to an unknown
+    pooling of the classification head.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    experiment_configuration = configuration["ExperimentConfiguration"]
+    experiment_configuration["evaluation"]["top_k"] = 5
+    experiment_configuration["tracking"]["log_artifacts"] = True
+    experiment_configuration["resume_training"] = True
+    experiment_configuration["diagnosis_modes"].update({"verbose": False, "compute_model_size": True})
+    configuration["Optimization"]["mixed_precision"] = True
+    configuration["Data"]["loading"] = {"number_workers": 4, "prefetch_batches": 2}
+    configuration["Backbone"]["modules"]["inception_starting_block"] = 3
+    configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0.1
+    configuration["ClassificationHead"]["batch_normalization_momentum"] = 0.1
+    configuration["ClassificationHead"]["global_pooling"] = "median"
+
+
+def keep_the_sequence_settings(configuration: Dict[str, Any]) -> None:
+    """
+    Keeps the sequence augmentation settings, held by the sequence tasks only, in an object detection configuration,
+    next to an image size that is not a multiple of the poolings of its backbone.
+
+    Args:
+        configuration (Dict[str, Any]): The raw object detection configuration, modified in place.
+    """
+    configuration["Data"]["data_augmentation"]["independent_frames"] = False
+    configuration["Data"]["data_augmentation"]["shuffle_frames"] = {"activated": False, "probability": 0.5}
+    configuration["Data"]["image_settings"]["size"] = 1000
+
+
+@pytest.mark.parametrize(argnames=("task_folder", "modify_function", "removed_settings", "hidden_message"), argvalues=[
+    ("classification", keep_the_removed_view_losses, ["ClassificationHead.view_losses"],
+     "'ClassificationHead.global_pooling' must be one of"),
+    ("self_supervised", keep_the_removed_view_augmentation, ["Data.view_augmentation"],
+     "'ProjectionHead.method' must be one of"),
+    ("classification", keep_the_fixed_settings,
+     ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfiguration.tracking.log_artifacts",
+      "ExperimentConfiguration.resume_training", "ExperimentConfiguration.diagnosis_modes.compute_model_size",
+      "ExperimentConfiguration.diagnosis_modes.verbose", "Optimization.mixed_precision", "Data.loading",
+      "Backbone.modules.inception_starting_block", "Backbone.normalization.batch_normalization_momentum",
+      "ClassificationHead.batch_normalization_momentum"], "'ClassificationHead.global_pooling' must be one of"),
+    ("object_detection", keep_the_sequence_settings,
+     ["Data.data_augmentation.independent_frames", "Data.data_augmentation.shuffle_frames"],
+     "'Data.image_settings.size' (1000) must be a multiple of")])
+def test_removed_settings_are_refused_alone(tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str,
+                                            modify_function: Callable[[Dict[str, Any]], None],
+                                            removed_settings: List[str], hidden_message: str) -> None:
+    """
+    Verifies that a configuration still holding settings or sections removed from the repository (the view losses of
+    the image classifier, the views of the self-supervised task now drawn by the data augmentation, the settings fixed
+    in the code, the sequence settings in an image task) is refused with a message naming every removed setting, what
+    replaced it and that it must be deleted, and alone: the other checks do not run, so that the reason of the refusal
+    is never hidden behind the keys the removed setting leaves missing.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
         task_folder (str): The folder of the configurations of the task.
-        modify_function (Callable[[Dict[str, Any]], None]): Function keeping the removed section.
-        removed_section (str): The key path of the removed section.
+        modify_function (Callable[[Dict[str, Any]], None]): Function keeping the removed settings.
+        removed_settings (List[str]): The key paths of the removed settings.
         hidden_message (str): A message of another check, which must not be printed.
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
@@ -1143,13 +1144,41 @@ def test_removed_sections_are_refused_alone(tmp_path: Path, capsys: pytest.Captu
         load_experiment_configuration(configuration_path=configuration_path)
 
     printed_output = capsys.readouterr().out
-    assert (f"'{removed_section}' was removed: {REMOVED_SECTIONS[removed_section]}. Delete it from the configuration "
-            f"file.") in printed_output
+    for removed_setting in removed_settings:
+        replacement, _ = REMOVED_SETTINGS[removed_setting]
+        assert (f"'{removed_setting}' was removed: {replacement}. Delete it from the configuration file."
+                in printed_output)
     assert hidden_message not in printed_output and "Traceback" not in printed_output
 
 
+@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"), argvalues=[
+    ("sequence_classification", "configuration_synthetic_sequences.yaml"),
+    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
+    ("sequence_comparison", "configuration_synthetic_pairs.yaml"),
+    ("frame_selection", "configuration_synthetic_sequences.yaml")])
+def test_sequence_tasks_keep_their_settings(tmp_path: Path, task_folder: str, configuration_name: str) -> None:
+    """
+    Verifies that the settings removed from the other tasks but still held by the sequence tasks, the sequence
+    augmentation settings, and by the frame selection, its number of candidate frames 'evaluation.top_k', load in
+    their configurations.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task_folder (str): The folder of the configurations of the task.
+        configuration_name (str): The synthetic configuration of the task.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name=configuration_name, modify_function=None)
+
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+
+    augmentation_configuration = model_configuration["Data"]["data_augmentation"]
+    assert "independent_frames" in augmentation_configuration and "shuffle_frames" in augmentation_configuration
+    assert ("top_k" in experiment_configuration["evaluation"]) == (task_folder == "frame_selection")
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (set_negative_number_workers, ["'Data.loading.number_workers' must be an integer >= 0, got -1."]),
     (use_binary_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the classification tasks"]),
     (set_invalid_head, ["'ClassificationHead.global_pooling' must be one of ['average', 'max', 'flatten'], got "
                         "'median'.",
@@ -1159,16 +1188,13 @@ def test_removed_sections_are_refused_alone(tmp_path: Path, capsys: pytest.Captu
                         "'ClassificationHead.class_weighting' must be one of ['none', 'balanced']"]),
     (normalize_head_without_hidden_layers, ["'ClassificationHead.fully_connected_normalization' must be 'none' when "
                                             "'ClassificationHead.fully_connected' is []: the head has no hidden layer "
-                                            "to normalize.",
-                                            "'ClassificationHead.batch_normalization_momentum' must be a number within "
-                                            "(0, 1], got True."]),
+                                            "to normalize."]),
     (use_sequence_normalization_in_head, ["'ClassificationHead.fully_connected_normalization' must be one of "
                                           "['batch', 'layer', 'none'], got 'sequence'."]),
     (write_head_normalization_as_boolean, ["'ClassificationHead.fully_connected_normalization' must be one of "
                                            "['batch', 'layer', 'none'], got True, written before the layer "
                                            "normalization: it is now 'batch'."]),
-    (set_invalid_classification_evaluation, ["'ExperimentConfiguration.evaluation.top_k' must be an integer >= 1",
-                                             "'ExperimentConfiguration.evaluation.target_precision' must be a "
+    (set_invalid_classification_evaluation, ["'ExperimentConfiguration.evaluation.target_precision' must be a "
                                              "probability within [0, 1], got 1.5.",
                                              "'ExperimentConfiguration.evaluation.save_predictions' must be True or "
                                              "False, got 'yes'."]),
@@ -1533,6 +1559,16 @@ def list_target_precisions_for_selection(configuration: Dict[str, Any]) -> None:
     configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 0.95]
 
 
+def set_no_candidate_frame(configuration: Dict[str, Any]) -> None:
+    """
+    Sets the number of candidate frames of every class given by the frame selection deployment to zero.
+
+    Args:
+        configuration (Dict[str, Any]): The raw frame selection configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["top_k"] = 0
+
+
 def use_pooling_for_selection(configuration: Dict[str, Any]) -> None:
     """
     Uses an order-blind pooling, which summarises a whole sequence into one vector, for the frame selection.
@@ -1550,6 +1586,7 @@ def use_pooling_for_selection(configuration: Dict[str, Any]) -> None:
                              "number >= 0, got -1.0."]),
     (use_pooling_for_selection, ["'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', "
                                  "'temporal_convolution'] for this task, got 'max_pooling'."]),
+    (set_no_candidate_frame, ["'ExperimentConfiguration.evaluation.top_k' must be an integer >= 1, got 0."]),
     (list_target_precisions_for_selection, ["'ExperimentConfiguration.evaluation.target_precision' must be a single "
                                             "probability for this task, whose deployment keeps one threshold per "
                                             "class, got the list [0.99, 0.95]."])])
@@ -1557,8 +1594,9 @@ def test_inconsistent_frame_selection_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that an invalid 'Selection' section, a temporal module unable to keep one vector per frame, and a list of
-    target precisions stop the loading of a frame selection configuration with a short message naming the faulty key.
+    Verifies that an invalid 'Selection' section, a temporal module unable to keep one vector per frame, no candidate
+    frame and a list of target precisions stop the loading of a frame selection configuration with a short message
+    naming the faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1926,8 +1964,8 @@ def test_inconsistent_temporal_and_head_transfers_are_rejected(tmp_path: Path, c
 def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     """
     Sets an unknown optimizer and schedule, a negative weight decay, an empty decay, a minimum learning rate above
-    the learning rate, a zero clipping norm, a mixed precision flag that is not a boolean, and a moving average
-    switch that is not a boolean with a decay of 1, which would never move.
+    the learning rate, a zero clipping norm, and a moving average switch that is not a boolean with a decay of 1,
+    which would never move.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
@@ -1935,7 +1973,6 @@ def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     configuration["Optimization"].update({"optimizer": "rmsprop", "learning_rate_schedule": "step",
                                           "weight_decay": -0.1, "decay_iterations": 0,
                                           "minimum_learning_rate_ratio": 1.5, "gradient_clipping_norm": 0,
-                                          "mixed_precision": "yes",
                                           "exponential_moving_average": {"activated": "yes", "decay": 1.0}})
 
 
@@ -1961,7 +1998,6 @@ def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.Ca
                              "'Optimization.decay_iterations' must be an integer >= 1, got 0.",
                              "'Optimization.minimum_learning_rate_ratio' must be a probability within [0, 1], got 1.5.",
                              "'Optimization.gradient_clipping_norm' must be null or > 0, got 0.",
-                             "'Optimization.mixed_precision' must be True or False, got 'yes'.",
                              "'Optimization.exponential_moving_average.activated' must be True or False, got 'yes'.",
                              "'Optimization.exponential_moving_average.decay' must be strictly between 0 and 1, "
                              "got 1.0."]:

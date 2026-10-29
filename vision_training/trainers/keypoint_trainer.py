@@ -103,8 +103,7 @@ class KeypointTrainer(CocoSplitTrainer):
         Returns:
             KeypointDetector: The untrained keypoint detector.
         """
-        return KeypointDetector(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
-                                verbose=self.diagnosis_modes["verbose"])
+        return KeypointDetector(configuration=self.model_configuration, device=self.device, dtype=self.dtype)
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """

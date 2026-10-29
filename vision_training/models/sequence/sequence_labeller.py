@@ -23,8 +23,7 @@ class SequenceLabeller(SequenceFrameModel):
     given.
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
-                 dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the backbone, the global pooling, the temporal module keeping one vector per frame and the
         classification head from the configuration.
@@ -32,7 +31,6 @@ class SequenceLabeller(SequenceFrameModel):
         Args:
             configuration (Dict[str, Any]): The model configuration (Data with its label dictionary and sequence
                 settings, Backbone, TemporalModel and ClassificationHead sections).
-            verbose (bool): Unused, kept so that every task model is built with the same arguments.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
         """

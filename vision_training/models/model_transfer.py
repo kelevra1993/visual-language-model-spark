@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME
+from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 from vision_training.trainers.checkpointing import EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_checkpoint_path
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY
 from vision_training.utilities.os_utilities import format_path_link, print_color, read_json
@@ -52,12 +53,17 @@ ARCHITECTURE_BACKBONE_KEYS = ["input_channels", "convolutions", "modules", "norm
 # without the pre-activation placement of the shortcuts used the original one
 BACKBONE_MODULE_DEFAULTS = {"residual_nets_v2": False}
 
+# Backbone module settings removed from the configuration files, with the value the code always uses: a source run
+# written before their removal still holds them, and has the same layers when it used that value
+FIXED_BACKBONE_MODULE_SETTINGS = {"inception_starting_block": INCEPTION_STARTING_BLOCK}
+
 # Feature map normalizations holding the same tensors (scale, shift and running statistics), so that a backbone moves
 # between batch normalization and sequence normalization through the transfer
 BATCH_STATISTICS_NORMALIZATIONS = ["batch", "sequence"]
 
 # Normalization settings that change how the batch statistics follow the training batches but no tensor, so that a
-# component moves between runs of different momentums, a source run written before the setting existed included
+# component moves between runs of different momentums, a source run written before the setting existed included, and
+# a backbone from a run written before its momentum was fixed
 NON_WEIGHT_NORMALIZATION_KEYS = ["batch_normalization_momentum"]
 
 # Temporal module settings defining its weights, for every type that has weights. The dropout only acts in training
@@ -179,7 +185,8 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
     transferred between runs whose backbones have exactly the same layers, or whose backbone is made of the first
     blocks of the source backbone (see is_backbone_prefix). Batch and sequence normalization count as the same layers,
     holding the same tensors, and the batch normalization momentum may differ. A source run written before a module
-    setting of BACKBONE_MODULE_DEFAULTS counts as having its default value.
+    setting of BACKBONE_MODULE_DEFAULTS counts as having its default value, and one written before the removal of a
+    module setting of FIXED_BACKBONE_MODULE_SETTINGS has the same layers only when it used the fixed value.
 
     Args:
         source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
@@ -200,11 +207,13 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
         source_value = source_backbone_configuration[key_name] if key_name in source_backbone_configuration else None
         target_value = target_backbone_configuration[key_name]
 
-        # Normalization layers compared by their tensors, batch and sequence normalization being the same, and the
-        # modules of a source run written before a module setting completed with its default value
+        # Normalization layers compared by their tensors, batch and sequence normalization being the same, the modules
+        # of a source run written before a module setting completed with its default value, and the fixed module
+        # settings, held only by the source runs written before their removal, compared with their fixed value
         compared_source_value, compared_target_value = source_value, target_value
         if key_name == "modules" and source_value is not None:
-            compared_source_value = {**BACKBONE_MODULE_DEFAULTS, **source_value}
+            compared_source_value = {**BACKBONE_MODULE_DEFAULTS, **FIXED_BACKBONE_MODULE_SETTINGS, **source_value}
+            compared_target_value = {**target_value, **FIXED_BACKBONE_MODULE_SETTINGS}
         if key_name == "normalization" and source_value is not None:
             compared_source_value = get_weight_normalization(normalization_configuration=source_value)
             compared_target_value = get_weight_normalization(normalization_configuration=target_value)
@@ -319,8 +328,8 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
     Lists the differences between the settings defining the layers of the classification heads of two runs: the
     hidden fully connected layers, their normalization and, for a flattened feature map, the settings giving the
     size of its input (the flattening itself, and the image size). The dropout rate and the batch normalization
-    momentum are not compared: the heads always hold their dropout layers, so the rate does not change the names of
-    their weights, and the momentum changes no tensor.
+    momentum, held by the source runs written before it was fixed, are not compared: the heads always hold their
+    dropout layers, so the rate does not change the names of their weights, and the momentum changes no tensor.
     The other sizes of the input vectors (e.g. the channels of the last backbone block) are compared on the weights
     themselves, and the classes by load_pretrained_component, the run receiving the head being allowed to add classes
     after those of the source run.

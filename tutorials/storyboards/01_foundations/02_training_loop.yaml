@@ -57,7 +57,7 @@ scenes:
       - {type: arrow, points: [[1170, 140], [1260, 405]], colour: violet, appear: 3}
       - {type: arrow, points: [[1175, 460], [1215, 460]], colour: violet, appear: 3}
     narration:
-      - "Every iteration takes one batch prefetched by the loader workers, augments it on the GPU, and runs the forward pass in bfloat16 when mixed precision is on."
+      - "Every iteration takes one batch prefetched by the loader workers, augments it on the GPU, and runs the forward pass in bfloat16, the mixed precision of every run."
       - "The task trainer returns its losses and batch metrics, the backward pass follows, then one optimizer step: gradient clipping, the learning rate of the schedule, and the moving average of the weights when it is on."
       - "Every validation ratio iterations, one validation batch goes through the model without augmentation and without any update, for the validation curves."
       - "Every value goes to the metric tracker, which writes it to TensorBoard at every iteration and averages it over the interval for the console."
@@ -156,12 +156,12 @@ scenes:
     lines:
       - {role: comment, text: "# Ctrl+C saves a checkpoint of the last step taken, and may print:"}
       - {role: comment, text: "#   The Checkpoint Of Iteration <n> Was Not Evaluated"}
-      - {role: comment, text: "# resume_training: true, the same configuration launched again"}
+      - {role: comment, text: "# The same configuration launched again: it always resumes"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "#   - Changed Settings        : None Since Iteration <n>"}
     narration:
       - "Control C saves a checkpoint of the last step; an evaluation checkpoint left unevaluated by the stop is announced, to be evaluated apart."
-      - "Launched again with resume training on, the run restarts from its last checkpoint with its optimizer state, and prints every setting changed since the previous start."
+      - "Launched again, the run always restarts from its last checkpoint with its optimizer state, and prints every setting changed since the previous start."
       - "Let's consider a run stopped at five thousand and resumed with eight thousand iterations: the number of iterations being the total of the run, it trains the last three thousand."
 
   - kind: html
@@ -171,17 +171,17 @@ scenes:
     elements:
       - {type: box, box: [20, 20, 860, 410], outline: aqua, fill: null, highlight: [0]}
       - {type: text, position: [440, 55], text: "Can change when the run resumes", font: diagram_bold, anchor: mm}
-      - {type: text, position: [60, 110], text: "batch size\nlearning rate, warm-up and schedule\naugmentation\nlearning rate multipliers of pre-trained parts\ngradient clipping, mixed precision\nmoving average of the weights\ndropout rates, decorrelation"}
+      - {type: text, position: [60, 110], text: "batch size\nlearning rate, warm-up and schedule\naugmentation\nlearning rate multipliers of pre-trained parts\ngradient clipping\nmoving average of the weights\ndropout rates, decorrelation"}
       - {type: box, box: [900, 20, 1740, 410], outline: magenta, fill: null, appear: 1, highlight: [1]}
       - {type: text, position: [1320, 55], text: "Gives another run name: a new run folder", font: diagram_bold, anchor: mm, appear: 1}
       - {type: text, position: [940, 110], text: "task, image size, aspect ratio\nbackbone blocks, modules, normalization\nhead pooling, hidden layers, normalization\nclasses, output mode, label smoothing\nclass weighting\noptimizer and weight decay\npre-trained or frozen components", appear: 1}
       - {type: box, box: [20, 450, 570, 700], text: "run_name_suffix: \"v1\"\n\na new run of the same\nsettings, <run name>_v1", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
-      - {type: box, box: [605, 450, 1155, 700], text: "resume_training: false\n\nthe previous training moved\naside as v1_<run name>", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [605, 450, 1155, 700], text: "launched again, no suffix\n\nalways resumes its folder;\nmove it away to start over", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: box, box: [1190, 450, 1740, 700], text: "a labels.json that changed\n\nthe resume stops, unless\nallow_data_change_on_resume", font: diagram_small, outline: red, appear: 3, highlight: [3]}
     narration:
       - "The settings without a run name token can change between two resumptions: the batch size, the learning rate and its schedule, the augmentation, the dropout and the other training settings."
       - "Any setting with a token gives another run name, so the training starts in a new folder."
-      - "A run name suffix starts a new run of the same settings, and with resume training off, the previous training is moved aside so that two trainings never mix."
+      - "A run name suffix starts a new run of the same settings; without one, a launch always resumes the run folder, so move that folder away to start over."
       - "And imagine that the labels file of a split was corrected since the run started: the resume then stops, unless the data change is allowed."
 
   - kind: summary
@@ -191,7 +191,7 @@ scenes:
       - {text: "Validation every validation_iteration_ratio iterations, without update", monospace: false}
       - {text: "Summaries, checkpoints and evaluations scheduled in iterations"}
       - {text: "TensorBoard every iteration, MLflow per run"}
-      - {text: "Ctrl+C saves; resume_training restarts from the last checkpoint"}
+      - {text: "Ctrl+C saves; a relaunch restarts from the last checkpoint"}
       - {text: "Settings without a run name token can change on resume"}
     narration:
       - "To recap: one loop trains every task, everything is scheduled in iterations, and a run can stop and resume with its training settings changed."

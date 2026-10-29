@@ -40,13 +40,13 @@ scenes:
     highlights:
       - {match: "\"\\d+\": \\[", sentences: [0]}
       - {match: "last_max_pooling", sentences: [1]}
-      - {match: "input_normalization|feature_map_normalization|batch_normalization_momentum", sentences: [2]}
+      - {match: "input_normalization|feature_map_normalization", sentences: [2]}
       - {match: "residual_nets|inception|squeeze_and_excite", sentences: [3]}
     narration:
       - "The convolutions list the blocks in order: every entry gives the number of convolution layers of a block, then the filters of each of its layers."
       - "Every block ends with a two by two max pooling, but the last one while last max pooling is false, which gives this backbone a stride of {{foundations.listings.final_stride}}."
-      - "The input normalization maps the pixels to minus one half to one half, and the feature map normalization follows every convolution: batch, layer or none, the batch statistics following the training batches at the momentum given."
-      - "The modules switch on the residual shortcuts, their pre-activation placement, inception from a starting block, and squeeze and excitation; every one of them enters the run name."
+      - "The input normalization maps the pixels to minus one half to one half, and the feature map normalization follows every convolution: batch, layer or none, the batch statistics following the training batches at a fixed momentum of zero point one."
+      - "The modules switch on the residual shortcuts, their pre-activation placement, inception from the third block, and squeeze and excitation; every one of them enters the run name."
 
   - kind: html
     page: diagram
@@ -250,11 +250,11 @@ scenes:
       - {type: box, box: [1360, 220, 1560, 520], text: "concatenate\n16 + 32 + 8 + 8\n= 64 channels", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1568, 370], [1612, 370]], appear: 1}
       - {type: box, box: [1620, 320, 1750, 420], text: "layer\noutput", font: diagram_small, appear: 1}
-      - {type: text, position: [1360, 690], text: "inception_starting_block", font: diagram_monospace, anchor: lm, appear: 2, highlight: [2]}
+      - {type: text, position: [1180, 690], text: "INCEPTION_STARTING_BLOCK = 3", font: diagram_monospace, anchor: lm, appear: 2, highlight: [2]}
     narration:
       - "With inception on, every layer replaces its convolution with four branches side by side: a one by one convolution, a three by three and a five by five convolution after a one by one reduction, and a max pooling followed by a three by three convolution."
       - "The branches share the filters of the layer, a quarter, a half, an eighth and an eighth, and their outputs are concatenated, so the number of filters must be a multiple of eight."
-      - "Inception starts at the block given by inception starting block, the first blocks keeping their plain convolutions, and it adds the token INC with that block to the run name."
+      - "Inception always starts at the third block, the first two keeping their plain convolutions, and it adds the token INC3 to the run name."
 
   - kind: html
     page: 01_foundations/receptive_field
@@ -291,9 +291,9 @@ scenes:
           - {match: "Head", sentences: [2]}
       - {type: text, position: [1290, 70], text: "parameters of every block of the backbone", font: diagram_small, colour: dim, anchor: mm, appear: 1}
       - {type: bars, box: [880, 120, 1700, 600], values: "{{foundations.listings.block_parameter_counts}}", gap: 24, colour: blue, labels: "{{foundations.listings.block_labels}}", value_labels: "{{foundations.listings.block_parameter_labels}}", appear: 1, highlight: [1]}
-      - {type: text, position: [410, 650], text: "diagnosis_modes: compute_model_size: True", font: diagram_monospace, anchor: mm}
+      - {type: text, position: [410, 650], text: "printed at every launch", font: diagram_small, colour: dim, anchor: mm}
     narration:
-      - "With compute model size in the diagnosis modes, the launch prints the parameters of every part of the model, here {{foundations.listings.backbone_parameter_count:,}} in the backbone."
+      - "Every launch prints the parameters of every part of the model, here {{foundations.listings.backbone_parameter_count:,}} in the backbone."
       - "The weights of a layer grow with the product of its input and output channels, so {{foundations.listings.last_block_parameter_percent}} percent of the backbone sits in its last block."
       - "The head of every task adds its own, {{foundations.listings.head_parameter_count:,}} parameters for the classification head of this run, which reads the flattened map: the classification series comes back to it."
 
@@ -310,7 +310,7 @@ scenes:
       - {match: "freeze:|freeze_normalization_parameters|learning_rate_multiplier", sentences: [2]}
     narration:
       - "Say you want to reuse another run: every component can start from its weights, the experiment folder naming that run folder, and the iteration the checkpoint, null taking the last one."
-      - "The backbone needs the same blocks, modules and normalization as the source, or the first blocks of the source backbone; the image size and the batch normalization momentum may differ."
+      - "The backbone needs the same blocks, modules and normalization as the source, or the first blocks of the source backbone; the image size and the task may differ."
       - "Freeze keeps its weights and batch statistics fixed, freeze normalization parameters fixes only the scale and shift of its normalization layers, and the learning rate multiplier lets it learn at another speed than the new layers."
       - "The transfer adds PT to the run name, with FRZ when frozen and FBN for the fixed normalization; the multiplier gives no token, so it can change when the run resumes."
 
@@ -352,8 +352,8 @@ scenes:
       - {text: "The backbone section lists the blocks: layers and filters, a max pooling after every block"}
       - {text: "A layer: convolution, normalization, ReLU, then squeeze and excitation"}
       - {text: "Shortcuts add the input of a pair of layers, shifted when the channels change"}
-      - {text: "Inception splits every layer into four branches from its starting block"}
-      - {text: "Receptive field and model size printed at launch by the diagnosis modes"}
+      - {text: "Inception splits every layer into four branches from the third block"}
+      - {text: "Model size printed at every launch, receptive field by the diagnosis modes"}
       - {text: "A trained backbone starts another task through its pretrained settings"}
     narration:
       - "To sum up: the backbone stacks the blocks of its section, with squeeze and excitation, the residual shortcuts and inception as options, the shortcuts following pairs of layers with the same channels."

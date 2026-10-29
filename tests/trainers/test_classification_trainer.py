@@ -57,15 +57,12 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "test_data_folder": str(dataset_folder / "test"), "batch_size": 4,
                                      "information_dump": 2, "weight_saving_iterations": 4,
                                      "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
-                                     "validation_iteration_ratio": 2, "resume_training": True})
-    experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": True, "compute_model_size": True,
-                                                        "view_input_images": False})
+                                     "validation_iteration_ratio": 2})
+    experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": True, "view_input_images": False})
     experiment_configuration["evaluation"].update(evaluation_settings)
 
     # Small images, the generated label mapping, and the head settings of the test
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
-    # Two loader workers per split, enough for the small generated dataset
-    configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ClassificationHead"].update(head_settings)
 
@@ -143,7 +140,7 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     # Report of the evaluated checkpoint: its block in Results.txt with the per-class table, and its per-class outputs
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "6 Test Images")]
-    assert list(results["metrics"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-2 Accuracy",
+    assert list(results["metrics"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-5 Accuracy",
                                         "Macro ROC AUC", "Macro Average Precision"]
     assert all(0.0 <= results["metrics"][metric_name] <= 1.0
                for metric_name in ["Macro ROC AUC", "Macro Average Precision"])
@@ -307,7 +304,7 @@ def test_predictions_file_per_class_report_and_sample_images_can_be_turned_off(t
     assert "Accuracy" in results_blocks[0]["text"] and "Per Class Metrics" not in results_blocks[0]["text"]
     test_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test"))
     test_events.Reload()
-    assert sorted(test_events.Tags()["scalars"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-2 Accuracy"]
+    assert sorted(test_events.Tags()["scalars"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-5 Accuracy"]
     assert test_events.Tags()["images"] == []
 
 

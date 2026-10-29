@@ -12,6 +12,7 @@ from vision_training.configuration_processing.classification_checks import (
     check_classification_head_configuration)
 from vision_training.configuration_processing.common_checks import check_pretrained_configuration
 from vision_training.configuration_processing.configuration_values import (check_boolean_flags, check_positive_integers,
+                                                                           check_probability_value,
                                                                            get_configuration_value)
 from vision_training.models.sequence.frame_selection_decoding import VALID_DECODINGS
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, SEQUENCE_NORMALIZATION_SCOPES
@@ -20,9 +21,10 @@ from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TY
 def check_sequence_settings(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the largest number of frames of a
-    sequence (or of a member of a pair) fed whole to the models, the longer ones being left out of the splits, and
-    that the classification head predicts one class per sequence, per frame or per pair (the manifests give a single
-    category per sequence, per frame or per pair).
+    sequence (or of a member of a pair) fed whole to the models, the longer ones being left out of the splits, the
+    sequence augmentation settings held by the sequence tasks only (the photometric types drawn frame by frame and
+    the shuffling of the frames), and that the classification head predicts one class per sequence, per frame or per
+    pair (the manifests give a single category per sequence, per frame or per pair).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -33,6 +35,15 @@ def check_sequence_settings(model_configuration: Dict[str, Any]) -> List[str]:
     # Largest number of frames of a sequence or member, also the size of the positional embedding of the transformer
     errors = check_positive_integers(configuration=model_configuration,
                                      key_paths=["Data.sequence_settings.maximum_sequence_length"], allow_zero=False)
+
+    # Sequence augmentations: the photometric types drawn frame by frame, and the shuffling of the frames of a sequence
+    errors += check_boolean_flags(configuration=model_configuration,
+                                  key_paths=["Data.data_augmentation.independent_frames",
+                                             "Data.data_augmentation.shuffle_frames.activated"])
+    errors += check_probability_value(
+        value=get_configuration_value(configuration=model_configuration,
+                                      key_path="Data.data_augmentation.shuffle_frames.probability"),
+        key_path="Data.data_augmentation.shuffle_frames.probability")
 
     # One class per sequence, per frame or per pair
     output_mode = get_configuration_value(configuration=model_configuration, key_path="ClassificationHead.output_mode")
@@ -271,8 +282,9 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
     """
     Runs every check specific to the frame selection task: the data settings, classification head and evaluation
     settings shared with the classification task (with a single target precision, the deployment keeping one threshold
-    per class), the sequence settings (the largest number of frames of a sequence), a temporal module keeping one
-    vector per frame, possibly causal, and the selection settings.
+    per class), the number of candidate frames of every class given by its deployment ('evaluation.top_k', also the k
+    of its top-k selection accuracy), the sequence settings (the largest number of frames of a sequence), a temporal
+    module keeping one vector per frame, possibly causal, and the selection settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -288,6 +300,8 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration,
                                                             allow_several_target_precisions=False)
+    errors += check_positive_integers(configuration={"ExperimentConfiguration": experiment_configuration},
+                                      key_paths=["ExperimentConfiguration.evaluation.top_k"], allow_zero=False)
     errors += check_sequence_settings(model_configuration=model_configuration)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)

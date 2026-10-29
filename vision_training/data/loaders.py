@@ -20,23 +20,28 @@ from vision_training.data.sequence.sequence_dataset import SequenceDataset, coll
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
+# Worker processes reading and resizing the images of every loader of the trainings, the training, validation and test
+# loaders each having their own, and the batches prepared in advance by every worker
+NUMBER_LOADER_WORKERS = 4
+PREFETCH_BATCHES = 2
 
-def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration: Dict[str, Any],
-                        collate_function: Optional[Callable] = None, drop_last: bool = False,
-                        shuffle: bool = True, batch_sampler: Optional[Sampler[List[int]]] = None) -> DataLoader:
+
+def build_native_loader(dataset: Dataset, batch_size: int, collate_function: Optional[Callable] = None,
+                        drop_last: bool = False, shuffle: bool = True,
+                        batch_sampler: Optional[Sampler[List[int]]] = None,
+                        number_workers: int = NUMBER_LOADER_WORKERS) -> DataLoader:
     """
-    Builds the DataLoader of a Native dataset with the 'Data.loading' settings, shared by the loaders of every task:
-    shuffled samples (in their order for the embedding extraction of scripts/embedding/cluster_image_embeddings.py,
-    which writes every batch to its rows), or the batches of a batch sampler (the grouped batches of the
-    self-supervised task), worker processes kept alive between epochs and evaluations (no restart at every pass), each
-    decoding with a single OpenCV thread, and batches copied to pinned memory for faster transfers to the GPU. With 0
-    workers, the samples are loaded in the main process, for debugging. The single OpenCV thread is set in this
-    process, which then also runs OpenCV on one thread.
+    Builds the DataLoader of a Native dataset, shared by the loaders of every task: shuffled samples (in their order
+    for the embedding extraction of scripts/embedding/cluster_image_embeddings.py, which writes every batch to its
+    rows), or the batches of a batch sampler (the grouped batches of the self-supervised task), NUMBER_LOADER_WORKERS
+    worker processes each preparing PREFETCH_BATCHES batches in advance and kept alive between epochs and evaluations
+    (no restart at every pass), each decoding with a single OpenCV thread, and batches copied to pinned memory for
+    faster transfers to the GPU. With 0 workers, the samples are loaded in the main process, for debugging. The single
+    OpenCV thread is set in this process, which then also runs OpenCV on one thread.
 
     Args:
         dataset (Dataset): The Native dataset of the split.
         batch_size (int): The number of samples of a batch.
-        loading_configuration (Dict[str, Any]): The 'Data.loading' section: 'number_workers' and 'prefetch_batches'.
         collate_function (Optional[Callable]): The function batching the samples, None for the default one.
         drop_last (bool): Whether to leave out the last incomplete batch of every pass over the split, for the losses
             comparing the samples of a batch with each other (self-supervised task) and the training of the layers
@@ -46,11 +51,13 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
         batch_sampler (Optional[Sampler[List[int]]]): The sampler giving the dataset indices of every batch, given to
             the DataLoader instead of the batch size, the shuffling and drop_last, or None for batches of batch_size
             samples. Defaults to None.
+        number_workers (int): The number of worker processes, 0 loading in the main process, for the embedding
+            extraction of scripts/embedding/cluster_image_embeddings.py and the tests. Defaults to
+            NUMBER_LOADER_WORKERS, the number of every training.
 
     Returns:
         DataLoader: The loader of the split.
     """
-    number_workers = loading_configuration["number_workers"]
     use_workers = number_workers > 0
 
     # One OpenCV thread per worker, set in this process before the workers are forked so that they inherit it: OpenCV
@@ -65,7 +72,7 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
         "batch_size": batch_size, "shuffle": shuffle, "drop_last": drop_last}
     return DataLoader(dataset=dataset, num_workers=number_workers, collate_fn=collate_function, pin_memory=True,
                       persistent_workers=use_workers,
-                      prefetch_factor=loading_configuration["prefetch_batches"] if use_workers else None,
+                      prefetch_factor=PREFETCH_BATCHES if use_workers else None,
                       **batching_arguments)
 
 
@@ -83,7 +90,8 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
     Args:
         split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
         split_data_folder (str): The root folder for this split, containing a 'data/' subfolder and a 'labels.json'.
-        model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
+        model_configuration (Dict[str, Any]): The model-specific configuration, giving the image settings and the
+            label dictionary.
         batch_size (int): The number of samples to include in each batch.
         load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
             Defaults to False.
@@ -115,8 +123,7 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
                                    load_original_instances=load_original_instances,
                                    load_keypoints=load_keypoints, maximum_keypoints=maximum_keypoints,
                                    load_ignored_regions=load_ignored_regions)
-    return build_native_loader(dataset=dataset, batch_size=batch_size,
-                               loading_configuration=data_configuration["loading"], collate_function=collate_function)
+    return build_native_loader(dataset=dataset, batch_size=batch_size, collate_function=collate_function)
 
 
 def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
@@ -130,7 +137,8 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
 
     Args:
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
-        model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
+        model_configuration (Dict[str, Any]): The model-specific configuration, giving the image settings and the
+            label dictionary.
         batch_size (int): The number of samples to include in each batch.
         load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
             Defaults to False.
@@ -146,7 +154,7 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
                             "Validation": str(experiment_configuration["validation_data_folder"]),
                             "Test": str(experiment_configuration["test_data_folder"])}
 
-    # Build the training, validation and test loaders with the same data loading settings
+    # Build the training, validation and test loaders, each with NUMBER_LOADER_WORKERS worker processes
     train_loader = get_detection_dataloader(split_name="Train", split_data_folder=split_folder_mapping["Train"],
                                             model_configuration=model_configuration, batch_size=batch_size,
                                             load_instance_masks=load_instance_masks)
@@ -176,7 +184,7 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
         model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary,
-            the keypoint categories injected by the configuration loader, the loading settings and the
+            the keypoint categories injected by the configuration loader and the
             'KeypointHead.ignore_unlabelled_objects' setting.
         batch_size (int): The number of images of a batch.
 
@@ -274,8 +282,7 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
             samples=dataset.samples, grouped_batches_configuration=data_configuration["grouped_batches"],
             batch_size=batch_size, split_name=split_key) if self_supervised_split else (None, [])
         grouped_batch_lines.extend(f"{split_label} {report_line}" for report_line in sampler_report_lines)
-        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
-                                           loading_configuration=data_configuration["loading"], drop_last=drop_last,
+        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size, drop_last=drop_last,
                                            batch_sampler=batch_sampler))
 
     # Report the samples without a single mapped category of every split, kept without class by the self-supervised
@@ -304,8 +311,8 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
-        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label mode, the
-            label dictionary and the loading settings.
+        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label mode and
+            the label dictionary.
         batch_size (int): The number of images of a batch.
 
     Returns:
@@ -329,8 +336,7 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
                                       label_dictionary=data_configuration["label_dictionary"],
                                       tiling_configuration=tiling_configuration, tile_sampling=tile_sampling)
         split_batch_size = 1 if tiling_configuration["activated"] and tile_sampling == "whole" else batch_size
-        loaders.append(build_native_loader(dataset=dataset, batch_size=split_batch_size,
-                                           loading_configuration=data_configuration["loading"]))
+        loaders.append(build_native_loader(dataset=dataset, batch_size=split_batch_size))
 
     return loaders[0], loaders[1], loaders[2]
 
@@ -407,7 +413,6 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
 
         # Wrap the dataset in a Native loader padding every batch to its longest sequence
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
-                                           loading_configuration=data_configuration["loading"],
                                            collate_function=collate_function, drop_last=drop_last))
 
     return loaders[0], loaders[1], loaders[2]

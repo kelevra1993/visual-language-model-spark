@@ -6,7 +6,7 @@ Every sequence is one sample, read whole: there is no window. A sequence longer 
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
 - **Stages 1 and 2**: `vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml` (synthetic moving shapes, 4 classes `moving_left`, `moving_right`, `moving_up`, `moving_down`, `maximum_sequence_length: 50`, 128 pixel frames, batch size 16), with the data and run folders redirected to a temporary folder. The dataset was generated with the synthetic generator (2000 training, 200 validation and 200 test sequences of 2 to 12 frames). The dataset the configuration points to on this machine (`/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes`, read by the README runs) was generated before the lengths became variable: every one of its sequences has 8 frames of 128 pixels. The dataset of `configuration_example.yaml` is not on this machine.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `moving_down` for every sequence (4 classes: about 25% accuracy, a loss near ln 4 = 1.386), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-18, before the ROC and precision-recall curves joined the evaluation (2026-10-20) and before `flatten` became the pooling of the configuration (2026-10-23): the steps say where the current code prints more, and the README runs of `experiments/readme_screenshots/` give the current outputs (`M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4`, the current synthetic configuration trained for 1,000 iterations, and `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4`, the former `average` pooling at 512 pixels, 2,000 iterations).
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `moving_down` for every sequence (4 classes: about 25% accuracy, a loss near ln 4 = 1.386), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-18, before the ROC and precision-recall curves joined the evaluation (2026-10-20) and before `flatten` became the pooling of the configuration (2026-10-23): the steps say where the current code prints more, and the README runs of `experiments/readme_screenshots/` give the current outputs (`M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4`, the current synthetic configuration trained for 1,000 iterations, and `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4`, the former `average` pooling at 512 pixels, 2,000 iterations). These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 1.0 for the 4 classes of the synthetic sequences.
 
 In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`) showing the name of the file or folder, underlined; the examples write the `file://` URI the link opens, except where they show that name.
 
@@ -31,7 +31,7 @@ SequenceClassifier.forward(input_tensor, sequence_mask, labels)
    RecurrentTemporalModule: GRU(4096, 128, bidirectional) on packed sequences ─► final states [16, 256]
    ClassificationHead: Dropout, Linear 64, ReLU, Dropout, Linear 4 ─► class_logits [16, 4] ─► softmax
 loss: classification_loss = cross entropy (no class weights, no label smoothing) = total_loss; batch accuracy
-every weight_saving_iterations (1000): the whole test split ─► accuracy, balanced accuracy, macro F1, top-2,
+every weight_saving_iterations (1000): the whole test split ─► accuracy, balanced accuracy, macro F1, top-5,
    macro ROC AUC, macro average precision, per-class metrics and thresholds at precision 0.99
    ─► Results.txt, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion matrix, class_metrics.csv, curves,
       class_thresholds.json, predictions.csv, Samples/ and Errors/ as grids of the real frames, 4 columns)
@@ -88,11 +88,10 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `ClassificationHead.fully_connected` | `[64]` | the hidden layer of the head on the 256 features of a sequence (`.64` of `HFLAT.64`) |
 | `Data.data_augmentation.independent_frames` | `False` | every frame of a sequence gets the same draws; True draws the photometric types frame by frame |
 | `Data.data_augmentation.shuffle_frames` | `activated: False, probability: 0.5` | permutes the real frames of the training sequences whose order carries nothing; a yellow warning with an ordered temporal module |
-| `ExperimentConfiguration.evaluation.top_k` | `2` | the `Top-2 Accuracy` headline metric |
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Sequences · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-2 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision` and the per-class table sorted by F1, worst first; the notes `Error Images : ...` and `Sample Images : 8 fixed test sequences`.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Sequences · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision` and the per-class table sorted by F1, worst first; the notes `Error Images : ...` and `Sample Images : 8 fixed test sequences`.
 - `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv`, `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`); `predictions.csv` with `save_predictions`, one row per test sequence with its `sequence`, `first_frame` and `last_frame` before the classes and probabilities; `Samples/<sequence>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_<score>.png`, the real frames of the sequence on a numbered grid of 4 columns under the caption `true -> predicted probability` (532 pixels wide and 292 high for 8 frames of 128 pixels in the README run).
 - `data.json`: the `sequences` of every class in every split, and every frame of every split.
 - `Tensorboard/Train` and `Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate`); `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, the images `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
@@ -147,20 +146,19 @@ main()
 │
 ├── SequenceClassificationTrainer(experiment_configuration, model_configuration, configuration_path)  [STAGE 2]
 │   │   Keeps Data.sequence_settings, warns when the frames are shuffled for an ordered temporal module, then runs the
-│   │   ClassificationTrainer constructor (top_k, target_precision, save_predictions, error_dumps, output_mode).
+│   │   ClassificationTrainer constructor (target_precision, save_predictions, error_dumps, output_mode, top_k 5).
 │   │
 │   └── BaseTrainer.__init__()
 │       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, check of
-│       │   the data of a resumed run, previous training moved aside, paths, loaders and their check, record of the
-│       │   data, sample sequences, model, pretrained components, optimizer, metric tracker, printouts, restoration.
+│       │   the data of a resumed run, paths, loaders and their check, record of the data, sample sequences, model,
+│       │   pretrained components, optimizer, metric tracker, printouts, restoration.
 │       │
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name adds the maximum sequence length (T<frames>) and the temporal module (e.g. GRU1x128-BI)
 │       │       before the head and the classes.
-│       ├── restore_run_label_dictionary() / check_resumed_data() / move_previous_run_folder() / setup_training_paths()
+│       ├── restore_run_label_dictionary() / check_resumed_data() / setup_training_paths()
 │       │       A resumed run keeps the classes of its label_dictionary.json and is refused when a labels.json
-│       │       changed since its data.json, a training from scratch renames the run folder of a previous training of
-│       │       the same settings v<n>_<run name>, then the run folder is created with the configuration and
+│       │       changed since its data.json, then the run folder is created with the configuration and
 │       │       label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Builds the three loaders and keeps class_names, taken from the categories of the training manifest.
@@ -268,14 +266,14 @@ It splits the YAML into the two dictionaries read by every later stage, converts
 **Example: the sections and the settings of the sequences**
 ```text
 model_configuration keys: Optimization, Data, Backbone, TemporalModel, ClassificationHead
-Data keys after loading:  loading, image_settings, sequence_settings, label_mapping, data_augmentation, label_mode, label_dictionary
+Data keys after loading:  image_settings, sequence_settings, label_mapping, data_augmentation, label_mode, label_dictionary
 sequence_settings:        {'maximum_sequence_length': 50}
-evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'top_k': 2, 'target_precision': 0.99,
+evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'target_precision': 0.99,
                            'save_predictions': True, 'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
 TemporalModel:            {'type': 'gru', 'hidden_size': 128, 'number_layers': 1, 'number_heads': 4, 'kernel_size': 3, 'dropout_rate': 0.0,
                            'bidirectional': True, 'causal': False, 'positional_embedding': True, 'pretrained': {...}}
 ClassificationHead:       {'global_pooling': 'flatten', 'fully_connected': [64], 'fully_connected_normalization': 'none',
-                           'batch_normalization_momentum': 0.1, 'dropout_rate': 0.2, 'output_mode': 'multi_class',
+                           'dropout_rate': 0.2, 'output_mode': 'multi_class',
                            'label_smoothing': 0.0, 'class_weighting': 'none', 'pretrained': {...}}
 ```
 Every setting of `TemporalModel` is required, even those its type does not read (`number_heads` and `positional_embedding` for the transformer, `kernel_size` for the temporal convolution), so that the type can be changed without adding keys.
@@ -336,7 +334,7 @@ Before calling the constructor of the classification trainer, it keeps `Data.seq
 self.sequence_settings          = {'maximum_sequence_length': 50}
 self.LABEL_TYPE                 = 'sequence'
 self.MEMBERS_PER_SAMPLE         = 1
-self.top_k                      = 2                     <- the settings of the classification trainer
+self.top_k                      = 5                     <- TOP_K_ACCURACY_CLASSES, then the settings of the classification trainer
 self.save_predictions           = True
 self.error_dumps_configuration  = {'activated': False, 'maximum_per_class_pair': 20}
 SAMPLE_NAME = 'Sequences'   COUNTS_FRAMES = True   TASK_NAME = 'sequence_classification'
@@ -348,7 +346,7 @@ The shared constructor (see `classification_workflow.md`, Step 2.2), reached thr
 **Example: some attributes set by the constructor**
 ```text
 self.device = device(type='cpu')   self.per_class_report = True   self.number_sample_images = 8   self.input_image_size = 128
-self.batch_size = 16   self.mixed_precision = False   self.start_iteration = 1
+self.batch_size = 16   self.start_iteration = 1
 ```
 
 ### Step 2.3 — `get_device()`
@@ -375,7 +373,7 @@ activated True   probability 0.4   independent_frames False   shuffle_frames {'a
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), and a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`); before that, a resumed run whose `labels.json` changed since its `data.json` is refused (`check_resumed_data()`). Besides the copy of the configuration, the run folder holds `label_dictionary.json`, the class index of every category of the run. `data.json`, the record of the data of the run (the classes with their sequences in every split, and for every split its folder, the hash of its `labels.json` and its frames), is written next to them once the loaders are built and checked (`save_data_record()`, after Step 2.8).
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), then a resumed run whose `labels.json` changed since its `data.json` is refused (`check_resumed_data()`). Besides the copy of the configuration, the run folder holds `label_dictionary.json`, the class index of every category of the run. `data.json`, the record of the data of the run (the classes with their sequences in every split, and for every split its folder, the hash of its `labels.json` and its frames), is written next to them once the loaders are built and checked (`save_data_record()`, after Step 2.8).
 
 **Example: the run folder once the trainer is built**
 ```text
@@ -439,7 +437,7 @@ get_class_counts()     = [522, 484, 516, 478]           (sequences of every clas
 ### Step 2.10 — `build_native_loader()`
 The same PyTorch `DataLoader` as for the classification (see `classification_workflow.md`, Step 2.10), with the collate of Step 2.8.
 
-**Example output**
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
 ```text
 len(loader) = 125   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
@@ -575,8 +573,6 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
 - Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
-- Mixed Precision         : False
-- Resume Training         : True
 - Validation Iter. Ratio  : 25
 - MLflow Tracking         : Off
 ```
@@ -877,7 +873,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.11 and 4.13 show the current layout from the README run at 128 pixels.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.11 and 4.13 show the current layout from the README run at 128 pixels.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation of the classification (see `classification_workflow.md`, Stage 4), every sample being a whole sequence. The test sequences are never augmented. The test loader shuffles its sequences, so the order of the rows of `predictions.csv` changes from one evaluation to the next.
@@ -974,9 +970,9 @@ macro F1          = (3 x 0.0 + 0.3806) / 4                    = 0.0951
 ```
 
 ### Step 4.9 — `compute_top_k_accuracy()`
-The share of sequences whose true class is among the `top_k` most probable classes.
+The share of sequences whose true class is among the 5 most probable classes (`TOP_K_ACCURACY_CLASSES`), every sequence counting as right with 5 classes or fewer, as the 4 classes of the synthetic configuration.
 
-**Example output** (`top_k: 2`)
+**Example output** (recorded when the k was a setting, `top_k: 2`)
 ```text
 Top-2 Accuracy = 0.5150 at iteration 6, 0.4600 at iteration 12      (about 2 / 4 = 0.5: chance level for 4 classes)
 ```

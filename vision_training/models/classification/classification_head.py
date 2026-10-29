@@ -12,6 +12,7 @@ from torch import nn
 from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.models.backbones.backbone import Backbone
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.components.fully_connected_block import build_fully_connected_block
 
 # Global pooling layer of the 'ClassificationHead.global_pooling' settings reducing a feature map to one value per
@@ -75,7 +76,7 @@ def print_classification_head_summary(head_configuration: Dict[str, Any], input_
     # The momentum only applies to the batch normalization of the hidden layers
     normalization_text = head_configuration["fully_connected_normalization"]
     if normalization_text == "batch":
-        normalization_text += f" (momentum {head_configuration['batch_normalization_momentum']})"
+        normalization_text += f" (momentum {BATCH_NORMALIZATION_MOMENTUM})"
     summary_text = (f"[bold]Global Pooling[/bold]     : {head_configuration['global_pooling']}\n"
                     f"[bold]Input Features[/bold]     : {input_features}\n"
                     f"[bold]Hidden Layers[/bold]      : {head_configuration['fully_connected']}\n"

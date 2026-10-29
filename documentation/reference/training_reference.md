@@ -15,7 +15,8 @@ Details of the training runs, completing the [Training](../../README.md#training
   - [Adding Classes](#adding-classes)
 
 ## Launching A Run
-- A `--configuration_path` leading to no file, or a configuration with problems, stops the program before anything starts, with the list of every problem.
+- A `--configuration_path` leading to no file, or a configuration with problems, stops the program before anything starts, with the list of every problem. A setting removed from the configuration files is refused with a message naming what replaced it ([Fixed Settings](configuration_reference.md#fixed-settings)).
+- The training, validation and test loaders each read their batches with 4 worker processes, each preparing 2 batches in advance, and the training and validation forward passes always run in bfloat16 (mixed precision), the weights and the test evaluation staying in float32.
 - The launch adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF`, keeping its other settings. Without it, the changing shapes of the sequence batches make the allocator reserve more and more GPU memory.
 
 ## Run Folder
@@ -64,7 +65,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 | CMP | `pairs` |
 
 ## Console Output
-- **At launch**: the run name with clickable links to its files, the changes since the last start of a resumed run, the transferred components, the splits and their sizes, the main settings and the model summary. `diagnosis_modes.compute_receptive_field` and `compute_model_size` add the receptive field and the model size. A transferred component shows its source and learning rate:
+- **At launch**: the run name with clickable links to its files, the changes since the last start of a resumed run, the transferred components, the splits and their sizes, the main settings, the model summary and the model size. `diagnosis_modes.compute_receptive_field` adds the receptive field. A transferred component shows its source and learning rate:
 
 ```text
 - Pretrained Backbone     : file:///…/experiments/CLS_IN-KAR-256_…_HAVG.512.256-CWB_MC1000
@@ -91,8 +92,8 @@ Training Batch Dropped : The image cannot be read : <file>
 - A failing iteration is reported in yellow and the training goes on; an iteration fails after 10 failed batch fetches in a row. More than 5 failing iterations in a row stop the training, with a checkpoint.
 - A split giving no batch (empty, or emptied by the label mapping) is refused at launch.
 
-**Resuming** (`resume_training: true`)
-- The run resumes from its last checkpoint, with its optimizer state. `number_iterations` is the total of the run: from 5000 with 8000, it trains iterations 5001 to 8000.
+**Resuming**
+- A run always resumes: launching the same configuration again continues from the last checkpoint of its run folder, with its optimizer state. `number_iterations` is the total of the run: from 5000 with 8000, it trains iterations 5001 to 8000.
 - Only the settings without a [run name](configuration_reference.md#run-names) token may change; any other change starts a new run folder. A `run_name_suffix` starts a separate run of the same settings.
 - The run keeps the classes of its `label_dictionary.json`, warning `The Label Mapping Changed Since The Run Started, The Run Keeps Its Own Classes` when the mapping file now gives others.
 - The changed settings are printed, and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`, never overwritten:
@@ -106,7 +107,7 @@ Training Batch Dropped : The image cannot be read : <file>
 
 - A `labels.json` whose SHA-256 differs from `data.json` stops the resume, unless `ExperimentConfiguration.allow_data_change_on_resume: true`. The previous record is then kept as `data_until_iteration_<n>.json`, as when only the data folder moved.
 
-**Restarting** (`resume_training: false`): a folder already holding a run of the same settings is moved aside as `v1_<run name>` (then `v2_`, and so on), and the new training starts with a new MLflow run, printing `- Previous Training Moved : <folder>`. A standalone evaluation never moves a run.
+**Restarting**: to train the same settings from scratch, set another `run_name_suffix` or `experiment_folder`, or move the run folder away. The new run folder starts a new MLflow run.
 
 ## Data Augmentation
 - `Data.data_augmentation.activated` turns it on, `probability` is the share of training images augmented, and every type has its own `activated` and `probability`.
@@ -197,7 +198,7 @@ The `pretrained` block of a section initialises its component from a trained run
 | `Detector` | detection heads of every detection level | DET, INS |
 | `MaskHead` | mask heads of every detection level | INS |
 
-The settings defining the layers must match, which is checked at launch. The image size and the `batch_normalization_momentum` may differ.
+The settings defining the layers must match, which is checked at launch. The image size and the `batch_normalization_momentum` of the sections holding one may differ.
 
 | Component | Settings that must match |
 |---|---|

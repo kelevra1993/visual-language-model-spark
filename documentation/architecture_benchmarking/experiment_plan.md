@@ -380,6 +380,6 @@ run_43 and run_44 copy the same hidden layers and 9 class rows as run_41 and run
 
 ## Notes
 
-- Every launch has its own `run_<n>` folder, the run folder named after the settings being created inside it, so no launch resumes the checkpoints of another one. `resume_training: true` only resumes a launch restarted in its own `run_<n>` folder, e.g. after a crash.
+- Every launch has its own `run_<n>` folder, the run folder named after the settings being created inside it, so no launch resumes the checkpoints of another one. `resume_training: true` only resumes a launch restarted in its own `run_<n>` folder, e.g. after a crash; `resume_training` has since been removed, a run always resuming from the last checkpoint of its folder.
 - The mean of the eight evaluations rewards the settings that learn fast as well as the ones that end high. The 2000 column alone gives the final accuracy.
 - If the two launches of a setting differ by about as much as two settings differ from each other, the difference between those settings is noise, and more launches are needed to separate them.

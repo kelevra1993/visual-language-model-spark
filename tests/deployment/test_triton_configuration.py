@@ -157,7 +157,7 @@ def test_keypoint_triton_configuration_has_whole_images_and_candidates(tmp_path:
     """
     configuration, device, dtype = get_keypoint_model_configuration()
     inference_model = build_inference_model(task="keypoint_detection", model=KeypointDetector(
-        configuration=configuration, verbose=False, device=device, dtype=dtype))
+        configuration=configuration, device=device, dtype=dtype))
     specification = get_export_specification(task="keypoint_detection", inference_model=inference_model)
     assert specification["model_name"] == "keypoint_detector"
 

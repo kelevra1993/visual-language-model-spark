@@ -337,7 +337,8 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     name and skeleton of every channel) next to the exported files, read by the clients instead of the training labels.
     Cost and risk: small.
 15. **Mixed precision for the COCO training, checked on the CPU, experiment left to run**: `configuration_example.yaml`
-    trains in float32 (`mixed_precision: False`), and a 3000 iteration run on the synthetic shapes with a W16 network
+    trains in float32 (`mixed_precision: False`, a setting since removed, every task now training under the bfloat16
+    autocast), and a 3000 iteration run on the synthetic shapes with a W16 network
     and 243 heatmap channels processed about 16.5 images per second, the W32 network of the COCO configuration not
     being timed. Under the bfloat16 autocast used by the other tasks, the network predicts its heatmap logits and tags
     in bfloat16, and the heatmap and tag losses and the candidates are computed from them in float32. On the CPU, the
@@ -930,7 +931,7 @@ committed): every image can be taken again from them without training, except wh
 - **Fix:** compare `image.shape[:2]` with the JSON size (and the RLE `size`) and raise on a mismatch. Choose one EXIF
   policy and use the same flag in training and in `deployment_utilities.py:80`.
 
-#### M14. Under mixed precision the objectness is ranked in bfloat16
+#### M14. Under mixed precision the objectness is ranked in bfloat16 — FIXED (2026-10-29)
 - **Where:** `select_best_proposals` of `region_proposer.py`: `torch.sigmoid(input=proposal_scores)` inside the bf16
   autocast of `base_trainer.py:1270`. The RPN logits are bf16, and `sigmoid` is not cast to float32 by autocast.
 - **Effect (reproduced):**

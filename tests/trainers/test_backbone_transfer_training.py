@@ -94,10 +94,9 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
                                                      "weight_saving_iterations": 4,
                                                      "intermediate_weight_saving_iterations": 2,
                                                      "number_iterations": number_iterations,
-                                                     "validation_iteration_ratio": 2, "resume_training": True,
+                                                     "validation_iteration_ratio": 2,
                                                      "learning_rate": TRANSFER_LEARNING_RATE})
     configuration["ExperimentConfiguration"]["diagnosis_modes"].update({"compute_receptive_field": False,
-                                                                        "compute_model_size": False,
                                                                         "view_input_images": False})
     # Small images, the detectors taking their own size with anchor scales and mask heads fitted to it
     configuration["Data"]["image_settings"]["size"] = TRANSFER_IMAGE_SIZE
@@ -109,8 +108,6 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
         configuration["MaskHead"]["mask_resolution"] = 14
         for level in DETECTION_TRANSFER_ANCHOR_SCALES:
             configuration["DetectionLevels"][level]["mask_head"] = DETECTION_TRANSFER_MASK_HEAD
-    # Two loader workers per split, enough for the small generated dataset
-    configuration["Data"]["loading"]["number_workers"] = 2
     if task == "sequence_classification":
         configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = TRANSFER_NUMBER_FRAMES
     if label_mapping_path is None:

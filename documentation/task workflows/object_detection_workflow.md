@@ -137,7 +137,7 @@ main()
 │               │                                                error_dumps
 │               ├── check_detection_data_configuration()         classes 0 (background) to K-1 without gaps, the
 │               │                                                categories mapped to 0 announced in yellow
-│               ├── check_image_task_sequence_settings()         no sequence settings
+│               ├── check_image_task_sequence_settings()         no sequence normalization
 │               ├── check_image_only_augmentation_types()        random_perspective and random_jigsaw off, since the
 │               │                                                boxes cannot follow them
 │               ├── check_detection_levels()                     DetectionLevels: quoted backbone blocks in increasing
@@ -154,9 +154,8 @@ main()
 │   │
 │   └── BaseTrainer.__init__()   (through CocoSplitTrainer, which adds the reading of the test manifest)
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
-│       ├── restore_run_label_dictionary() / check_resumed_data() / move_previous_run_folder() / setup_training_paths()
+│       ├── restore_run_label_dictionary() / check_resumed_data() / setup_training_paths()
 │       │       The classes of a resumed run kept from its label_dictionary.json, a resume on changed labels refused,
-│       │       a previous training of the same settings moved to v<n>_<run name> when the run starts from scratch,
 │       │       then the run folder with the configuration and label_dictionary.json (classification_workflow.md,
 │       │       Step 2.6).
 │       ├── build_dataloaders()
@@ -270,7 +269,7 @@ The model sections of the detection are `Backbone`, `DetectionLevels` (keyed by 
 model_configuration keys: Optimization, Data, Backbone, DetectionLevels, RegionProposal, Detector
 evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'score_threshold': 0.05, 'target_precision': 0.99,
                            'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
-Data keys after loading:  loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
+Data keys after loading:  image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
 DetectionLevels:          {"5": {"anchors": {"scales": [32, 64, 128], "aspect_ratios": [0.5, 1.0, 2.0]}, "region_proposal": {"convolutions": [2, 64]},
                                  "detector": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}},
                            "6": {"anchors": {"scales": [64, 128, 256], ...}, ...},
@@ -342,7 +341,7 @@ TASK_NAME = 'object_detection'   SAMPLE_NAME = 'Images'   COUNTS_FRAMES = False
 **Example: some attributes set by the constructor**
 ```text
 self.device = device(type='cpu')   self.per_class_report = True   self.number_sample_images = 8   self.input_image_size = 1024
-self.batch_size = 40   self.mixed_precision = False   self.start_iteration = 1
+self.batch_size = 40   self.start_iteration = 1
 ```
 
 ### Step 2.3 — `get_device()`
@@ -369,7 +368,7 @@ activated True   probability 0.4
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`) and is refused when the `labels.json` of a split changed since its `data.json` (`check_resumed_data()`, unless `allow_data_change_on_resume`), a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category, background included. The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`), then `save_data_record()` writes `data.json`, the classes and the images of every split.
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`) and is refused when the `labels.json` of a split changed since its `data.json` (`check_resumed_data()`, unless `allow_data_change_on_resume`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category, background included. The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`), then `save_data_record()` writes `data.json`, the classes and the images of every split.
 
 **Example: the run folder after this step**
 ```text
@@ -420,7 +419,7 @@ dataset[0]:   images (3, 1024, 1024) torch.uint8
 ### Step 2.10 — `build_native_loader()`
 The same PyTorch `DataLoader` as for the classification (see `classification_workflow.md`, Step 2.10).
 
-**Example output**
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
 ```text
 len(loader) = 3   batch_size = 40   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```

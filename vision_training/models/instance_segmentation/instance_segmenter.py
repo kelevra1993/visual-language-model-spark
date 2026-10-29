@@ -25,20 +25,17 @@ class InstanceSegmenter(TwoStageDetector):
     every proposal and every detection using the mask head and the feature map of its own detection level.
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
-                 dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the two-stage detector, then the mask head of every detection level from the 'MaskHead' section and
         the mask head of that level in 'DetectionLevels'.
 
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary of the experiment.
-            verbose (bool): If True, prints the shapes of the intermediate tensors. Defaults to False.
             device (torch.device): The device for parameter allocation.
             dtype (torch.dtype): The data type for parameter allocation.
         """
-        super(InstanceSegmenter, self).__init__(configuration=configuration, verbose=verbose, device=device,
-                                                dtype=dtype)
+        super(InstanceSegmenter, self).__init__(configuration=configuration, device=device, dtype=dtype)
 
         # Side of the masks of every level, and the probability from which a pixel belongs to its object
         self.mask_head_configuration = configuration["MaskHead"]

@@ -43,10 +43,7 @@ CLASSIFICATION_SWEPT_SETTINGS = {
     "residual_nets_v2": ("Backbone", "modules", "residual_nets_v2"),
     "squeeze_and_excite": ("Backbone", "modules", "squeeze_and_excite"),
     "fully_connected_normalization": ("ClassificationHead", "fully_connected_normalization"),
-    "backbone_batch_normalization_momentum": ("Backbone", "normalization", "batch_normalization_momentum"),
-    "head_batch_normalization_momentum": ("ClassificationHead", "batch_normalization_momentum"),
     "feature_map_normalization": ("Backbone", "normalization", "feature_map_normalization"),
-    "mixed_precision": ("Optimization", "mixed_precision"),
     "exponential_moving_average": ("Optimization", "exponential_moving_average", "activated"),
     "class_weighting": ("ClassificationHead", "class_weighting"),
     "dropout_rate": ("ClassificationHead", "dropout_rate")}

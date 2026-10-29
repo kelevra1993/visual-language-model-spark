@@ -6,7 +6,7 @@ The model is a bottom-up keypoint detector (HigherHRNet): the whole image goes t
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training (`CUDA_VISIBLE_DEVICES=` empty for every run). The synthetic dataset of the configuration, `synthetic_shapes`, was generated in a temporary folder with `create_synthetic_dataset(task="keypoint_detection")` at the size of the examples: 300 training, 30 validation and 30 test images of 512 pixels, 2 to 5 objects per image, 37 categories. 33 of them have keypoints (a square has its 4 corners, a triangle 3, a stick figure 11, a hollow nonagon 18), 243 in all; `circle`, `ellipse`, `annulus` and `hollow_ellipse` are distractors without keypoints, left out of the `label_mapping.json` written by `build_keypoint_label_mapping()`, which numbers the 33 others from 1. The data folders and the mapping file of the configuration were redirected to it. The input viewer and every other window stay off.
 - **Stages 1 and 2**: `vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml` (512 pixel images, a 3-block stem ending at 1/4 of the image, an HRNet of base width 16 with 1, 2 and 2 modules in its three stages of 2, 3 and 4 branches, a hidden width of 256, the higher resolution branch, a heatmap sigma of 2 cells, tag weights of 0.1), with the run folder redirected to a temporary folder and the iterations of Stage 3.
-- **Stages 3, 4 and 5**: the same configuration shortened to batch size 8 (it is 16), 60 iterations (20000), a checkpoint and a test evaluation every 30 iterations (2000), an intermediate checkpoint every 15 (1000), a console summary every 10 (500), a validation batch every 10 training iterations (0, no validation), a warm-up of 10 iterations and a decay of 50 (500 and 19500), 2 loading workers (8), with the MLflow tracking turned on (off). The model and the augmentations are those of Stages 1 and 2. After 60 iterations of batches of 8 images the detector is far from trained, so the metrics of the examples are low: the point is to see the shapes, the files and the order of the steps.
+- **Stages 3, 4 and 5**: the same configuration shortened to batch size 8 (it is 16), 60 iterations (20000), a checkpoint and a test evaluation every 30 iterations (2000), an intermediate checkpoint every 15 (1000), a console summary every 10 (500), a validation batch every 10 training iterations (0, no validation), a warm-up of 10 iterations and a decay of 50 (500 and 19500), 2 loading workers (a setting then, now fixed at 4), with the MLflow tracking turned on (off). The model and the augmentations are those of Stages 1 and 2. After 60 iterations of batches of 8 images the detector is far from trained, so the metrics of the examples are low: the point is to see the shapes, the files and the order of the steps.
 - **Stage 6**: the checkpoint of iteration 60 exported to TorchScript and ONNX on CPU by a script repeating the steps of `export_experiment()`, which only runs on CUDA (see Step 6.1). The client example of Step 6.6 uses the trained weights of iteration 6000 of a GPU run of the same model, whose iteration 2000 also serves the steps inside a test batch of Stage 4.
 
 ## Read This First
@@ -135,7 +135,7 @@ main()
 │   └── check_configuration()
 │       ├── common checks
 │       └── check_keypoint_configuration()
-│           ├── check_image_task_sequence_settings()               no sequence settings
+│           ├── check_image_task_sequence_settings()               no sequence normalization
 │           ├── check_image_only_augmentation_types()              random_perspective and random_jigsaw off
 │           ├── check_keypoint_data_configuration()
 │           ├── check_keypoint_stem_configuration()                the stem must end at 1/4 of the image
@@ -152,10 +152,9 @@ main()
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() -> build_keypoint_sections()
 │       ├── DataAugmenter()
-│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
+│       ├── restore_run_label_dictionary() / setup_training_paths()
 │       │       the classes of a resumed run kept from its label_dictionary.json (its keypoint definitions read
-│       │       again), a previous training of the same settings moved to v<n>_<run name> when the run starts
-│       │       from scratch, then the run folder with the configuration and label_dictionary.json
+│       │       again), then the run folder with the configuration and label_dictionary.json
 │       ├── build_dataloaders()                                    class_names from the test labels.json
 │       │   └── get_keypoint_dataloaders()
 │       │       └── CocoDetectionDataset(load_keypoints=True) per split    one whole image per sample
@@ -261,13 +260,13 @@ The `evaluation` section gives the OKS sigmas: `default_keypoint_sigma`, and `ke
 ```text
 experiment keys: ['task', 'experiment_folder', 'run_name_suffix', 'train_data_folder', 'validation_data_folder', 'test_data_folder',
                   'batch_size', 'information_dump', 'weight_saving_iterations', 'intermediate_weight_saving_iterations',
-                  'number_iterations', 'validation_iteration_ratio', 'evaluation', 'tracking', 'learning_rate', 'resume_training',
+                  'number_iterations', 'validation_iteration_ratio', 'evaluation', 'tracking', 'learning_rate',
                   'allow_data_change_on_resume', 'diagnosis_modes', 'tracking_root', 'run_name']
 model keys:      ['Optimization', 'Data', 'Backbone', 'HRNet', 'KeypointHead']
 evaluation:      {'per_class_report': True, 'number_sample_images': 16, 'default_keypoint_sigma': 0.05,
                   'keypoint_sigmas': {'stick_figure': {'left_elbow': 0.072, 'right_elbow': 0.072, 'left_hand': 0.062, 'right_hand': 0.062,
                                                        'left_knee': 0.087, 'right_knee': 0.087, 'left_foot': 0.089, 'right_foot': 0.089}}}
-Data keys:       ['loading', 'image_settings', 'label_mapping', 'data_augmentation', 'label_mode', 'label_dictionary', 'keypoint_categories']
+Data keys:       ['image_settings', 'label_mapping', 'data_augmentation', 'label_mode', 'label_dictionary', 'keypoint_categories']
 image_settings:  {'size': 512, 'keep_ratio': True}
 HRNet:        {"base_width": 16, "modules_per_stage": [1, 2, 2], "blocks_per_branch": 2,
                "modules": {"squeeze_and_excite": true, "residual_nets": true},
@@ -384,12 +383,12 @@ KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256
 ```
 
 ### Step 2.4 — `DataAugmenter()` + `setup_training_paths()`
-The augmenter of every task. Its geometric types move the keypoints of the objects with the image (Step 3.4). The run folder is created as for every task (see `classification_workflow.md`, Step 2.6), with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run: before it, a resumed run keeps the classes of its `label_dictionary.json` when the mapping file now gives others, its keypoint definitions, indexed by class, being read again for them (`restore_run_label_dictionary()`), and a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`). The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`).
+The augmenter of every task. Its geometric types move the keypoints of the objects with the image (Step 3.4). The run folder is created as for every task (see `classification_workflow.md`, Step 2.6), with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run: before it, a resumed run keeps the classes of its `label_dictionary.json` when the mapping file now gives others, its keypoint definitions, indexed by class, being read again for them (`restore_run_label_dictionary()`). The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`).
 
 ### Step 2.5 — `build_dataloaders()` → `get_keypoint_dataloaders()` → `CocoDetectionDataset(load_keypoints=True)`
 `build_dataloaders()` calls `read_test_manifest()` of `CocoSplitTrainer`, which reads `class_names` from the test `labels.json` (`get_class_names()`), gives every class a colour for the sample images and keeps the file name of every test image, then calls `get_keypoint_dataloaders()`. It builds one `CocoDetectionDataset` per split, the dataset of the object detection, with `load_keypoints=True` and `maximum_keypoints=18`, and with `load_ignored_regions=True` for the training and validation splits when `KeypointHead.ignore_unlabelled_objects` is on (off here; never for the test split, which computes no loss). The sample is **one whole image** with all its objects, as for the detection. The dataset reads the number of keypoints of every category from the `categories` of the split (0 for the distractors).
 
-**Example: the loaders**
+**Example: the loaders** (recorded with 2 workers, when the number of workers was a setting; every loader now has 4)
 ```text
 class_names {0: 'background', 1: 'square', 2: 'triangle', 3: 'rectangle', 4: 'pentagon', 5: 'hexagon', 6: 'plus_sign', 7: 'star',
              8: 'octagon', 9: 'rhombus', 10: 'parallelogram', 11: 'trapezoid', 12: 'kite', 13: 'heptagon', 14: 'nonagon',
@@ -496,8 +495,6 @@ The three transferable components are the `Backbone`, the `HRNet` and the `Keypo
 - Learning Rate Schedule  : cosine (warm-up 10 iterations)
 - Gradient Clipping Norm  : None
 - Weight Moving Average   : decay 0.999, evaluated next to the trained weights
-- Mixed Precision         : False
-- Resume Training         : True
 - Validation Iter. Ratio  : 10
 - MLflow Tracking         : sqlite:///.../experiments/mlflow.db
 ```

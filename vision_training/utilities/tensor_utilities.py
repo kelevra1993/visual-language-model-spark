@@ -1,6 +1,6 @@
 """
 Tensor helpers: selection of the training device, used by the base trainer, and printing of the shape, type,
-values and device of tensors, used by the verbose output of the two-stage detector and by its box shape check.
+values and device of tensors for debugging, the box shape check of box_operations.py printing the shape.
 """
 
 import torch
@@ -35,9 +35,9 @@ def print_tensor_shape(tensor: torch.Tensor, name: Optional[str] = None, indent:
     """
     Logs the shape of a tensor to the console in a formatted blue string.
 
-    In the global project context, this utility is used during development and debugging, by the 'verbose' mode of
-    the two-stage detector and by the box checks, to verify that tensor dimensions align with the expected shapes
-    (feature maps, proposals, detections) after the reshapes of the detection pipeline.
+    In the global project context, this utility is used during development and debugging, by the box checks of
+    box_operations.py, to verify that tensor dimensions align with the expected shapes (feature maps, proposals,
+    detections) after the reshapes of the detection pipeline.
 
     Args:
         tensor (torch.Tensor): The torch.Tensor whose shape will be printed. Shape: (*).

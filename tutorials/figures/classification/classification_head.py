@@ -29,6 +29,7 @@ from vision_training.losses.classification_losses import (compute_balanced_class
                                                           compute_decorrelation_loss)
 from vision_training.losses.self_supervised_losses import compute_feature_cross_correlation
 from vision_training.models.classification.classification_head import ClassificationHead
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.task_model import TaskModel
 
 # Validation images of the correlation matrix of the hidden layer of the head, and the size of their batches: one
@@ -196,7 +197,7 @@ def describe_head_layers(model: TaskModel, head_configuration: Dict[str, Any], i
     # The same head after an average pooling, which gives one value per channel
     average_head = ClassificationHead(input_features=channels, fully_connected=head_configuration["fully_connected"],
                                       fully_connected_normalization=head_configuration["fully_connected_normalization"],
-                                      batch_normalization_momentum=head_configuration["batch_normalization_momentum"],
+                                      batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
                                       dropout_rate=head_configuration["dropout_rate"],
                                       number_classes=model.number_classes, device=torch.device("cpu"),
                                       dtype=torch.float32)

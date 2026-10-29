@@ -18,7 +18,7 @@ Every launch keeps a moving average of its weights, and the settings are compare
 - `number_iterations`: 2000 for the learning rate stage (128,000 sequences, about half an epoch of the 250,000 training sequences), 6000 for the following stages (384,000 sequences, about 1.5 epochs)
 - `weight_saving_iterations`: 250, the test evaluation running every 250 iterations (8 tested models at 2000 iterations, 24 at 6000) on `test_10000`, a fixed subset of 10,000 of the 50,000 test sequences (69,918 frames, every label present) drawn with the seed 0 by `scripts/data/create_sequence_split_subset.py`, the evaluation of the whole test split taking 26 minutes
 - `intermediate_weight_saving_iterations`: 125, as many more checkpoints saved without a test evaluation
-- `number_workers`: 2 per loader, `prefetch_batches`: 2, the expandable segments of the CUDA allocator turned on by the training launch (two launches side by side stay at about 55 Gigabytes of the 121 of the machine)
+- `number_workers`: 2 per loader, `prefetch_batches`: 2, the expandable segments of the CUDA allocator turned on by the training launch (two launches side by side stay at about 55 Gigabytes of the 121 of the machine); `Data.loading` has since been removed from the configurations, every loader now using 4 workers each prefetching 2 batches
 - `information_dump`: 250, `validation_iteration_ratio`: 0 (no validation during the training)
 - `maximum_sequence_length`: 50, every sequence fed whole, the sequences of a batch padded to the longest one
 - Backbone `{"1": [1, 16], "2": [2, 16], "3": [2, 16], "4": [4, 32], "5": [5, 32], "6": [5, 32]}`, residual blocks with squeeze and excite, input normalization
@@ -27,7 +27,7 @@ Every launch keeps a moving average of its weights, and the settings are compare
 - Adam, no weight decay, constant learning rate without warm-up, no gradient clipping
 - Mixed precision (bfloat16), moving average of the weights with a decay of 0.9998
 - Data augmentation with a probability of 0.4: left-right flip (0.5), and with a probability of 0.3 each brightness, contrast and saturation, CLAHE, sharpening, luminance histogram equalization, histogram equalization of the BGR channels, noise, grayscale and the swap of the blue and red channels, the same for all the frames of a sequence
-- `top_k`: 5, no per-class report, no saved predictions, 8 sample sequences
+- `top_k`: 5 (now fixed in the code, no longer a setting), no per-class report, no saved predictions, 8 sample sequences
 
 ## Starting Values
 

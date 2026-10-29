@@ -32,7 +32,7 @@ from vision_training.tracking.mlflow_tracker import (MAX_ENTITY_KEY_LENGTH, MAX_
                                                      sanitise_metric_name)
 
 # Tracking settings of the tests, on with the local database
-TRACKING_CONFIGURATION = {"activated": True, "tracking_uri": None, "experiment_name": None, "log_artifacts": True}
+TRACKING_CONFIGURATION = {"activated": True, "tracking_uri": None, "experiment_name": None}
 
 # Longest wait of a blocked request of the fake clients, released by the test long before
 BLOCKED_REQUEST_TIMEOUT_SECONDS = 30.0
@@ -233,7 +233,7 @@ def test_configuration_is_flattened_to_parameters(tmp_path: Path) -> None:
         tmp_path (Path): The pytest temporary directory.
     """
     configuration = {"ExperimentConfiguration": {"batch_size": 4, "experiment_folder": tmp_path,
-                                                 "evaluation": {"per_class_report": True, "top_k": None}},
+                                                 "run_name_suffix": None, "evaluation": {"per_class_report": True}},
                      "Backbone": {"convolutions": {"1": [1, 16], "2": [2, 32]}},
                      "Data": {"label_dictionary": {1: 0, 2: 1},
                               "class_names": {f"class_{index}": index for index in range(100)},
@@ -243,7 +243,7 @@ def test_configuration_is_flattened_to_parameters(tmp_path: Path) -> None:
     assert parameters["ExperimentConfiguration.batch_size"] == "4"
     assert parameters["ExperimentConfiguration.experiment_folder"] == str(tmp_path)
     assert parameters["ExperimentConfiguration.evaluation.per_class_report"] == "True"
-    assert parameters["ExperimentConfiguration.evaluation.top_k"] == "None"
+    assert parameters["ExperimentConfiguration.run_name_suffix"] == "None"
     assert parameters["Backbone.convolutions.1"] == "[1, 16]" and parameters["Backbone.convolutions.2"] == "[2, 32]"
     assert parameters["Data.label_dictionary"] == "{1: 0, 2: 1}"
     assert parameters["Data.class_names"].startswith("{'class_0': 0")
@@ -387,8 +387,7 @@ def test_tracker_does_nothing_outside_its_run(tmp_path: Path) -> None:
         tmp_path (Path): The pytest temporary directory.
     """
     tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
-                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None,
-                            log_artifacts=True)
+                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None)
     tracker.log_metrics(metrics={"train/Total Loss": 1.0}, step=1)
     tracker.set_tags(tags={"note": "ignored"})
     tracker.close(status=FINISHED_STATUS)
@@ -410,8 +409,7 @@ def test_git_state_is_read_in_the_training_thread(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(target=mlflow_tracker, name="MlflowClient", value=UnavailableClient)
     monkeypatch.setattr(target=mlflow_tracker, name="read_git_state", value=git_state_recorder)
     tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
-                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None,
-                            log_artifacts=True)
+                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None)
     tracker.start(parameters={}, tags={"task": "dummy_task"}, resumed_iteration=None)
     tracker.close(status=FINISHED_STATUS)
 
@@ -433,7 +431,7 @@ def test_unavailable_backend_never_blocks_the_training(tmp_path: Path, monkeypat
     monkeypatch.setattr(target=mlflow_tracker, name="MlflowClient", value=UnavailableClient)
     tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
                             experiment_name="dummy_task", run_name="dummy_run",
-                            run_record_path=tmp_path / "record.json", log_artifacts=True)
+                            run_record_path=tmp_path / "record.json")
     tracker.start(parameters={"ExperimentConfiguration": {"batch_size": 4}}, tags={}, resumed_iteration=None)
 
     start_time = time.monotonic()
@@ -465,8 +463,7 @@ def test_hanging_backend_close_is_bounded(tmp_path: Path, monkeypatch: pytest.Mo
                         value=functools.partial(BlockedClient, release_event=release_event))
     monkeypatch.setattr(target=mlflow_tracker, name="CLOSE_TIMEOUT_SECONDS", value=0.5)
     tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
-                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None,
-                            log_artifacts=True)
+                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None)
     tracker.start(parameters={}, tags={}, resumed_iteration=None)
 
     start_time = time.monotonic()
@@ -495,7 +492,7 @@ def test_unreachable_server_never_blocks_the_training(monkeypatch: pytest.Monkey
     monkeypatch.delenv(name="MLFLOW_HTTP_REQUEST_TIMEOUT", raising=False)
     monkeypatch.delenv(name="MLFLOW_HTTP_REQUEST_MAX_RETRIES", raising=False)
     tracker = MlflowTracker(tracking_uri="http://127.0.0.1:9", artifact_root=None, experiment_name="dummy_task",
-                            run_name="dummy_run", run_record_path=None, log_artifacts=True)
+                            run_name="dummy_run", run_record_path=None)
     assert os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] == "10" and os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "0"
     tracker.start(parameters={"ExperimentConfiguration": {"batch_size": 4}}, tags={}, resumed_iteration=None)
 
@@ -526,8 +523,7 @@ def test_full_queue_drops_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(target=mlflow_tracker, name="MAXIMUM_QUEUE_SIZE", value=5)
     monkeypatch.setattr(target=mlflow_tracker, name="CLOSE_TIMEOUT_SECONDS", value=0.5)
     tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
-                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None,
-                            log_artifacts=True)
+                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None)
     tracker.start(parameters={}, tags={}, resumed_iteration=None)
 
     start_time = time.monotonic()

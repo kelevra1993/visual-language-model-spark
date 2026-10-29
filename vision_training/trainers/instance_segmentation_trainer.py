@@ -77,8 +77,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Returns:
             InstanceSegmenter: The untrained instance segmenter.
         """
-        return InstanceSegmenter(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
-                                 verbose=self.diagnosis_modes["verbose"])
+        return InstanceSegmenter(configuration=self.model_configuration, device=self.device, dtype=self.dtype)
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """

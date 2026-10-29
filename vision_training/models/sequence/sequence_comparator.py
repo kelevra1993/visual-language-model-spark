@@ -15,6 +15,7 @@ from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
                                                                        compute_pooled_features,
                                                                        print_classification_head_summary)
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.sequence.member_fusion import MemberFusion
 from vision_training.models.sequence.temporal_modules import build_temporal_module, print_sequence_module_summary
@@ -41,8 +42,7 @@ class SequenceComparator(TaskModel):
     Outputs: 'class_logits' [B, K] and 'class_probabilities' [B, K], plus 'classification_loss' when labels are given.
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
-                 dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the backbone, the global pooling, the temporal module, the member fusion and the classification head
         from the configuration.
@@ -50,7 +50,6 @@ class SequenceComparator(TaskModel):
         Args:
             configuration (Dict[str, Any]): The model configuration (Data with its label dictionary and sequence
                 settings, Backbone, TemporalModel, Fusion and ClassificationHead sections).
-            verbose (bool): Unused, kept so that every task model is built with the same arguments.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
         """
@@ -92,8 +91,7 @@ class SequenceComparator(TaskModel):
                                                       fully_connected=self.head_configuration["fully_connected"],
                                                       fully_connected_normalization=self.head_configuration[
                                                           "fully_connected_normalization"],
-                                                      batch_normalization_momentum=self.head_configuration[
-                                                          "batch_normalization_momentum"],
+                                                      batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
                                                       dropout_rate=self.head_configuration["dropout_rate"],
                                                       number_classes=self.number_classes, device=device, dtype=dtype)
 

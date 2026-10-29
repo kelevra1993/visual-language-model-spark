@@ -4,7 +4,7 @@ This document follows one sequence labelling run (many to many, M2M: one class p
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training. The synthetic dataset of the configuration, `synthetic_changing_shapes` (250,000 training, 50,000 validation and 50,000 test sequences), is too large for short CPU runs, so a small one was generated in a temporary folder with `create_synthetic_dataset(task="sequence_labelling", image_size=128, maximum_objects=10, minimum_frames=2, maximum_frames=12)`: 500 training, 60 validation and 60 test sequences of 2 to 12 frames of 128 pixels. Every frame is labelled `no_change` (always the first frame), `appearing_<shape>` or `disappearing_<shape>`: 71 classes for the 35 shape classes, about half of the frames being `no_change`. The data folders and the mapping file of the configuration were redirected to it.
 - **Stages 1 and 2**: `configurations/sequence_labelling/configuration_synthetic_sequences.yaml` (sequences of at most 50 frames fed whole, 512 pixel frames, batch size 16, a GRU), with the run folder redirected to a temporary folder.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts mostly `no_change` (71 classes: a first loss near ln 71 = 4.263), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts mostly `no_change` (71 classes: a first loss near ln 71 = 4.263), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`.
 
 ## Read This First
 The sequence labeller gives one class to every frame of a sequence (many to many): every frame goes through the shared backbone and the global pooling of `ClassificationHead`, a temporal module keeping the time axis relates every frame vector to the frames it may see, and the classification head classifies every frame vector, trained with the cross entropy of the labelled frames. The labels are the `frame_category_ids` of `labels.json`, one category per frame, and every sequence is fed whole. Choose it when the answer is a class per frame (where something happens in the sequence); choose the sequence classification (M2O, `sequence_classification_workflow.md`) for one class per sequence, the sequence comparison (CMP) for a before and an after sequence, and the frame selection (SEL, `frame_selection_workflow.md`) when every sequence must give exactly `Selection.frames_per_class` frames of every wanted class, chosen by a decoding over the whole sequence.
@@ -24,7 +24,7 @@ frames  [16, T, 64] ─> GRU 1x128, packed ─> [16, T, 128] ─> Classification
         │ compute_sequence_labelling_loss(): cross entropy of the labelled frames only (ignore_index -100),
         │ class_weights (class_weighting "none") and label_smoothing 0.0; batch metric compute_frame_accuracy()
         ▼
-test    frame metrics: Accuracy, Balanced Accuracy, Macro F1, Top-2 Accuracy, Macro ROC AUC, Macro Average Precision
+test    frame metrics: Accuracy, Balanced Accuracy, Macro F1, Top-5 Accuracy, Macro ROC AUC, Macro Average Precision
         sequence metrics: Sequence Exact Match, Edit Score, Segment F1@10, Segment F1@25, Segment F1@50
         ▼
 Evaluation/Iteration_<n>/   class_metrics.csv   class_thresholds.json   confusion_matrix.csv   predictions.csv
@@ -130,9 +130,8 @@ main()
 │   │
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
-│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
-│       │       The classes of a resumed run kept from its label_dictionary.json, a previous training of the same
-│       │       settings moved to v<n>_<run name> when the run starts from scratch, then the run folder with the
+│       ├── restore_run_label_dictionary() / setup_training_paths()
+│       │       The classes of a resumed run kept from its label_dictionary.json, then the run folder with the
 │       │       configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders() -> get_sequence_dataloaders(label_type="frame")
 │       │   └── SequenceDataset.__init__(split_name=...)
@@ -224,7 +223,7 @@ The sections are those of the sequence classification (`sequence_classification_
 **Example: the sections, the sequence settings and the temporal module**
 ```text
 model_configuration keys: Optimization, Data, Backbone, TemporalModel, ClassificationHead
-evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'top_k': 2, 'target_precision': 0.99,
+evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'target_precision': 0.99,
                            'save_predictions': True, 'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
 sequence_settings:        {'maximum_sequence_length': 50}
 TemporalModel:            {'type': 'gru', 'hidden_size': 128, 'number_layers': 1, 'number_heads': 4, 'kernel_size': 3, 'dropout_rate': 0.0,
@@ -291,7 +290,7 @@ The labelling trainer has no constructor of its own: it is the sequence classifi
 self.sequence_settings          = {'maximum_sequence_length': 50}
 self.LABEL_TYPE                 = 'frame'
 self.CLASS_SUPPORT_COLUMN       = 'Frames'
-self.top_k                      = 2
+self.top_k                      = 5                     <- TOP_K_ACCURACY_CLASSES
 self.save_predictions           = True
 self.error_dumps_configuration  = {'activated': False, 'maximum_per_class_pair': 20}
 SAMPLE_NAME = 'Sequences'   COUNTS_FRAMES = True   TASK_NAME = 'sequence_labelling'
@@ -301,7 +300,7 @@ SAMPLE_NAME = 'Sequences'   COUNTS_FRAMES = True   TASK_NAME = 'sequence_labelli
 **Example: some attributes set by the constructor**
 ```text
 self.device = device(type='cpu')   self.per_class_report = True   self.number_sample_images = 8   self.input_image_size = 512
-self.batch_size = 16   self.mixed_precision = False   self.start_iteration = 1
+self.batch_size = 16   self.start_iteration = 1
 ```
 
 ### Step 2.3 — `get_device()`
@@ -327,7 +326,7 @@ activated True   probability 0.4   independent_frames False   shuffle_frames {'a
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run.
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run.
 
 **Example: the run folder after this step**
 ```text
@@ -386,7 +385,7 @@ count_split_sequences() = (60, 427, 45)          <- sequences and frames of the 
 ```
 
 ### Step 2.9 — `build_native_loader()`
-**Example output**
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
 ```text
 len(loader) = 32   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
@@ -668,7 +667,7 @@ This run was recorded before the ROC and precision-recall curves of the per-clas
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 427 labelled frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `disappearing_hollow_ellipse` to every frame; the one of iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to the 120 others. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 427 labelled frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `disappearing_hollow_ellipse` to every frame; the one of iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to the 120 others. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
 >
 > They were also captured before the ROC and precision-recall curves of the per-class report were added (2026-10-20). With `per_class_report`, the current code computes for every class, one against the others, its ROC and precision-recall curves on the labelled frames (`compute_class_score_curves()`, see `classification_workflow.md`, Steps 4.14 and 4.15): `Macro ROC AUC` and `Macro Average Precision` follow `Top-2 Accuracy` in the headline metrics, the per-class table, `class_metrics.csv` and the Test scalars gain the `ROC AUC` and `Average Precision` of every class, and `roc_curves.png` and `precision_recall_curves.png` are written and sent to TensorBoard and MLflow. Steps 4.7, 4.9, 4.13 and 5.5 give the differences next to the recorded outputs.
 

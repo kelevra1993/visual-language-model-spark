@@ -60,8 +60,8 @@ class ViewerRecorder:
         return True
 
 
-def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0,
-                    self_supervised: bool = False) -> DataAugmenter:
+def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0, self_supervised: bool = False,
+                    sequence_augmentation: bool = False) -> DataAugmenter:
     """
     Builds an augmenter applying exactly the given types to every sample, and shuffling the frames of every sequence
     with the given probability.
@@ -72,6 +72,8 @@ def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0,
             off. Defaults to 0.0.
         self_supervised (bool): Whether the augmenter draws the views of the self-supervised task with the
             self-supervised strengths. Defaults to False.
+        sequence_augmentation (bool): Whether the augmenter belongs to a sequence task, the only tasks reading the
+            frame shuffling. Defaults to False.
 
     Returns:
         DataAugmenter: The augmenter.
@@ -81,7 +83,7 @@ def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0,
     return DataAugmenter(augmentation_configuration={
         "activated": True, "probability": 1.0, "independent_frames": False,
         "shuffle_frames": {"activated": shuffle_probability > 0.0, "probability": shuffle_probability},
-        "types": types}, self_supervised=self_supervised)
+        "types": types}, self_supervised=self_supervised, sequence_augmentation=sequence_augmentation)
 
 
 def test_detection_panels_count_the_objects_and_name_the_removed_ones(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,7 +131,7 @@ def test_pair_panels_give_the_real_frames_and_the_shuffled_order(monkeypatch: py
     torch.manual_seed(seed=0)
     random.seed(0)
     trainer = SequenceComparisonTrainer.__new__(SequenceComparisonTrainer)
-    trainer.data_augmenter = build_augmenter(enabled_types=[], shuffle_probability=1.0)
+    trainer.data_augmenter = build_augmenter(enabled_types=[], shuffle_probability=1.0, sequence_augmentation=True)
     trainer.sequence_settings = {"maximum_sequence_length": 4}
     trainer.class_names, trainer.output_mode = ["same", "changed"], "multi_class"
     viewer_recorder = ViewerRecorder()
@@ -220,7 +222,6 @@ def build_grouped_training_loader(tmp_path: Path, activated: bool) -> torch.util
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
                                 for split_name in ["train", "validation", "test"]}
     model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
-                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
                                     "grouped_batches": {"activated": activated, "block_key": "camera",
                                                         "images_per_block": 4, "batch_key": "site"}}}
     training_loader, _, _ = get_classification_dataloaders(experiment_configuration=experiment_configuration,

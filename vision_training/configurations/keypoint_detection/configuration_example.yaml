@@ -18,7 +18,7 @@ ExperimentConfiguration:
   # the same folder and changed settings start a new one, e.g.
   # KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17-HH_MC1
   # The augmentation, heatmap sigma, tag loss weights, grouping settings, batch size, learning rate and its schedule,
-  # gradient clipping and mixed precision give no token, so that a run can be resumed in its folder with changed
+  # and gradient clipping give no token, so that a run can be resumed in its folder with changed
   # values. The format is described in vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Suffix appended as the last section of the run name, e.g. "v1" giving <run name>_v1, so that a run of the
@@ -102,23 +102,15 @@ ExperimentConfiguration:
     tracking_uri: null
     # MLflow experiment grouping the runs, null for the task name (e.g. "keypoint_detection").
     experiment_name: null
-    # Sends the configuration, the class and keypoint metrics and Results.txt as artifacts.
-    log_artifacts: True
   # Base learning rate used by the optimizer.
   learning_rate: 1.0e-3
-  # Flag to attempt loading the most recent checkpoint to resume training.
-  resume_training: true
   # Flag to let a resumed run train on data whose labels.json changed since its last start, the previous data.json
   # being kept as data_until_iteration_<n>.json. False stops such a resume with an error: changed data asks for a
-  # new run (resume_training false, or another experiment_folder). A moved data folder with the same labels resumes.
+  # new run (another run_name_suffix or experiment_folder). A moved data folder with the same labels resumes.
   allow_data_change_on_resume: false
   diagnosis_modes:
-      # Choice to print out everything about the model
-      verbose: False
       # Choice to compute Receptive-Field
       compute_receptive_field: True
-      # Choice to compute final model size
-      compute_model_size: True
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
       # whole images with the boxes and keypoints of their objects (left keypoints blue, right keypoints orange, the
       # others yellow, the occluded ones as rings) and the skeleton of their class, next to a panel giving the objects
@@ -144,9 +136,6 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum norm of all the gradients together, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
-  # the test evaluation staying in float32 (the data type of every model).
-  mixed_precision: False
   # Exponential moving average (EMA) of the weights: a second copy of the model, never trained itself, moved towards
   # the trained weights after every optimizer step:
   #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
@@ -163,13 +152,6 @@ Optimization:
     decay: 0.999
 
 Data:
-  loading:
-    # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
-    # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
-    # workers. 0 loads in the main process (debugging).
-    number_workers: 8
-    # Number of batches prepared in advance by every worker.
-    prefetch_batches: 2
   image_settings:
     # Target resolution to resize all input images: 512 keeps 80% of the longest side of the COCO
     # images (640 pixels), where 1024 would load images upsampled 1.6 times. It is the input of the network, a multiple
@@ -191,14 +173,6 @@ Data:
     # Probability that a training image is augmented at all. Each activated type below is then applied to that image
     # with its own probability.
     probability: 0.4
-    # Sequence tasks only (False for the image tasks): draws the photometric augmentations below frame by frame,
-    # every frame of an augmented sequence getting its own brightness, noise, colour... while the geometric
-    # augmentations stay the same for all its frames, a crop or a rotation per frame making the objects jump.
-    independent_frames: False
-    # Sequence tasks only (activated False for the image tasks): shuffles the real frames of a training window with
-    # this probability, independently of the probability above, the padding frames staying last and each member of
-    # a pair being shuffled on its own. For the sequences whose frame order carries no information (sets of photos).
-    shuffle_frames: { activated: False, probability: 0.5 }
     types:
       # Geometric augmentations : the boxes and keypoints are moved with the image, the keypoints leaving the image
       # becoming unlabelled, and an object being removed when less than 25% of its box and none of its labelled
@@ -315,10 +289,6 @@ Backbone:
     # Strategy for normalizing the feature maps in the convolution blocks.
     # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
     feature_map_normalization: "batch"
-    # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
-    # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
-    # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
-    batch_normalization_momentum: 0.1
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
@@ -336,16 +306,13 @@ Backbone:
     # Output channels of every block using inception must be multiples of 8
     inception: False
 
-    # Convolution block (1-indexed) from which inception modules replace the plain convolutions
-    inception_starting_block: 3
-
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
   # Backbone of another training run (of any task) initialising the stem instead of random weights: its first blocks
   # are loaded, as many as the stem has, so that the stem can start from the backbone of an ImageNet classification
   # run. The settings defining those layers (input_channels, the first convolutions, modules, normalization) must be
-  # identical to the ones above, the image size and the batch normalization momentum may differ.
+  # identical to the ones above, the image size may differ.
   pretrained:
     # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load it again. For example the ImageNet run of

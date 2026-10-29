@@ -33,14 +33,12 @@ class SelfSupervisedModel(TaskModel):
     'embedding_standard_deviation' watching the collapse.
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
-                 dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the backbone, the global pooling and the projection head from the configuration.
 
         Args:
             configuration (Dict[str, Any]): The model configuration (Data, Backbone and ProjectionHead sections).
-            verbose (bool): Unused, kept so that every task model is built with the same arguments.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
 

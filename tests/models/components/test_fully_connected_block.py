@@ -15,6 +15,7 @@ from torch import nn
 from tests.fixtures.configuration_fixtures import get_classification_model_configuration
 from vision_training.models.classification.classification_head import ClassificationHead
 from vision_training.models.classification.image_classifier import ImageClassifier
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.components.fully_connected_block import (FeatureBatchNormalization,
                                                                      build_fully_connected_block)
 from vision_training.models.components.sequence_normalization import SequenceBatchNormalization
@@ -169,24 +170,22 @@ def test_head_keeps_the_features_of_a_hidden_layer_before_its_relu(normalization
 @pytest.mark.parametrize(argnames="feature_map_normalization", argvalues=["batch", "sequence"])
 def test_batch_normalization_momentums_reach_every_layer(feature_map_normalization: str) -> None:
     """
-    Verifies that the image classifier built from the configuration gives every batch (or sequence) normalization
-    layer of its backbone the momentum of 'Backbone.normalization' and every batch normalization layer of its head the
-    momentum of 'ClassificationHead', two different values.
+    Verifies that the image classifier built from a configuration without momentum gives every batch (or sequence)
+    normalization layer of its backbone and every batch normalization layer of its head the fixed momentum
+    BATCH_NORMALIZATION_MOMENTUM.
 
     Args:
         feature_map_normalization (str): The feature map normalization of the backbone.
     """
     configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
-    configuration["Backbone"]["normalization"].update({"feature_map_normalization": feature_map_normalization,
-                                                       "batch_normalization_momentum": 0.01})
-    configuration["ClassificationHead"].update({"fully_connected_normalization": "batch",
-                                                "batch_normalization_momentum": 0.05})
-    classifier = ImageClassifier(configuration=configuration, verbose=False, device=device, dtype=dtype)
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = feature_map_normalization
+    configuration["ClassificationHead"]["fully_connected_normalization"] = "batch"
+    classifier = ImageClassifier(configuration=configuration, device=device, dtype=dtype)
 
     backbone_layer_type = nn.BatchNorm2d if feature_map_normalization == "batch" else SequenceBatchNormalization
     backbone_momentums = [module.momentum for module in classifier.backbone.modules()
                           if isinstance(module, backbone_layer_type)]
     head_momentums = [module.momentum for module in classifier.classification_head.modules()
                       if isinstance(module, FeatureBatchNormalization)]
-    assert backbone_momentums and set(backbone_momentums) == {0.01}
-    assert head_momentums == [0.05]
+    assert backbone_momentums and set(backbone_momentums) == {BATCH_NORMALIZATION_MOMENTUM}
+    assert head_momentums == [BATCH_NORMALIZATION_MOMENTUM]

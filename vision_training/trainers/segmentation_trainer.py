@@ -182,7 +182,7 @@ class SegmentationTrainer(BaseTrainer):
             TaskModel: The untrained model.
         """
         model = TASK_MODEL_CLASSES[self.TASK_NAME](configuration=self.model_configuration, device=self.device,
-                                                   dtype=self.dtype, verbose=self.diagnosis_modes["verbose"])
+                                                   dtype=self.dtype)
         model.class_weights.copy_(self.compute_class_weights())
         return model
 

@@ -63,10 +63,11 @@ def select_best_proposals(proposal_scores: torch.Tensor, proposal_boxes: torch.T
     """
     Keeps the best proposals of every image of a batch, for the whole batch at once and with a fixed output size: the
     proposals the detection heads classify, selected the same way by the RegionProposalFilter of the training and
-    evaluation and by the InferenceDetector of the deployment. The sigmoid of the objectness ranks the proposals, the
-    pre_nms_proposals best ones of every image are clamped to the image, the non-maximum suppression of every image
-    removes the overlapping duplicates (suppress_overlapping_proposals), and the post_nms_proposals best survivors of
-    every image are returned, best first, the suppressed proposals only filling the slots left (marked invalid).
+    evaluation and by the InferenceDetector of the deployment. The sigmoid of the objectness, in the precision of the
+    boxes even under mixed precision, ranks the proposals, the pre_nms_proposals best ones of every image are clamped
+    to the image, the non-maximum suppression of every image removes the overlapping duplicates
+    (suppress_overlapping_proposals), and the post_nms_proposals best survivors of every image are returned, best
+    first, the suppressed proposals only filling the slots left (marked invalid).
 
     Args:
         proposal_scores (torch.Tensor): The objectness logits of all anchors, shape [B, N].
@@ -84,8 +85,11 @@ def select_best_proposals(proposal_scores: torch.Tensor, proposal_boxes: torch.T
             scores [B, P] (-1 for the padding slots), their levels [B, P] and a boolean mask [B, P] which is False for
             the padding slots when fewer than P proposals survive.
     """
-    # Keep the best pre-NMS proposals of every image and clip them to the image
-    top_scores, top_indices = torch.topk(input=torch.sigmoid(input=proposal_scores), k=pre_nms_proposals, dim=1)
+    # Keep the best pre-NMS proposals of every image and clip them to the image, the probabilities computed in the
+    # precision of the boxes, decoded from the anchors (float32 under mixed precision), since the bfloat16 logits give
+    # the confident anchors only a few distinct probabilities, and the suppression needs boxes and scores of one type
+    top_scores, top_indices = torch.topk(input=torch.sigmoid(input=proposal_scores.to(dtype=proposal_boxes.dtype)),
+                                         k=pre_nms_proposals, dim=1)
     top_boxes = clamp_boxes_to_image_boundaries(
         boxes=torch.gather(input=proposal_boxes, dim=1, index=top_indices.unsqueeze(dim=-1).expand(-1, -1, 4)),
         input_image_size=input_image_size)

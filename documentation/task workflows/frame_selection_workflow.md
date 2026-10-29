@@ -76,7 +76,7 @@ uv run python -m vision_training.deployment.export_model
 | `ExperimentConfiguration.task` | `"frame_selection"` | `FrameSelectionTrainer`, the SEL checks and the `SEL` run name code |
 | `TemporalModel.type`, `TemporalModel.bidirectional` | `"gru"`, `True` | every frame compared with the whole sequence (`GRU1x128-BI`, 256 features per frame) |
 | `Data.sequence_settings.maximum_sequence_length` | `50` | longest sequence fed whole, a longer one being left out with a red warning (`T50` token) |
-| `ExperimentConfiguration.evaluation.top_k` | `2` | top-k selection accuracy, and candidate frames of every class returned by the deployed decoder |
+| `ExperimentConfiguration.evaluation.top_k` | `2` | top-k selection accuracy, and candidate frames of every class returned by the deployed decoder; a setting of this task only, the other classification-like tasks counting a fixed 5 classes |
 | `ExperimentConfiguration.evaluation.target_precision` | `0.99` | confidence threshold of the chosen frames of every class (`class_thresholds.json`), behind the `low_confidence` flags |
 | `ExperimentConfiguration.evaluation.save_predictions` | `True` | `selections.csv`, one row per test sequence and wanted class |
 
@@ -136,9 +136,8 @@ main()
 │   │
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
-│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
-│       │       The classes of a resumed run kept from its label_dictionary.json, a previous training of the same
-│       │       settings moved to v<n>_<run name> when the run starts from scratch, then the run folder with the
+│       ├── restore_run_label_dictionary() / setup_training_paths()
+│       │       The classes of a resumed run kept from its label_dictionary.json, then the run folder with the
 │       │       configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders() -> get_sequence_dataloaders(label_type="selection")
 │       │   ├── SequenceDataset.__init__() -> describe_selection_problem()
@@ -302,7 +301,7 @@ SAMPLE_NAME = 'Sequences'   COUNTS_FRAMES = True   TASK_NAME = 'frame_selection'
 **Example: some attributes set by the constructor**
 ```text
 self.device = device(type='cpu')   self.per_class_report = True   self.number_sample_images = 8   self.input_image_size = 256
-self.batch_size = 16   self.mixed_precision = False   self.start_iteration = 1
+self.batch_size = 16   self.start_iteration = 1
 ```
 
 ### Step 2.3 — `get_device()`
@@ -328,7 +327,7 @@ activated True   probability 0.4   independent_frames False   shuffle_frames {'a
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`. The record of the data, `data.json`, is written after the loaders (Step 2.7).
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`. The record of the data, `data.json`, is written after the loaders (Step 2.7).
 
 **Example: the run folder after this step**
 ```text
@@ -396,7 +395,7 @@ ValueError: 500 sequences cannot be used for the frame selection, which needs ev
 The warnings name every left-out sequence, in red; the run goes on with the 280 sequences of at most 8 frames. The error lists the first 20 invalid sequences and stops the training.
 
 ### Step 2.9 — `build_native_loader()`
-**Example output**
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
 ```text
 len(loader) = 32   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```

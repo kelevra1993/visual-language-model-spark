@@ -292,8 +292,7 @@ def test_loaders_needing_batch_statistics_drop_the_last_training_batch(tmp_path:
              "category_id": sequence_index % 2 + 1} for sequence_index in range(number_sequences)])
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
     data_configuration = {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0, 2: 1},
-                          "sequence_settings": {"maximum_sequence_length": 8},
-                          "loading": {"number_workers": 0, "prefetch_batches": 2}}
+                          "sequence_settings": {"maximum_sequence_length": 8}}
     model_configuration = {"Data": data_configuration}
 
     # Batches of 2 sequences: the third training sequence is left out only for the head needing batch statistics

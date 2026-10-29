@@ -296,8 +296,7 @@ def create_experiment_tracker(tracking_configuration: Dict[str, Any], tracking_r
         mlflow_tracker_module = importlib.import_module(name=MLFLOW_TRACKER_MODULE)
         return mlflow_tracker_module.MlflowTracker(tracking_uri=tracking_uri, artifact_root=artifact_root,
                                                    experiment_name=experiment_name, run_name=run_name,
-                                                   run_record_path=run_record_path,
-                                                   log_artifacts=tracking_configuration["log_artifacts"])
+                                                   run_record_path=run_record_path)
     except Exception as error:
         print_color(color="yellow", output=f"MLflow Tracking Could Not Start, The Run Is Not Tracked : {error!r}")
         return DisabledTracker()

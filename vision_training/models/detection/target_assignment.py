@@ -13,7 +13,6 @@ from typing import Dict, List, Optional, Tuple
 
 from vision_training.models.detection.box_operations import (BOX_REGRESSION_WEIGHTS, get_box_dimensions_and_centers,
                                                              get_intersection_over_union)
-from vision_training.utilities.os_utilities import print_color
 
 
 def pad_ground_truths(batched_ground_truth_boxes: List[torch.Tensor],
@@ -283,8 +282,8 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     return regression_targets
 
 
-def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int, desired_total: int,
-                                                  verbose: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int,
+                                                  desired_total: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Randomly samples positive and negative targets (anchors or proposals) to maintain a fixed ratio during training.
 
@@ -302,8 +301,6 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
                                (Values >= 1.0 = positive foreground, 0.0 = negative background).
         desired_positives (int): The maximum number of positive targets to sample per image.
         desired_total (int): The total combined number of targets (positive + negative) to sample per image.
-        verbose (bool): If True, prints a console summary detailing the total positive, negative,
-                        and combined targets sampled across the batch. Defaults to False.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing two boolean masks of shape (B, N):
@@ -337,16 +334,6 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
     sampled_positive_mask = is_positive & (ranks < possible_positives.unsqueeze(dim=1))
     sampled_negative_mask = is_negative & (ranks - number_positives.unsqueeze(dim=1)
                                            < possible_negatives.unsqueeze(dim=1))
-
-    # Calculate and display the final breakdown of sampled anchors per image in the batch for debugging
-    if verbose:
-        print_color(color="yellow", output="Sampling Information", add_separators=True)
-        total_positives = torch.sum(input=sampled_positive_mask, dim=1)
-        total_negatives = torch.sum(input=sampled_negative_mask, dim=1)
-        print_color(color="yellow", output=f"Positive Training Samples   : {total_positives.tolist()}", indent=1)
-        print_color(color="yellow", output=f"Negative Training Samples   : {total_negatives.tolist()}", indent=1)
-        print_color(color="yellow",
-                    output=f"All Batch Training Samples  : {(total_negatives + total_positives).tolist()}", indent=1)
 
     return sampled_positive_mask, sampled_negative_mask
 

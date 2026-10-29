@@ -842,12 +842,12 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | M4. The two NMS thresholds look swapped | medium | fixed | 0.7 and 0.5 in the four DET and INS files |
 | M5. Masks resized with plain nearest are shifted | medium | **partly fixed** | see below; also `preprocessing.py:200-202` restores class maps with `mode="nearest"` |
 | M6. `number_iterations` counts from the resume point | medium | fixed | on 2026-10-21: `number_iterations` is the total of the run |
-| M7. `resume_training: false` reuses the run folder | medium | fixed | on 2026-10-21: the previous training is moved to `v<n>_<run name>` |
+| M7. `resume_training: false` reuses the run folder | medium | fixed | on 2026-10-21: the previous training is moved to `v<n>_<run name>`; since 2026-10-29 `resume_training` no longer exists, a run always resuming from its folder |
 | M8. An empty split loops forever | medium | fixed | on 2026-10-21: refused at launch, two empty passes raise |
 | M9. Training step errors swallowed, stale final save | medium | **open** | |
 | M10. Weight decay on every parameter | medium | **open** (latent) | one `weight_decay` for every group (`base_trainer.py:606-613`); 0.0 in the files read |
 | M13. Decoded image size never compared with the annotations | medium | **partly fixed** | see below; `coco_dataset.py:249` still never compares the decoded shape with the JSON size |
-| M14. Objectness ranked in bfloat16 | medium | **open** (latent) | `region_proposer.py:88` without `.float()`; the shipped DET and INS files keep `mixed_precision: False` |
+| M14. Objectness ranked in bfloat16 | medium | fixed | on 2026-10-29, when mixed precision became always on (DET and INS included): `select_best_proposals` computes the probabilities in the precision of the boxes, float32 under mixed precision |
 | M15. A failed export check leaves the new model served | medium | **open** | |
 | M16. The DET and INS export comparison compares padding | medium | **open** | |
 | M17. The label mapping file is not part of the run | medium | fixed | on 2026-10-21: `label_dictionary.json` and checkpoint metadata |

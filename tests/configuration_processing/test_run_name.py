@@ -62,7 +62,7 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Backbone modules and blocks
     model_configuration["Backbone"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
-                                                       "inception": False, "inception_starting_block": 3})
+                                                       "inception": False})
     model_configuration["Backbone"]["convolutions"] = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [4, 64],
                                                        "5": [4, 64], "6": [6, 128], "7": [6, 128]}
 
@@ -238,8 +238,8 @@ def use_multi_class_labels(experiment_configuration: Dict[str, Any], model_confi
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
-    and trains with another batch size, learning rate and schedule, gradient clipping, mixed precision and a moving
-    average of the weights.
+    and trains with another batch size, learning rate and schedule, gradient clipping and a moving average of the
+    weights.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
@@ -250,7 +250,6 @@ def change_training_settings(experiment_configuration: Dict[str, Any], model_con
     experiment_configuration["learning_rate"] = 1.5e-3
     model_configuration["Optimization"].update({"learning_rate_schedule": "cosine", "warmup_iterations": 500,
                                                 "decay_iterations": 20000, "gradient_clipping_norm": 1.0,
-                                                "mixed_precision": True,
                                                 "exponential_moving_average": {"activated": True, "decay": 0.999}})
 
 
@@ -258,8 +257,7 @@ def test_reference_run_name() -> None:
     """
     Verifies the run name of the reference settings, that the same settings always give the same name, which lets a
     run resume in its own folder, and that the training settings that can change between two resumptions (augmentation,
-    batch size, learning rate and schedule, gradient clipping, mixed precision, moving average of the weights) keep
-    that name.
+    batch size, learning rate and schedule, gradient clipping, moving average of the weights) keep that name.
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     run_name = build_run_name(experiment_configuration=experiment_configuration,
@@ -892,13 +890,13 @@ def test_sequence_normalization_run_name_tokens(feature_map_normalization: str, 
 def test_optimization_run_name_tokens() -> None:
     """
     Verifies the optimizer section at the end of the run name, written only for an optimizer other than Adam or a
-    weight decay, the schedule, gradient clipping and mixed precision giving no token.
+    weight decay, the schedule and gradient clipping giving no token.
     """
     experiment_configuration, model_configuration = get_classification_reference_configurations()
     model_configuration["Optimization"] = {"optimizer": "adamw", "weight_decay": 1e-4,
                                            "learning_rate_schedule": "cosine", "warmup_iterations": 500,
                                            "decay_iterations": 20000, "minimum_learning_rate_ratio": 0.01,
-                                           "gradient_clipping_norm": 1.0, "mixed_precision": True}
+                                           "gradient_clipping_norm": 1.0}
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
         "_MC4", "_MC4_ADAMW-WD1e-4")

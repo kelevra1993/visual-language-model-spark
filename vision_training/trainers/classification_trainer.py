@@ -18,7 +18,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, ClassificationBatch, EvaluationResults
 from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
-from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
+from vision_training.evaluation.classification.classification_metrics import (TOP_K_ACCURACY_CLASSES,
+                                                                              compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix,
                                                                               compute_multi_label_metrics,
                                                                               compute_top_k_accuracy)
@@ -73,8 +74,9 @@ class ClassificationTrainer(BaseTrainer):
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
         # One class per sample (softmax) or several (sigmoid), the weighting of the classes in the loss, and the
-        # evaluation settings: the k of the top-k accuracy, the precision targeted by the per-class thresholds,
-        # whether the predictions of every test sample are saved, and the error images of the misclassified samples
+        # evaluation settings: the k of the top-k accuracy (fixed, the frame selection replacing it with the number of
+        # candidate frames of its configuration), the precision targeted by the per-class thresholds, whether the
+        # predictions of every test sample are saved, and the error images of the misclassified samples
         self.output_mode = model_configuration["ClassificationHead"]["output_mode"]
         self.class_weighting = model_configuration["ClassificationHead"]["class_weighting"]
 
@@ -82,7 +84,7 @@ class ClassificationTrainer(BaseTrainer):
         # tasks sharing this trainer have no 'ClassificationHead.decorrelation'
         self.decorrelation_activated = (self.TASK_NAME == "classification" and
                                         model_configuration["ClassificationHead"]["decorrelation"]["activated"])
-        self.top_k = experiment_configuration["evaluation"]["top_k"]
+        self.top_k = self.get_top_k(experiment_configuration=experiment_configuration)
         # Precision, or list of precisions, targeted by the class thresholds, the first one being the main target (of
         # the deployment and of the main fields of 'class_thresholds.json'), the others reported next to it
         target_precision = experiment_configuration["evaluation"]["target_precision"]
@@ -92,6 +94,20 @@ class ClassificationTrainer(BaseTrainer):
         self.error_dumps_configuration = experiment_configuration["evaluation"]["error_dumps"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
+
+    def get_top_k(self, experiment_configuration: Dict[str, Any]) -> int:
+        """
+        Gives the k of the top-k accuracy of the classification-like tasks, read before the base trainer prepares the
+        run: the fixed TOP_K_ACCURACY_CLASSES, the frame selection replacing it with the number of candidate frames of
+        its configuration.
+
+        Args:
+            experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
+
+        Returns:
+            int: The number of most probable classes counted by the top-k accuracy.
+        """
+        return TOP_K_ACCURACY_CLASSES
 
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
@@ -142,7 +158,7 @@ class ClassificationTrainer(BaseTrainer):
             TaskModel: The untrained model.
         """
         model = TASK_MODEL_CLASSES[self.TASK_NAME](configuration=self.model_configuration, device=self.device,
-                                                   dtype=self.dtype, verbose=self.diagnosis_modes["verbose"])
+                                                   dtype=self.dtype)
         if self.class_weighting == "balanced":
             class_counts = self.train_dataloader.dataset.get_class_counts()
             model.class_weights.copy_(compute_balanced_class_weights(class_counts=class_counts))

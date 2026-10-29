@@ -116,6 +116,10 @@ class BaseTrainer(ABC):
     # SELF_SUPERVISED_AUGMENTATION_STRENGTHS, instead of augmenting the training batches of a supervised task
     SELF_SUPERVISED_AUGMENTATION = False
 
+    # Whether the data augmentation reads the sequence settings of the configuration ('independent_frames' and
+    # 'shuffle_frames'), held by the sequence tasks only, True for the sequence tasks
+    SEQUENCE_AUGMENTATION = False
+
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
@@ -179,10 +183,10 @@ class BaseTrainer(ABC):
         # Random augmentation of the training batches, or views of the self-supervised task, applied on their device
         # right before the forward pass with the strengths of the task
         self.data_augmenter = DataAugmenter(augmentation_configuration=self.data_configuration["data_augmentation"],
-                                            self_supervised=self.SELF_SUPERVISED_AUGMENTATION)
+                                            self_supervised=self.SELF_SUPERVISED_AUGMENTATION,
+                                            sequence_augmentation=self.SEQUENCE_AUGMENTATION)
         self.input_image_size = self.data_configuration["image_settings"]["size"]
         self.batch_size = self.experiment_configuration["batch_size"]
-        self.resume_training = self.experiment_configuration["resume_training"]
         self.allow_data_change_on_resume = self.experiment_configuration["allow_data_change_on_resume"]
 
         # Classes of the run: those saved in its folder for a resumed run, the mapping file giving them otherwise
@@ -192,11 +196,6 @@ class BaseTrainer(ABC):
         # A resume on changed labels is refused before the run folder is touched, changed data asking for a new run
         if not self.diagnosis_modes["view_input_images"]:
             self.check_resumed_data()
-
-        # A training started from scratch moves aside the folder of a previous training of the same settings
-        self.previous_run_folder = None
-        if not self.diagnosis_modes["view_input_images"]:
-            self.previous_run_folder = self.move_previous_run_folder()
 
         # Paths of the run folder, created with the copy of the configuration only for a training: the input viewer
         # exits without training, so it leaves no empty run folder and never overwrites the configuration of a run. A
@@ -243,7 +242,6 @@ class BaseTrainer(ABC):
                                           for section_name in TRANSFERABLE_COMPONENTS
                                           if section_name in self.model_configuration}
         self.optimization_configuration = self.model_configuration["Optimization"]
-        self.mixed_precision = self.optimization_configuration["mixed_precision"]
         self.model = self.build_model()
         self.model.to(device=self.device, dtype=self.dtype)
 
@@ -280,11 +278,10 @@ class BaseTrainer(ABC):
         self.print_experiment_information()
         self.model.print_summary()
 
-        # Optional architecture diagnostics, printed before training continues
+        # Architecture diagnostics printed before training continues: the optional receptive field, then the model size
         if self.diagnosis_modes["compute_receptive_field"]:
             self.model.print_receptive_field_summary()
-        if self.diagnosis_modes["compute_model_size"]:
-            self.model.print_model_size_summary()
+        self.model.print_model_size_summary()
 
         # Optional viewer of the training and validation samples fed to the network, the program exits once it is closed
         # without having created the run folder
@@ -297,10 +294,9 @@ class BaseTrainer(ABC):
         # configuration
         self.training_data_analysis_files = self.analyse_training_data()
 
-        # Restoration logic before starting any training or inference
-        self.start_iteration = 1
-        if self.resume_training:
-            self.start_iteration = self.restore_last_model()
+        # Restoration of the last checkpoint of the run folder before starting any training or inference, the first
+        # iteration for a new run
+        self.start_iteration = self.restore_last_model()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Task hooks: every task implements them
@@ -753,7 +749,7 @@ class BaseTrainer(ABC):
             component = getattr(self.model, TRANSFERABLE_COMPONENTS[section_name])
 
             # Load the source component for a new run only
-            if self.resume_training and get_last_checkpoint_iteration(weights_directory=self.weights_directory):
+            if get_last_checkpoint_iteration(weights_directory=self.weights_directory):
                 print_color(color="yellow", output=f"The Run Resumes From Its Own Checkpoint, The Pretrained "
                                                    f"{get_component_name(section_name=section_name).title()} Is Not "
                                                    f"Loaded Again.")
@@ -819,11 +815,9 @@ class BaseTrainer(ABC):
         weights_directory.mkdir(exist_ok=True, parents=True)
 
         # Settings changed since the last start of a resumed run, before the copy replaces the saved configuration
-        configuration_changes = None
-        if self.resume_training:
-            configuration_changes = self.compare_with_saved_configuration(
-                initial_configuration_path=initial_configuration_path, saved_configuration_path=new_configuration_path,
-                weights_directory=weights_directory)
+        configuration_changes = self.compare_with_saved_configuration(
+            initial_configuration_path=initial_configuration_path, saved_configuration_path=new_configuration_path,
+            weights_directory=weights_directory)
 
         # Save a copy of the configuration file
         copyfile(src=str(initial_configuration_path), dst=str(new_configuration_path))
@@ -912,8 +906,7 @@ class BaseTrainer(ABC):
         keypoint detection, indexed by class, are read again for the restored classes. A new run, a run without
         checkpoint and a run started before the file existed take the mapping file.
         """
-        if not self.resume_training or not get_last_checkpoint_iteration(
-                weights_directory=self.experiment_folder / "Weights"):
+        if not get_last_checkpoint_iteration(weights_directory=self.experiment_folder / "Weights"):
             return
         run_label_dictionary = read_run_label_dictionary(run_folder=self.experiment_folder)
         if run_label_dictionary is None or run_label_dictionary == self.data_configuration["label_dictionary"]:
@@ -929,34 +922,6 @@ class BaseTrainer(ABC):
             inject_keypoint_categories(experiment_configuration=self.experiment_configuration,
                                        model_configuration=self.model_configuration)
 
-    def move_previous_run_folder(self) -> Optional[Path]:
-        """
-        Moves aside the folder of a previous training of the same settings when a run starts from scratch
-        ('ExperimentConfiguration.resume_training' false), before the new training writes anything, so that the
-        checkpoints, registry, TensorBoard logs, results and MLflow run record of the two trainings are never mixed:
-        the folder is renamed 'v<n>_<run name>' in the experiments root folder, n being the first number not taken
-        (v1 for the first restart, v2 for the next one, the new training always keeping the run name). A standalone
-        evaluation, which names the evaluated run folder ('run_name'), and an empty or missing folder are left as
-        they are.
-
-        Returns:
-            Optional[Path]: The folder the previous training was moved to, None when nothing was moved.
-        """
-        if self.resume_training or self.experiment_configuration["run_name"] is not None or \
-                not self.experiment_folder.is_dir() or not any(self.experiment_folder.iterdir()):
-            return None
-
-        # First version number not taken by an earlier restart of the same settings
-        version = 1
-        while (self.experiment_folder.parent / f"v{version}_{self.run_name}").exists():
-            version += 1
-        previous_run_folder = self.experiment_folder.parent / f"v{version}_{self.run_name}"
-        self.experiment_folder.rename(previous_run_folder)
-        print_color(color="yellow",
-                    output=f"The Run Starts From Scratch, The Previous Training Of The Same Settings Is Moved To : "
-                           f"{format_path_link(path=previous_run_folder)}", add_separators=True)
-        return previous_run_folder
-
     def check_resumed_data(self) -> None:
         """
         Refuses to resume a run on labels that changed since the record of its data ('data.json') was written, before
@@ -971,8 +936,7 @@ class BaseTrainer(ABC):
         """
         data_record_path = self.experiment_folder / DATA_RECORD_FILE_NAME
         resumed_iteration = get_last_checkpoint_iteration(weights_directory=self.experiment_folder / "Weights")
-        if not self.resume_training or self.allow_data_change_on_resume or not resumed_iteration or \
-                not data_record_path.is_file():
+        if self.allow_data_change_on_resume or not resumed_iteration or not data_record_path.is_file():
             return
 
         # Labels files of the splits compared with those of the saved record
@@ -985,10 +949,10 @@ class BaseTrainer(ABC):
             raise ValueError(f"The labels.json of the {', '.join(changed_splits)} split(s) changed since iteration "
                              f"{resumed_iteration} of the run {format_path_link(path=self.experiment_folder)} (their "
                              f"SHA-256 differs from {DATA_RECORD_FILE_NAME}): changed data needs a new run. Set "
-                             f"'ExperimentConfiguration.resume_training' to false to train from scratch, or "
-                             f"'ExperimentConfiguration.experiment_folder' to another folder, or set "
-                             f"'ExperimentConfiguration.allow_data_change_on_resume' to true to resume on the new "
-                             f"data.")
+                             f"another 'ExperimentConfiguration.run_name_suffix' or "
+                             f"'ExperimentConfiguration.experiment_folder', or move the run folder away, to train "
+                             f"from scratch, or set 'ExperimentConfiguration.allow_data_change_on_resume' to true to "
+                             f"resume on the new data.")
 
     def save_data_record(self, data_record_path: Path) -> Optional[DataRecordChanges]:
         """
@@ -1025,7 +989,7 @@ class BaseTrainer(ABC):
         # A resumed run compares its data with the record of its previous start, an unchanged record being kept
         data_record_changes = None
         resumed_iteration = get_last_checkpoint_iteration(weights_directory=self.weights_directory)
-        if self.resume_training and resumed_iteration and data_record_path.is_file():
+        if resumed_iteration and data_record_path.is_file():
             changed_splits = find_changed_splits(previous_record=read_json(path=str(data_record_path)),
                                                  current_record=current_record, compared_entries=COMPARED_SPLIT_ENTRIES)
             if not changed_splits:
@@ -1059,9 +1023,6 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Configuration File      : "
                                          f"{format_path_link(path=self.configuration_path)}")
         print_color(color="blue", output=f"- Data Record             : {format_path_link(path=self.data_record_path)}")
-        if self.previous_run_folder is not None:
-            print_color(color="yellow", output=f"- Previous Training Moved : "
-                                               f"{format_path_link(path=self.previous_run_folder)}")
         if self.diagnosis_modes["view_input_images"]:
             print_color(color="yellow", output="- Run Folder Not Created  : The Input Viewer Exits Without Training")
 
@@ -1111,8 +1072,6 @@ class BaseTrainer(ABC):
             moving_average_description = (f"decay {self.exponential_moving_average.decay}, evaluated next to the "
                                           f"trained weights")
         print_color(color="blue", output=f"- Weight Moving Average   : {moving_average_description}")
-        print_color(color="blue", output=f"- Mixed Precision         : {self.mixed_precision}")
-        print_color(color="blue", output=f"- Resume Training         : {self.resume_training}")
         print_color(color="blue", output=f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
 
         # Backend of the MLflow tracking, the local database of the experiments root folder unless a server is set
@@ -1837,8 +1796,8 @@ class BaseTrainer(ABC):
             batch = self.augment_batch(batch=batch)
 
         # Execute the forward pass through the model of the task, with the targets so that it returns its losses, in
-        # bfloat16 when mixed precision is enabled
-        with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16, enabled=self.mixed_precision):
+        # bfloat16 (mixed precision, the weights staying in float32)
+        with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
             model_outputs = self.forward_pass(batch=batch)
 
         # Extract all the losses of the model, and sum them into the total loss used for backpropagation, each

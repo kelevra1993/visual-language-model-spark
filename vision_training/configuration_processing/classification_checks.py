@@ -12,7 +12,6 @@ from vision_training.configuration_processing.common_checks import (check_error_
                                                                     check_image_task_sequence_settings,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                           check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value, is_number)
@@ -66,8 +65,8 @@ def check_classification_head_configuration(experiment_configuration: Dict[str, 
                                             model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ClassificationHead' section shared by the classification-like tasks: the global pooling, the hidden
-    fully connected layers, their normalization and its batch momentum (a batch normalization needing batches of at
-    least two samples), the dropout, the output mode, the label smoothing, the class weighting of the loss, and the
+    fully connected layers, their normalization (a batch normalization needing batches of at least two samples), the
+    dropout, the output mode, the label smoothing, the class weighting of the loss, and the
     'pretrained' settings initialising the head with the one of another run.
 
     Args:
@@ -107,8 +106,6 @@ def check_classification_head_configuration(experiment_configuration: Dict[str, 
     elif fully_connected_normalization != "none" and fully_connected == []:
         errors.append("'ClassificationHead.fully_connected_normalization' must be 'none' when "
                       "'ClassificationHead.fully_connected' is []: the head has no hidden layer to normalize.")
-    errors += check_batch_normalization_momentum(configuration=model_configuration,
-                                                 key_path="ClassificationHead.batch_normalization_momentum")
 
     # A batch normalization of the hidden layers trains on the statistics of a batch, which one sample cannot give
     batch_size = get_configuration_value(configuration={"ExperimentConfiguration": experiment_configuration},
@@ -217,10 +214,9 @@ def check_classification_evaluation_configuration(experiment_configuration: Dict
                                                   model_configuration: Dict[str, Any],
                                                   allow_several_target_precisions: bool = True) -> List[str]:
     """
-    Verifies the 'ExperimentConfiguration.evaluation' settings of the classification-like tasks: the k of the top-k
-    accuracy, the precision (or the list of precisions) targeted by the per-class threshold finder, whether the
-    predictions of every test sample are saved, and the error images of the misclassified samples, which need one
-    class per sample.
+    Verifies the 'ExperimentConfiguration.evaluation' settings of the classification-like tasks: the precision (or
+    the list of precisions) targeted by the per-class threshold finder, whether the predictions of every test sample
+    are saved, and the error images of the misclassified samples, which need one class per sample.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -233,14 +229,11 @@ def check_classification_evaluation_configuration(experiment_configuration: Dict
     """
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
-    errors = check_positive_integers(configuration=configuration,
-                                     key_paths=["ExperimentConfiguration.evaluation.top_k"],
-                                     allow_zero=False)
     target_precision = get_configuration_value(configuration=configuration,
                                                key_path="ExperimentConfiguration.evaluation.target_precision")
-    errors += check_target_precisions(value=target_precision,
-                                      key_path="ExperimentConfiguration.evaluation.target_precision",
-                                      allow_several_target_precisions=allow_several_target_precisions)
+    errors = check_target_precisions(value=target_precision,
+                                     key_path="ExperimentConfiguration.evaluation.target_precision",
+                                     allow_several_target_precisions=allow_several_target_precisions)
     errors += check_boolean_flags(configuration=configuration,
                                   key_paths=["ExperimentConfiguration.evaluation.save_predictions"])
 

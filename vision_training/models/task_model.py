@@ -104,7 +104,7 @@ class TaskModel(nn.Module, ABC):
         """
         Prints the parameter count and memory size of every component of the model.
 
-        This diagnostic (enabled by 'diagnosis_modes.compute_model_size') reports the size of every component given by
+        This diagnostic, printed at the launch of every training, reports the size of every component given by
         get_size_components. Sizes include parameters and buffers (e.g. batch normalization running statistics) and
         are expressed in megabytes (1 MB = 1e6 bytes).
         """

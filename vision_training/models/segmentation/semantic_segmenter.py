@@ -39,15 +39,13 @@ class SemanticSegmenter(TaskModel):
     'deep_supervision_loss' of the deep supervision heads.
     """
 
-    def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
-                 dtype: torch.dtype = None) -> None:
+    def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the backbone, the decoder and the segmentation head from the configuration.
 
         Args:
             configuration (Dict[str, Any]): The model configuration (Data with its label dictionary, Backbone,
                 SegmentationDecoder and SegmentationLoss sections).
-            verbose (bool): Unused, kept so that every task model is built with the same arguments.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
         """

@@ -17,8 +17,7 @@ DEVICE = torch.device(device="cpu")
 DTYPE = torch.float32
 
 # Complete Backbone modules configuration with every module disabled, as every key must be explicitly set
-PLAIN_MODULES = {"squeeze_and_excite": False, "residual_nets": False, "residual_nets_v2": False, "inception": False,
-                 "inception_starting_block": 3}
+PLAIN_MODULES = {"squeeze_and_excite": False, "residual_nets": False, "residual_nets_v2": False, "inception": False}
 
 
 def test_squeeze_and_excitation_rescales_channels() -> None:

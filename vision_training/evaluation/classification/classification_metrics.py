@@ -8,6 +8,10 @@ import torch
 
 from typing import Any, Dict
 
+# Number of most probable classes among which the true class must be for the top-k accuracy of the classification-like
+# tasks, the frame selection taking its own k from 'evaluation.top_k'
+TOP_K_ACCURACY_CLASSES = 5
+
 
 def compute_confusion_matrix(predicted_labels: torch.Tensor, labels: torch.Tensor, number_classes: int) -> torch.Tensor:
     """

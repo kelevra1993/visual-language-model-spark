@@ -912,8 +912,7 @@ def run_extraction_pass(embedder: Dict[str, Any], source: Dict[str, Any], source
                                             for file_name in source_images["file_names"]],
                                first_row=first_row, image_size=embedder["image_size"],
                                keep_ratio=embedder["keep_ratio"])
-    loader = build_native_loader(dataset=dataset, batch_size=batch_size, shuffle=False,
-                                 loading_configuration={"number_workers": number_workers, "prefetch_batches": 2})
+    loader = build_native_loader(dataset=dataset, batch_size=batch_size, shuffle=False, number_workers=number_workers)
     missing_block_requests = {output_key: block_index for output_key, block_index in block_requests.items()
                               if output_key in missing_outputs}
     missing_fully_connected_requests = {output_key: layer_index
