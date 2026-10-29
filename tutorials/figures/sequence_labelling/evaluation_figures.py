@@ -4,8 +4,9 @@ evaluation), made at every build by tutorials/figures/sequence_labelling/figures
 run: the listing of the evaluation block of its last iteration in Results.txt, the probability of no_change in its
 predictions.csv on the first and on the later frames and by frame position (the signature of a model that learned the
 position of a frame rather than its content), the macro ROC AUC computed again on the later frames only, the confidence
-thresholds of class_thresholds.json, the segment metrics of the example of the README computed by the code of the
-repository, and the shapes and parameter counts of the trained model run on the CPU on a real padded batch.
+thresholds of class_thresholds.json, the segment metrics of the example of the tasks reference
+(documentation/reference/tasks_reference.md, formerly in the README) computed by the code of the repository, and the
+shapes and parameter counts of the trained model run on the CPU on a real padded batch.
 """
 
 import json
@@ -45,8 +46,9 @@ HEADLINE_LINE_COUNT = 9
 # Characters kept of every listed line, the header line ending with a rule as wide as the console
 LISTED_LINE_LENGTH = 118
 
-# Example of the segment metrics of the README (Sequence Labelling): a true sequence A A A A A B B B B B predicted
-# A A B A A B B A B B, the classes A and B written as 0 and 1
+# Example of the segment metrics of documentation/reference/tasks_reference.md (Sequence Labelling), formerly in the
+# README, hence the names: a true sequence A A A A A B B B B B predicted A A B A A B B A B B, the classes A and B
+# written as 0 and 1
 README_TRUE_CLASSES = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
 README_PREDICTED_CLASSES = [0, 0, 1, 0, 0, 1, 1, 0, 1, 1]
 
@@ -269,9 +271,9 @@ def make_prediction_facts(run_folder: Path, output_folder: Path, force: bool) ->
 
 def compute_segment_facts(run_folder: Path) -> Dict[str, Any]:
     """
-    Computes with compute_segment_metrics of the repository the segment metrics of the example of the README (its
-    frame accuracy, edit score and segment F1 at every overlap), and reads the test frames of no_change of the run, the
-    accuracy of a model giving no_change to every frame.
+    Computes with compute_segment_metrics of the repository the segment metrics of the example of the tasks reference
+    (its frame accuracy, edit score and segment F1 at every overlap), and reads the test frames of no_change of the
+    run, the accuracy of a model giving no_change to every frame.
 
     Args:
         run_folder (Path): The folder of the sequence labelling run.

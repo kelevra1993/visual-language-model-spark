@@ -111,11 +111,14 @@ scenes:
       - {type: bars, box: [20, 80, 840, 620], orientation: horizontal, maximum: 1, label_width: 150, values: "{{classification.class_metrics.sorted_f1}}", labels: "{{classification.class_metrics.sorted_class_names}}", value_labels: "{{classification.class_metrics.sorted_f1_labels}}", colour: blue, highlight: [0]}
       - {type: text, position: [920, 24], text: "recall at precision {{classification.class_metrics.target_precision}} · class_thresholds.json", font: diagram_small, colour: dim, appear: 1}
       - {type: bars, box: [920, 80, 1740, 620], orientation: horizontal, maximum: 1, label_width: 150, values: "{{classification.class_metrics.sorted_recall_at_target}}", labels: "{{classification.class_metrics.sorted_class_names}}", value_labels: "{{classification.class_metrics.sorted_recall_at_target_labels}}", colour: aqua, appear: 1, highlight: [2]}
-      - {type: text, position: [880, 680], text: "rectangle never reaches the precision: null in class_thresholds.json, a dash in the report", font: diagram_small, colour: dim, anchor: mm, appear: 2}
+      - {type: text, position: [880, 680], text: "rectangle never reaches the precision: null in class_thresholds.json, a dash in the report", font: diagram_small, colour: dim, anchor: mm, appear: 2, until: 2}
+      - {type: text, position: [880, 680], text: "target_precision: [0.99, 0.95, 0.90] → additional_targets, Per Class Thresholds table", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3, 4]}
     narration:
       - "Sorted by F1, the classes split in two: plus sign, star and triangle above {{classification.class_metrics.triangle.f1:.2f}}, the six others between {{classification.class_metrics.square.f1:.2f}} and {{classification.class_metrics.circle.f1:.2f}}."
       - "Imagine a deployment where errors are costly: for every class, one against the rest, the evaluation finds the lowest probability threshold whose precision reaches {{classification.class_metrics.target_precision}}, and saves it with the recall it keeps in class thresholds json."
       - "At that precision, plus sign keeps {{classification.class_metrics.plus_sign.recall_at_target_precision:.1%}} of its images and circle {{classification.class_metrics.circle.recall_at_target_precision:.0%}}, but square keeps {{classification.class_metrics.square.recall_at_target_precision:.2%}}, and rectangle never gets there."
+      - "Should you want to choose among several precisions, give target precision a list, such as 0.99, 0.95 and 0.9: every class then gets a threshold and a recall at each, in a per class thresholds table of the report."
+      - "The first precision stays the one the deployment reads, the others joining class thresholds json as additional targets."
 
   - kind: image
     title: "Precision-recall curves"
@@ -130,6 +133,7 @@ scenes:
     narration:
       - "The precision recall curve of every class sweeps that threshold; the dotted line is the target precision, and every dot the threshold reaching it."
       - "The rectangle curve stays near 0.7 whatever the threshold, an average precision of {{classification.class_metrics.rectangle.average_precision:.2f}}, since the squares taken for rectangles get high rectangle probabilities; the ROC curves, saved next to it, read the same way."
+      - "Evaluations newer than this run also save precision recall thresholds png, which zooms on these dots and writes every threshold in the colour of its curve."
 
   - kind: image
     title: "Probabilities of right and wrong predictions"

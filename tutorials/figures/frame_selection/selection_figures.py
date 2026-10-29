@@ -5,8 +5,9 @@ run, run again on the CPU on the three test sequences where it picks a wrong fra
 their probabilities and logits; the selection images of the repository (build_frame_selection_image) are drawn from
 them, stacked into one figure, and the probability, gain and selection matrices of one of them, decoded by the Hungarian
 and greedy decodings of the repository, are written as the data of the matrix animations, with the example of the
-README decoded the same way. The probabilities of the CPU run are checked against selections.csv of the evaluation of
-that iteration, so that the figures show what the evaluation saw.
+tasks reference (documentation/reference/tasks_reference.md, formerly in the README) decoded the same way. The
+probabilities of the CPU run are checked against selections.csv of the evaluation of that iteration, so that the
+figures show what the evaluation saw.
 """
 
 import csv
@@ -40,8 +41,8 @@ MATRIX_SEQUENCE_NAME = "test_000052"
 # Largest difference allowed between a probability of the CPU run and the one of selections.csv (GPU evaluation)
 PROBABILITY_TOLERANCE = 0.005
 
-# Example of the README (Frame Selection): two wanted classes A and B and three frames, the probabilities of every
-# frame in the order A, B, unselected
+# Example of documentation/reference/tasks_reference.md (Frame Selection), formerly in the README, hence the names:
+# two wanted classes A and B and three frames, the probabilities of every frame in the order A, B, unselected
 README_CLASS_NAMES = ["A", "B", "unselected"]
 README_PROBABILITIES = [[0.50, 0.45, 0.05], [0.45, 0.05, 0.50], [0.02, 0.08, 0.90]]
 
@@ -206,7 +207,7 @@ def build_matrix_data(probabilities: numpy.ndarray, logits: numpy.ndarray, frame
 
 def decode_readme_example() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Decodes the example of the README with the Hungarian and greedy decodings of the repository and gives the
+    Decodes the example of the tasks reference with the Hungarian and greedy decodings of the repository and gives the
     probability of the labelling of the sequence each gives (the product, over the frames, of the probability of the
     class the decoding gives the frame), with the matrix data of its animation.
 

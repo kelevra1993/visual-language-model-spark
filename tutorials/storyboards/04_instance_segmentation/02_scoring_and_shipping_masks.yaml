@@ -174,7 +174,7 @@ scenes:
       - "The export writes the segmenter with the four outputs of the detector, then the detection masks: a hundred probability masks of 28 pixels per image in the frame of their boxes, zero for the padding."
       - "In the graph, every level's mask head runs on all the detections, each keeping its own level, the class channel picked by a gather, then the sigmoid; the export is checked to a thousandth on the masks."
       - "The client pastes the masks itself with paste instance masks, at the boxes brought back to the original image, and keeps the pixels from the mask threshold, which the export does not apply."
-      - "Take an object at the border: restore its box unclipped, since a box clipped at the border squeezes its mask, audit item L22, which the README recipe does not say."
+      - "Take an object at the border: restore its box unclipped, since a box clipped at the border squeezes its mask, audit item L22, which the recipe of the tools reference does not say."
 
   - kind: text_panel
     title: "Pitfalls"

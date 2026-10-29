@@ -1,9 +1,10 @@
 # Sequence labelling, chapter 3: the evaluation of the README run read file by file (Results.txt, predictions.csv, the
 # sample images, class_thresholds.json), which shows a degenerate solution predicting no_change on every frame; the
-# segment metrics on the example of the README and on the run; how to recognize such a run; the launches of the
-# experiment plan on the same data; the pitfalls and the export. Coordinates of the html scenes are in pixels of the
-# content area (1760 x 740, origin at its top left corner); the figures named figures:sequence_labelling/... are made by
-# tutorials/figures/sequence_labelling, the sample image is read from the run folder.
+# segment metrics on the example of documentation/reference/tasks_reference.md and on the run; how to recognize such a
+# run; the launches of the experiment plan on the same data; the pitfalls and the export. Coordinates of the html
+# scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures named
+# figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling, the sample image is read from the
+# run folder.
 series: sequence_labelling
 series_title: "Sequence Labelling (M2M)"
 chapter: 3
@@ -118,7 +119,7 @@ scenes:
     title: "The segment metrics"
     code_reference: "vision_training/evaluation/sequence/segment_metrics.py · compute_segment_metrics"
     elements:
-      # The example of the README: a true sequence A A A A A B B B B B predicted A A B A A B B A B B
+      # The example of the tasks reference: a true sequence A A A A A B B B B B predicted A A B A A B B A B B
       - {type: text, position: [40, 75], text: "true", font: diagram_bold, anchor: lm}
       - {type: box, box: [200, 40, 300, 110], text: "A", fill: blue}
       - {type: box, box: [310, 40, 410, 110], text: "A", fill: blue}
@@ -160,7 +161,7 @@ scenes:
       - {type: box, box: [40, 470, 1720, 700], text: "README run: {{sequence_labelling.evaluation.true_segments:,}} true segments, {{sequence_labelling.evaluation.predicted_segments:,}} predicted in {{sequence_labelling.evaluation.test_sequences:,}} sequences\nedit score {{sequence_labelling.evaluation.edit_score:.4f}} · segment F1 {{sequence_labelling.evaluation.segment_f1_10:.4f}} at 10%, {{sequence_labelling.evaluation.segment_f1_50:.4f}} at 50%", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
     narration:
       - "The frame metrics do not see fragmentation, so the segment metrics score the events: a segment is a run of consecutive frames of one class, an unlabeled frame ending it."
-      - "In the example of the README, the prediction gets {{sequence_labelling.segments.readme_frame_accuracy:.0%}} of its frames right, but cuts the two true segments into six."
+      - "In the example of the tasks reference, the prediction gets {{sequence_labelling.segments.readme_frame_accuracy:.0%}} of its frames right, but cuts the two true segments into six."
       - "The edit score, one minus the edit distance between the orders of the segment classes over the larger number of segments, is {{sequence_labelling.segments.readme_edit_score:.2f}}."
       - "A predicted segment is right when it overlaps the true segment of its class by enough intersection over union, each true segment matched once: the segment F1 is {{sequence_labelling.segments.readme_f1_at_10:.1f}} at 10%, and zero at 50%."
       - "On the README run, one predicted segment per sequence faces {{sequence_labelling.evaluation.true_segments:,}} true ones: an edit score of {{sequence_labelling.evaluation.edit_score:.2f}}, and a segment F1 of {{sequence_labelling.evaluation.segment_f1_10:.2f}} at 10% and {{sequence_labelling.evaluation.segment_f1_50:.2f}} at 50%."
