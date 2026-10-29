@@ -392,7 +392,7 @@ The settings defining the layers of the component must be identical in both runs
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-It writes `Results.txt`, `Tensorboard/Test` and `Evaluation/` in `<output_folder>/<run name>/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+It writes `Results.txt`, `Tensorboard/Test` and `Evaluation/` in `<output_folder>/<run name>/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, `logit_temperature` divides the class logits before the softmax, to spread probabilities squeezed against 1; choose it on `Evaluation/Iteration_<n>/temperature_explorer.html`. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
 
 ## Comparing Launches
 - `scripts/evaluation/collect_experiment_results.py` gathers the test curve and the swept settings of the `run_<n>` launches of a hyperparameter experiment into one CSV file, the launches of the same settings followed by a `mean` row.
@@ -417,7 +417,7 @@ Its settings and outputs: [tools reference](documentation/reference/tools_refere
 ## Deployment
 
 ### Export
-`vision_training/deployment/export_model.py` exports a trained run to the Triton model repository as TorchScript and ONNX, writes the Triton configuration of every model and checks every export against the PyTorch model. Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats`, `maximum_batch_size` and `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) in its main block, then run:
+`vision_training/deployment/export_model.py` exports a trained run to the Triton model repository as TorchScript and ONNX, writes the Triton configuration of every model and checks every export against the PyTorch model. Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats`, `maximum_batch_size`, `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) and, for a classifier, `class_thresholds_path` (the `class_thresholds.json` of the evaluation of the exported checkpoint, whose logit temperature is built into the model) in its main block, then run:
 
 ```bash
 uv run python -m vision_training.deployment.export_model

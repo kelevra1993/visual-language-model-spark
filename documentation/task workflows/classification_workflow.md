@@ -32,8 +32,10 @@ batch metric: accuracy (argmax == label) ─► TensorBoard Train / Validation e
 every weight_saving_iterations: test split ─► confusion matrix, accuracy, balanced accuracy, macro F1, top-5,
    per class precision, recall, F1, ROC AUC, average precision, threshold at precision 0.99
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion_matrix.csv/.png, class_metrics.csv,
-      class_thresholds.json, roc_curves.png, precision_recall_curves.png, predictions.csv, Samples/, Errors/)
-export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► class_probabilities [B, 9]
+      class_thresholds.json, roc_curves.png, precision_recall_curves.png, temperature_explorer.html,
+      predictions.csv, Samples/, Errors/)
+export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► class_logits / logit temperature ─► softmax
+   ─► class_probabilities [B, 9]
 ```
 
 ### Files To Know
@@ -87,7 +89,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 ### What A Run Writes
 
 - `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision` and the per-class table sorted by F1, worst first.
-- `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
+- `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `temperature_explorer.html` with `per_class_report`; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
 - With the MLflow tracking: `test/<metric>`, `test_class/<metric>/<class>`, `test/best_Accuracy` and the tag `best_iteration`, and the files of `evaluation/iteration_<n>/`.
 
@@ -502,10 +504,12 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── prepare_batch()
 │   │       Same function as in training: images to the device as float32, labels as int64.
 │   ├── predict_batch() -> ImageClassifier.forward() without labels
-│   │       Runs the model as in deployment: no labels, so no loss. Returns class_logits and class_probabilities.
+│   │       Runs the model as in deployment: no labels, so no loss. Returns class_logits and class_probabilities,
+│   │       the softmax of the logits divided by the logit temperature (1, unless evaluate_checkpoint.py sets it).
 │   ├── accumulate_evaluation_batch()
 │   │   │   Moves the probabilities, labels and sample identifiers of the batch to the CPU and appends them to the
-│   │   │   accumulator. With error_dumps activated it also saves the misclassified images of the batch.
+│   │   │   accumulator, with the logits when the temperature explorer is written (per_class_report). With
+│   │   │   error_dumps activated it also saves the misclassified images of the batch.
 │   │   │
 │   │   └── dump_errors() -> reserve_error_image() + build_input_image()
 │   │           For each wrong prediction: reserve_error_image counts one more image for the pair TRUE-TO-PREDICTED and
@@ -550,6 +554,9 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       above, the thresholds marked) and saves roc_curves.png, precision_recall_curves.png and
 │   │       precision_recall_thresholds.png (the zoom on the thresholds, written). The same images are later sent to
 │   │       TensorBoard.
+│   ├── save_temperature_explorer()   (only with per_class_report)
+│   │       Divides the kept logits by every temperature of a grid from 0.5 to 10 and writes temperature_explorer.html:
+│   │       for each temperature the histograms of every class, its thresholds and the calibration (Step 4.13).
 │   ├── write_predictions_file()   (only with save_predictions)
 │   │       Writes predictions.csv: one row per test image with its file name, true class, predicted class, whether it
 │   │       is correct and the probability of every class.
@@ -1611,9 +1618,12 @@ octagon,0,0,590,0,0,0,0,0,0
 ### Step 4.13 — `find_class_thresholds()`
 A deployment can ask for a prediction to be trusted only above a probability threshold. For every class, treated one against the rest, this function sorts the test images by decreasing probability of the class and looks for the lowest threshold where the precision stays at or above `target_precision` (0.99 here), together with the recall kept at this threshold. If no threshold reaches the target precision, or the class has no sample, the result is `null`. The thresholds are saved in `class_thresholds.json`, for the deployment of the checkpoint. With a list of target precisions, e.g. `target_precision: [0.99, 0.95, 0.90]`, the thresholds are found for each: the first precision stays the main target, in `target_precision` and `classes` as below, and the others follow in `additional_targets`, a list of `{"target_precision": ..., "classes": {...}}` of the same form.
 
+The probabilities are the softmax of the class logits divided by a logit temperature, 1 during the training and recorded as `logit_temperature` in the file. A cross-entropy classifier is often overconfident, its probabilities squeezed against 1, so that its thresholds end up at 0.999 or above. A temperature above 1 spreads them without changing the predicted class: with two classes the recall at the target precision stays the same and only the threshold moves, with more classes it can move a little. With `per_class_report`, `save_temperature_explorer()` writes `temperature_explorer.html`, a self-contained page whose slider divides the logits by temperatures from 0.5 to 10. For every temperature it shows the histograms of the probability of every class over its images and over the other images, the thresholds and recalls at every target precision (found by this function), the negative log likelihood, the calibration error and the reliability diagram. It also suggests the calibrated temperature, the one of lowest negative log likelihood. The chosen temperature is set as `logit_temperature` in `scripts/evaluation/evaluate_checkpoint.py`, which writes `class_thresholds.json` at that temperature, and `export_model.py`, given that file, builds the temperature into the exported classifier.
+
 **Example: `Evaluation/Iteration_6/class_thresholds.json`** (only `hexagon` reaches it, with a single image)
 ```text
 {
+    "logit_temperature": 1.0,
     "target_precision": 0.99,
     "classes": {
         "square": null,

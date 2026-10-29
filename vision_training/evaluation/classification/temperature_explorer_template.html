@@ -1,0 +1,459 @@
+<!doctype html>
+<!--
+Template of temperature_explorer.html, filled by vision_training/evaluation/classification/temperature_explorer.py with
+the probabilities of the class logits of a classification evaluation divided by every temperature of its slider. The
+page is self-contained (no library, no network), so that it opens from the evaluation folder of the checkpoint.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temperature Explorer</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-class: #2a78d6;
+    --series-other: #eb6834;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-class: #3987e5;
+      --series-other: #d95926;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text-primary);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  h2 { font-size: 16px; margin: 28px 0 8px; }
+  p { margin: 6px 0; color: var(--text-secondary); max-width: 900px; }
+  code { font-size: 13px; }
+  .subtitle { color: var(--text-secondary); margin: 0 0 8px; }
+  .controls { position: sticky; top: 0; z-index: 2; background: var(--page); padding: 10px 0;
+              border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 10px 18px;
+              align-items: center; }
+  .slider-group { display: flex; align-items: center; gap: 10px; flex: 1 1 320px; }
+  .slider-group input { flex: 1; accent-color: var(--series-class); }
+  .temperature-value { font-size: 20px; font-weight: 600; min-width: 92px; font-variant-numeric: tabular-nums; }
+  .button-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { font: inherit; font-size: 13px; color: var(--text-primary); background: var(--surface);
+           border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button[aria-pressed="true"] { border-color: var(--series-class); box-shadow: inset 0 0 0 1px var(--series-class); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 14px; }
+  .tile, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .tile-label { color: var(--text-secondary); font-size: 12px; }
+  .tile-value { font-size: 22px; font-weight: 600; }
+  .tile-reference { color: var(--text-muted); font-size: 12px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+  .class-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+  .card-title { font-weight: 600; overflow-wrap: anywhere; }
+  .card-subtitle { color: var(--text-muted); font-size: 12px; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { font: 10px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--text-secondary); }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-secondary); font-size: 12px; margin: 4px 0 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .dash { width: 18px; border-top: 2px dashed var(--text-secondary); display: inline-block; }
+  .table-wrapper { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  .delta { color: var(--text-muted); font-size: 11px; }
+  .tooltip { position: fixed; pointer-events: none; z-index: 5; background: var(--surface); color: var(--text-primary);
+             border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px;
+             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); display: none; max-width: 280px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Temperature Explorer</h1>
+  <p class="subtitle" id="subtitle"></p>
+  <p>The probabilities are the softmax (sigmoid in multi-label mode) of the class logits divided by the temperature T.
+     The predicted class, the accuracy and the confusion matrix do not change with T: only the spread of the
+     probabilities, so the thresholds move with it. With two classes the recall at a target precision stays the same;
+     with more classes it can move a little.</p>
+  <p>To use a temperature, set it as <code>logit_temperature</code> in
+     <code>scripts/evaluation/evaluate_checkpoint.py</code>: <code>class_thresholds.json</code> is then written at that
+     temperature, and <code>vision_training/deployment/export_model.py</code> builds it into the exported model when
+     given that file.</p>
+
+  <div class="controls">
+    <div class="slider-group">
+      <span class="temperature-value" id="temperature-value"></span>
+      <input type="range" id="temperature-slider" min="0" step="1" aria-label="Logit temperature">
+    </div>
+    <div class="button-row" id="temperature-buttons"></div>
+    <div class="button-row" role="group" aria-label="Histogram scale">
+      <button type="button" id="linear-scale" aria-pressed="true">Linear</button>
+      <button type="button" id="log-scale" aria-pressed="false">Log</button>
+    </div>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <h2>Calibration</h2>
+  <div class="charts">
+    <div class="card">
+      <div class="card-title">Confidence Of The Decisions</div>
+      <div class="card-subtitle" id="confidence-subtitle"></div>
+      <svg id="confidence-chart" viewBox="0 0 420 220" role="img" aria-label="Histogram of the confidences"></svg>
+    </div>
+    <div class="card">
+      <div class="card-title">Reliability</div>
+      <div class="card-subtitle" id="reliability-subtitle"></div>
+      <svg id="reliability-chart" viewBox="0 0 420 220" role="img" aria-label="Reliability diagram"></svg>
+    </div>
+  </div>
+
+  <h2>Classes</h2>
+  <p id="classes-note"></p>
+  <div class="legend">
+    <span><i class="swatch" style="background: var(--series-class)"></i>Images of the class (above)</span>
+    <span><i class="swatch" style="background: var(--series-other)"></i>Other images (below)</span>
+    <span><i class="dash"></i>Threshold at a target precision</span>
+  </div>
+  <div class="class-grid" id="class-grid"></div>
+
+  <h2 id="table-title"></h2>
+  <div class="table-wrapper"><table id="threshold-table"></table></div>
+</main>
+<div class="tooltip" id="tooltip"></div>
+
+<script id="explorer-data" type="application/json">__EXPLORER_DATA__</script>
+<script>
+  // Data of the evaluation: the description of every temperature of the slider
+  const DATA = JSON.parse(document.getElementById("explorer-data").textContent);
+  const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+  // Smallest share drawn by the log scale, four decades below 100 %
+  const LOG_SCALE_DECADES = 4;
+  const view = {stateIndex: 0, logScale: false};
+
+  // Index of the state of a temperature, the closest one of the slider
+  function findStateIndex(temperature) {
+    let bestIndex = 0;
+    DATA.states.forEach((state, stateIndex) => {
+      if (Math.abs(state.temperature - temperature) < Math.abs(DATA.states[bestIndex].temperature - temperature)) {
+        bestIndex = stateIndex;
+      }
+    });
+    return bestIndex;
+  }
+
+  // Short writing of a number, a temperature with up to 3 significant digits
+  function formatTemperature(value) { return String(Number(value.toPrecision(3))); }
+  function formatPercent(value) { return (100 * value).toFixed(value >= 0.1 ? 1 : 2) + " %"; }
+
+  // Threshold written with enough decimals to show how close it is to 1 (two digits of 1 - threshold)
+  function formatThreshold(value) {
+    const gap = 1 - value;
+    const decimals = gap > 0 ? Math.min(9, Math.max(3, Math.ceil(-Math.log10(gap)) + 1)) : 3;
+    return value.toFixed(decimals);
+  }
+
+  function createSvgElement(tagName, attributes, parent) {
+    const element = document.createElementNS(SVG_NAMESPACE, tagName);
+    Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, value));
+    if (parent) parent.appendChild(element);
+    return element;
+  }
+
+  function addText(parent, x, y, content, anchor) {
+    const element = createSvgElement("text", {x: x, y: y, "text-anchor": anchor || "start"}, parent);
+    element.textContent = content;
+    return element;
+  }
+
+  // Height of a share in a half or a whole plot, linear against the largest share or over four decades in log scale
+  function scaleShare(share, largestShare) {
+    if (share <= 0) return 0;
+    if (view.logScale) return Math.max(0, Math.log10(share) + LOG_SCALE_DECADES) / LOG_SCALE_DECADES;
+    return largestShare > 0 ? share / largestShare : 0;
+  }
+
+  // Axis of the probabilities from 0 to 1, with its ticks under the plot
+  function drawProbabilityAxis(svg, left, width, baseline) {
+    createSvgElement("line", {x1: left, x2: left + width, y1: baseline, y2: baseline, stroke: "var(--axis)"}, svg);
+    [0, 0.25, 0.5, 0.75, 1].forEach(tick => {
+      addText(svg, left + tick * width, baseline + 13, String(tick), tick === 0 ? "start" : tick === 1 ? "end" : "middle");
+    });
+  }
+
+  // Mirrored histogram of the probability of a class: its images above the middle line, the other images below, each
+  // half scaled to its own largest share (the other images often gather near 0), with a dashed line at the threshold
+  // of every target precision
+  function drawClassPanel(svg, classIndex, state) {
+    svg.replaceChildren();
+    const classState = state.classes[classIndex];
+    const positives = DATA.positives[classIndex];
+    const negatives = DATA.number_samples - positives;
+    const labelHeight = 12 * DATA.target_precisions.length + 4;
+    const left = 34, width = 280, top = labelHeight, plotHeight = 150, halfHeight = plotHeight / 2;
+    const middle = top + halfHeight, binWidth = width / DATA.number_score_bins;
+    const positiveShares = classState.positive_counts.map(count => positives ? count / positives : 0);
+    const negativeShares = classState.negative_counts.map(count => negatives ? count / negatives : 0);
+    const largestPositiveShare = Math.max(...positiveShares), largestNegativeShare = Math.max(...negativeShares);
+    svg.setAttribute("viewBox", `0 0 ${left + width + 6} ${top + plotHeight + 18}`);
+
+    // Scale of the shares of each half, at the top and the bottom of the plot
+    addText(svg, left - 4, top + 8, view.logScale ? "100 %" : formatPercent(largestPositiveShare), "end");
+    addText(svg, left - 4, top + plotHeight, view.logScale ? "100 %" : formatPercent(largestNegativeShare), "end");
+
+    // Bars of the images of the class (above) and of the other images (below), 2 pixels apart
+    [[positiveShares, largestPositiveShare, classState.positive_counts, -1, "var(--series-class)",
+      "Images of the class"],
+     [negativeShares, largestNegativeShare, classState.negative_counts, 1, "var(--series-other)", "Other images"]]
+      .forEach(([shares, largestShare, counts, direction, colour, groupName]) => {
+        shares.forEach((share, binIndex) => {
+          const barHeight = scaleShare(share, largestShare) * halfHeight;
+          if (barHeight <= 0) return;
+          const bar = createSvgElement("rect", {
+            x: left + binIndex * binWidth + 1, width: Math.max(1, binWidth - 2), rx: 1.5, fill: colour,
+            y: direction < 0 ? middle - barHeight : middle, height: barHeight}, svg);
+          const lowerBound = binIndex / DATA.number_score_bins, upperBound = (binIndex + 1) / DATA.number_score_bins;
+          bar.dataset.tip = `${groupName}\nProbability ${lowerBound.toFixed(3)} to ${upperBound.toFixed(3)}\n` +
+                            `${counts[binIndex]} images (${formatPercent(share)})`;
+        });
+      });
+    drawProbabilityAxis(svg, left, width, top + plotHeight);
+    createSvgElement("line", {x1: left, x2: left + width, y1: middle, y2: middle, stroke: "var(--axis)"}, svg);
+
+    // Threshold of every target precision, its label stacked above the plot
+    DATA.target_precisions.forEach((targetPrecision, targetIndex) => {
+      const threshold = classState.thresholds[targetIndex];
+      const labelY = 10 + 12 * targetIndex;
+      if (threshold === null) {
+        addText(svg, left, labelY, `P${targetPrecision}: not reached`);
+        return;
+      }
+      const x = left + threshold[0] * width;
+      createSvgElement("line", {x1: x, x2: x, y1: labelY + 2, y2: top + plotHeight, stroke: "var(--text-secondary)",
+                                "stroke-width": 1.5, "stroke-dasharray": targetIndex === 0 ? "4 3" : "2 3"}, svg);
+      const label = `P${targetPrecision} ≥ ${formatThreshold(threshold[0])} · recall ${threshold[1].toFixed(3)}`;
+      addText(svg, x > left + width * 0.55 ? x - 3 : x + 3, labelY, label, x > left + width * 0.55 ? "end" : "start");
+    });
+  }
+
+  // Share of the decisions in every confidence bin
+  function drawConfidenceChart(state) {
+    const svg = document.getElementById("confidence-chart");
+    svg.replaceChildren();
+    const left = 40, width = 370, top = 10, plotHeight = 180;
+    const total = state.calibration_counts.reduce((sum, count) => sum + count, 0);
+    const shares = state.calibration_counts.map(count => total ? count / total : 0);
+    const largestShare = Math.max(...shares), binWidth = width / DATA.number_calibration_bins;
+    addText(svg, left - 4, top + 8, view.logScale ? "100 %" : formatPercent(largestShare), "end");
+    addText(svg, left - 4, top + plotHeight, "0", "end");
+    shares.forEach((share, binIndex) => {
+      const barHeight = scaleShare(share, largestShare) * plotHeight;
+      if (barHeight <= 0) return;
+      const bar = createSvgElement("rect", {x: left + binIndex * binWidth + 1, width: binWidth - 2, rx: 2,
+                                            y: top + plotHeight - barHeight, height: barHeight,
+                                            fill: "var(--series-class)"}, svg);
+      bar.dataset.tip = `Confidence ${(binIndex / DATA.number_calibration_bins).toFixed(3)} to ` +
+                        `${((binIndex + 1) / DATA.number_calibration_bins).toFixed(3)}\n` +
+                        `${state.calibration_counts[binIndex]} decisions (${formatPercent(share)})`;
+    });
+    drawProbabilityAxis(svg, left, width, top + plotHeight);
+  }
+
+  // Share of right decisions of every confidence bin against the diagonal of calibrated probabilities
+  function drawReliabilityChart(state) {
+    const svg = document.getElementById("reliability-chart");
+    svg.replaceChildren();
+    const left = 40, width = 370, top = 10, plotHeight = 180, binWidth = width / DATA.number_calibration_bins;
+    [0, 0.5, 1].forEach(tick => {
+      const y = top + plotHeight - tick * plotHeight;
+      createSvgElement("line", {x1: left, x2: left + width, y1: y, y2: y, stroke: "var(--grid)"}, svg);
+      addText(svg, left - 4, y + 3, String(tick), "end");
+    });
+    state.calibration_frequencies.forEach((frequency, binIndex) => {
+      if (frequency === null) return;
+      const barHeight = frequency * plotHeight;
+      const bar = createSvgElement("rect", {x: left + binIndex * binWidth + 1, width: binWidth - 2, rx: 2,
+                                            y: top + plotHeight - barHeight, height: Math.max(barHeight, 0.5),
+                                            fill: "var(--series-class)"}, svg);
+      bar.dataset.tip = `Confidence ${(binIndex / DATA.number_calibration_bins).toFixed(3)} to ` +
+                        `${((binIndex + 1) / DATA.number_calibration_bins).toFixed(3)}\n` +
+                        `Mean confidence ${state.calibration_confidences[binIndex].toFixed(3)}\n` +
+                        `Right ${formatPercent(frequency)} of ${state.calibration_counts[binIndex]} decisions`;
+    });
+    createSvgElement("line", {x1: left, y1: top + plotHeight, x2: left + width, y2: top, stroke: "var(--text-muted)",
+                              "stroke-width": 1.5, "stroke-dasharray": "4 3"}, svg);
+    drawProbabilityAxis(svg, left, width, top + plotHeight);
+  }
+
+  // Values of a temperature, and those of the temperature 1 below them
+  function renderTiles(state) {
+    const reference = DATA.states[findStateIndex(1)];
+    const tiles = [
+      ["Negative Log Likelihood", state.negative_log_likelihood.toFixed(4),
+       `T = 1: ${reference.negative_log_likelihood.toFixed(4)}`],
+      ["Calibration Error", state.calibration_error.toFixed(4), `T = 1: ${reference.calibration_error.toFixed(4)}`],
+      ["Mean Confidence", state.mean_confidence.toFixed(4), `T = 1: ${reference.mean_confidence.toFixed(4)}`],
+      ["Calibrated Temperature", formatTemperature(DATA.calibrated_temperature), "lowest negative log likelihood"]];
+    const container = document.getElementById("tiles");
+    container.replaceChildren();
+    tiles.forEach(([label, value, referenceText]) => {
+      const tile = document.createElement("div");
+      tile.className = "tile";
+      tile.innerHTML = '<div class="tile-label"></div><div class="tile-value"></div><div class="tile-reference"></div>';
+      tile.children[0].textContent = label;
+      tile.children[1].textContent = value;
+      tile.children[2].textContent = referenceText;
+      container.appendChild(tile);
+    });
+  }
+
+  // Threshold and recall of every drawn class at every target precision, the change of the recall from T = 1 after it
+  function renderTable(state) {
+    const reference = DATA.states[findStateIndex(1)];
+    document.getElementById("table-title").textContent =
+      `Thresholds At T = ${formatTemperature(state.temperature)}`;
+    const table = document.getElementById("threshold-table");
+    const headers = ["Class", "Images"];
+    DATA.target_precisions.forEach(targetPrecision => headers.push(`Threshold @ P${targetPrecision}`,
+                                                                   `Recall @ P${targetPrecision}`));
+    const rows = [`<tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr>`];
+    DATA.class_names.forEach((className, classIndex) => {
+      const cells = [escapeHtml(className), String(DATA.positives[classIndex])];
+      DATA.target_precisions.forEach((targetPrecision, targetIndex) => {
+        const threshold = state.classes[classIndex].thresholds[targetIndex];
+        const referenceThreshold = reference.classes[classIndex].thresholds[targetIndex];
+        if (threshold === null) {
+          cells.push("—", "—");
+          return;
+        }
+        let recallText = threshold[1].toFixed(3);
+        if (referenceThreshold !== null && Math.abs(threshold[1] - referenceThreshold[1]) >= 0.0005) {
+          const change = threshold[1] - referenceThreshold[1];
+          recallText += ` <span class="delta">(${change > 0 ? "+" : ""}${change.toFixed(3)} from T = 1)</span>`;
+        }
+        cells.push(formatThreshold(threshold[0]), recallText);
+      });
+      rows.push(`<tr>${cells.map(cell => `<td>${cell}</td>`).join("")}</tr>`);
+    });
+    table.innerHTML = rows.join("");
+  }
+
+  function escapeHtml(text) {
+    const element = document.createElement("span");
+    element.textContent = text;
+    return element.innerHTML;
+  }
+
+  // Card of every drawn class, built once, its histogram drawn again at every temperature
+  function buildClassCards() {
+    const grid = document.getElementById("class-grid");
+    DATA.class_names.forEach((className, classIndex) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = '<div class="card-title"></div><div class="card-subtitle"></div>';
+      card.children[0].textContent = className;
+      card.children[1].textContent = `${DATA.positives[classIndex]} images of the class, ` +
+                                     `${DATA.number_samples - DATA.positives[classIndex]} other images`;
+      createSvgElement("svg", {role: "img", "aria-label": `Probabilities of ${className}`,
+                               "data-class-index": classIndex}, card);
+      grid.appendChild(card);
+    });
+  }
+
+  function render() {
+    const state = DATA.states[view.stateIndex];
+    document.getElementById("temperature-value").textContent = `T = ${formatTemperature(state.temperature)}`;
+    document.getElementById("temperature-slider").value = view.stateIndex;
+    document.querySelectorAll("#temperature-buttons button").forEach(button => {
+      button.setAttribute("aria-pressed", String(Number(button.dataset.stateIndex) === view.stateIndex));
+    });
+    document.getElementById("linear-scale").setAttribute("aria-pressed", String(!view.logScale));
+    document.getElementById("log-scale").setAttribute("aria-pressed", String(view.logScale));
+    document.getElementById("confidence-subtitle").textContent = DATA.output_mode === "multi_class"
+      ? "Probability of the predicted class of every image"
+      : "Probability of the decided presence or absence of every class of every image";
+    document.getElementById("reliability-subtitle").textContent =
+      "Share of right decisions per confidence bin, against the diagonal of calibrated probabilities";
+    renderTiles(state);
+    drawConfidenceChart(state);
+    drawReliabilityChart(state);
+    document.querySelectorAll("#class-grid svg").forEach(svg => {
+      drawClassPanel(svg, Number(svg.dataset.classIndex), state);
+    });
+    renderTable(state);
+  }
+
+  // Header, slider, shortcut buttons and scale toggle, then the first drawing at the evaluated temperature
+  function initialise() {
+    const titleParts = [DATA.title, `${DATA.number_samples} test images`, `${DATA.number_classes} classes`,
+                        DATA.output_mode === "multi_class" ? "softmax" : "sigmoid"].filter(Boolean);
+    document.getElementById("subtitle").textContent = titleParts.join(" · ");
+    document.getElementById("classes-note").textContent = DATA.class_names.length < DATA.number_classes
+      ? `The ${DATA.class_names.length} classes of lowest F1 of the ${DATA.number_classes}, the lowest first.`
+      : "The classes, the lowest F1 first.";
+    const slider = document.getElementById("temperature-slider");
+    slider.max = DATA.states.length - 1;
+    slider.addEventListener("input", () => { view.stateIndex = Number(slider.value); render(); });
+
+    // Shortcuts to the temperature 1, the evaluated temperature and the calibrated one, each listed once
+    const shortcuts = [["T = 1", 1], [`Evaluated · ${formatTemperature(DATA.evaluated_temperature)}`,
+                                      DATA.evaluated_temperature],
+                       [`Calibrated · ${formatTemperature(DATA.calibrated_temperature)}`, DATA.calibrated_temperature]];
+    const usedIndices = new Set();
+    shortcuts.forEach(([label, temperature]) => {
+      const stateIndex = findStateIndex(temperature);
+      if (usedIndices.has(stateIndex)) return;
+      usedIndices.add(stateIndex);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset.stateIndex = stateIndex;
+      button.addEventListener("click", () => { view.stateIndex = stateIndex; render(); });
+      document.getElementById("temperature-buttons").appendChild(button);
+    });
+    document.getElementById("linear-scale").addEventListener("click", () => { view.logScale = false; render(); });
+    document.getElementById("log-scale").addEventListener("click", () => { view.logScale = true; render(); });
+
+    // Tooltip of the bars, following the pointer
+    const tooltip = document.getElementById("tooltip");
+    document.addEventListener("pointermove", event => {
+      const tip = event.target.dataset ? event.target.dataset.tip : undefined;
+      if (!tip) { tooltip.style.display = "none"; return; }
+      tooltip.textContent = "";
+      tip.split("\n").forEach((line, lineIndex) => {
+        const lineElement = document.createElement("div");
+        lineElement.textContent = line;
+        if (lineIndex === 0) lineElement.style.fontWeight = "600";
+        tooltip.appendChild(lineElement);
+      });
+      tooltip.style.display = "block";
+      const x = Math.min(event.clientX + 12, window.innerWidth - tooltip.offsetWidth - 8);
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `${event.clientY + 12}px`;
+    });
+
+    buildClassCards();
+    view.stateIndex = findStateIndex(DATA.evaluated_temperature);
+    render();
+  }
+
+  initialise();
+</script>
+</body>
+</html>

@@ -4,7 +4,8 @@ and ONNX exports of every task (the image classifier with a pooled or flattened 
 shortcuts, the semantic segmenter, the frame selector, the encoder of the self-supervised task, the bottom-up keypoint
 detector with its higher resolution branch and the 3x3 hidden convolution of its prediction heads) match the eager
 model, keep their dynamic frames, the comparisons of the segmenter and keypoint detector outputs report their
-differences, and the inference models match the training path on full sequences.
+differences, the inference models match the training path on full sequences, and the logit temperature of the
+classifier softens its probabilities in the eager model and both exports.
 """
 
 import numpy as np
@@ -187,6 +188,66 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
                                       for input_name, input_batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
+
+
+def test_classifier_exports_divide_the_logits_by_the_logit_temperature(tmp_path: Path) -> None:
+    """
+    Verifies the logit temperature of the inference classifier: it divides the class logits before the softmax,
+    softening the probabilities without changing the predicted class, the TorchScript and ONNX exports reproduce the
+    softened probabilities and hold the temperature (a buffer of the traced module, a named constant of the ONNX
+    graph), and a temperature that is not above 0 is refused.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    model = build_test_model(task="classification", temporal_type=None, fusion_type=None, global_pooling="average")
+    inference_model = build_inference_model(task="classification", model=model)
+    specification = get_export_specification(task="classification", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                        generator=torch.Generator().manual_seed(2))
+
+    # Probabilities at the temperature 1 (those of the classifier) and at the temperature 3
+    with torch.no_grad():
+        class_logits = model(input_tensor=check_inputs["images"])["class_logits"]
+        model_probabilities = inference_model(**check_inputs)
+        inference_model.set_logit_temperature(logit_temperature=3.0)
+        softened_probabilities = inference_model(**check_inputs)
+    assert torch.allclose(input=model_probabilities, other=torch.softmax(input=class_logits, dim=-1), atol=1e-7)
+    assert torch.allclose(input=softened_probabilities, other=torch.softmax(input=class_logits / 3.0, dim=-1),
+                          atol=1e-7)
+    assert torch.equal(input=softened_probabilities.argmax(dim=1), other=model_probabilities.argmax(dim=1))
+    assert (softened_probabilities.max(dim=1).values < model_probabilities.max(dim=1).values).all()
+
+    # Both exports traced at the temperature 3 reproduce the softened probabilities on another batch size
+    reference_outputs = convert_outputs_to_numpy(outputs=softened_probabilities)
+    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    torchscript_model = torch.jit.load(str(tmp_path / "model.pt"))
+    assert float(torchscript_model.logit_temperature) == 3.0
+    with torch.no_grad():
+        torchscript_outputs = convert_outputs_to_numpy(outputs=torchscript_model(**check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=torchscript_outputs,
+                                            **specification["comparison_tolerances"]) == []
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    onnx_temperatures = [float(onnx.numpy_helper.to_array(tensor=initializer))
+                         for initializer in onnx.load(str(tmp_path / "model.onnx")).graph.initializer
+                         if "logit_temperature" in initializer.name]
+    assert onnx_temperatures == [3.0]
+    session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+    # A temperature that is not above 0 is refused, the temperature of the model being kept
+    with pytest.raises(expected_exception=ValueError, match="must be above 0"):
+        inference_model.set_logit_temperature(logit_temperature=0.0)
+    assert float(inference_model.logit_temperature) == 3.0
 
 
 def test_segmentation_comparison_reports_the_differences() -> None:

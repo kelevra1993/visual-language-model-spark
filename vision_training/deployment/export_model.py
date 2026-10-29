@@ -1,11 +1,14 @@
 """
 Exports a trained experiment of any task to the Triton model repository as TorchScript and ONNX (optionally run with
 TensorRT), writes the Triton configurations and checks every export against the eager inference model, adding for the
-frame selection the decoder and the ensembles returning the chosen frames. Run as a script with the experiment,
-iteration and formats set in its main block.
+frame selection the decoder and the ensembles returning the chosen frames, and for the classification the logit
+temperature and the class thresholds of the evaluation of the exported checkpoint. Run as a script with the
+experiment, iteration and formats set in its main block.
 """
 
+import json
 import logging
+import shutil
 import warnings
 import onnx
 import onnxruntime
@@ -21,6 +24,7 @@ from vision_training.deployment.export_specifications import (build_inference_mo
 from vision_training.deployment.frame_selection_deployment import (build_decoding_settings,
                                                                    export_frame_selection_decoding)
 from vision_training.deployment.triton_configuration import write_triton_configuration
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -173,16 +177,71 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
                            "\n".join(fixed_dimensions))
 
 
+def read_logit_temperature(class_thresholds_path: Path, experiment_folder: Path, checkpoint_path: Path,
+                           use_averaged_weights: bool, number_classes: int) -> float:
+    """
+    Reads the logit temperature built into an exported classifier from the 'class_thresholds.json' of the evaluation
+    of the exported checkpoint, so that the exported probabilities are those its class thresholds were found on: a
+    temperature set in scripts/evaluation/evaluate_checkpoint.py moves the thresholds with it, and an export with
+    another temperature would make the deployed thresholds accept nearly every image. The file must be the evaluation
+    of the exported weights, '<run>/Evaluation/Iteration_<n>/class_thresholds.json' (in its 'EMA' subfolder for the
+    averaged weights), in the run folder or in the evaluation folder of the run written by the evaluation script.
+
+    Args:
+        class_thresholds_path (Path): The class thresholds of the evaluation of the exported checkpoint.
+        experiment_folder (Path): The exported run folder.
+        checkpoint_path (Path): The exported checkpoint, '<run>/Weights/Iteration_<n>/model_<n>.pt'.
+        use_averaged_weights (bool): True when the moving average of the weights is exported.
+        number_classes (int): The number of classes of the exported classifier.
+
+    Returns:
+        float: The logit temperature, 1 for a file written before the temperature was recorded.
+
+    Raises:
+        ValueError: If the file is not the evaluation of the exported run, checkpoint and weights, or holds the
+            thresholds of another number of classes.
+    """
+    # Run, iteration and weights of the evaluation, read from the folders of the file
+    evaluation_folder = class_thresholds_path.parent
+    evaluates_averaged_weights = evaluation_folder.name == AVERAGED_WEIGHTS_FOLDER_NAME
+    iteration_folder = evaluation_folder.parent if evaluates_averaged_weights else evaluation_folder
+    errors = []
+    if class_thresholds_path.name != "class_thresholds.json" or iteration_folder.parent.name != "Evaluation":
+        errors.append("it is not '<run>/Evaluation/Iteration_<n>/[EMA/]class_thresholds.json'")
+    if iteration_folder.parent.parent.name != experiment_folder.name:
+        errors.append(f"it evaluates the run '{iteration_folder.parent.parent.name}', the exported run is "
+                      f"'{experiment_folder.name}'")
+    if iteration_folder.name != checkpoint_path.parent.name:
+        errors.append(f"it evaluates {iteration_folder.name}, the exported checkpoint is {checkpoint_path.parent.name}")
+    if evaluates_averaged_weights != use_averaged_weights:
+        errors.append(f"it evaluates the {'averaged' if evaluates_averaged_weights else 'trained'} weights, the "
+                      f"{'averaged' if use_averaged_weights else 'trained'} weights are exported")
+
+    # Thresholds of every class of the exported classifier
+    thresholds = json.loads(s=class_thresholds_path.read_text())
+    if len(thresholds["classes"]) != number_classes:
+        errors.append(f"it holds the thresholds of {len(thresholds['classes'])} classes, the exported classifier "
+                      f"predicts {number_classes}")
+    if errors:
+        raise ValueError(f"The class thresholds {class_thresholds_path} do not belong to the exported checkpoint: " +
+                         "; ".join(errors) + ".")
+
+    # The files written before the temperature was recorded were found on the probabilities of the classifier
+    return float(thresholds["logit_temperature"]) if "logit_temperature" in thresholds else 1.0
+
+
 def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
                       formats: List[str], repository: Path, model_version: int, maximum_batch_size: int,
-                      tensorrt_precision: Optional[str]) -> None:
+                      tensorrt_precision: Optional[str], class_thresholds_path: Optional[Path]) -> None:
     """
     Exports a trained experiment of any task to the Triton model repository in every requested format, writes the
     Triton configurations, and checks each export against the eager inference model on a random batch of another
     size (and, for the sequence models, of another number of frames) than the traced one. The inference model, the
     Triton model names, the outputs and the comparison come from the export specification of the task of the run.
     A frame selector also gets its decoder and one ensemble per format, with the decoding settings of the run and
-    the confidence thresholds of the evaluation of the exported checkpoint.
+    the confidence thresholds of the evaluation of the exported checkpoint. A classifier divides its class logits by
+    the logit temperature of the given class thresholds (read_logit_temperature), the file being copied next to every
+    exported model, or by 1 without them.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -194,9 +253,14 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         model_version (int): The Triton version of the exported models, i.e. the name of their version folder.
         maximum_batch_size (int): The largest batch size of the exported models.
         tensorrt_precision (Optional[str]): 'FP16' or 'FP32' to accelerate the ONNX model with TensorRT, or None.
+        class_thresholds_path (Optional[Path]): The 'class_thresholds.json' of the evaluation of the exported
+            checkpoint of a classifier, giving its logit temperature, or None for a temperature of 1 (and for the
+            other tasks).
 
     Raises:
         RuntimeError: If an exported model does not reproduce the eager outputs.
+        ValueError: If class thresholds are given for another task than the classification, or do not belong to the
+            exported checkpoint.
     """
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
     # while ONNX Runtime computes the exported model in exact FP32, so the two differ by about 1e-3 on scores even
@@ -219,6 +283,24 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         weights_description = " (EMA Weights)" if use_averaged_weights else ""
         print_color(color="blue", output=f"Exporting Checkpoint{weights_description} : "
                                          f"{format_path_link(path=checkpoint_path)}", add_separators=True)
+
+        # Logit temperature of the classifier, from the class thresholds deployed with it, set before the reference
+        # outputs so that the comparison checks the exported temperature too
+        if class_thresholds_path is not None and experiment_configuration["task"] != "classification":
+            raise ValueError(f"class_thresholds_path is only read for the classification task, not for the "
+                             f"{experiment_configuration['task']} task.")
+        if experiment_configuration["task"] == "classification":
+            if class_thresholds_path is None:
+                print_color(color="yellow", output="No class thresholds given : exported with a logit temperature "
+                                                   "of 1", indent=1)
+            else:
+                logit_temperature = read_logit_temperature(
+                    class_thresholds_path=class_thresholds_path, experiment_folder=experiment_folder,
+                    checkpoint_path=checkpoint_path, use_averaged_weights=use_averaged_weights,
+                    number_classes=inference_model.number_classes)
+                inference_model.set_logit_temperature(logit_temperature=logit_temperature)
+                print_color(color="blue", output=f"Logit Temperature {logit_temperature:g} : "
+                                                 f"{format_path_link(path=class_thresholds_path)}", indent=1)
 
         # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
         example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
@@ -252,6 +334,16 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                                        model_version=model_version, export_format=export_format,
                                        specification=specification, maximum_batch_size=maximum_batch_size,
                                        tensorrt_precision=tensorrt_precision)
+
+            # Class thresholds of the classifier next to the model, found at the temperature built into it, the copy of
+            # an earlier export being removed without them, so that no thresholds of another temperature stay there
+            thresholds_copy_path = model_path.parent / "class_thresholds.json"
+            if class_thresholds_path is not None:
+                shutil.copyfile(src=class_thresholds_path, dst=thresholds_copy_path)
+            elif thresholds_copy_path.exists():
+                thresholds_copy_path.unlink()
+                print_color(color="yellow", output=f"Class thresholds of an earlier export removed : "
+                                                   f"{format_path_link(path=thresholds_copy_path)}", indent=1)
 
             mismatches = specification["compare_outputs"](reference=reference_outputs, candidate=exported_outputs,
                                                           **specification["comparison_tolerances"])
@@ -297,6 +389,12 @@ if __name__ == "__main__":
     tensorrt_precision = "FP32"
     # False hides the harmless library warnings printed during the export (see hide_known_export_warnings)
     show_warnings = False
+    # Classification only: the 'class_thresholds.json' of the evaluation of the exported checkpoint, in the run folder
+    # or in the evaluations folder of scripts/evaluation/evaluate_checkpoint.py, e.g. experiment_folder.parent /
+    # "evaluations" / experiment_folder.name / "Evaluation" / "Iteration_6000" / "class_thresholds.json" ("EMA" before
+    # the file name for the averaged weights). Its logit temperature is built into the exported model and the file is
+    # copied next to it. None exports with a temperature of 1
+    class_thresholds_path = None
 
     if not show_warnings:
         hide_known_export_warnings()
@@ -304,4 +402,4 @@ if __name__ == "__main__":
     export_experiment(experiment_folder=experiment_folder, iteration=iteration,
                       use_averaged_weights=use_averaged_weights, formats=formats, repository=repository,
                       model_version=model_version, maximum_batch_size=maximum_batch_size,
-                      tensorrt_precision=tensorrt_precision)
+                      tensorrt_precision=tensorrt_precision, class_thresholds_path=class_thresholds_path)
