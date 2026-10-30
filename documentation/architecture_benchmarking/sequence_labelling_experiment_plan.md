@@ -10,7 +10,7 @@ One parameter changes at a time. The best value of a stage is kept for all the f
 
 Every setting is launched twice, A and B, to smooth out the noise of a single training, the two launches of a setting training at the same time on the GPU. The training sets no random seed, so the two launches start from different weights, data order and augmentations.
 
-Every launch keeps a moving average of its weights, and the settings are compared on the averaged weights: the mean of the test Macro F1 of the averaged weights over all the evaluations of the launch, at iterations 250 to 2000 for the learning rate stage and 250 to 6000 for the following stages (`Tensorboard/Test_EMA`), averaged over the two launches. The Macro F1 weighs the frames of every change as much as the far more frequent frames without change, whose share makes the frame accuracy high for a model that never finds a change.
+Every launch keeps a moving average of its weights, and the settings are compared on the averaged weights (`Tensorboard/Test_EMA`). Up to the direction stage, the score of a setting was the mean of the test Macro F1 of the averaged weights over all the evaluations of the launch, at iterations 250 to 2000 for the learning rate stage and 250 to 6000 for the following stages, averaged over the two launches. From the temporal module stage on, as the user decided on 2026-10-30 ("We will keep lstm it kept going up in terms of metrics, there is a clear difference"), the score is the test Macro F1 of the averaged weights at the last iteration of the stage (6000), averaged over the two launches: the mean over all the evaluations favours the settings that learn early over those still rising at the end. The learning rate, class weighting and direction stages keep the same winners under both scores (at iteration 2000, 1e-3 gives 0.0244 against 0.0181 for 2e-3; at iteration 6000, balanced gives 0.1207 against 0.0233 for none, and bidirectional 0.1936 against 0.1207 for unidirectional). The Macro F1 weighs the frames of every change as much as the far more frequent frames without change, whose share makes the frame accuracy high for a model that never finds a change.
 
 ## Fixed Settings
 
@@ -58,7 +58,7 @@ The direction is written as the flags of the temporal module: unidirectional is 
 
 ## Launches
 
-Every launch gives its test Macro F1 at every evaluation (every 250 iterations up to the last one of its stage) for its trained and averaged weights, all gathered in `hyperparameter_experiments/sequence_labelling/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "sequence_labelling"`), launches and mean rows as in the tables below. The mean row of a setting averages its two launches, and the setting with the highest mean of the averaged weights is kept.
+Every launch gives its test Macro F1 at every evaluation (every 250 iterations up to the last one of its stage) for its trained and averaged weights, all gathered in `hyperparameter_experiments/sequence_labelling/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "sequence_labelling"`), launches and mean rows as in the tables below. The mean row of a setting averages its two launches, and the setting with the highest score of the averaged weights is kept (the mean over all the evaluations up to the direction stage, the value at iteration 6000 from the temporal module stage on).
 
 ### Stage 1: Learning Rate (8 launches, 2000 iterations)
 
@@ -118,3 +118,28 @@ Kept: **bidirectional** (run_13 and run_14), the highest mean (0.0659 against 0.
 
 - The means over all the evaluations lie within the spread of the launches (0.0818 and 0.0500 against 0.0465 and 0.0824), so the gap of 0.0014 alone would not tell the two directions apart.
 - The bidirectional launches end far higher, 0.1936 at iteration 6000 against 0.1207, both still rising at a steeper slope (0.2411 for run_13), the advantage showing after iteration 4500, once every launch has learned to find the changes.
+
+### Stage 4: Temporal Module (6 new launches, 6000 iterations)
+
+The bidirectional LSTM launches are run_13 and run_14 of the direction stage; the transformer and the temporal convolution are non-causal, attending to or convolving over every frame. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `TemporalModel.type` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| lstm | run_13 | 0.0114 | 0.0193 | 0.0175 | 0.0243 | 0.0395 | 0.0643 | 0.0793 | 0.0961 | 0.1196 | 0.1486 | 0.1916 | 0.2411 | 0.0818 |
+| lstm | run_14 | 0.0078 | 0.0072 | 0.0201 | 0.0230 | 0.0253 | 0.0338 | 0.0427 | 0.0532 | 0.0719 | 0.0925 | 0.1189 | 0.1461 | 0.0500 |
+| lstm | **Mean** | 0.0096 | 0.0133 | 0.0188 | 0.0236 | 0.0324 | 0.0491 | 0.0610 | 0.0746 | 0.0957 | 0.1206 | 0.1553 | 0.1936 | 0.0659 |
+| gru | run_15 | 0.0096 | 0.0171 | 0.0214 | 0.0334 | 0.0371 | 0.0474 | 0.0702 | 0.0998 | 0.1243 | 0.1494 | 0.1518 | 0.1554 | 0.0725 |
+| gru | run_16 | 0.0082 | 0.0151 | 0.0245 | 0.0275 | 0.0420 | 0.0500 | 0.0499 | 0.0730 | 0.0937 | 0.1252 | 0.1373 | 0.1470 | 0.0628 |
+| gru | **Mean** | 0.0089 | 0.0161 | 0.0229 | 0.0305 | 0.0396 | 0.0487 | 0.0600 | 0.0864 | 0.1090 | 0.1373 | 0.1445 | 0.1512 | 0.0677 |
+| transformer | run_17 | 0.0006 | 0.0026 | 0.0134 | 0.0177 | 0.0237 | 0.0331 | 0.0428 | 0.0553 | 0.0751 | 0.0866 | 0.0980 | 0.1133 | 0.0442 |
+| transformer | run_18 | 0.0004 | 0.0014 | 0.0072 | 0.0164 | 0.0213 | 0.0270 | 0.0312 | 0.0458 | 0.0603 | 0.0858 | 0.1261 | 0.1572 | 0.0453 |
+| transformer | **Mean** | 0.0005 | 0.0020 | 0.0103 | 0.0171 | 0.0225 | 0.0300 | 0.0370 | 0.0506 | 0.0677 | 0.0862 | 0.1120 | 0.1353 | 0.0448 |
+| temporal_convolution | run_19 | 0.0123 | 0.0230 | 0.0361 | 0.0497 | 0.0743 | 0.1157 | 0.1082 | 0.0858 | 0.0962 | 0.1047 | 0.0973 | 0.1012 | 0.0734 |
+| temporal_convolution | run_20 | 0.0118 | 0.0181 | 0.0331 | 0.0454 | 0.0623 | 0.1138 | 0.1229 | 0.1146 | 0.1137 | 0.1044 | 0.1029 | 0.1098 | 0.0788 |
+| temporal_convolution | **Mean** | 0.0121 | 0.0205 | 0.0346 | 0.0475 | 0.0683 | 0.1147 | 0.1156 | 0.1002 | 0.1050 | 0.1046 | 0.1001 | 0.1055 | 0.0761 |
+
+Kept: **lstm** (run_13 and run_14), the highest value at iteration 6000 (0.1936 against 0.1512 for the GRU, 0.1353 for the transformer and 0.1055 for the temporal convolution); the temporal layers stage trains 2 layers (run_21 and run_22) against the single layer of run_13 and run_14.
+
+- The mean over all the evaluations, the score of the previous stages, would have kept the temporal convolution (0.0761, against 0.0677 for the GRU, 0.0659 for the LSTM and 0.0448 for the transformer): it learns fastest, its launches agreeing closely, but levels off at about 0.10 to 0.11 from iteration 3000, below every other module at iteration 6000.
+- The GRU leads the LSTM up to iteration 5000 (0.1373 against 0.1206), then levels off at about 0.15 while the LSTM keeps rising (run_13 at 0.2411).
+- The transformer learns slowest (0.0020 at iteration 1000 against 0.0133 to 0.0205 for the other modules), but is still rising steeply at iteration 6000 (run_18 from 0.1261 to 0.1572 over its last 500 iterations), so it may overtake the GRU with a longer training.
