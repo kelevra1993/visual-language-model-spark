@@ -866,6 +866,51 @@ def test_created_self_supervised_dataset_counts_its_shapes(tmp_path: Path) -> No
     assert sum(dataset.get_class_counts()) == 12
 
 
+def test_created_multi_label_classification_dataset_lists_the_classes_of_its_shapes(tmp_path: Path) -> None:
+    """
+    Verifies the multi-label classification mode of the generator, which pretrains the backbone of the sequence
+    labelling model: every image shows 5 to maximum_objects separate shapes drawn like a sequence labelling frame, its
+    sample lists the sorted distinct categories of its shapes in 'category_ids' (several shapes may share a class), the
+    label mapping gives the 35 shapes the classes 0 to 34, and the classification dataset loads it in the multi-label
+    output mode with one positive per listed category.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
+                             split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=7,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="multi_label_classification")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert [category["name"] for category in labels["categories"]] == list(SHAPE_CATEGORIES)
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    assert label_mapping == {str(category_identifier): category_identifier - 1
+                             for category_identifier in SHAPE_CATEGORIES.values()}
+
+    # Drawn shapes of every image, at least as many as its distinct categories, which are sorted and known
+    for sample in labels["samples"]:
+        object_count = count_frame_objects(frame=cv2.imread(filename=str(tmp_path / "train" / "data" /
+                                                                         sample["file_name"])))
+        assert LABELLING_MINIMUM_OBJECTS <= object_count <= 7
+        assert "category_id" not in sample
+        assert sample["category_ids"] == sorted(set(sample["category_ids"]))
+        assert 1 <= len(sample["category_ids"]) <= object_count
+        assert all(category_identifier in SHAPE_CATEGORIES.values() for category_identifier in sample["category_ids"])
+
+    # Multi-hot label of every image with one positive per listed category, counted once per image in every class
+    dataset = ClassificationDataset(data_directory=str(tmp_path / "train" / "data"),
+                                    labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                    keep_ratio=True, label_dictionary={int(category): class_index for category,
+                                                                       class_index in label_mapping.items()},
+                                    output_mode="multi_label", shuffle=False)
+    assert dataset.class_names == dict(enumerate(SHAPE_CATEGORIES))
+    for sample_index, sample in enumerate(labels["samples"]):
+        label = dataset[sample_index]["labels"]
+        assert label.nonzero().flatten().tolist() == [label_mapping[str(category_identifier)]
+                                                       for category_identifier in sample["category_ids"]]
+    assert sum(dataset.get_class_counts()) == sum(len(sample["category_ids"]) for sample in labels["samples"])
+
+
 def test_created_sequence_comparison_dataset_loses_an_object_in_the_after_member(tmp_path: Path) -> None:
     """
     Verifies the sequence comparison mode of the generator: every split gets a manifest of pairs with the ordered frames

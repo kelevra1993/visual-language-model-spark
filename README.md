@@ -117,6 +117,7 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 | Task | Synthetic dataset | Configuration |
 |---|---|---|
 | CLS | one of 35 shapes per image | `classification/configuration_synthetic_shapes.yaml` |
+| CLS (multi-label) | 5 to 10 shapes per image labelled with their distinct classes, drawn like the M2M frames to pretrain their backbone (`task = "multi_label_classification"`) | `classification/configuration_synthetic_counted_shapes.yaml` |
 | DET | the INS dataset | `object_detection/configuration_synthetic_shapes.yaml` |
 | INS | up to 6 shapes per image with their masks | `instance_segmentation/configuration_synthetic_shapes.yaml` |
 | KPT | 2 to 4 objects per image (shapes, stick figure, house) with their keypoints | `keypoint_detection/configuration_synthetic_shapes.yaml` |

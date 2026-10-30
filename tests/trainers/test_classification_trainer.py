@@ -213,28 +213,21 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
 
 def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies the multi-label mode of the classification trainer on the synthetic dataset rewritten as a multi-label
-    one (every sample listing its single category in 'category_ids'): the training runs, and the evaluation reports
-    the multi-label metrics and the macro means of the curves, with the positives of every class in its per-class
-    table, and saves the per-class metrics, the class thresholds and the ROC and precision-recall curves without
-    confusion matrix.
+    Verifies the multi-label mode of the classification trainer on the synthetic multi-label dataset (5 to 10 shapes
+    per image, every sample listing the distinct categories of its shapes in 'category_ids', the dataset pretraining
+    the backbone of the sequence labelling model): the training runs, and the evaluation reports the multi-label
+    metrics and the macro means of the curves, with the positives of every class in its per-class table, and saves
+    the per-class metrics, the class thresholds and the ROC and precision-recall curves without confusion matrix, the
+    predictions file listing the several true classes of every image.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
     """
-    dataset_folder = tmp_path / "synthetic_shapes"
+    dataset_folder = tmp_path / "synthetic_counted_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-
-    # Rewrite every manifest in the multi-label format
-    for split_name in ["train", "validation", "test"]:
-        labels_path = dataset_folder / split_name / "labels.json"
-        labels = json.loads(labels_path.read_text())
-        labels["samples"] = [{"id": sample["id"], "file_name": sample["file_name"],
-                              "category_ids": [sample["category_id"]]} for sample in labels["samples"]]
-        labels_path.write_text(data=json.dumps(obj=labels))
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=10,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="multi_label_classification")
 
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
@@ -257,7 +250,16 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     multi_label_rows = read_predictions_file(evaluation_folder=evaluation_folder)
     assert len(multi_label_rows) == 4
     assert list(multi_label_rows[0])[:4] == ["sample", "true_classes", "predicted_classes", "correct"]
-    assert all(row["true_classes"] in trainer.class_names for row in multi_label_rows)
+    # The true classes of every image, separated by ';', are the distinct categories of its manifest sample
+    test_labels = json.loads((dataset_folder / "test" / "labels.json").read_text())
+    category_names = {category["id"]: category["name"] for category in test_labels["categories"]}
+    expected_true_classes = {sample["file_name"]: [category_names[category_identifier]
+                                                   for category_identifier in sample["category_ids"]]
+                             for sample in test_labels["samples"]}
+    assert all(len(true_classes) >= 1 for true_classes in expected_true_classes.values())
+    assert any(len(true_classes) > 1 for true_classes in expected_true_classes.values())
+    assert {PurePosixPath(row["sample"]).name: row["true_classes"].split(";") for row in multi_label_rows} == \
+        expected_true_classes
 
     # Every test image is a sample image, green when all its class decisions are right
     check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=4,

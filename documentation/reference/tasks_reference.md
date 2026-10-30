@@ -23,6 +23,7 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 | Task | Content | Classes |
 |---|---|---|
 | CLS | one shape per image | the 35 shapes |
+| CLS | 5 to 10 shapes per image drawn like an M2M frame, labelled with the sorted distinct categories of its shapes in `category_ids` (`task = "multi_label_classification"`, 512,000 / 50,000 / 50,000 images), trained in the `multi_label` output mode with the backbone of the M2M launches (`classification/configuration_synthetic_counted_shapes.yaml`) so it can initialise them | the 35 shapes |
 | DET | the INS dataset (`task = "instance_segmentation"`), boxes around the visible part of every shape | the 35 shapes |
 | INS | up to 6 shapes per image, with the run length encoding of their visible part; a shape under 64 visible pixels is left out | the 35 shapes |
 | KPT | 2 to 4 upright objects per image, some keypoints hidden (v = 1) or outside the image | 33 classes: the shapes with keypoints, `stick_figure`, `house` |
