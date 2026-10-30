@@ -297,7 +297,12 @@ TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "instance_segmentation"
                    "keypoint_detection": KEYPOINT_CATEGORIES, "classification": SHAPE_CATEGORIES,
                    "semantic_segmentation": SHAPE_CATEGORIES, "sequence_classification": MOVEMENT_CATEGORIES,
                    "sequence_labelling": CHANGE_CATEGORIES, "sequence_comparison": PAIR_CATEGORIES,
-                   "frame_selection": SELECTION_CATEGORIES, "self_supervised": SHAPE_COUNT_CATEGORIES}
+                   "frame_selection": SELECTION_CATEGORIES, "self_supervised": SHAPE_COUNT_CATEGORIES,
+                   "multi_label_classification": SHAPE_CATEGORIES}
+
+# Tasks whose images are drawn like a sequence labelling frame (5 to maximum_objects shapes,
+# generate_counted_shapes_image), so that the backbone they train can initialise the sequence labelling model
+COUNTED_SHAPES_TASKS = ["self_supervised", "multi_label_classification"]
 
 # Tasks whose model predicts a background class at index 0, so that the category identifiers numbered from 1 are their
 # class indices, the keypoint detection keeping the class indices of the detector that will give its boxes; the other
@@ -312,7 +317,8 @@ TASK_MANIFEST_KEYS = {"sequence_classification": "sequences", "sequence_labellin
 TASK_SAMPLE_NAMES = {"object_detection": "images", "instance_segmentation": "images", "keypoint_detection": "images",
                      "classification": "images", "semantic_segmentation": "images",
                      "sequence_classification": "sequences", "sequence_labelling": "sequences",
-                     "sequence_comparison": "pairs", "frame_selection": "sequences", "self_supervised": "images"}
+                     "sequence_comparison": "pairs", "frame_selection": "sequences", "self_supervised": "images",
+                     "multi_label_classification": "images"}
 
 
 def get_rectangle_corners(left: int, top: int, width: int, height: int) -> np.ndarray:
@@ -1718,22 +1724,23 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             'split_name', 'first_index', 'number_images', 'image_size', 'maximum_objects', 'remove_covered_objects'
             (whether the objects with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels are left out),
             'instance_segmentation' (whether the visible parts of the objects are kept), 'keypoints' (whether the
-            images are keypoint detection images) and 'counted_shapes' (whether the images are self-supervised images,
-            drawn like the sequence labelling frames).
+            images are keypoint detection images) and 'counted_shapes' (whether the images are self-supervised or
+            multi-label classification images, drawn like the sequence labelling frames).
 
     Returns:
         List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', the
             keypoint detection objects being (category, box, keypoints), for the semantic segmentation the
             'mask_category_ids' of the categories visible in its mask, and for the instance segmentation its
             'segmentations', the uncompressed run length encoding of the visible part of every object, the box of every
-            object being the box of that part (see keep_visible_objects). The self-supervised images give the
-            'shape_names' of their shapes instead of 'objects'.
+            object being the box of that part (see keep_visible_objects). The self-supervised and multi-label
+            classification images give the 'shape_names' of their shapes instead of 'objects'.
     """
     random_generator = np.random.default_rng()
     image_records = []
 
     for image_index in range(chunk["first_index"], chunk["first_index"] + chunk["number_images"]):
-        # Self-supervised images: drawn like a sequence labelling frame, recorded with the classes of their shapes
+        # Self-supervised and multi-label classification images: drawn like a sequence labelling frame, recorded with
+        # the classes of their shapes
         if chunk["counted_shapes"]:
             image, shape_names = generate_counted_shapes_image(image_size=chunk["image_size"],
                                                                maximum_objects=chunk["maximum_objects"],
@@ -1912,32 +1919,45 @@ def build_keypoint_labels(image_records: List[Dict[str, Any]], image_size: int, 
     return labels, class_counts
 
 
-def build_classification_labels(image_records: List[Dict[str, Any]], split_name: str) -> Tuple[
+def build_classification_labels(image_records: List[Dict[str, Any]], split_name: str, multi_label: bool) -> Tuple[
         Dict[str, Any], Dict[str, int]]:
     """
     Assembles the 'labels.json' manifest of a synthetic classification split, read by the classification loader:
-    every image holds a single shape, whose category is the label of the image.
+    every image holds a single shape, whose category is the label of the image, or for the multi-label images (drawn
+    like a sequence labelling frame, whose backbone they pretrain) 5 to 10 shapes, the distinct categories of its shapes
+    being the 'category_ids' read by the 'multi_label' output mode.
 
     Args:
         image_records (List[Dict[str, Any]]): The 'index', 'file_name' and single (category, box) 'objects' of every
-            image.
+            image, or its 'shape_names' for the multi-label images.
         split_name (str): The name of the split, written in the description.
+        multi_label (bool): Whether the images are the multi-label images of several shapes.
 
     Returns:
-        Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of images of every shape class.
+        Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of images of every shape class, an image of
+            several shapes of the same class counting once for it.
     """
     class_counts = {shape_name: 0 for shape_name in SHAPE_CATEGORIES}
     category_names = {category_identifier: name for name, category_identifier in SHAPE_CATEGORIES.items()}
 
-    # One sample per image, labelled with the category of its single shape
+    # One sample per image, labelled with the category of its single shape, or with the sorted distinct categories of
+    # its shapes
     samples = []
     for record in image_records:
-        category_identifier = record["objects"][0][0]
-        samples.append({"id": record["index"] + 1, "file_name": record["file_name"],
-                        "category_id": category_identifier})
-        class_counts[category_names[category_identifier]] += 1
+        if multi_label:
+            category_identifiers = sorted({SHAPE_CATEGORIES[shape_name] for shape_name in record["shape_names"]})
+            samples.append({"id": record["index"] + 1, "file_name": record["file_name"],
+                            "category_ids": category_identifiers})
+        else:
+            category_identifiers = [record["objects"][0][0]]
+            samples.append({"id": record["index"] + 1, "file_name": record["file_name"],
+                            "category_id": category_identifiers[0]})
+        for category_identifier in category_identifiers:
+            class_counts[category_names[category_identifier]] += 1
 
-    labels = {"info": {"description": f"Synthetic shapes classification dataset, {split_name} split"},
+    description = ("Synthetic counted shapes multi-label classification" if multi_label
+                   else "Synthetic shapes classification")
+    labels = {"info": {"description": f"{description} dataset, {split_name} split"},
               "categories": [{"id": category_identifier, "name": name}
                              for name, category_identifier in SHAPE_CATEGORIES.items()],
               "samples": samples}
@@ -2510,7 +2530,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     manifest with one shape per image for classification, a samples manifest with the mask of every image for semantic
     segmentation, a sequences manifest for the sequence tasks and the frame selection, a pairs manifest for the
     sequence comparison, a samples manifest with the shape count and the shape classes of every image for the
-    self-supervised images).
+    self-supervised images, a samples manifest with the distinct shape classes of every image for the multi-label
+    classification).
 
     Args:
         split_folder (str): The folder of the split.
@@ -2518,8 +2539,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         number_samples (int): The number of images, of sequences or of pairs of the split.
         image_size (int): The height and width of the images in pixels.
         maximum_objects (int): The maximum number of objects per image (object detection, instance segmentation,
-            keypoint detection, semantic segmentation, self-supervised, the classification images holding a single
-            shape), per frame (sequence labelling) or per before member of a pair (sequence comparison).
+            keypoint detection, semantic segmentation, self-supervised, multi-label classification, the classification
+            images holding a single shape), per frame (sequence labelling) or per before member of a pair (sequence
+            comparison).
         minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair (sequence tasks
             only).
         maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair (sequence tasks
@@ -2527,7 +2549,7 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         number_workers (int): The number of worker processes generating the images.
         task (str): "object_detection", "instance_segmentation", "keypoint_detection", "classification",
             "semantic_segmentation", "sequence_classification", "sequence_labelling", "sequence_comparison",
-            "frame_selection" or "self_supervised".
+            "frame_selection", "self_supervised" or "multi_label_classification".
 
     Returns:
         Dict[str, int]: The number of labels (objects, images, sequences, frames or pairs) of every class in the split.
@@ -2550,7 +2572,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                                                      task=task)
 
     # Images: split them into fixed-size chunks too, a classification image holding a single shape, a segmentation
-    # image saving its class mask and a self-supervised image holding 5 to maximum_objects shapes
+    # image saving its class mask and a self-supervised or multi-label classification image holding 5 to
+    # maximum_objects shapes
     else:
         masks_folder = os.path.join(split_folder, "masks") if task == "semantic_segmentation" else None
         if masks_folder is not None:
@@ -2558,11 +2581,11 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         chunks = [{"data_folder": data_folder, "masks_folder": masks_folder, "split_name": split_name,
                    "first_index": first_index, "number_images": min(IMAGES_PER_TASK, number_samples - first_index),
                    "image_size": image_size,
-                   "maximum_objects": (maximum_objects if task in TASKS_WITH_BACKGROUND_CLASS + ["self_supervised"]
+                   "maximum_objects": (maximum_objects if task in TASKS_WITH_BACKGROUND_CLASS + COUNTED_SHAPES_TASKS
                                        else 1),
                    "remove_covered_objects": task in TASKS_REMOVING_COVERED_OBJECTS,
                    "instance_segmentation": task == "instance_segmentation",
-                   "keypoints": task == "keypoint_detection", "counted_shapes": task == "self_supervised"}
+                   "keypoints": task == "keypoint_detection", "counted_shapes": task in COUNTED_SHAPES_TASKS}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             image_records = [record for chunk_records in pool.map(generate_image_chunk, chunks)
@@ -2583,7 +2606,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         elif task == "self_supervised":
             labels, class_counts = build_shape_count_labels(image_records=image_records, split_name=split_name)
         else:
-            labels, class_counts = build_classification_labels(image_records=image_records, split_name=split_name)
+            labels, class_counts = build_classification_labels(image_records=image_records, split_name=split_name,
+                                                               multi_label=task == "multi_label_classification")
     with open(os.path.join(split_folder, "labels.json"), "w") as labels_file:
         json.dump(labels, labels_file)
 
@@ -2603,7 +2627,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     and star are the frames to select. Every sequence, and every member of a pair, has its own number of frames between
     minimum_frames and maximum_frames. The self-supervised dataset is not a trivial task: 5 to maximum_objects shapes
     per image drawn like a sequence labelling frame, the shape count labelling the k-nearest neighbour evaluation of
-    the self-supervised trainer.
+    the self-supervised trainer. Nor is the multi-label classification dataset: the same images, labelled with the
+    distinct classes of their shapes, to pretrain the backbone of the sequence labelling model on recognising them.
 
     Args:
         output_folder (str): The root folder of the dataset.
@@ -2611,8 +2636,9 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         split_sizes (Dict[str, int]): The number of images, of sequences or of pairs of every split, keyed by split
             name.
         maximum_objects (int): The maximum number of objects per image (object detection, instance segmentation,
-            keypoint detection, semantic segmentation, self-supervised, 5 to COUNTED_SHAPES_MAXIMUM_OBJECTS), per frame
-            (sequence labelling, at least 5) or per before member of a pair (sequence comparison).
+            keypoint detection, semantic segmentation, self-supervised and multi-label classification, 5 to
+            COUNTED_SHAPES_MAXIMUM_OBJECTS), per frame (sequence labelling, at least 5) or per before member of a pair
+            (sequence comparison).
         minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair, at least 2, and at
             least the 3 wanted shapes for the frame selection (sequence tasks only).
         maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair, at least
@@ -2620,7 +2646,7 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         number_workers (int): The number of worker processes generating the images.
         task (str): "object_detection", "instance_segmentation", "keypoint_detection", "classification",
             "semantic_segmentation", "sequence_classification", "sequence_labelling", "sequence_comparison",
-            "frame_selection" or "self_supervised".
+            "frame_selection", "self_supervised" or "multi_label_classification".
 
     Raises:
         ValueError: If the frame range of a sequence task starts below 2 (below the number of wanted shapes for the
@@ -2670,8 +2696,9 @@ if __name__ == "__main__":
     # "sequence_labelling" (5 to 10 shapes per frame, a shape appearing or disappearing from one frame to the next,
     # labelled per frame), "sequence_comparison" (a before and an after sequence of the same objects, labelled with
     # whether the after member lost one of them), "frame_selection" (one shape per frame, the largest circle,
-    # triangle and star being the frames to select) or "self_supervised" (5 to 10 shapes per image drawn like a
-    # sequence labelling frame, labelled with their number of shapes and keeping the classes of their shapes)
+    # triangle and star being the frames to select), "self_supervised" (5 to 10 shapes per image drawn like a
+    # sequence labelling frame, labelled with their number of shapes and keeping the classes of their shapes) or
+    # "multi_label_classification" (the same images, labelled with the distinct classes of their shapes)
     task = "classification"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/, the object detection configuration reading the instance segmentation dataset
@@ -2685,12 +2712,14 @@ if __name__ == "__main__":
                       "sequence_labelling": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes",
                       "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs",
                       "frame_selection": "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes",
-                      "self_supervised": "/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes"}
+                      "self_supervised": "/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes",
+                      "multi_label_classification":
+                          "/home/robert_kelevra/Data/classifier_data/synthetic_counted_shapes"}
     # Height and width of the square images in pixels, for every task
     image_sizes = {"object_detection": 1024, "instance_segmentation": 512, "keypoint_detection": 512,
                    "classification": 512, "semantic_segmentation": 512,
                    "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512,
-                   "frame_selection": 256, "self_supervised": 512}
+                   "frame_selection": 256, "self_supervised": 512, "multi_label_classification": 512}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
     # training images of the instance segmentation are the 2000 iterations of 64 images of the synthetic object
     # detection and instance segmentation configurations, every image being seen once. The 250000 training images of
@@ -2698,7 +2727,9 @@ if __name__ == "__main__":
     # synthetic configuration. The 250000 training sequences of the sequence labelling are seen about 0.6 times by the
     # 5000 iterations of 32 sequences of the launches of its hyperparameter experiment (run-<n>.yaml). The 500000
     # training images of the self-supervised dataset are not labelled for the training, their shape counts only
-    # labelling the k-nearest neighbour evaluation of the test split
+    # labelling the k-nearest neighbour evaluation of the test split. The 512000 training images of the multi-label
+    # classification are seen 5 times by the 10000 iterations of 256 images of its configuration
+    # (classification/configuration_synthetic_counted_shapes.yaml)
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
                    "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},
@@ -2708,23 +2739,27 @@ if __name__ == "__main__":
                    "sequence_labelling": {"train": 250000, "validation": 50000, "test": 50000},
                    "sequence_comparison": {"train": 2000, "validation": 200, "test": 200},
                    "frame_selection": {"train": 2000, "validation": 200, "test": 200},
-                   "self_supervised": {"train": 500000, "validation": 10000, "test": 10000}}
+                   "self_supervised": {"train": 500000, "validation": 10000, "test": 10000},
+                   "multi_label_classification": {"train": 512000, "validation": 50000, "test": 50000}}
     # Maximum number of shapes drawn in one image (at least one is always drawn, object detection, instance
     # segmentation and semantic segmentation, at least two for the keypoint detection), in a sequence labelling frame
-    # or a self-supervised image (at least five) or in the before member of a pair (at least two, sequence
-    # comparison), for every task (unused by the other tasks)
+    # or a self-supervised or multi-label classification image (at least five) or in the before member of a pair (at
+    # least two, sequence comparison), for every task (unused by the other tasks)
     maximum_objects = {"object_detection": 6, "instance_segmentation": 6, "keypoint_detection": 5, "classification": 1,
                        "semantic_segmentation": 6, "sequence_classification": 1, "sequence_labelling": 10,
-                       "sequence_comparison": 6, "frame_selection": 1, "self_supervised": 10}
+                       "sequence_comparison": 6, "frame_selection": 1, "self_supervised": 10,
+                       "multi_label_classification": 10}
     # Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member
     # drawing its own number of frames in that range (at least two, at least three for the frame selection, unused by
     # the image tasks)
     minimum_frames = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1, "classification": 1,
                       "semantic_segmentation": 1, "sequence_classification": 2, "sequence_labelling": 2,
-                      "sequence_comparison": 2, "frame_selection": 4, "self_supervised": 1}
+                      "sequence_comparison": 2, "frame_selection": 4, "self_supervised": 1,
+                      "multi_label_classification": 1}
     maximum_frames = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1, "classification": 1,
                       "semantic_segmentation": 1, "sequence_classification": 12, "sequence_labelling": 12,
-                      "sequence_comparison": 12, "frame_selection": 12, "self_supervised": 1}
+                      "sequence_comparison": 12, "frame_selection": 12, "self_supervised": 1,
+                      "multi_label_classification": 1}
     # Number of worker processes generating the images
     number_workers = 8
 

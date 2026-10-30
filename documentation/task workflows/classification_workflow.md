@@ -51,7 +51,7 @@ export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► cl
 | Metrics and evaluation | `vision_training/evaluation/classification/` | `compute_confusion_matrix`, `compute_metrics_from_confusion_matrix`, `compute_top_k_accuracy`, `find_class_thresholds`, `compute_class_score_curves`, `save_confusion_matrix_image`, `save_score_curve_images`, `build_class_metrics_table` |
 | Configuration checks | `vision_training/configuration_processing/classification_checks.py` | `check_classification_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_classification_sections` |
-| Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` |
+| Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (one shape per image, or with `multi_label` the distinct classes of the counted shapes images of `configuration_synthetic_counted_shapes.yaml`) |
 | Real dataset converters | `vision_training/data/classification/class_folder_manifests.py`, `imagenet_download.py` | one folder of images per class, ImageNet-1k |
 | Export | `vision_training/models/classification/inference_classifier.py`, `vision_training/deployment/export_model.py` | `InferenceClassifier` (model name `image_classifier`) |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
