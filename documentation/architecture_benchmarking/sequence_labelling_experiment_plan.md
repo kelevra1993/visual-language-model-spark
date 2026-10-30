@@ -143,3 +143,21 @@ Kept: **lstm** (run_13 and run_14), the highest value at iteration 6000 (0.1936 
 - The mean over all the evaluations, the score of the previous stages, would have kept the temporal convolution (0.0761, against 0.0677 for the GRU, 0.0659 for the LSTM and 0.0448 for the transformer): it learns fastest, its launches agreeing closely, but levels off at about 0.10 to 0.11 from iteration 3000, below every other module at iteration 6000.
 - The GRU leads the LSTM up to iteration 5000 (0.1373 against 0.1206), then levels off at about 0.15 while the LSTM keeps rising (run_13 at 0.2411).
 - The transformer learns slowest (0.0020 at iteration 1000 against 0.0133 to 0.0205 for the other modules), but is still rising steeply at iteration 6000 (run_18 from 0.1261 to 0.1572 over its last 500 iterations), so it may overtake the GRU with a longer training.
+
+### Stage 5: Temporal Layers (2 new launches, 6000 iterations)
+
+The single layer launches are run_13 and run_14 of the direction stage. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `TemporalModel.number_layers` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | run_13 | 0.0114 | 0.0193 | 0.0175 | 0.0243 | 0.0395 | 0.0643 | 0.0793 | 0.0961 | 0.1196 | 0.1486 | 0.1916 | 0.2411 | 0.0818 |
+| 1 | run_14 | 0.0078 | 0.0072 | 0.0201 | 0.0230 | 0.0253 | 0.0338 | 0.0427 | 0.0532 | 0.0719 | 0.0925 | 0.1189 | 0.1461 | 0.0500 |
+| 1 | **Mean** | 0.0096 | 0.0133 | 0.0188 | 0.0236 | 0.0324 | 0.0491 | 0.0610 | 0.0746 | 0.0957 | 0.1206 | 0.1553 | 0.1936 | 0.0659 |
+| 2 | run_21 | 0.0071 | 0.0070 | 0.0069 | 0.0092 | 0.0185 | 0.0247 | 0.0371 | 0.0443 | 0.0580 | 0.0703 | 0.0842 | 0.0884 | 0.0368 |
+| 2 | run_22 | 0.0068 | 0.0087 | 0.0188 | 0.0224 | 0.0343 | 0.0377 | 0.0395 | 0.0453 | 0.0582 | 0.0704 | 0.0893 | 0.0898 | 0.0414 |
+| 2 | **Mean** | 0.0070 | 0.0078 | 0.0129 | 0.0158 | 0.0264 | 0.0312 | 0.0383 | 0.0448 | 0.0581 | 0.0703 | 0.0867 | 0.0891 | 0.0391 |
+
+Kept: **1** layer (run_13 and run_14), the highest value at iteration 6000 (0.1936 against 0.0891 for 2 layers); the frame pooling stage trains the average pooling (run_23 and run_24) and the max pooling (run_25 and run_26) against the flattened feature maps of run_13 and run_14.
+
+- The second layer slows the start: run_21 stays at about 0.007, the score of a model that only predicts `no_change`, up to iteration 1750, and only rises from iteration 2000.
+- Both 2 layer launches end at about 0.089 and level off from iteration 5500, while the single layer keeps rising, so the second layer is behind at every evaluation from iteration 2500 and by more than half at iteration 6000.
