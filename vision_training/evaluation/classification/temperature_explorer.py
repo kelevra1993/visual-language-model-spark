@@ -27,9 +27,10 @@ TEMPERATURE_GRID = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.2
 CALIBRATION_TEMPERATURE_RANGE = (0.05, 100.0)
 NUMBER_CALIBRATION_SEARCH_STEPS = 40
 
-# Bins of the histograms of the class probabilities over [0, 1], and of the reliability diagram
-NUMBER_SCORE_BINS = 40
-NUMBER_CALIBRATION_BINS = 15
+# Bins of the histograms of the class probabilities over [0, 1], and of the confidence histogram, the reliability
+# diagram and the calibration error, both 0.02 wide to see where the scores gather near 0 and 1
+NUMBER_SCORE_BINS = 50
+NUMBER_CALIBRATION_BINS = 50
 
 # Largest number of classes drawn, the classes of the lowest F1 being kept above it
 MAXIMUM_EXPLORER_CLASSES = 100

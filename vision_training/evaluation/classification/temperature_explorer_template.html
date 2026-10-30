@@ -62,8 +62,8 @@ page is self-contained (no library, no network), so that it opens from the evalu
   .tile-label { color: var(--text-secondary); font-size: 12px; }
   .tile-value { font-size: 22px; font-weight: 600; }
   .tile-reference { color: var(--text-muted); font-size: 12px; }
-  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
-  .class-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(480px, 100%), 1fr)); gap: 10px; }
+  .class-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(560px, 100%), 1fr)); gap: 10px; }
   .card-title { font-weight: 600; overflow-wrap: anywhere; }
   .card-subtitle { color: var(--text-muted); font-size: 12px; }
   svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -115,12 +115,12 @@ page is self-contained (no library, no network), so that it opens from the evalu
     <div class="card">
       <div class="card-title">Confidence Of The Decisions</div>
       <div class="card-subtitle" id="confidence-subtitle"></div>
-      <svg id="confidence-chart" viewBox="0 0 420 220" role="img" aria-label="Histogram of the confidences"></svg>
+      <svg id="confidence-chart" viewBox="0 0 610 300" role="img" aria-label="Histogram of the confidences"></svg>
     </div>
     <div class="card">
       <div class="card-title">Reliability</div>
       <div class="card-subtitle" id="reliability-subtitle"></div>
-      <svg id="reliability-chart" viewBox="0 0 420 220" role="img" aria-label="Reliability diagram"></svg>
+      <svg id="reliability-chart" viewBox="0 0 610 300" role="img" aria-label="Reliability diagram"></svg>
     </div>
   </div>
 
@@ -206,7 +206,7 @@ page is self-contained (no library, no network), so that it opens from the evalu
     const positives = DATA.positives[classIndex];
     const negatives = DATA.number_samples - positives;
     const labelHeight = 12 * DATA.target_precisions.length + 4;
-    const left = 34, width = 280, top = labelHeight, plotHeight = 150, halfHeight = plotHeight / 2;
+    const left = 34, width = 600, top = labelHeight, plotHeight = 240, halfHeight = plotHeight / 2;
     const middle = top + halfHeight, binWidth = width / DATA.number_score_bins;
     const positiveShares = classState.positive_counts.map(count => positives ? count / positives : 0);
     const negativeShares = classState.negative_counts.map(count => negatives ? count / negatives : 0);
@@ -256,7 +256,7 @@ page is self-contained (no library, no network), so that it opens from the evalu
   function drawConfidenceChart(state) {
     const svg = document.getElementById("confidence-chart");
     svg.replaceChildren();
-    const left = 40, width = 370, top = 10, plotHeight = 180;
+    const left = 40, width = 560, top = 10, plotHeight = 260;
     const total = state.calibration_counts.reduce((sum, count) => sum + count, 0);
     const shares = state.calibration_counts.map(count => total ? count / total : 0);
     const largestShare = Math.max(...shares), binWidth = width / DATA.number_calibration_bins;
@@ -279,7 +279,7 @@ page is self-contained (no library, no network), so that it opens from the evalu
   function drawReliabilityChart(state) {
     const svg = document.getElementById("reliability-chart");
     svg.replaceChildren();
-    const left = 40, width = 370, top = 10, plotHeight = 180, binWidth = width / DATA.number_calibration_bins;
+    const left = 40, width = 560, top = 10, plotHeight = 260, binWidth = width / DATA.number_calibration_bins;
     [0, 0.5, 1].forEach(tick => {
       const y = top + plotHeight - tick * plotHeight;
       createSvgElement("line", {x1: left, x2: left + width, y1: y, y2: y, stroke: "var(--grid)"}, svg);
