@@ -1,285 +1,247 @@
-# Run of the instance_segmentation workflow document (documentation/task workflows/instance_segmentation_workflow.md), trained on the GPU on
-# 2026-10-24 so that its Stages 3 to 5 can show the outputs of the current code (ground truth proposals, the NMS
-# thresholds of the configuration, the IoU 0.95 columns, the mean average recall and the moving average of the
-# weights). A copy of vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml with four changes:
-# its own experiment folder (experiments/workflow_runs), 5000 iterations (the samples of a 2000 iteration run are
-# nearly empty), a checkpoint evaluated every 500 iterations, and the MLflow tracking turned on.
-# Configuration of the synthetic shapes dataset (the 35 shape classes of SHAPE_CATEGORIES: squares, circles,
-# triangles, rectangles, pentagons, hexagons, plus signs, stars, octagons, rhombuses, parallelograms, trapezoids,
-# kites, heptagons, nonagons, ellipses, semicircles, annuluses, capsules, L-shapes and the hollow counterparts of
-# fifteen of them, hollow_square to hollow_capsule, from 64 pixels to a third of the image side, a dataset created
-# before the last twenty-six were added keeping the first nine),
-# created with vision_training/data/synthetic/create_synthetic_dataset.py with the
-# "instance_segmentation" task, whose objects carry the run length encoding of their visible part. It is a trivial
-# instance segmentation task, used to check that the instance segmenter learns.
+# Run of the instance_segmentation workflow document (documentation/task workflows/instance_segmentation_workflow.md),
+# trained on the GPU on 2026-10-24 so that its Stages 3 to 5 show the outputs of the current code (ground truth
+# proposals, the NMS thresholds of the configuration, the IoU 0.95 columns, the mean average recall and the weight
+# moving average). A copy of vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml
+# with its own experiment folder (experiments/workflow_runs), 5000 iterations (the samples of a 2000 iteration run are
+# nearly empty), a checkpoint evaluated every 500 iterations and MLflow tracking on.
+# Synthetic shapes dataset (the 35 SHAPE_CATEGORIES classes, square to hollow_capsule, from 64 pixels to a third of the
+# image side, a dataset made before the last twenty-six were added keeping the first nine), created by
+# vision_training/data/synthetic/create_synthetic_dataset.py with the "instance_segmentation" task, whose objects carry
+# the run length encoding of their visible part. A trivial task checking that the instance segmenter learns.
 ExperimentConfiguration:
-  # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
-  # "instance_segmentation" trains the instance segmenter (the two-stage detector with one mask head per detection
-  # level, as in Mask R-CNN), and requires the RegionProposal, DetectionLevels, Detector and MaskHead sections. The
-  # labels are COCO annotations whose objects have a 'segmentation' (polygons or run length encoding), the crowd
-  # annotations (iscrowd 1) being objects like the others.
+  # Task trained, selecting the trainer, model and checks. "instance_segmentation" trains the instance segmenter (the
+  # two-stage detector with a mask head per detection level, as Mask R-CNN); needs RegionProposal, DetectionLevels,
+  # Detector and MaskHead. Labels are COCO annotations whose objects have a 'segmentation' (polygons or run length
+  # encoding), crowd annotations (iscrowd 1) being ordinary objects.
   task: "instance_segmentation"
-  # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
-  # backbone modules, normalization and blocks, levels, anchors, heads, classes, optimizer and weight decay unless plain
-  # Adam), so that the same settings resume in the same folder and changed settings start a new one, e.g.
-  # INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_
-  # DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-M14.4x64_BIN (without the line break). The augmentation, batch size,
-  # learning rate and its schedule, gradient clipping and mask threshold give no token, so that a run
-  # can be resumed in its folder with changed values. The format is described in
-  # vision_training/configuration_processing/run_name.py.
+  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, levels, anchors,
+  # heads, classes, optimizer and weight decay unless plain Adam): the same settings resume, changed ones start a new
+  # folder, e.g. (without the line break)
+  #   INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_
+  #   DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-M14.4x64_BIN
+  # The augmentation, batch size, learning rate and its schedule, gradient clipping and mask threshold give no token and
+  # can change on resume (format: vision_training/configuration_processing/run_name.py).
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/workflow_runs"
-  # Suffix appended as the last section of the run name, e.g. "v1" giving <run name>_v1, so that a run of the
-  # same settings with another batch size, augmentation or learning rate starts in a folder of its own instead of
-  # resuming the run without suffix. Letters, digits, '-' and '.' only, null for no suffix.
+  # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
+  # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
   run_name_suffix: null
-  # Root directory containing the training dataset images and labels.json annotation file.
+  # Training images and labels.json annotations.
   train_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train"
-  # Root directory containing the validation dataset images and labels.json annotation file.
+  # Validation images and labels.json annotations.
   validation_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/validation"
-  # Root directory containing the test dataset images and labels.json annotation file.
+  # Test images and labels.json annotations.
   test_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test"
-  # Number of images processed in a single forward/backward pass.
+  # Images per forward/backward pass.
   batch_size: 64
-  # Frequency (in iterations) to log performance metrics.
+  # Metric logging interval, in iterations.
   information_dump: 1000
-  # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
+  # Checkpoint and test evaluation interval, in iterations.
   weight_saving_iterations: 500
-  # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
-  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations, or 0 to
-  # save none.
+  # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
   intermediate_weight_saving_iterations: 250
-  # Total number of training iterations before stopping.
+  # Total training iterations.
   number_iterations: 5000
-  # Ratio controlling how often validation is run during training.
-  # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
+  # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 0
-  # Test evaluation run at every weight_saving_iterations checkpoint, computing the mask and box mean average
-  # precisions (mAP) on the whole test split, the mask mAP@0.5 of the area method comparing the checkpoints, at the
-  # network input resolution or at the original resolution of the test images (see original_resolution).
+  # Test evaluation at every weight_saving_iterations checkpoint: mask and box mean average precisions (mAP) on the
+  # whole test split, the mask mAP@0.5 of the area method comparing checkpoints, at the network input or original test
+  # image resolution (see original_resolution).
   evaluation:
-    # Reports every class at every evaluation: the mask and box tables of the classes (ground truth objects and average
-    # precision at IoU 0.5, 0.75, 0.95 and 0.5:0.95 with the area method, worst AP@0.5 first, and in the mask table
-    # the threshold reaching target_precision with the recall it keeps) in the console and Results.txt, their Mask
-    # AP@0.5 and AP@0.5 Test scalars in TensorBoard, and the confusion matrix image (confusion_matrix.png and
-    # TensorBoard). False keeps the mean average precisions only: class_metrics.csv, class_thresholds.json and
-    # confusion_matrix.csv are saved either way.
+    # Reports every class: the mask and box class tables (ground truth objects, area method AP at IoU 0.5, 0.75, 0.95
+    # and 0.5:0.95, worst AP@0.5 first, and in the mask table the threshold reaching target_precision with the recall it
+    # keeps) in the console and Results.txt, the Mask AP@0.5 and AP@0.5 Test scalars in TensorBoard, and
+    # confusion_matrix.png (also in TensorBoard). False keeps the mean average precisions only; class_metrics.csv,
+    # class_thresholds.json and confusion_matrix.csv are always saved.
     per_class_report: True
-    # Number of test images drawn once and shown at every evaluation, each as its ground truth boxes and masks next to
-    # its detections whose score reaches Detector.inference.score_threshold (the deployment threshold, not
-    # evaluation.score_threshold) with their masks above MaskHead.inference.mask_threshold, every box and mask in the
-    # colour of its class, saved in Evaluation/Iteration_<n>/Samples/ and
-    # sent to TensorBoard. The images are evenly spread over the test images. 0 to disable.
+    # Test images drawn once and shown at every evaluation: ground truth boxes and masks next to the detections reaching
+    # Detector.inference.score_threshold (the deployment threshold, not evaluation.score_threshold) with their masks
+    # above MaskHead.inference.mask_threshold, in the colour of their class, saved in Evaluation/Iteration_<n>/Samples/
+    # and TensorBoard, evenly spread over the test images. 0 disables.
     number_sample_images: 8
-    # Minimum class probability of the detections kept for the mAP. It replaces Detector.inference.score_threshold
-    # during the evaluation only: the mAP needs the low-confidence detections too, otherwise the end of the
-    # precision-recall curve is cut off and the mAP is underestimated. Must be within [0, 1].
+    # Minimum class probability of the detections kept for the mAP, replacing Detector.inference.score_threshold during
+    # evaluation only: the mAP needs low-confidence detections too, or the end of the precision-recall curve is cut and
+    # the mAP underestimated. Within [0, 1].
     score_threshold: 0.05
-    # Precision that the score threshold of every class must reach, saved in class_thresholds.json for a deployment
-    # keeping the detections class by class: the detections of a class, from the most confident, are right when their
-    # mask finds the mask of an object of the class at an IoU of 0.5 (the matching of the mask AP@0.5), and the lowest
-    # score keeping the precision (the highest recall) is saved with the recall it keeps. Only the detections reaching
-    # score_threshold can give a threshold. Must be within [0, 1].
+    # Precision the score threshold of every class must reach, saved in class_thresholds.json for a class-by-class
+    # deployment: from the most confident, the detections of a class are right when their mask finds an object mask of
+    # the class at IoU 0.5 (mask AP@0.5 matching), and the lowest score keeping the precision (highest recall) is saved
+    # with its recall. Only detections reaching score_threshold give a threshold. Within [0, 1].
     target_precision: 0.99
-    # Scores the boxes and masks at the original resolution of every test image, as the deployed output is used: the
-    # detection boxes are restored to the image (without the padding of keep_ratio), the masks are pasted into them
-    # at that size and compared with the masks decoded from the annotations at that size, every annotated object being
-    # kept, also those too thin to leave a pixel once resized to the network input, which are then missed when no
-    # detection finds them. The object sizes (small, medium, large) are measured in original pixels, like the COCO
-    # evaluation. The proposal recall, the sample images and the error images stay at the network resolution. False
-    # scores everything at the network resolution, where the objects whose mask vanishes once resized are left out of
-    # the test ground truth.
+    # Scores boxes and masks at the original resolution of every test image, as deployed: detection boxes restored to
+    # the image (without keep_ratio padding), masks pasted into them at that size and compared with the annotation masks
+    # at that size, keeping every annotated object, also those too thin to survive resizing, then missed unless
+    # detected. Object sizes (small, medium, large) are in original pixels, as in COCO. Proposal recall, sample and
+    # error images stay at the network resolution. False scores everything at the network resolution, objects whose mask
+    # vanishes once resized being left out of the test ground truth.
     original_resolution: False
-    # Saves the errors of the detections reaching Detector.inference.score_threshold (those of the deployment, matched
-    # to the objects by their masks at an IoU of 0.5, the right class first, like in confusion_matrix.csv) as images
-    # at every evaluation: 'Evaluation/Iteration_<n>/Errors/FALSE-POSITIVE/<class>/' for a detection finding no object,
-    # 'Errors/MISSED/<class>/' for an object found by no detection and 'Errors/<TRUE>-TO-<PREDICTED>/' for an object
-    # found with another class. Every image is drawn like the sample images, with the masks, the boxes in error
-    # outlined with red dashes and the errors written first in the caption, and is named '<image>_<score>.png' after
-    # the highest score of its detections in error ('<image>.png' for the missed objects).
+    # Saves the errors of the detections reaching Detector.inference.score_threshold (as deployed, matched by masks at
+    # IoU 0.5, right class first, as in confusion_matrix.csv) as images at every evaluation:
+    # 'Evaluation/Iteration_<n>/Errors/FALSE-POSITIVE/<class>/' for a detection without object, 'Errors/MISSED/<class>/'
+    # for an undetected object and 'Errors/<TRUE>-TO-<PREDICTED>/' for a wrong class. Drawn like the sample images with
+    # the masks, the boxes in error in red dashes and the errors first in the caption, named '<image>_<score>.png' after
+    # the highest error score ('<image>.png' for missed objects).
     error_dumps:
-      # Turns the error images on.
+      # Saves error images.
       activated: False
-      # Largest number of images saved in every folder of the errors, the first ones met.
+      # Most images saved per error folder, the first met.
       maximum_per_class_pair: 20
-  # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the hyperparameters, the averages of the
-  # training and validation metrics of every information_dump interval, the learning rate, the test metrics of every
-  # evaluated checkpoint and a few small artifacts (configuration, confusion matrices, class metrics and thresholds,
-  # Results.txt). The tracking never blocks nor stops the training: any MLflow error prints one warning and the
-  # training continues without it.
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
+  # metrics and small artifacts (configuration, confusion matrices, class metrics and thresholds, Results.txt). An
+  # MLflow error only prints a warning.
   tracking:
-    # Turns the MLflow tracking on.
+    # Turns MLflow tracking on.
     activated: True
-    # Address of an MLflow tracking server, e.g. "http://192.168.1.20:5000", or null for the local database of the
-    # experiments root folder (sqlite:///<experiment_folder>/mlflow.db, artifacts in <experiment_folder>/mlartifacts),
-    # browsed with "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". The credentials of a
-    # server are read from the MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD environment variables, never from
-    # this file.
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
+    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
     tracking_uri: null
-    # MLflow experiment grouping the runs, null for the task name (e.g. "instance_segmentation").
+    # MLflow experiment, null for the task name ("instance_segmentation").
     experiment_name: null
-  # Base learning rate used by the optimizer.
+  # Base learning rate.
   learning_rate: 2.0e-4
-  # Flag to let a resumed run train on data whose labels.json changed since its last start, the previous data.json
-  # being kept as data_until_iteration_<n>.json. False stops such a resume with an error: changed data asks for a
-  # new run (another run_name_suffix or experiment_folder). A moved data folder with the same labels resumes.
+  # Lets a resumed run train on a changed labels.json (the previous data.json kept as data_until_iteration_<n>.json);
+  # False refuses it, a new run (run_name_suffix) being needed. A moved data folder with the same labels resumes.
   allow_data_change_on_resume: false
   diagnosis_modes:
-      # Choice to compute Receptive-Field
+      # Computes the receptive field
       compute_receptive_field: True
-      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
-      # input images with their ground truth boxes and masks. SPACE shows the next images, ENTER closes the viewer and
-      # exits the program without training, so set it to False to train. Requires a display (skipped with a warning
-      # otherwise). No run folder is created in this mode.
+      # Shows the network input: Training and Validation windows with the images and their ground truth boxes and masks.
+      # SPACE: next images, ENTER: exit without training (set False to train). Needs a display; no run folder is
+      # created.
       view_input_images: False
 
 Optimization:
-  # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or
-  # "sgd" (stochastic gradient descent with Nesterov momentum 0.9), at ExperimentConfiguration.learning_rate.
+  # Optimizer: "adam", "adamw" (decoupled weight decay) or "sgd" (Nesterov momentum 0.9), at
+  # ExperimentConfiguration.learning_rate.
   optimizer: "adam"
-  # Weight decay of the optimizer, 0 to disable.
+  # Optimizer weight decay, 0 to disable.
   weight_decay: 0.0
-  # Learning rate schedule after the warm-up: "constant", or "cosine" (decay to minimum_learning_rate_ratio times the
-  # learning rate over decay_iterations, constant afterwards).
+  # After the warm-up: "constant", or "cosine" (to minimum_learning_rate_ratio x learning rate over decay_iterations,
+  # then constant).
   learning_rate_schedule: "constant"
-  # Iterations of the linear warm-up of the learning rate from 0, 0 to disable.
+  # Linear learning rate warm-up iterations from 0, 0 to disable.
   warmup_iterations: 0
-  # Iterations of the cosine decay, counted after the warm-up (cosine schedule only).
+  # Cosine decay iterations after the warm-up (cosine schedule only).
   decay_iterations: 100000
-  # Learning rate at the end of the cosine decay, as a fraction of the learning rate (cosine schedule only).
+  # Final cosine learning rate, as a fraction of the learning rate (cosine only).
   minimum_learning_rate_ratio: 0.01
-  # Maximum norm of all the gradients together, clipped before every step, null to disable.
+  # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average (EMA) of the weights: a second copy of the model, never trained itself, moved towards
-  # the trained weights after every optimizer step:
+  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
   #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
-  # It averages roughly the last 1 / (1 − decay) iterations (0.999: 1,000, 0.9998: 5,000, 0.9999: 10,000), its n-th
-  # update using min(decay, (1 + n) / (10 + n)) so that the random starting weights fade quickly. Every test
-  # evaluation scores the trained weights, then the EMA weights, in Evaluation/Iteration_<n>/EMA/, the Test_EMA
-  # TensorBoard curves and the "EMA Weights" blocks of Results.txt. Saved in the checkpoints, it gives no run name
-  # token and can be turned on or off when a run resumes. When on, the components transferred from another run (their
-  # 'pretrained' settings) load its averaged weights if its checkpoint holds them, otherwise its trained weights.
+  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
+  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
+  # 'pretrained' transfers load the averaged weights when present.
   exponential_moving_average:
-    # Turns the moving average of the weights on.
+    # Turns the weight moving average on.
     activated: True
-    # Fraction of the average kept at every update, strictly between 0 and 1.
+    # Share of the average kept per update, strictly between 0 and 1.
     decay: 0.9998
-  # Weight of every loss of the detector in the total loss minimised by the training, e.g. above 1 on the mask loss when
-  # the masks lag behind the boxes. The losses are tracked unweighted, the total loss weighted. Numbers >= 0, not all
-  # 0, a loss at 0 leaving the layers only it trains unchanged. They give no run name token and can change when a run
-  # resumes.
+  # Weight of every detector loss in the total loss, e.g. above 1 on the mask loss when the masks lag behind the boxes.
+  # Losses are tracked unweighted, the total weighted. Numbers >= 0, not all 0, a loss at 0 leaving the layers only it
+  # trains unchanged. No run name token, can change on resume.
   loss_weights:
-    # Objectness of the sampled anchors of the region proposal heads.
+    # Objectness of the sampled region proposal anchors.
     region_proposal_classification_loss: 1.0
-    # Box offsets of the positive anchors of the region proposal heads.
+    # Box offsets of the positive region proposal anchors.
     region_proposal_localisation_loss: 1.0
-    # Class of the sampled proposals of the detection heads, background included.
+    # Class of the sampled detection proposals, background included.
     detection_classification_loss: 1.0
-    # Box offsets of the positive proposals of the detection heads.
+    # Box offsets of the positive detection proposals.
     detection_regression_loss: 1.0
-    # Masks of the positive proposals of the mask heads.
+    # Masks of the positive mask head proposals.
     mask_loss: 1.0
 
 Data:
   image_settings:
-    # Target resolution to resize all input images, the size of the synthetic instance segmentation images.
+    # Input resolution of every image, the size of the synthetic instance segmentation images.
     size: 512
-    # Flag to maintain the original aspect ratio when resizing.
+    # Keeps the original aspect ratio when resizing.
     keep_ratio: True
   label_mapping:
-    # "binary" maps all foreground objects to 1. "multi_class" uses a specific mapping file.
+    # "binary" maps every foreground object to 1; "multi_class" uses the mapping file.
     mode: "multi_class"
-    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
+    # JSON file mapping the dataset category IDs to sequential class IDs.
     mapping_file_path: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/label_mapping.json"
   data_augmentation:
-    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
+    # Global switch of the data augmentation (on the GPU, training batches only).
     activated: True
-    # Probability that a training image is augmented at all. Each activated type below is then applied to that
-    # image with its own probability. For image sequences, all frames of a sequence share the same augmentation.
+    # Probability that a training image is augmented, each activated type then applied with its own probability;
+    # sequence frames share one augmentation.
     probability: 0.4
     types:
-      # Geometric augmentations : the instance masks are moved with the image, every box becomes the tight box of its
-      # moved mask, and the objects leaving the image are removed.
-      # Random Crop : crop keeping 75% to 100% of each side (same aspect ratio), resized back to the input size
+      # Geometric augmentations : instance masks move with the image, every box becomes the tight box of its mask,
+      # objects leaving the image are removed.
+      # Random Crop : 75% to 100% of each side (same ratio), resized back
       random_crop: { activated: False, probability: 0.3 }
-      # Random Aspect Crop : crop keeping 75% to 100% of the width and, drawn on its own, 75% to 100% of the height,
-      # resized back to the input size, which stretches the content by x0.75 to x1.33 along one side (other camera
-      # proportions, suited to the images stretched without padding, keep_ratio False)
+      # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
+      # stretch; other camera proportions, for keep_ratio False)
       random_aspect_crop: { activated: False, probability: 0.3 }
-      # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
-      # black canvas of the input size, the objects then appearing smaller than in the dataset
+      # Random Zoom Out : image shrunk to 50% to 100% of each side on a black canvas, objects appearing smaller
       random_zoom_out: { activated: False, probability: 0.3 }
-      # Random Translation : shift along x, y or both (drawn at random) of up to 25% of the image width and
-      # height, the uncovered border filled with black
+      # Random Translation : shift of up to 25% along x, y or both, border filled black
       random_translation: { activated: False, probability: 0.5 }
-      # Random Left to Right Flip (mirror)
+      # Random Left-Right Flip
       random_left_right_flip: { activated: False, probability: 0.5 }
-      # Random Up to Down Flip
+      # Random Up-Down Flip
       random_up_down_flip: { activated: False, probability: 0.5 }
-      # Random Rotation between -5° and 5°, the corners uncovered by the rotation being background in the masks
+      # Random Rotation of -5° to 5°, uncovered corners being background in the masks
       random_rotation: { activated: False, probability: 0.3 }
-      # Random -90° or 90° rotation (square images only)
+      # Random +-90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.3 }
-      # Random Perspective : each corner moved inwards by up to 5% of half the image width and height, a change of
-      # viewpoint, the uncovered border filled with black; moves the image only, so it is refused for the tasks with
-      # boxes, masks or keypoints
+      # Random Perspective : corners moved inwards by up to 5% of half the width and height, border filled black;
+      # refused for tasks with boxes, masks or keypoints
       random_perspective: { activated: False, probability: 0.3 }
-      # Random Jigsaw : image cut into 2x2 pieces put back in a random order, breaking the global layout of the image;
-      # moves the image only, so it is refused for the tasks with boxes, masks or keypoints
+      # Random Jigsaw : 2x2 pieces shuffled, breaking the global layout; refused for tasks with boxes, masks or
+      # keypoints
       random_jigsaw: { activated: False, probability: 0.3 }
 
-      # Photometric augmentations : bounding boxes and masks are unchanged.
-      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
+      # Photometric augmentations: boxes and masks unchanged.
+      # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
       brightness_contrast_saturation: { activated: False, probability: 0.3 }
-      # Random Hue : hue turned by up to 18 degrees (5% of the hue circle) in either direction
+      # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
       random_hue: { activated: False, probability: 0.5 }
-      # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
+      # CLAHE, clip limit 2.0 on a 4x4 tile grid
       clahe_augment: { activated: False, probability: 0.3 }
-      # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
+      # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
       sharp_augment: { activated: False, probability: 0.3 }
-      # Histogram Equalization of the luminance (Y channel of YUV)
+      # Histogram equalization of the luminance (Y of YUV)
       equalize_histogram_augment: { activated: False, probability: 0.3 }
-      # Histogram Equalization of one random channel (B, G or R) or of all three channels
+      # Histogram equalization of one random channel (B, G or R) or all three
       equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
-      # Random Noise : Gaussian noise with a standard deviation of 20 intensity levels
+      # Random Noise : Gaussian noise, standard deviation 20 levels
       random_noise: { activated: False, probability: 0.3 }
-      # Grayscale conversion, kept on three channels
+      # Grayscale, kept on three channels
       gray_scale_augment: { activated: False, probability: 0.3 }
-      # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
+      # Random Colour augmentation : BGR to RGB channel swap
       random_colour_augmentation: { activated: False, probability: 0.3 }
-      # Random Gamma : gamma correction with a gamma of 0.8 to 1.25, darkening or lightening the mid-tones
+      # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
       random_gamma: { activated: False, probability: 0.3 }
-      # Random Linear Illumination : ramp of 13 to 38 intensity levels growing from one side of the image to the
-      # opposite one, brightening or darkening it, a light source on one side of the scene
+      # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
       random_linear_illumination: { activated: False, probability: 0.3 }
-      # Random Plasma Shadow : irregular shadows of a random fractal map darkening by up to 77 intensity levels
+      # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
       random_plasma_shadow: { activated: False, probability: 0.3 }
-      # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
+      # Random Blur : 9x9 Gaussian kernel, sigma 2.5
       random_blur: { activated: False, probability: 0.3 }
-      # Random Motion Blurring : streak of 5 to 15 pixels at an angle of 0 to 180 degrees, trailing backward
-      # or forward, the motion of the camera or of the objects during the exposure
+      # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
       random_motion_blur: { activated: False, probability: 0.3 }
-      # Random Haze : blend with a uniform grey airlight of 180 to 255 intensity levels taking 20% to 60% of every
-      # pixel, the fog or condensation of a camera lowering the contrast (applied after the blurs, before the
-      # solarization, the black-out and the erasing)
+      # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
+      # the blurs, before solarization, black-out and erasing)
       random_haze: { activated: True, probability: 0.3 }
-      # Random Solarize : every pixel at or above 128 intensity levels inverted
+      # Random Solarize : pixels at or above 128 levels inverted
       random_solarize: { activated: False, probability: 0.2 }
-      # Random Black Out : image cut into a grid of grid_size x grid_size cells (smaller cells hiding smaller
-      # parts), every cell blacked out with a fixed probability of 0.2 (applied after the other photometric types
-      # but the erasing); the boxes, masks and keypoints are left unchanged, so an object can be hidden while
-      # keeping its label
+      # Random Black Out : grid_size x grid_size cells, each blacked out with probability 0.2 (after the other
+      # photometric types but the erasing); labels unchanged, so a hidden object keeps its label
       random_black_out: { activated: False, probability: 0.3, grid_size: 8 }
-      # Random Erasing : one rectangle covering 2% to 15% of the image, of height / width ratio 0.3 to 3.3, filled with
-      # black (applied last); the boxes, masks and keypoints are left unchanged, so an object can be hidden while
-      # keeping its label
+      # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3, applied last; labels
+      # unchanged
       random_erasing: { activated: False, probability: 0.3 }
 
 Backbone:
-  # Number of input channels of the initial convolution block: must be 3, the loaders giving BGR images
+  # Input channels of the first convolution block: 3, the loaders giving BGR images
   input_channels : 3
 
-  # First axis : Number of convolution Kernel maps per Convolution Block
-  # Second axis : Number of output filters per kernel per convolution Block
+  # [convolutions, output filters] of every block.
   convolutions:
     {
       "1": [ 1, 16 ],
@@ -291,80 +253,67 @@ Backbone:
       "7": [ 5, 32 ],
     }
 
-  # Choice to add last max pooling layer on last* convolution layer
+  # Max pooling after the last block.
   last_max_pooling: False
 
   normalization:
-    # Input Normalization : Setting image range values between [-0.5:0.5]
+    # Scales the inputs to [-0.5, 0.5].
     input_normalization: True
 
-    # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
-    # Applied after input_normalization when both are activated
+    # Normalizes every image to zero mean and unit variance (after input_normalization).
     per_sample_normalization: False
 
-    # Strategy for normalizing the feature maps in the convolution blocks.
-    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    # Feature map normalization: "batch", "layer" (over channels) or "none".
     feature_map_normalization: "batch"
 
   modules:
-    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
-    # Shortcuts are added every two convolution layers, starting from the second convolution block
+    # Residual shortcuts every two convolutions from block 2 (https://arxiv.org/abs/1512.03385).
     residual_nets: True
 
-    # Residual Nets v2 : Paper "Identity Mappings in Deep Residual Networks" https://arxiv.org/abs/1603.05027
-    # Pre-activation shortcuts: every layer applies its normalization and ReLU before its convolution and nothing
-    # follows the addition, so that the shortcuts form an identity path through the block, whose output is normalized
-    # and activated at its end. Requires residual_nets, starts from the second block like it, and gives the RES2 run
-    # name token instead of RES.
+    # Pre-activation shortcuts (https://arxiv.org/abs/1603.05027): normalization and ReLU before every convolution.
+    # Requires residual_nets; RES2 token instead of RES.
     residual_nets_v2: False
 
-    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
-    # Output channels of every block using inception must be multiples of 8
+    # Inception modules (https://arxiv.org/abs/1409.4842), output channels multiples of 8.
     inception: False
 
-    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
     squeeze_and_excite: True
 
-  # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
-  # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
-  # the ones above, the detection levels and the image size may differ.
+  # Backbone of another run (any task) initialising this one. The layer settings (input_channels, convolutions, modules,
+  # normalization, last_max_pooling) must match; detection levels and image size may differ.
   pretrained:
-    # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
-    # from its own checkpoints does not load it again.
+    # Run folder of the loaded backbone, null for random weights (not reloaded on resume).
     experiment_folder: null
-    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    # Checkpoint iteration, null for the last one.
     iteration: null
-    # Keeps the loaded backbone fixed (no gradient, batch normalization statistics frozen) so that only the heads of
-    # the task learn. Requires an experiment_folder.
+    # Freezes the loaded backbone (no gradient, frozen batch statistics); needs experiment_folder.
     freeze: False
-    # Keeps the scale and shift of the batch or layer normalization layers of the loaded backbone fixed while its
-    # convolutions learn, the batch normalization statistics still following the data of this run. Requires an
-    # experiment_folder, freeze False and a feature_map_normalization other than "none".
+    # Freezes the scale and shift of the loaded backbone normalizations while its convolutions learn; needs
+    # experiment_folder, freeze False and a normalization.
     freeze_normalization_parameters: False
-    # Multiplies the learning rate of the loaded backbone, e.g. 0.1 to fine-tune it ten times slower than the heads.
+    # Learning rate factor of the loaded backbone, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0
 
-# Detection levels: every key is the quoted number of a Backbone.convolutions block (from "1") whose feature map
-# feeds the heads of the level, the keys going up from the finest feature map to the coarsest. Every level has its
-# own anchors, region proposal head, detection head and mask head, built on its feature map, the settings shared by
-# every level being in the RegionProposal, Detector and MaskHead sections. Every proposal, detection and mask uses
-# the heads and the feature map of the level whose anchor it came from.
+# Detection levels: every key is the quoted number of a Backbone.convolutions block (from "1") whose feature map feeds
+# the heads of the level, from the finest map to the coarsest. Every level has its own anchors, region proposal,
+# detection and mask heads; the shared settings are in RegionProposal, Detector and MaskHead. Every proposal, detection
+# and mask uses the heads and feature map of the level of its anchor.
 DetectionLevels:
   "5":
-    # Anchors of every position of the feature map, one per scale and aspect ratio: a scale is the side in input
-    # pixels of a square anchor, and an aspect ratio the height / width of the anchor at the same area. The anchors
-    # per position (scales x aspect_ratios) give the outputs of the region proposal head of the level.
+    # Anchors per feature map position, one per scale and aspect ratio: a scale is the side in input pixels of a square
+    # anchor, an aspect ratio the height / width at the same area. scales x aspect_ratios gives the outputs of the
+    # region proposal head.
     anchors: { scales: [32, 64], aspect_ratios: [0.5, 1.0, 2.0] }
-    # Region proposal head: [number_layers, output_channels] of its convolutions, followed by its objectness and
-    # box regression layers.
+    # Region proposal head: [number_layers, output_channels] of its convolutions, before its objectness and box
+    # regression layers.
     region_proposal: { convolutions: [2, 32] }
-    # Detection head: side of the RoIAlign grid pooled from the feature map for every proposal, [number_layers,
-    # output_channels] of its convolutions (multiples of 8 with Detector.modules.inception) and sizes of its fully
-    # connected layers before the classifier and the box regressor.
+    # Detection head: RoIAlign grid side pooled per proposal, [number_layers, output_channels] of its convolutions
+    # (multiples of 8 with Detector.modules.inception) and its fully connected sizes before the classifier and box
+    # regressor.
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
-    # Mask head: side of the RoIAlign grid pooled from the feature map for every box, at most
-    # MaskHead.mask_resolution, and [number_layers, output_channels] of its convolutions (multiples of 8 with
-    # MaskHead.modules.inception).
+    # Mask head: RoIAlign grid side pooled per box (at most MaskHead.mask_resolution) and [number_layers,
+    # output_channels] of its convolutions (multiples of 8 with MaskHead.modules.inception).
     mask_head: { roi_align_pool_size: 14, convolutions: [3, 32] }
   "6":
     anchors: { scales: [64, 128], aspect_ratios: [0.5, 1.0, 2.0] }
@@ -379,159 +328,139 @@ DetectionLevels:
 
 RegionProposal:
   normalization:
-    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
-    # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
-    # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
+    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
+    # No run name token, can change on resume.
     batch_normalization_momentum: 0.1
   training:
-    # Raw proposals to keep per image BEFORE Non-Maximum Suppression during training [Just top k proposals].
+    # Top raw proposals kept per image before non-maximum suppression in training.
     pre_nms_proposals: 1000
-    # Filtered proposals to keep per image AFTER Non-Maximum Suppression during training.
+    # Proposals kept per image after non-maximum suppression in training.
     post_nms_proposals: 500
   inference:
-    # Raw proposals to keep per image BEFORE Non-Maximum Suppression during inference [Just top k proposals].
+    # Top raw proposals kept per image before non-maximum suppression at inference.
     pre_nms_proposals: 500
-    # Filtered proposals to keep per image AFTER Non-Maximum Suppression during inference.
+    # Proposals kept per image after non-maximum suppression at inference.
     post_nms_proposals: 250
   foreground_iou_threshold:
-    # Minimum IoU required for an anchor to be a positive foreground match.
+    # Minimum IoU of a positive foreground anchor.
     min: 0.5
-    # Maximum IoU limit for matching (capped at 1.0).
+    # Maximum matching IoU (capped at 1.0).
     max: 1.0
   background_iou_threshold:
-    # Minimum IoU required for an anchor to be a strict background sample. At 0.0 every anchor overlapping no object
-    # can be sampled as background; above 0.0 those anchors are ignored and only the hard negatives (anchors touching
-    # an object) are sampled, which the configuration checks allow with a yellow warning.
+    # Minimum IoU of a strict background anchor. At 0.0 any anchor overlapping no object can be background; above it,
+    # those are ignored and only hard negatives (anchors touching an object) are sampled, allowed with a yellow warning.
     min: 0.0
-    # Maximum IoU allowed for an anchor to be a strict background sample.
+    # Maximum IoU of a strict background anchor.
     max: 0.3
-  # IoU threshold for Non-Maximum Suppression to eliminate redundant overlapping proposals.
+  # IoU threshold of the non-maximum suppression of overlapping proposals.
   nms_iou_threshold: 0.7
-  # Force assign best-overlapping anchors as foreground even if below the min threshold.
+  # Assigns the best-overlapping anchors as foreground even below the minimum threshold.
   strict_fallback_assignment: False
-  # Exact number of strictly positive foreground anchors sampled for loss calculation per image.
+  # Positive foreground anchors sampled per image for the loss.
   number_training_positives: 128
-  # Combined budget of positive and negative anchor samples evaluated per image.
+  # Positive and negative anchors sampled per image.
   total_training_samples: 256
-  # Beta scaling parameter for Smooth L1 Loss during bounding box regression.
+  # Smooth L1 beta of the box regression loss.
   localisation_loss_beta: 1/9
-  # Region proposal heads of another DET or INS run initialising this run. Their levels, the region_proposal and the
-  # number of anchors per position (scales x aspect_ratios) of every level of DetectionLevels, and the normalization
-  # must be identical in both runs, as well as the channels of the backbone blocks feeding them. Other anchor scales
-  # or ratios of the same counts are reported, not refused.
+  # Region proposal heads of another DET or INS run initialising this one. Levels, per-level region_proposal and anchors
+  # per position (scales x aspect_ratios), normalization and the channels of the feeding backbone blocks must match;
+  # other anchor scales or ratios of the same counts are reported, not refused.
   pretrained:
-    # Run folder whose trained region proposal heads initialise this run, null to start from random weights. A run
-    # resuming from its own checkpoints does not load them again.
+    # Run folder of the loaded region proposal heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
-    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    # Checkpoint iteration, null for the last one.
     iteration: null
-    # Keeps the loaded heads fixed (no gradient, batch normalization statistics frozen) so that only the other
-    # components learn. Requires an experiment_folder.
+    # Freezes the loaded heads (no gradient, frozen batch statistics). Requires experiment_folder.
     freeze: False
-    # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
-    # layers.
+    # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
     learning_rate_multiplier: 1.0
 
 Detector:
   normalization:
-    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
-    # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
-    # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
+    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
+    # No run name token, can change on resume.
     batch_normalization_momentum: 0.1
 
   modules:
-    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Residual nets (https://arxiv.org/abs/1512.03385)
     residual_nets: True
 
-    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
-    # Output channels of the detection head convolutions must be multiples of 8
+    # Inception modules (https://arxiv.org/abs/1409.4842); detection head output channels must be multiples of 8
     inception: False
 
-    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
     squeeze_and_excite: True
 
   inference:
-    # Minimum class probability for a detection to be returned
+    # Minimum class probability of a returned detection
     score_threshold: 0.5
-    # Fixed number of detections returned per image (padded), required for exportable fixed-size outputs.
-    # Must not exceed RegionProposal.inference.post_nms_proposals x the number of foreground classes.
+    # Detections returned per image (padded), fixed for exportable outputs; at most
+    # RegionProposal.inference.post_nms_proposals x the foreground classes.
     maximum_detections: 100
-  # Minimum IoU required for a filtered proposal to be classified as a positive target.
+  # Minimum IoU for a sampled proposal to be a positive target.
   foreground_iou_threshold: 0.5
-  # IoU overlap tolerance for the final per-class Non-Maximum Suppression pass on predictions.
+  # IoU threshold of the final per-class non-maximum suppression.
   nms_iou_threshold: 0.5
-  # Upper limit of positive (foreground) region proposals sampled per image. The ground truth boxes of the image are
-  # written into its last proposal slots first, so every object has a positive proposal to sample from.
+  # Most positive proposals sampled per image; the ground truth boxes fill its last proposal slots first, so every
+  # object has a positive to sample.
   number_training_positives: 64
-  # Total budget of positive and negative region proposals sampled per image.
+  # Positive and negative proposals sampled per image.
   total_training_samples: 128
-  # Beta scalar for the Smooth L1 Loss bounding box regression transition.
+  # Smooth L1 beta of the box regression loss.
   localisation_loss_beta: 1/9
-  # Detection heads of another DET or INS run initialising this run. Their levels, the detector of every level of
-  # DetectionLevels, the normalization and the modules must be identical in both runs, as well as the channels of the
-  # backbone blocks feeding them, the classification and per-class box regression layers being transferred too. The
-  # classes of the source run, read from its data.json, must be the first classes of this run, in the same order:
-  # classes may be appended after them, keeping the random initialisation of this run.
+  # Detection heads of another DET or INS run initialising this one, with their classification and per-class box layers.
+  # Levels, per-level detectors, normalization, modules and the channels of the feeding backbone blocks must match. The
+  # source classes (its data.json) must come first in this run, in order; appended classes stay random.
   pretrained:
-    # Run folder whose trained detection heads initialise this run, null to start from random weights. A run resuming
-    # from its own checkpoints does not load them again.
+    # Run folder of the loaded detection heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
-    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    # Checkpoint iteration, null for the last one.
     iteration: null
-    # Keeps the loaded heads fixed (no gradient, batch normalization statistics frozen) so that only the other
-    # components learn, e.g. the mask heads of an instance segmentation run. Requires an experiment_folder.
+    # Freezes the loaded heads (no gradient, frozen batch statistics), e.g. to train only the mask heads of an instance
+    # segmentation run. Requires experiment_folder.
     freeze: False
-    # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
-    # layers.
+    # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
     learning_rate_multiplier: 1.0
 
 MaskHead:
-  # Side M of the square masks predicted for every box, the same on every level since the masks of the levels are
-  # concatenated for the loss and the export (28 gives the 28 x 28 masks of Mask R-CNN), with one mask per class, the
-  # channel of the detected class being kept. Every level doubles its pooled features as many times as fits in M, its
-  # masks being resized bilinearly to M when one more doubling would exceed it: a pool size of 14 is doubled once, a
-  # pool size of 7 twice, and a pool size of 10 doubled once to 20 then resized to 28.
+  # Side M of the square masks predicted per box, equal on every level since the level masks are concatenated for the
+  # loss and the export (28 gives the 28 x 28 masks of Mask R-CNN), one mask per class, the detected class channel being
+  # kept. Every level doubles its pooled features as often as fits in M, resizing bilinearly to M when one more doubling
+  # would exceed it: a pool size of 14 doubles once, 7 twice, 10 once to 20 then resized to 28.
   mask_resolution: 28
-  # Doubling of the pooled features: "transposed" (2x2 transposed convolution, learned) or "bilinear" (bilinear
-  # upsampling followed by a 3x3 convolution), each followed by a ReLU.
+  # Pooled feature doubling: "transposed" (learned 2x2 transposed convolution) or "bilinear" (bilinear upsampling then a
+  # 3x3 convolution), each followed by a ReLU.
   upsampling: "transposed"
   normalization:
-    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
-    # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
-    # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
+    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
+    # No run name token, can change on resume.
     batch_normalization_momentum: 0.1
   modules:
-    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Residual nets (https://arxiv.org/abs/1512.03385)
     residual_nets: True
-    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
-    # Output channels of the mask head convolutions must be multiples of 8
+    # Inception modules (https://arxiv.org/abs/1409.4842); mask head output channels must be multiples of 8
     inception: False
-    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
     squeeze_and_excite: False
   inference:
-    # Mask probability from which a pixel belongs to its object, for the mask average precision, the sample images and
-    # the clients pasting the exported masks. Must be within [0, 1].
+    # Mask probability from which a pixel belongs to its object, for the mask AP, the sample images and the clients
+    # pasting the exported masks; within [0, 1].
     mask_threshold: 0.5
-  # Mask heads of another INS run initialising this run instead of random weights. Their mask resolution, upsampling,
-  # normalization, modules and mask_head of every level must be identical in both runs, as well as the levels and the
-  # channels of the backbone blocks feeding them. The classes of the source run, read from its data.json, must be the
-  # first classes of this run, in the same order: classes may be appended after them, their mask channels keeping the
-  # random initialisation of this run.
+  # Mask heads of another INS run initialising this one. Mask resolution, upsampling, normalization, modules, per-level
+  # mask_head, levels and the channels of the feeding backbone blocks must match. The source classes (its data.json)
+  # must come first in this run, in order; appended classes keep random mask channels.
   pretrained:
-    # Run folder whose trained mask heads initialise this run, null to start from random weights. A run resuming
-    # from its own checkpoints does not load them again.
+    # Run folder of the loaded mask heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
-    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    # Checkpoint iteration, null for the last one.
     iteration: null
-    # Keeps the loaded heads fixed (no gradient, batch normalization statistics frozen) so that only the other
-    # components learn. Requires an experiment_folder.
+    # Freezes the loaded heads (no gradient, frozen batch statistics). Requires experiment_folder.
     freeze: False
-    # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
-    # layers.
+    # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
     learning_rate_multiplier: 1.0
