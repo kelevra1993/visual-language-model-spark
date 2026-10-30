@@ -31,7 +31,9 @@ LAUNCH_FOLDER_PATTERN = re.compile(pattern=r"run_(\d+)([a-z]*)")
 # which launches have averaged weights. In the classification experiment, the training data folder and the source runs
 # of the transferred backbone and classification head (empty without transfer) separate the launches adding classes to
 # a trained run (stage 14) from the launches whose settings they copy. In the sequence labelling experiment, the
-# bidirectional and causal flags give the direction of the temporal module
+# bidirectional and causal flags give the direction of the temporal module, and the source run of the transferred
+# backbone with its freeze and learning rate multiplier separate the launches of the pretraining stage (fine-tuned,
+# frozen or fine-tuned slower) from the launches trained from scratch whose other settings they copy
 CLASSIFICATION_SWEPT_SETTINGS = {
     "learning_rate": ("ExperimentConfiguration", "learning_rate"),
     "train_data_folder": ("ExperimentConfiguration", "train_data_folder"),
@@ -53,6 +55,9 @@ SEQUENCE_LABELLING_SWEPT_SETTINGS = {
     "number_layers": ("TemporalModel", "number_layers"), "global_pooling": ("ClassificationHead", "global_pooling"),
     "feature_map_normalization": ("Backbone", "normalization", "feature_map_normalization"),
     "class_weighting": ("ClassificationHead", "class_weighting"),
+    "pretrained_backbone": ("Backbone", "pretrained", "experiment_folder"),
+    "freeze_backbone": ("Backbone", "pretrained", "freeze"),
+    "backbone_learning_rate_multiplier": ("Backbone", "pretrained", "learning_rate_multiplier"),
     "exponential_moving_average": ("Optimization", "exponential_moving_average", "activated")}
 TASK_SWEPT_SETTINGS = {"classification": CLASSIFICATION_SWEPT_SETTINGS,
                        "sequence_labelling": SEQUENCE_LABELLING_SWEPT_SETTINGS}
