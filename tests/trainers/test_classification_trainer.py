@@ -224,9 +224,11 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
     """
+    # Images of 128 pixels, resized to the smoke size by the loader, as up to 10 shapes do not always fit without
+    # overlap in a 64 pixel image, and at most 7 shapes, as in the generator test
     dataset_folder = tmp_path / "synthetic_counted_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=10,
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=2 * SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=7,
                              minimum_frames=1, maximum_frames=1, number_workers=2, task="multi_label_classification")
 
     trainer = build_trainer(configuration_path=write_smoke_configuration(
