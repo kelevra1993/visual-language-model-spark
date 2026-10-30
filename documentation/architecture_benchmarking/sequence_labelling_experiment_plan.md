@@ -161,3 +161,24 @@ Kept: **1** layer (run_13 and run_14), the highest value at iteration 6000 (0.19
 
 - The second layer slows the start: run_21 stays at about 0.007, the score of a model that only predicts `no_change`, up to iteration 1750, and only rises from iteration 2000.
 - Both 2 layer launches end at about 0.089 and level off from iteration 5500, while the single layer keeps rising, so the second layer is behind at every evaluation from iteration 2500 and by more than half at iteration 6000.
+
+### Stage 6: Frame Pooling (4 new launches, 6000 iterations)
+
+The flattened feature map launches are run_13 and run_14 of the direction stage. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `ClassificationHead.global_pooling` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| flatten | run_13 | 0.0114 | 0.0193 | 0.0175 | 0.0243 | 0.0395 | 0.0643 | 0.0793 | 0.0961 | 0.1196 | 0.1486 | 0.1916 | 0.2411 | 0.0818 |
+| flatten | run_14 | 0.0078 | 0.0072 | 0.0201 | 0.0230 | 0.0253 | 0.0338 | 0.0427 | 0.0532 | 0.0719 | 0.0925 | 0.1189 | 0.1461 | 0.0500 |
+| flatten | **Mean** | 0.0096 | 0.0133 | 0.0188 | 0.0236 | 0.0324 | 0.0491 | 0.0610 | 0.0746 | 0.0957 | 0.1206 | 0.1553 | 0.1936 | 0.0659 |
+| average | run_23 | 0.0139 | 0.0239 | 0.0361 | 0.0411 | 0.0561 | 0.0728 | 0.0929 | 0.0967 | 0.1070 | 0.1580 | 0.1904 | 0.2197 | 0.0871 |
+| average | run_24 | 0.0071 | 0.0069 | 0.0070 | 0.0068 | 0.0068 | 0.0071 | 0.0068 | 0.0071 | 0.0069 | 0.0070 | 0.0070 | 0.0068 | 0.0070 |
+| average | **Mean** | 0.0105 | 0.0154 | 0.0216 | 0.0239 | 0.0315 | 0.0400 | 0.0498 | 0.0519 | 0.0570 | 0.0825 | 0.0987 | 0.1132 | 0.0471 |
+| max | run_25 | 0.0135 | 0.0203 | 0.0322 | 0.0559 | 0.0932 | 0.1254 | 0.1459 | 0.1656 | 0.1645 | 0.1829 | 0.2105 | 0.2397 | 0.1162 |
+| max | run_26 | 0.0076 | 0.0216 | 0.0309 | 0.0416 | 0.0648 | 0.0920 | 0.1193 | 0.1396 | 0.1536 | 0.1698 | 0.1870 | 0.1896 | 0.0986 |
+| max | **Mean** | 0.0106 | 0.0209 | 0.0315 | 0.0488 | 0.0790 | 0.1087 | 0.1326 | 0.1526 | 0.1590 | 0.1763 | 0.1988 | 0.2147 | 0.1074 |
+
+Kept: **max** (run_25 and run_26), the highest value at iteration 6000 (0.2147 against 0.1936 for flatten and 0.1132 for average), also the highest mean over all the evaluations (0.1074 against 0.0659 and 0.0471); the feature map normalization stage trains the normalization of every sequence by its own frames (run_27 and run_28) against the batch normalization of run_25 and run_26.
+
+- The max pooling leads from iteration 1000 to the end, both its launches learning from the start (0.0559 and 0.0416 at iteration 2000 against 0.0243 and 0.0230 for flatten), the maximum of every channel over the frame telling whether a shape is present wherever it lies, in 32 values instead of the 32 x 8 x 8 of the flattened map.
+- run_24 (average) stays at about 0.007, the score of a model that only predicts `no_change`, for all 6000 iterations, while run_23 reaches 0.2197, close to the best flatten launch: the average pooling loses on that collapsed launch. It is the fourth launch held at that score (run_8, run_12, run_21 and run_24), a single collapse deciding a setting of two launches.
