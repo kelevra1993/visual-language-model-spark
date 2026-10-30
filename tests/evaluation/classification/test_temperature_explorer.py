@@ -5,7 +5,9 @@ frequencies, and the written page holds, for every temperature of its slider (th
 calibrated temperatures), the histograms of every class over its images and the other images and the thresholds found
 by find_class_thresholds on the probabilities of the divided logits, the recall of two classes staying the same from
 the temperature 1, in multi-class and multi-label mode, the classes the lowest F1 first and at most
-MAXIMUM_EXPLORER_CLASSES, a class name holding '</' never closing the script of the data, and no page without sample.
+MAXIMUM_EXPLORER_CLASSES, a class name holding '</' never closing the script of the data, no page without sample,
+class histogram bins 0.02 wide, two scores of 0.977 and 0.985 falling in neighbouring bins, and reliability bins
+0.02 wide, two confidences of 0.97 and 0.99 falling in neighbouring bins.
 """
 
 import json
@@ -18,8 +20,10 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from vision_training.evaluation.classification import temperature_explorer
-from vision_training.evaluation.classification.temperature_explorer import (EXPLORER_FILE_NAME, NUMBER_SCORE_BINS,
+from vision_training.evaluation.classification.temperature_explorer import (EXPLORER_FILE_NAME,
+                                                                           NUMBER_CALIBRATION_BINS, NUMBER_SCORE_BINS,
                                                                            TEMPERATURE_GRID, compute_calibration,
+                                                                           describe_temperature,
                                                                            find_calibrated_temperature,
                                                                            save_temperature_explorer)
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
@@ -211,3 +215,38 @@ def test_explorer_without_sample_is_refused(tmp_path: Path) -> None:
                                   evaluated_temperature=1.0, class_f1_scores=[0.0, 0.0, 0.0], output_folder=tmp_path,
                                   title=None)
     assert not (tmp_path / EXPLORER_FILE_NAME).exists()
+
+
+def test_class_histograms_separate_scores_near_one() -> None:
+    """
+    Verifies that the class histograms have bins 0.02 wide, so that two images of a class scored 0.977 and 0.985, where
+    the thresholds of the kept classifiers gather, fall in the neighbouring bins 48 and 49 instead of one bar.
+    """
+    # Logits of two classes whose softmax gives the first class 0.977 and 0.985 at the temperature 1
+    first_class_logits = [math.log(0.977 / 0.023), math.log(0.985 / 0.015)]
+    class_logits = torch.tensor(data=[[logit, 0.0] for logit in first_class_logits], dtype=torch.float32)
+    labels = torch.zeros(size=(2,), dtype=torch.int64)
+    positive_masks = torch.nn.functional.one_hot(input=labels, num_classes=2).to(dtype=torch.bool)
+    state = describe_temperature(class_logits=class_logits, labels=labels, positive_masks=positive_masks,
+                                 output_mode="multi_class", logit_temperature=1.0, target_precisions=[0.99],
+                                 shown_class_indices=[0])
+
+    # One image in each of the last two bins of the first class, none elsewhere
+    positive_counts = state["classes"][0]["positive_counts"]
+    assert NUMBER_SCORE_BINS == 50 and len(positive_counts) == 50
+    assert positive_counts[48] == 1 and positive_counts[49] == 1 and sum(positive_counts) == 2
+
+
+def test_reliability_bins_separate_confidences_two_hundredths_apart() -> None:
+    """
+    Verifies that the confidence histogram and the reliability diagram have bins 0.02 wide, so that two decisions of a
+    confidence of 0.97 and 0.99 fall in the neighbouring bins 48 and 49 instead of one bar.
+    """
+    probabilities = torch.tensor(data=[[0.97, 0.03], [0.99, 0.01]], dtype=torch.float64)
+    calibration = compute_calibration(probabilities=probabilities, labels=torch.tensor(data=[0, 0]),
+                                      output_mode="multi_class")
+
+    # One decision in each of the last two bins, none elsewhere
+    calibration_counts = calibration["calibration_counts"]
+    assert NUMBER_CALIBRATION_BINS == 50 and len(calibration_counts) == 50
+    assert calibration_counts[48] == 1 and calibration_counts[49] == 1 and sum(calibration_counts) == 2
