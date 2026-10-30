@@ -1,7 +1,8 @@
 # Image classification, chapter 2: judging and shipping a classifier: the evaluation settings, the report block of
 # Results.txt, the confusion matrices of the three evaluations, the per-class F1 and the thresholds at the target
-# precision, the precision-recall curves, the probabilities of predictions.csv, the sample and error images, the
-# measured effects of the head settings in the architecture benchmark, the pitfalls and the export. Coordinates of the
+# precision, the precision-recall curves, the probabilities of predictions.csv, the logit temperature and its explorer
+# page, the sample and error images, the measured effects of the head settings in the architecture benchmark, the
+# pitfalls and the export with its temperature. Coordinates of the
 # html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures and facts
 # named classification.* are made by tutorials/figures/classification from the synthetic shapes run of
 # tutorial_sources.yaml, the images under runs: are the files its evaluation wrote.
@@ -18,6 +19,8 @@ references:
   - "vision_training/evaluation/classification/classification_metrics.py · compute_metrics_from_confusion_matrix"
   - "vision_training/evaluation/classification/score_curves.py · save_score_curve_images"
   - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.dump_errors"
+  - "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
+  - "vision_training/deployment/export_model.py · read_logit_temperature"
   - "vision_training/deployment/export_specifications.py · TASK_MODEL_NAMES"
   - "scripts/evaluation/evaluate_checkpoint.py"
   - "documentation/suggestions.md"
@@ -30,7 +33,7 @@ scenes:
     footnote: "Image Classification · chapter 2"
     narration:
       - "A classifier is judged on its whole test split at every evaluated checkpoint, and every evaluation writes what you need to decide whether to ship it."
-      - "This chapter reads the evaluations of the synthetic shapes run: the report, the confusions, the thresholds, the probabilities and the images, then the measured effects of the head settings, the pitfalls and the export."
+      - "This chapter reads the evaluations of the synthetic shapes run: the report, the confusions, the thresholds, the probabilities and their temperature, and the images, then the measured effects of the head settings, the pitfalls and the export."
 
   - kind: yaml
     title: "The evaluation settings"
@@ -147,6 +150,25 @@ scenes:
       - "For the {{classification.confidence.wrong_count:,}} wrong predictions, the probability of the predicted class has a median of {{classification.confidence.wrong_median:.2f}}, and only {{classification.confidence.wrong_confident_count}} of them pass {{classification.confidence.confident_probability}}, where {{classification.confidence.correct_confident_share:.0%}} of the right ones do."
       - "The test pentagons show a confusion at work: hexagon takes the probability pentagon loses, and {{classification.confidence.pair_wrong:,}} of the {{classification.confidence.pair_images:,}} pentagons tip over, nearly all to hexagon."
 
+  - kind: html
+    page: diagram
+    title: "The logit temperature"
+    code_reference: "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
+    elements:
+      - {type: box, box: [40, 30, 1260, 110], text: "probabilities = softmax(logits / T)", font: diagram_bold, outline: blue, highlight: [0]}
+      - {type: text, position: [40, 160], text: "a square, logits 6 · 3 · 0, T = 1", font: diagram_small, colour: dim}
+      - {type: bars, box: [40, 200, 600, 600], maximum: 1, values: [0.950, 0.047, 0.002], labels: ["square", "rectangle", "circle"], value_labels: ["0.950", "0.047", "0.002"], colours: [blue, aqua, violet], gap: 40, highlight: [1]}
+      - {type: text, position: [700, 160], text: "the same logits, T = 3", font: diagram_small, colour: dim, appear: 1}
+      - {type: bars, box: [700, 200, 1260, 600], maximum: 1, values: [0.665, 0.245, 0.090], labels: ["square", "rectangle", "circle"], value_labels: ["0.665", "0.245", "0.090"], colours: [blue, aqua, violet], gap: 40, appear: 1, highlight: [1]}
+      - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from 0.5 to 10\nthe calibrated T", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [1340, 380, 1740, 600], text: "logit_temperature\nin evaluate_checkpoint.py\nrecorded in\nclass_thresholds.json", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: text, position: [880, 680], text: "the order of the logits is kept: the same predicted class, the same accuracy · classification only", font: diagram_small, colour: dim, anchor: mm, appear: 1}
+    narration:
+      - "A well trained softmax often squeezes its probabilities against one, which leaves the thresholds little room: dividing the logits by a temperature before the softmax spreads them out."
+      - "Say a square gets the logits six, three and zero: at a temperature of one, square takes 0.95; at three, it keeps the lead with 0.67, against 0.24 for rectangle and 0.09 for circle, so the predicted class and the accuracy never change."
+      - "With the per class report on, every evaluation writes temperature explorer html, where a slider from 0.5 to 10 redraws the probabilities, the thresholds and the calibration, next to the temperature that calibrates the test split best."
+      - "Once you have chosen one, set it as the logit temperature of the evaluate checkpoint script: the thresholds are found again at that temperature, and class thresholds json records it for the export."
+
   - kind: image
     title: "Sample images"
     code_reference: "vision_training/trainers/classification_trainer.py · ClassificationTrainer.build_sample_image"
@@ -230,13 +252,13 @@ scenes:
       - {type: arrow, points: [[468, 220], [532, 220]]}
       - {type: box, box: [540, 110, 1000, 330], text: "InferenceClassifier\nthe ImageClassifier\nwithout labels nor loss", font: diagram_small, outline: violet, highlight: [0]}
       - {type: arrow, points: [[1008, 220], [1072, 220]]}
-      - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax inside", font: diagram_small, outline: aqua, highlight: [0, 1]}
+      - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax(logits / T) inside", font: diagram_small, outline: aqua, highlight: [0, 1]}
       - {type: box, box: [20, 420, 1000, 560], text: "Triton model: image_classifier_<format>\nTorchScript and ONNX", font: diagram_small, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[1290, 338], [1290, 412]], appear: 1}
-      - {type: box, box: [1080, 420, 1740, 560], text: "class_thresholds.json of the same checkpoint\na class accepted above its threshold", font: diagram_small, outline: yellow, appear: 1, highlight: [2]}
+      - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 1}
+      - {type: box, box: [1080, 410, 1740, 600], text: "class_thresholds.json of that checkpoint\nits T built in, the file copied next to it\na class accepted above its threshold", font: diagram_small, outline: yellow, appear: 1, highlight: [2]}
     narration:
       - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to 512 pixels like the training, and returns the class probabilities only."
-      - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it, so the thresholds of the class thresholds file apply to its outputs as they are."
+      - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it: given the class thresholds file of the exported checkpoint, the export divides the logits by its temperature and copies the file next to the model, so its thresholds apply to the outputs as they are."
       - "Faced with several evaluated checkpoints, deploy the thresholds of the exported one: they are computed again at every evaluation, from the probabilities of that checkpoint."
 
   - kind: summary
@@ -244,10 +266,10 @@ scenes:
     items:
       - {text: "Results.txt: headline metrics, then every class, worst F1 first"}
       - {text: "Confusion matrices over the evaluations: which pairs remain"}
-      - {text: "class_thresholds.json: threshold at precision 0.99, per class"}
+      - {text: "class_thresholds.json: thresholds at precision 0.99, the temperature"}
       - {text: "predictions.csv: every probability, no model run needed"}
       - {text: "Errors/<TRUE>-TO-<PREDICTED>/<sample>_<probability>.png", monospace: true}
       - {text: "Export: image_classifier, class probabilities [B, {{classification.head.number_classes}}]"}
     narration:
-      - "To recap: read the report with the confusion matrices, check the thresholds and the probabilities of the errors, and ship the exported probabilities with the thresholds of the same checkpoint."
+      - "To recap: read the report with the confusion matrices, check the thresholds and the probabilities of the errors, choose a temperature if they are squeezed, and ship the exported probabilities with the thresholds of the same checkpoint."
       - "The next series covers object detection: boxes with their class and score, the anchors, the region proposals and the detection heads."
