@@ -54,6 +54,14 @@ Every launch keeps a moving average of its weights, and the settings are compare
 | 6 | `global_pooling` | flatten, average, max | 6000 |
 | 7 | `feature_map_normalization` | batch, sequence | 6000 |
 | 8 | Pretraining | none, fine_tuned, fine_tuned_slow | 6000 |
+| 9 | `learning_rate`, pretrained | 1e-3, 1e-4, 2e-4, 2e-3 | 4000 |
+| 10 | `class_weighting`, pretrained | balanced, none | 6000 |
+| 11 | Direction, pretrained | bidirectional, unidirectional | 6000 |
+| 12 | `TemporalModel.type`, pretrained | lstm, gru, transformer, temporal_convolution | 6000 |
+| 13 | `TemporalModel.number_layers`, pretrained | 1, 2 | 6000 |
+| 14 | `global_pooling`, pretrained | max, flatten, average | 6000 |
+
+Stages 9 to 14, asked by the user on 2026-10-31 after stage 8, train stages 1 to 6 again from the settings kept by the 8 stages, the backbone of every launch loaded from the multi-label shape classifier and fine-tuned at the learning rate of the other components, the best value of a stage being kept for the following stages as before. The feature map normalization stays batch, the normalization of the pretrained backbone. The learning rate stage trains 4000 iterations, as the user chose. A reference is reused whenever an earlier stage trained launches with the same settings for as many iterations, or for more iterations under the constant learning rate schedule of every launch, its evaluation at the last iteration of the stage being then that of a launch stopped there: run_29 and run_30 (stage 8) are the reference of stage 9 at iteration 4000 and of the following stages while their values are kept. From 2026-10-31 the launches share the GPU through NVIDIA MPS, and launches started by the driver after its restart run in two slots, the two launches of a setting no longer always side by side.
 
 The direction is written as the flags of the temporal module: unidirectional is `causal: True` and `bidirectional: False` for every type; bidirectional is `bidirectional: True` and `causal: False` for the GRU and the LSTM, and `causal: False` (attention over every frame, centred convolutions) for the transformer and the temporal convolution.
 
@@ -225,3 +233,27 @@ Kept: **fine_tuned** (run_29 and run_30), the highest value at iteration 6000 (0
 - The pretrained backbone multiplies the score at iteration 6000 by 3.5: from iteration 500 the fine-tuned launches (0.3162) are above the launches from scratch at iteration 6000, both launches agreeing closely (0.7444 and 0.7491) and none held at the score of a model that only predicts `no_change`.
 - Fine-tuning ten times slower stays behind at every evaluation from iteration 750, so adapting the backbone to the sequences matters more than keeping its pretrained features.
 - At iteration 6000 of run_30, the 50 labels of the 25 shapes the classifier recognises reach a mean F1 of 0.982 (0.31 for run_25 from scratch), and the 20 labels of the triangle, parallelogram, rhombus, kite and trapezoid with their hollow versions, which the classifier did not learn, 0.156 (0.026 from scratch): these 10 shapes now bound the score.
+
+### Stage 9: Learning Rate, Pretrained (6 new launches, 4000 iterations)
+
+The settings kept by the 8 stages, the pretrained backbone fine-tuned, with the learning rate changed. The reference 1e-3 is run_29 and run_30 (stage 8) read at iteration 4000. The columns give every second evaluation, the mean is taken over the 16 evaluations from 250 to 4000, and the setting is kept on its value at iteration 4000.
+
+| `learning_rate` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1e-3 | run_29 | 0.3102 | 0.5104 | 0.5708 | 0.6117 | 0.6382 | 0.6632 | 0.6883 | 0.7038 | 0.5635 |
+| 1e-3 | run_30 | 0.3221 | 0.5087 | 0.5898 | 0.6275 | 0.6658 | 0.6910 | 0.7114 | 0.7261 | 0.5798 |
+| 1e-3 | **Mean** | 0.3162 | 0.5096 | 0.5803 | 0.6196 | 0.6520 | 0.6771 | 0.6998 | 0.7149 | 0.5717 |
+| 2e-3 | run_37 | 0.3532 | 0.4571 | 0.5054 | 0.5300 | 0.5485 | 0.5648 | 0.5942 | 0.6152 | 0.4985 |
+| 2e-3 | run_38 | 0.3546 | 0.4953 | 0.5544 | 0.5855 | 0.6190 | 0.6534 | 0.6824 | 0.7024 | 0.5582 |
+| 2e-3 | **Mean** | 0.3539 | 0.4762 | 0.5299 | 0.5578 | 0.5838 | 0.6091 | 0.6383 | 0.6588 | 0.5283 |
+| 2e-4 | run_35 | 0.0288 | 0.1028 | 0.2236 | 0.3309 | 0.4088 | 0.4675 | 0.5049 | 0.5305 | 0.3083 |
+| 2e-4 | run_36 | 0.0256 | 0.0889 | 0.2286 | 0.3450 | 0.4053 | 0.4474 | 0.4791 | 0.5055 | 0.3004 |
+| 2e-4 | **Mean** | 0.0272 | 0.0958 | 0.2261 | 0.3380 | 0.4071 | 0.4574 | 0.4920 | 0.5180 | 0.3044 |
+| 1e-4 | run_33 | 0.0213 | 0.0305 | 0.0530 | 0.0897 | 0.1480 | 0.2160 | 0.2789 | 0.3254 | 0.1354 |
+| 1e-4 | run_34 | 0.0188 | 0.0357 | 0.0660 | 0.1065 | 0.1617 | 0.2309 | 0.2949 | 0.3400 | 0.1465 |
+| 1e-4 | **Mean** | 0.0201 | 0.0331 | 0.0595 | 0.0981 | 0.1548 | 0.2235 | 0.2869 | 0.3327 | 0.1410 |
+
+Kept: **1e-3** (run_29 and run_30), the highest value at iteration 4000 (0.7149 against 0.6588 for 2e-3, 0.5180 for 2e-4 and 0.3327 for 1e-4), also the highest mean over the evaluations.
+
+- 2e-3 starts close to 1e-3 (0.4762 against 0.5096 at iteration 1000) but its launches spread apart (0.6152 and 0.7024 at iteration 4000) and stay behind.
+- The smaller learning rates, ten and five times lower, learn far slower with the pretrained backbone too, 1e-4 reaching at iteration 4000 less than half of 1e-3.
