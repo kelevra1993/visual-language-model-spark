@@ -205,3 +205,23 @@ Kept: **batch** (run_25 and run_26), the highest value at iteration 6000 (0.2147
 ### Stage 8: Pretraining (4 new launches, 6000 iterations)
 
 The settings kept by the 7 stages, with the backbone loaded from the averaged weights at iteration 10000 of the multi-label shape classifier (`classification/configuration_synthetic_counted_shapes.yaml`, the same backbone trained on recognising the 35 shapes of frames drawn like these, test Macro F1 0.718, the triangle, parallelogram, rhombus, kite and trapezoid with their hollow versions not learned), compared with the launches trained from scratch (run_25 and run_26): fine-tuned at the learning rate of the other components (`fine_tuned`, run_29 and run_30) and fine-tuned ten times slower (`fine_tuned_slow`, `Backbone.pretrained.learning_rate_multiplier` 0.1, run_31 and run_32). A frozen backbone was dropped by the user to save a pair.
+
+The launches trained from scratch are run_25 and run_26. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| Pretraining | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| none | run_25 | 0.0135 | 0.0203 | 0.0322 | 0.0559 | 0.0932 | 0.1254 | 0.1459 | 0.1656 | 0.1645 | 0.1829 | 0.2105 | 0.2397 | 0.1162 |
+| none | run_26 | 0.0076 | 0.0216 | 0.0309 | 0.0416 | 0.0648 | 0.0920 | 0.1193 | 0.1396 | 0.1536 | 0.1698 | 0.1870 | 0.1896 | 0.0986 |
+| none | **Mean** | 0.0106 | 0.0209 | 0.0315 | 0.0488 | 0.0790 | 0.1087 | 0.1326 | 0.1526 | 0.1590 | 0.1763 | 0.1988 | 0.2147 | 0.1074 |
+| fine_tuned | run_29 | 0.3102 | 0.5104 | 0.5708 | 0.6117 | 0.6382 | 0.6632 | 0.6883 | 0.7038 | 0.7195 | 0.7295 | 0.7406 | 0.7444 | 0.6195 |
+| fine_tuned | run_30 | 0.3221 | 0.5087 | 0.5898 | 0.6275 | 0.6658 | 0.6910 | 0.7114 | 0.7261 | 0.7348 | 0.7432 | 0.7419 | 0.7491 | 0.6337 |
+| fine_tuned | **Mean** | 0.3162 | 0.5096 | 0.5803 | 0.6196 | 0.6520 | 0.6771 | 0.6998 | 0.7149 | 0.7271 | 0.7364 | 0.7413 | 0.7467 | 0.6266 |
+| fine_tuned_slow | run_31 | 0.3037 | 0.4740 | 0.5171 | 0.5379 | 0.5597 | 0.5711 | 0.5862 | 0.6028 | 0.6175 | 0.6294 | 0.6390 | 0.6494 | 0.5419 |
+| fine_tuned_slow | run_32 | 0.3137 | 0.4760 | 0.5052 | 0.5320 | 0.5517 | 0.5660 | 0.5778 | 0.5926 | 0.6082 | 0.6190 | 0.6296 | 0.6386 | 0.5356 |
+| fine_tuned_slow | **Mean** | 0.3087 | 0.4750 | 0.5111 | 0.5349 | 0.5557 | 0.5685 | 0.5820 | 0.5977 | 0.6128 | 0.6242 | 0.6343 | 0.6440 | 0.5388 |
+
+Kept: **fine_tuned** (run_29 and run_30), the highest value at iteration 6000 (0.7467 against 0.6440 for fine_tuned_slow and 0.2147 from scratch), also the highest mean over all the evaluations (0.6266 against 0.5388 and 0.1074).
+
+- The pretrained backbone multiplies the score at iteration 6000 by 3.5: from iteration 500 the fine-tuned launches (0.3162) are above the launches from scratch at iteration 6000, both launches agreeing closely (0.7444 and 0.7491) and none held at the score of a model that only predicts `no_change`.
+- Fine-tuning ten times slower stays behind at every evaluation from iteration 750, so adapting the backbone to the sequences matters more than keeping its pretrained features.
+- At iteration 6000 of run_30, the 50 labels of the 25 shapes the classifier recognises reach a mean F1 of 0.982 (0.31 for run_25 from scratch), and the 20 labels of the triangle, parallelogram, rhombus, kite and trapezoid with their hollow versions, which the classifier did not learn, 0.156 (0.026 from scratch): these 10 shapes now bound the score.
