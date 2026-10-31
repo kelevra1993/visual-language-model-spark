@@ -53,6 +53,7 @@ Every launch keeps a moving average of its weights, and the settings are compare
 | 5 | `TemporalModel.number_layers` | 1, 2 | 6000 |
 | 6 | `global_pooling` | flatten, average, max | 6000 |
 | 7 | `feature_map_normalization` | batch, sequence | 6000 |
+| 8 | Pretraining | none, fine_tuned, fine_tuned_slow | 6000 |
 
 The direction is written as the flags of the temporal module: unidirectional is `causal: True` and `bidirectional: False` for every type; bidirectional is `bidirectional: True` and `causal: False` for the GRU and the LSTM, and `causal: False` (attention over every frame, centred convolutions) for the transformer and the temporal convolution.
 
@@ -182,3 +183,25 @@ Kept: **max** (run_25 and run_26), the highest value at iteration 6000 (0.2147 a
 
 - The max pooling leads from iteration 1000 to the end, both its launches learning from the start (0.0559 and 0.0416 at iteration 2000 against 0.0243 and 0.0230 for flatten), the maximum of every channel over the frame telling whether a shape is present wherever it lies, in 32 values instead of the 32 x 8 x 8 of the flattened map.
 - run_24 (average) stays at about 0.007, the score of a model that only predicts `no_change`, for all 6000 iterations, while run_23 reaches 0.2197, close to the best flatten launch: the average pooling loses on that collapsed launch. It is the fourth launch held at that score (run_8, run_12, run_21 and run_24), a single collapse deciding a setting of two launches.
+
+### Stage 7: Feature Map Normalization (2 new launches, 6000 iterations)
+
+The batch normalization launches are run_25 and run_26 of the frame pooling stage. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `Backbone.normalization.feature_map_normalization` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| batch | run_25 | 0.0135 | 0.0203 | 0.0322 | 0.0559 | 0.0932 | 0.1254 | 0.1459 | 0.1656 | 0.1645 | 0.1829 | 0.2105 | 0.2397 | 0.1162 |
+| batch | run_26 | 0.0076 | 0.0216 | 0.0309 | 0.0416 | 0.0648 | 0.0920 | 0.1193 | 0.1396 | 0.1536 | 0.1698 | 0.1870 | 0.1896 | 0.0986 |
+| batch | **Mean** | 0.0106 | 0.0209 | 0.0315 | 0.0488 | 0.0790 | 0.1087 | 0.1326 | 0.1526 | 0.1590 | 0.1763 | 0.1988 | 0.2147 | 0.1074 |
+| sequence | run_27 | 0.0177 | 0.0283 | 0.0371 | 0.0347 | 0.0588 | 0.0896 | 0.0992 | 0.1147 | 0.1234 | 0.1626 | 0.1772 | 0.1982 | 0.0905 |
+| sequence | run_28 | 0.0170 | 0.0308 | 0.0325 | 0.0364 | 0.0579 | 0.0880 | 0.1161 | 0.1256 | 0.1349 | 0.1527 | 0.1603 | 0.1821 | 0.0912 |
+| sequence | **Mean** | 0.0173 | 0.0295 | 0.0348 | 0.0355 | 0.0584 | 0.0888 | 0.1077 | 0.1202 | 0.1292 | 0.1577 | 0.1687 | 0.1901 | 0.0909 |
+
+Kept: **batch** (run_25 and run_26), the highest value at iteration 6000 (0.2147 against 0.1901 for sequence), also the highest mean over all the evaluations (0.1074 against 0.0909). The experiment over the 7 stages keeps a learning rate of 1e-3, the balanced class weighting, a bidirectional single layer LSTM, the max pooling of the frames and the batch normalization.
+
+- The normalization of every sequence by its own frames learns faster up to iteration 1500 (0.0348 against 0.0315), both its launches rising together, but stays behind from iteration 2000 to the end.
+- It is far slower: its two launches took 7 hours 20 minutes side by side against about 3 hours 25 minutes for a batch normalization pair, each using 14.6 Gigabytes of GPU memory against about 9.
+
+### Stage 8: Pretraining (4 new launches, 6000 iterations)
+
+The settings kept by the 7 stages, with the backbone loaded from the averaged weights at iteration 10000 of the multi-label shape classifier (`classification/configuration_synthetic_counted_shapes.yaml`, the same backbone trained on recognising the 35 shapes of frames drawn like these, test Macro F1 0.718, the triangle, parallelogram, rhombus, kite and trapezoid with their hollow versions not learned), compared with the launches trained from scratch (run_25 and run_26): fine-tuned at the learning rate of the other components (`fine_tuned`, run_29 and run_30) and fine-tuned ten times slower (`fine_tuned_slow`, `Backbone.pretrained.learning_rate_multiplier` 0.1, run_31 and run_32). A frozen backbone was dropped by the user to save a pair.
