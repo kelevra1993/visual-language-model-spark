@@ -257,3 +257,20 @@ Kept: **1e-3** (run_29 and run_30), the highest value at iteration 4000 (0.7149 
 
 - 2e-3 starts close to 1e-3 (0.4762 against 0.5096 at iteration 1000) but its launches spread apart (0.6152 and 0.7024 at iteration 4000) and stay behind.
 - The smaller learning rates, ten and five times lower, learn far slower with the pretrained backbone too, 1e-4 reaching at iteration 4000 less than half of 1e-3.
+
+### Stage 10: Class Weighting, Pretrained (2 new launches, 6000 iterations)
+
+The settings kept by stage 9, with the class weighting changed. The reference balanced is run_29 and run_30 (stage 8). The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `class_weighting` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| balanced | run_29 | 0.3102 | 0.5104 | 0.5708 | 0.6117 | 0.6382 | 0.6632 | 0.6883 | 0.7038 | 0.7195 | 0.7295 | 0.7406 | 0.7444 | 0.6195 |
+| balanced | run_30 | 0.3221 | 0.5087 | 0.5898 | 0.6275 | 0.6658 | 0.6910 | 0.7114 | 0.7261 | 0.7348 | 0.7432 | 0.7419 | 0.7491 | 0.6337 |
+| balanced | **Mean** | 0.3162 | 0.5096 | 0.5803 | 0.6196 | 0.6520 | 0.6771 | 0.6998 | 0.7149 | 0.7271 | 0.7364 | 0.7413 | 0.7467 | 0.6266 |
+| none | run_39 | 0.0090 | 0.1506 | 0.2160 | 0.3025 | 0.4151 | 0.4655 | 0.5203 | 0.5388 | 0.5408 | 0.5397 | 0.5503 | 0.5550 | 0.3896 |
+| none | run_40 | 0.0090 | 0.0508 | 0.1054 | 0.1433 | 0.1682 | 0.1915 | 0.1974 | 0.2183 | 0.2339 | 0.2400 | 0.2581 | 0.2638 | 0.1687 |
+| none | **Mean** | 0.0090 | 0.1007 | 0.1607 | 0.2229 | 0.2916 | 0.3285 | 0.3588 | 0.3785 | 0.3873 | 0.3898 | 0.4042 | 0.4094 | 0.2791 |
+
+Kept: **balanced** (run_29 and run_30), the highest value at iteration 6000 (0.7467 against 0.4094 for none), also the highest mean over all the evaluations (0.6266 against 0.2791).
+
+- Without class weighting, the far more frequent frames without change dominate the loss: the two launches learn slower and spread apart (0.5550 and 0.2638 at iteration 6000), as in stage 2 from scratch (0.0233 against 0.1207 for balanced).
