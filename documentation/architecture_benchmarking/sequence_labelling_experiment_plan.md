@@ -311,3 +311,24 @@ The settings kept by stage 11, with the number of layers of the LSTM changed. Th
 Kept: **2** (run_47 and run_48), the highest value at iteration 6000 (0.7565 against 0.7467 for 1), also the highest mean over all the evaluations (0.6607 against 0.6266), the first change of a kept setting in the pretrained rerun.
 
 - From scratch the second layer halved the score (0.0891 against 0.1936 in stage 5); with the pretrained backbone it is ahead from iteration 1000 to the end, both launches agreeing (0.7564 and 0.7567), but it levels off from iteration 4500.
+
+### Stage 13: Frame Pooling, Pretrained (2 new launches, 6000 iterations)
+
+The settings kept by stage 12 (two LSTM layers), with the frame pooling changed. The reference max is run_47 and run_48 (stage 12). The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `global_pooling` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| max | run_47 | 0.3281 | 0.5702 | 0.6326 | 0.6896 | 0.7319 | 0.7410 | 0.7501 | 0.7541 | 0.7553 | 0.7569 | 0.7594 | 0.7564 | 0.6675 |
+| max | run_48 | 0.3125 | 0.5541 | 0.6041 | 0.6484 | 0.6990 | 0.7256 | 0.7459 | 0.7487 | 0.7546 | 0.7517 | 0.7538 | 0.7567 | 0.6540 |
+| max | **Mean** | 0.3203 | 0.5621 | 0.6183 | 0.6690 | 0.7155 | 0.7333 | 0.7480 | 0.7514 | 0.7549 | 0.7543 | 0.7566 | 0.7565 | 0.6607 |
+| flatten | run_49 | 0.1876 | 0.5293 | 0.6202 | 0.6802 | 0.7266 | 0.7437 | 0.7459 | 0.7538 | 0.7591 | 0.7542 | 0.7569 | 0.7562 | 0.6519 |
+| flatten | run_50 | 0.1652 | 0.4886 | 0.5706 | 0.6398 | 0.7000 | 0.7365 | 0.7495 | 0.7531 | 0.7555 | 0.7570 | 0.7598 | 0.7607 | 0.6381 |
+| flatten | **Mean** | 0.1764 | 0.5089 | 0.5954 | 0.6600 | 0.7133 | 0.7401 | 0.7477 | 0.7535 | 0.7573 | 0.7556 | 0.7584 | 0.7584 | 0.6450 |
+
+Kept: **flatten** (run_49 and run_50), the highest value at iteration 6000 (0.7584 against 0.7565 for max), while max keeps the highest mean over all the evaluations (0.6607 against 0.6450).
+
+- The gap at iteration 6000 (0.0019) is smaller than the gap between the two launches of flatten (0.7562 and 0.7607): both poolings end level, flatten starting slower (0.1764 against 0.3203 at iteration 500) and catching up from iteration 3000.
+
+## Outcome of the Pretrained Rerun
+
+The settings kept after stage 13: learning rate 1e-3, balanced class weighting, bidirectional LSTM of two layers, flatten frame pooling, batch normalization, and the backbone of the multi-label shape classifier fine-tuned at the learning rate of the other components, with a test Macro F1 of the averaged weights of 0.7584 at iteration 6000 (run_49 and run_50), against 0.7467 for the settings kept by stage 8 and 0.2147 from scratch. Only the number of layers and the frame pooling changed, by 0.0098 and 0.0019, the other compared settings ending at most 0.005 behind (gru, transformer) or far behind (the smaller learning rates, no class weighting). The 10 shapes the pretrained classifier does not separate (triangle, parallelogram, rhombus, kite, trapezoid and their hollow versions) keep bounding the score, so a better pretrained backbone is the next lever rather than the settings of the sequence labeller.
