@@ -2,7 +2,9 @@
 Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, instance segmentation,
 classification, semantic segmentation, sequence classification, sequence labelling, sequence comparison, frame
 selection and self-supervised datasets are valid, load with the datasets of the framework and follow their labels,
-the objects hidden by later ones being left out of the detection and instance segmentation labels. The shapes stay
+the objects hidden by later ones being left out of the detection and instance segmentation labels. The hard object
+detection images draw log-uniform sizes from the largest shape, keep their small shapes half visible, draw low contrast
+colours in their range and textured backgrounds within their amplitude, and their dataset loads. The shapes stay
 inside their square, keep the geometry that tells their class apart from the neighbouring classes (rhombus and square,
 parallelogram and rectangle, trapezoid and triangle, kite and rhombus, annulus and circle), every hollow shape is its
 filled shape with one hole cut inside it, and the shapes whose class is the label get the minimum size.
@@ -27,7 +29,11 @@ from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATE
                                                                      HOLLOW_CLASS_NAMES, HOLLOW_DISTRACTOR_SHAPE_NAMES,
                                                                      HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
                                                                      HOLLOW_MINIMUM_SIZE,
-                                                                     HOLLOW_SHAPE_NAMES, KEYPOINT_CATEGORIES,
+                                                                     HOLLOW_SHAPE_NAMES,
+                                                                     HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE,
+                                                                     HARD_OBJECTS_MAXIMUM_SIZE_FRACTION,
+                                                                     HARD_OBJECTS_MINIMUM_OBJECTS,
+                                                                     HARD_OBJECTS_MINIMUM_SIZE, KEYPOINT_CATEGORIES,
                                                                      KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_NAMES,
                                                                      KITE_UPPER_RATIO_RANGE,
                                                                      KITE_WIDTH_RATIO_RANGE,
@@ -41,13 +47,14 @@ from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATE
                                                                      RHOMBUS_DIAGONAL_RATIO_RANGE,
                                                                      SELECTION_CATEGORIES, SHAPE_CATEGORIES,
                                                                      SHAPE_COUNT_CATEGORIES,
-                                                                     SHAPE_DRAWING_FUNCTIONS,
+                                                                     SHAPE_DRAWING_FUNCTIONS, TEXTURE_AMPLITUDE,
                                                                      TRAPEZOID_TOP_RATIO_RANGE,
                                                                      build_kite_vertices,
                                                                      build_parallelogram_vertices,
                                                                      build_rhombus_vertices,
                                                                      build_trapezoid_vertices,
                                                                      create_synthetic_dataset, draw_annulus_mask,
+                                                                     draw_background, draw_contrasting_colour,
                                                                      draw_hollow_mask, draw_shape_descriptor,
                                                                      draw_shapes_frame,
                                                                      generate_counted_shapes_image,
@@ -631,6 +638,148 @@ def test_covered_objects_are_left_out_of_the_labels() -> None:
                                                                     keep_visible_parts=True)
     assert instance_objects == [(2, [0, 20, 10, 40]), (3, [0, 0, 30, 40])]
     assert np.array_equal(decode_run_length_encoding(segmentation=instance_segmentations[0]), instance_map == 2)
+
+
+def test_hard_images_draw_log_uniform_sizes_from_the_largest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that a hard object detection image draws HARD_OBJECTS_MINIMUM_OBJECTS to maximum_objects shapes of one
+    size each, from HARD_OBJECTS_MINIMUM_SIZE pixels to HARD_OBJECTS_MAXIMUM_SIZE_FRACTION of the image side, from the
+    largest to the smallest so that the small shapes lie over the large ones, and log-uniform: about half of the shapes
+    fall below the geometric mean of the size range, where a uniform draw in pixels would put about a fifth.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the shape descriptors drawn.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    maximum_size = int(HARD_OBJECTS_MAXIMUM_SIZE_FRACTION * IMAGE_SIZE)
+    all_sizes = []
+
+    # Every image draws its shapes with a fixed size each, in decreasing order
+    for _ in range(100):
+        shape_descriptor_recorder = CallRecorder(function=synthetic_dataset_module.draw_shape_descriptor)
+        monkeypatch.setattr(target=synthetic_dataset_module, name="draw_shape_descriptor",
+                            value=shape_descriptor_recorder)
+        generate_image(image_size=IMAGE_SIZE, maximum_objects=12, random_generator=random_generator,
+                       hard_objects=True)
+        sizes = [call["minimum_size"] for call in shape_descriptor_recorder.calls]
+        assert all(call["minimum_size"] == call["maximum_size"] for call in shape_descriptor_recorder.calls)
+        assert HARD_OBJECTS_MINIMUM_OBJECTS <= len(sizes) <= 12 and sizes == sorted(sizes, reverse=True)
+        assert all(HARD_OBJECTS_MINIMUM_SIZE <= size <= maximum_size for size in sizes)
+        all_sizes.extend(sizes)
+
+    # Log-uniform sizes: half of them below the geometric mean of the range
+    geometric_mean = np.sqrt(HARD_OBJECTS_MINIMUM_SIZE * maximum_size)
+    assert 0.4 < np.mean(np.array(all_sizes) < geometric_mean) < 0.6
+
+
+def test_hard_images_keep_small_shapes_half_visible() -> None:
+    """
+    Verifies that the objects of a hard image stay in the labels with half of the pixels of their whole shape visible
+    when that is below MINIMUM_VISIBLE_OBJECT_PIXELS (a small shape), and with MINIMUM_VISIBLE_OBJECT_PIXELS visible
+    pixels otherwise (a large shape partly covered by others), and are left out below that.
+    """
+    # Small shapes of 40 pixels with 20 and 19 visible pixels, large shapes of 1000 pixels with 64 and 63 visible
+    instance_map = np.zeros(shape=(64, 64), dtype=np.uint16)
+    instance_map.reshape(-1)[0:20] = 1
+    instance_map.reshape(-1)[100:119] = 2
+    instance_map.reshape(-1)[200:264] = 3
+    instance_map.reshape(-1)[300:363] = 4
+    objects = [(1, [0, 0, 20, 1]), (2, [36, 1, 55, 2]), (3, [8, 3, 9, 4]), (4, [44, 4, 45, 5])]
+
+    kept_objects, _ = keep_visible_objects(objects=objects, instance_map=instance_map, keep_visible_parts=False,
+                                           object_pixel_counts=[40, 40, 1000, 1000])
+    assert [category_identifier for category_identifier, _ in kept_objects] == [1, 3]
+
+
+@pytest.mark.parametrize(argnames="background_value", argvalues=[0, 128, 255])
+def test_low_contrast_colours_stay_in_their_range(background_value: int) -> None:
+    """
+    Verifies that a low contrast colour of a hard image differs from the background by
+    HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE on its most different channel, also against a black or white
+    background where the offsets are clipped.
+
+    Args:
+        background_value (int): The value of every channel of the background colour.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    background_colour = np.full(shape=3, fill_value=background_value, dtype=np.uint8)
+    minimum_difference, maximum_difference = HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE
+
+    for _ in range(200):
+        colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator,
+                                         low_contrast_range=HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE)
+        difference = np.abs(colour.astype(np.int64) - background_colour.astype(np.int64)).max()
+        assert minimum_difference <= difference <= maximum_difference
+
+
+def test_textured_backgrounds_change_the_colour_by_the_texture_amplitude() -> None:
+    """
+    Verifies that a textured background varies across the image around its background colour by at most
+    TEXTURE_AMPLITUDE levels (a gradient, smooth noise or clutter lines), while a flat background keeps one colour.
+    """
+    random_generator = np.random.default_rng(seed=0)
+
+    for _ in range(30):
+        image, background_colour = draw_background(image_size=IMAGE_SIZE, random_generator=random_generator,
+                                                   textured=True)
+        difference = np.abs(image.astype(np.int64) - background_colour.astype(np.int64)[None, None, :])
+        assert difference.max() <= TEXTURE_AMPLITUDE + 1
+        assert len(np.unique(image.reshape(-1, 3), axis=0)) > 1 or background_colour.max() == 0
+    flat_image, flat_colour = draw_background(image_size=IMAGE_SIZE, random_generator=random_generator)
+    assert np.all(flat_image == flat_colour[None, None, :])
+
+
+def test_created_hard_detection_dataset_holds_small_large_and_cut_objects(tmp_path: Path) -> None:
+    """
+    Verifies the hard object detection mode of the generator: the COCO labels hold 5 to 12 objects per image on
+    average, boxes inside the images down to small shapes and up to large ones, some cut by the image border, and the
+    detection dataset of the framework loads them.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE, split_sizes={"train": 12},
+                             maximum_objects=12, minimum_frames=1, maximum_frames=1, number_workers=2,
+                             task="object_detection", hard_objects=True)
+
+    # Objects per image, box sizes and boxes reaching the image border
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    objects_per_image = np.bincount([annotation["image_id"] for annotation in labels["annotations"]],
+                                    minlength=13)[1:]
+    assert objects_per_image.max() <= 12 and objects_per_image.mean() >= HARD_OBJECTS_MINIMUM_OBJECTS
+    long_sides = [max(annotation["bbox"][2:]) for annotation in labels["annotations"]]
+    assert min(long_sides) < 32 and max(long_sides) > IMAGE_SIZE // 3
+    for annotation in labels["annotations"]:
+        x, y, width, height = annotation["bbox"]
+        assert width > 0 and height > 0 and x >= 0 and y >= 0
+        assert x + width <= IMAGE_SIZE and y + height <= IMAGE_SIZE
+    assert any(x == 0 or y == 0 or x + width == IMAGE_SIZE or y + height == IMAGE_SIZE
+               for x, y, width, height in (annotation["bbox"] for annotation in labels["annotations"]))
+
+    # The detection dataset loads every image with its objects, its images being shuffled
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    label_dictionary = {int(raw_identifier): model_identifier for raw_identifier, model_identifier in
+                        label_mapping.items()}
+    label_dictionary["background"] = 0
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "train" / "data"),
+                                   labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                   keep_ratio=True, label_mode="multi_class", label_dictionary=label_dictionary)
+    samples = [dataset[index] for index in range(len(dataset))]
+    assert all(sample["bounding_boxes"].shape[0] == objects_per_image[sample["sample_identifiers"] - 1]
+               for sample in samples)
+
+
+def test_hard_objects_are_refused_for_another_task(tmp_path: Path) -> None:
+    """
+    Verifies that the hard images are only drawn for the object detection, whose labels keep the box of every object.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    with pytest.raises(expected_exception=ValueError, match="hard_objects only draws object detection images"):
+        create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE, split_sizes={"train": 2},
+                                 maximum_objects=6, minimum_frames=1, maximum_frames=1, number_workers=1,
+                                 task="instance_segmentation", hard_objects=True)
 
 
 def test_created_instance_segmentation_dataset_encodes_the_visible_parts(tmp_path: Path) -> None:
