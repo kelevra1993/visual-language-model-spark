@@ -172,7 +172,7 @@ Every `information_dump` iterations, it prints the averages of the interval: the
   <img src="README/interval_summary.png" width="100%" />
 </p>
 
-Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt`: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first.
+Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt`: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first, followed by the recall of every class with its 95% confidence interval, worst recall first (the bounds are also written to `class_metrics.csv`).
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />

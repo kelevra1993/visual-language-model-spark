@@ -49,9 +49,10 @@ def check_class_metrics_file(evaluation_folder: Path, class_names: List[str], nu
                              additional_target_precisions: Optional[List[float]] = None) -> List[Dict[str, str]]:
     """
     Verifies the per-class metrics file of a classification-like evaluation: one row per class in class index order,
-    with the columns of the report (the ROC AUC and average precision with the per-class report, the threshold and
-    recall of every target precision), the samples of the classes summing to the evaluated samples (or labelled
-    frames).
+    with the columns of the report (the bounds of the recall interval, the ROC AUC and average precision with the
+    per-class report, the threshold and recall of every target precision), the samples of the classes summing to the
+    evaluated samples (or labelled frames), and the recall of every class with samples within its interval, inside
+    [0, 1], a class without samples having no interval.
 
     Args:
         evaluation_folder (Path): The evaluation folder of the checkpoint.
@@ -73,9 +74,19 @@ def check_class_metrics_file(evaluation_folder: Path, class_names: List[str], nu
     additional_threshold_columns = [f"{column_kind}_at_precision_{target_precision:g}"
                                     for target_precision in additional_target_precisions or []
                                     for column_kind in ["threshold", "recall"]]
-    assert list(rows[0]) == ["class_index", "class", "samples", "precision", "recall", "f1"] + curve_columns + [
-        "threshold_at_target_precision", "recall_at_target_precision"] + additional_threshold_columns
+    assert list(rows[0]) == ["class_index", "class", "samples", "precision", "recall", "recall_lower", "recall_upper",
+                             "f1"] + curve_columns + ["threshold_at_target_precision",
+                                                      "recall_at_target_precision"] + additional_threshold_columns
     assert sum(int(row["samples"]) for row in rows) == number_samples
+
+    # Recall interval of every class: around the recall within [0, 1] (to the 6 decimals of the file), empty without
+    # samples
+    for row in rows:
+        if int(row["samples"]) == 0:
+            assert row["recall_lower"] == "" and row["recall_upper"] == ""
+        else:
+            assert 0.0 <= float(row["recall_lower"]) <= float(row["recall"]) + 1e-6
+            assert float(row["recall"]) - 1e-6 <= float(row["recall_upper"]) <= 1.0
     return rows
 
 

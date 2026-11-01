@@ -294,10 +294,12 @@ class KeypointTrainer(CocoSplitTrainer):
                                                               evaluation_folder=evaluation_folder,
                                                               file_name=KEYPOINT_METRICS_FILE_NAME)}
 
-        # Tables of the methods, object sizes and recalls first, then the per-class and per-keypoint tables
+        # Tables of the methods, object sizes and recalls first, then the per-class (with the per-class recall) and
+        # per-keypoint tables
         tables = [average_precision_summary["tables"]["methods"], average_precision_summary["tables"]["sizes"],
                   average_precision_summary["tables"]["recalls"], average_precision_summary["tables"]["classes"],
-                  accuracy_summary["tables"]["classes"], accuracy_summary["tables"]["keypoints"]]
+                  average_precision_summary["tables"]["class_recalls"], accuracy_summary["tables"]["classes"],
+                  accuracy_summary["tables"]["keypoints"]]
         return {"evaluated_samples": f"{len(accumulator['images'])} Test {self.SAMPLE_NAME}",
                 "metrics": accuracy_summary["metrics"], "notes": [], "tables": tables,
                 "scalars": {**average_precision_summary["scalars"], **accuracy_summary["scalars"]},

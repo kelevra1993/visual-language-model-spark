@@ -180,12 +180,14 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     with open(file=evaluation_folder / "class_metrics.csv", mode="r", newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
     assert list(class_rows[0]) == ["class_index", "class", "pixels", "iou", "dice", "boundary_iou", "boundary_f1",
-                                   "precision", "recall", "roc_auc", "average_precision"]
+                                   "precision", "recall", "recall_lower", "recall_upper", "roc_auc",
+                                   "average_precision"]
     assert [row["class"] for row in class_rows] == trainer.class_names
     assert sum(int(row["pixels"]) for row in class_rows) == NUMBER_TEST_IMAGES * SMOKE_IMAGE_SIZE * SMOKE_IMAGE_SIZE
     assert all(row["iou"] == "" for row in class_rows if row["pixels"] == "0")
     assert len(results["class_scalars"]) == sum(value != "" for row in class_rows for key, value in row.items()
-                                                if key not in ["class_index", "class", "pixels"])
+                                                if key not in ["class_index", "class", "pixels", "recall_lower",
+                                                               "recall_upper"])
 
     # Predicted mask of every test image, a single-channel image of class indices at the network resolution
     predicted_mask_paths = sorted((evaluation_folder / "Predicted_Masks").iterdir())

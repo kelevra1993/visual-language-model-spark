@@ -106,6 +106,7 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 
 **Evaluation**
 - Accuracy, balanced accuracy, macro F1 and top-5 accuracy (multi-label: subset accuracy, micro and macro F1), and the precision, recall and F1 of every class.
+- The 95% confidence interval of the recall of every class, exact (Clopper-Pearson) over its evaluated samples (its positive samples in multi-label mode): `recall_lower` and `recall_upper` after `recall` in `class_metrics.csv`, and with `per_class_report` a `Per Class Recall` table after the per-class table, worst recall first.
 - `class_thresholds.json`: the score threshold of every class reaching `target_precision`, with its recall, the lowest threshold keeping that precision (the highest recall). With a list of precisions such as `[0.99, 0.95, 0.90]`, the first one is the main target (`target_precision` and `classes`, read by the deployment) and the others are in `additional_targets`, with their `threshold_at_precision_<p>` and `recall_at_precision_<p>` columns in `class_metrics.csv`. The per-class table of the report keeps the main target, and a `Per Class Thresholds` table gives the threshold and recall of every class at every target (with `per_class_report`).
 - With `per_class_report`: the ROC AUC and average precision of every class, their means `Macro ROC AUC` and `Macro Average Precision`, and `roc_curves.png` and `precision_recall_curves.png`, with a dotted line per target precision and a point at the threshold of every class. The curves share one plot up to 10 classes, then a grid of panels, keeping the 100 worst classes above 100. `precision_recall_thresholds.png` zooms on these points and writes every threshold in the colour of its curve, rounded down to the fewest decimals (at least 4, at most 9 significant digits) selecting the same samples as the exact threshold, so that a threshold can be chosen from the image.
 - `predictions.csv` gives the probabilities with 9 significant digits, enough to find the thresholds of `class_thresholds.json` again.
@@ -153,6 +154,7 @@ DetectionLevels:
 - **mAP** at IoU 0.5, 0.75, 0.95 and 0.5:0.95, with the area, 11-point and 101-point methods, and the AP@0.5 of every class. The detections below `evaluation.score_threshold` are ignored.
 - **By object size**: small (below 32²), medium (32² to 96²) and large objects, by box area in network input pixels as in COCO, also per class in `class_metrics.csv` (`average_precision_50_<size>`, `average_precision_50_95_<size>`).
 - **Mean average recall**: the share of the objects found by any kept detection, per IoU and size. It separates the objects never found from those found with a low score.
+- **Per-class recall**: the share of the ground truths of every class matched by a kept detection at IoU 0.5 and 0.75, whatever its score, with its exact (Clopper-Pearson) 95% confidence interval over the ground truths, in `class_metrics.csv` (`recall_50`, `recall_50_lower`, `recall_50_upper`, `recall_75`, `recall_75_lower`, `recall_75_upper`) and, with `per_class_report`, in a `Per Class Recall` table after the per-class table, worst recall first.
 - **Anchor recall**, at every launch (`anchor_recall.csv`): the share of the training objects whose best anchor overlaps them by at least `RegionProposal.foreground_iou_threshold.min`, per level and size.
 - **Proposal recall**, at every evaluation (`proposal_recall.csv`): the share of the test objects covered by a proposal at IoU 0.5 and 0.7, per size and level, with the proposals per image.
 - **Class thresholds**: `class_thresholds.json` gives the score threshold of every class reaching `target_precision`.
@@ -185,7 +187,7 @@ The detector of DET with one mask head per detection level, as in Mask R-CNN ([H
 **Evaluation**
 - The mask mAP and the box mAP of the same detections. `Mask mAP@0.5/area` compares the checkpoints. The box metrics keep the names of DET, so INS and DET runs compare; the mask columns of `class_metrics.csv` start with `mask_`.
 - The masks are compared at the network resolution or, with `evaluation.original_resolution`, at the original resolution of every test image as COCO does.
-- The size tables, mean average recall, thresholds, confusion matrix and error images are those of DET, given for the masks and the boxes, the detections being matched by their masks. The mask tags are `Mask mAP@0.5 By Size/<size>` and `Mask mAR@0.5/<all or size>`.
+- The size tables, mean average recall, per-class recall, thresholds, confusion matrix and error images are those of DET, given for the masks and the boxes (`Mask Per Class Recall` and `Box Per Class Recall`), the detections being matched by their masks. The mask tags are `Mask mAP@0.5 By Size/<size>` and `Mask mAR@0.5/<all or size>`.
 
 ## Keypoint Detection (KPT)
 A bottom-up keypoint detector, as in HigherHRNet ([Cheng et al., 2020](https://arxiv.org/abs/1908.10357)): it finds the keypoints of all the objects of an image at once, and groups them into objects with the tags of associative embedding ([Newell et al., 2017](https://arxiv.org/abs/1611.05424)). It needs no box.
@@ -251,7 +253,7 @@ KeypointHead:
 OKS = Σ exp(-d² / (2 s² k²)) δ(v > 0) / Σ δ(v > 0)
 
 d is the distance to the ground truth keypoint, s² the ground truth box area, k = 2 x sigma, over the labelled keypoints. The sigma of a keypoint is `evaluation.keypoint_sigmas.<category>.<keypoint>`, or `default_keypoint_sigma` (0.05); a loosely placed keypoint (a hip) deserves a larger one than a sharp corner.
-- **OKS mAP**, by size and per class, and the OKS mean average recall, as the box metrics of DET. `OKS mAP@0.5/area` compares the checkpoints.
+- **OKS mAP**, by size and per class, the OKS mean average recall, and the OKS recall of every class with its confidence interval (`oks_recall_50` to `oks_recall_75_upper`, `OKS Per Class Recall` table), as the box metrics of DET. `OKS mAP@0.5/area` compares the checkpoints.
 - **Matched Objects**: the share of the ground truth objects matched to an object found.
 - **PCK@0.05**: the share of the labelled keypoints within 0.05 of the longest box side of their object.
 - **Mean OKS** of the ground truth objects, and **mean keypoint error** in network input pixels.
@@ -288,6 +290,7 @@ A U-Net whose encoder is the backbone, the decoder merging the skip connection o
 
 **Evaluation**
 - Mean IoU, mean Dice, mean boundary IoU and boundary F1, pixel accuracy and frequency weighted IoU, and the per-class metrics.
+- The 95% confidence interval of the pixel recall of every class, a Korn-Graubard interval, the pixels of an image being correlated (exact at the effective sample size of the variance of 1000 bootstrap resamples of the test images, fixed seed, or over the images holding the class when they all have the same recall): `recall_lower` and `recall_upper` after `recall` in `class_metrics.csv`, and with `per_class_report` a `Per Class Recall` table after the per-class table, worst recall first.
 - The boundary metrics only score the pixels within `boundary_tolerance` pixels of the contours, where the IoU hardly sees an error.
 - With `per_class_report`: the ROC AUC and average precision of every class, from histograms of the pixel probabilities, and their curves.
 - With `original_resolution: True`, the predictions are brought back to the original size of every test image and compared with its original mask, as the deployed output is used.
@@ -321,7 +324,7 @@ Predicts one class per frame (many to many). With `TemporalModel.causal: True` (
 ```
 
 - **Configuration**: the keys of M2O, with the temporal types `gru`, `lstm`, `transformer` and `temporal_convolution` only.
-- **Evaluation**: the metrics of CLS on the frames, the sequence exact match (every frame right), and two segment metrics, a segment being a run of frames of one class:
+- **Evaluation**: the metrics of CLS on the frames (the interval of the recall of every class being a Korn-Graubard interval, the frames of a sequence being correlated: exact at the effective sample size of the variance of 1000 bootstrap resamples of the test sequences, fixed seed, or over the sequences holding the class when they all have the same recall), the sequence exact match (every frame right), and two segment metrics, a segment being a run of frames of one class:
   - **Edit Score**: 1 minus the segments to insert, remove or replace to turn the predicted order of segments into the true one, divided by the larger number of segments. It is low when the prediction is fragmented.
   - **Segment F1@10, @25 and @50**: a predicted segment is right when it overlaps an unmatched true segment of its class by at least 10, 25 or 50 % IoU.
 
@@ -359,6 +362,7 @@ For example, with classes A and B and three frames of probabilities (A, B, unsel
 
 **Evaluation**
 - `Hungarian Selection Accuracy` and `Greedy Selection Accuracy`: the share of the true frames chosen for their class, the one of `Selection.decoding` being the headline metric.
+- The 95% confidence interval of the selection accuracy of every wanted class with `Selection.decoding` (its recall), a Korn-Graubard interval (exact at the effective sample size of the variance of 1000 bootstrap resamples of the test sequences, fixed seed, or over the sequences holding the class when they all have the same accuracy): `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` after `<decoding>_accuracy` in `class_metrics.csv`, and with `per_class_report` a `Per Class Recall` table after the per-class table, worst accuracy first.
 - `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision` and `<Decoding> Unselected Recall`.
 - `Top-<k> Selection Accuracy` and `Mean True Frame Rank`: whether a wrong choice was a close one.
 - `Frame Accuracy`, `Frame Balanced Accuracy` and `Frame Macro F1`, before decoding.
@@ -405,6 +409,7 @@ The projection head only serves the training: the evaluated and exported represe
 
 **Evaluation**, without training any classifier:
 - `k-NN Accuracy` (headline), `k-NN Balanced Accuracy` and `k-NN Macro F1`: every labelled test image is classified by its `number_neighbours` nearest labelled test images. Every class needs several labelled test images.
+- The k-NN precision, recall and F1 of every class in `class_metrics.csv`, the recall with its exact (Clopper-Pearson) 95% confidence interval over the labelled test images of the class (`recall_lower`, `recall_upper`), and with `per_class_report` the `Per Class k-NN Metrics` and `Per Class k-NN Recall` tables.
 - `Effective Rank`: the number of directions the representations spread in, about 1 when they collapse; the headline metric of a test split without labels.
 - `Representation Standard Deviation`: its fall towards 0 shows a collapse (about 0.6 to 0.8 when the representations spread).
 

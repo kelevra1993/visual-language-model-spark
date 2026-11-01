@@ -43,6 +43,7 @@ def test_confusion_matrix_and_metrics_match_hand_computed_values() -> None:
     assert metrics["recall"] == pytest.approx(expected=[2 / 3, 1.0, 0.0])
     assert metrics["f1"] == pytest.approx(expected=[0.8, 2 / 3, 0.0])
     assert metrics["support"] == [3, 2, 1]
+    assert metrics["true_positives"] == [2, 2, 0]
     assert metrics["balanced_accuracy"] == pytest.approx(expected=(2 / 3 + 1.0 + 0.0) / 3)
     assert metrics["macro_f1"] == pytest.approx(expected=(0.8 + 2 / 3 + 0.0) / 3)
 
@@ -126,6 +127,7 @@ def test_multi_label_metrics() -> None:
     assert metrics["precision"] == pytest.approx(expected=[0.5, 1.0])
     assert metrics["recall"] == pytest.approx(expected=[1.0, 1.0])
     assert metrics["support"] == [1, 2]
+    assert metrics["true_positives"] == [1, 2]
     assert metrics["subset_accuracy"] == pytest.approx(expected=2 / 3)
     assert metrics["micro_f1"] == pytest.approx(expected=2 * 0.75 * 1.0 / 1.75)
     assert metrics["macro_f1"] == pytest.approx(expected=(2 / 3 + 1.0) / 2)

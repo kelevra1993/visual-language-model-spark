@@ -38,10 +38,10 @@ ExperimentConfiguration:
   # Test evaluation at every weight_saving_iterations checkpoint: accuracy, balanced accuracy, macro F1, top-k accuracy,
   # per-class metrics, confusion matrix and class thresholds in Evaluation/Iteration_<n>/.
   evaluation:
-    # Reports every class: the per-class table (worst F1 first) in the console and Results.txt, per-class scalars in
-    # TensorBoard, confusion_matrix.png (multi-class), the ROC and precision-recall curves and
-    # temperature_explorer.html. False keeps the global metrics only (e.g. 1000 classes); class_metrics.csv,
-    # class_thresholds.json and confusion_matrix.csv are always saved.
+    # Reports every class: the per-class table (worst F1 first) and the recall table (worst recall first, with its 95%
+    # interval) in the console and Results.txt, per-class scalars in TensorBoard, confusion_matrix.png (multi-class),
+    # the ROC and precision-recall curves and temperature_explorer.html. False keeps the global metrics only (e.g. 1000
+    # classes); class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
     per_class_report: True
     # Test images drawn once and shown at every evaluation, captioned with true and predicted classes and probabilities,
     # green when right, red when wrong, saved in Evaluation/Iteration_<n>/Samples/ and TensorBoard, spread over the

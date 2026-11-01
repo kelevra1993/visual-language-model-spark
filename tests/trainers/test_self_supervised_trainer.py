@@ -170,7 +170,8 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     with open(file=evaluation_folder / "class_metrics.csv", mode="r", newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
     assert [row["class"] for row in class_rows] == trainer.class_names
-    assert list(class_rows[0]) == ["class_index", "class", "samples", "precision", "recall", "f1"]
+    assert list(class_rows[0]) == ["class_index", "class", "samples", "precision", "recall", "recall_lower",
+                                   "recall_upper", "f1"]
     assert sum(int(row["samples"]) for row in class_rows) == 6
 
     # Every test image is a sample image (8 asked for 6 images), next to its two views below the caption bar, a long

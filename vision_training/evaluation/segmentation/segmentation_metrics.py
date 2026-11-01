@@ -3,13 +3,14 @@ Metrics of the semantic segmentation task, computed from the confusion matrix of
 columns predicted classes): the pixel accuracy, the IoU and Dice of every class with their means over the classes
 present or predicted, the frequency-weighted IoU, and the precision and recall of every class. Used by the segmentation
 trainer on every training and validation batch and on the whole test split of an evaluated checkpoint, which also
-counts, with the per-class report, the probabilities of the labelled pixels in histograms giving the ROC and
-precision-recall curves of every class (score_curves.py).
+counts the true positive and true pixels of every class in every test image for the Korn-Graubard interval of its recall
+(recall_intervals.py) and, with the per-class report, the probabilities of the labelled pixels in histograms giving the
+ROC and precision-recall curves of every class (score_curves.py).
 """
 
 import torch
 
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
@@ -37,6 +38,37 @@ def compute_pixel_confusion_matrix(class_maps: torch.Tensor, masks: torch.Tensor
     labelled_pixels = masks != IGNORED_LABEL_INDEX
     return compute_confusion_matrix(predicted_labels=class_maps[labelled_pixels], labels=masks[labelled_pixels],
                                     number_classes=number_classes)
+
+
+def compute_image_class_pixel_counts(class_maps: torch.Tensor, masks: torch.Tensor,
+                                     number_classes: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Counts, for every image of a batch and every class, its labelled pixels of the class and those of them predicted
+    as the class, on the device of the masks, the ignored pixels being left out as in the confusion matrix: the
+    segmentation trainer keeps these per-image counts for the Korn-Graubard interval of the pixel recall of every class,
+    which resamples whole test images so that the correlation of the pixels of an image widens the interval.
+
+    Args:
+        class_maps (torch.Tensor): The [B, H, W] predicted class index of every pixel.
+        masks (torch.Tensor): The [B, H, W] true class index of every pixel, IGNORED_LABEL_INDEX on the ignored ones.
+        number_classes (int): The number of classes K, background included.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The [B, K] int64 true positive pixels and true pixels of every image and
+            class.
+    """
+    # Index of the image and true class of every labelled pixel, so that one count covers every image and class
+    labelled_pixels = masks != IGNORED_LABEL_INDEX
+    image_indices = torch.arange(masks.shape[0], device=masks.device).view(-1, 1, 1).expand_as(masks)
+    image_class_indices = image_indices * number_classes + masks
+    number_cells = masks.shape[0] * number_classes
+
+    # True pixels of every image and class, and those predicted as their true class
+    true_pixels = torch.bincount(input=image_class_indices[labelled_pixels], minlength=number_cells)
+    found_pixels = labelled_pixels & (class_maps == masks)
+    true_positive_pixels = torch.bincount(input=image_class_indices[found_pixels], minlength=number_cells)
+    return (true_positive_pixels.view(masks.shape[0], number_classes),
+            true_pixels.view(masks.shape[0], number_classes))
 
 
 def compute_pixel_score_histograms(class_probabilities: torch.Tensor, masks: torch.Tensor,

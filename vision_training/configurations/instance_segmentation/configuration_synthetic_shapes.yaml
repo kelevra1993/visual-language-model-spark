@@ -45,7 +45,8 @@ ExperimentConfiguration:
   evaluation:
     # Reports every class: the mask and box class tables (ground truth objects, area method AP at IoU 0.5, 0.75, 0.95
     # and 0.5:0.95, worst AP@0.5 first, and in the mask table the threshold reaching target_precision with the recall it
-    # keeps) in the console and Results.txt, the Mask AP@0.5 and AP@0.5 Test scalars in TensorBoard, and
+    # keeps) and the mask and box recall tables (recall at IoU 0.5 and 0.75 with their 95% intervals, worst recall at
+    # 0.5 first) in the console and Results.txt, the Mask AP@0.5 and AP@0.5 Test scalars in TensorBoard, and
     # confusion_matrix.png (also in TensorBoard). False keeps the mean average precisions only; class_metrics.csv,
     # class_thresholds.json and confusion_matrix.csv are always saved.
     per_class_report: True

@@ -31,7 +31,8 @@ batch metrics: positive_pair_accuracy (or diagonal and off-diagonal correlations
    ─► TensorBoard Train every iteration, Validation every 5 (validation_iteration_ratio), console every 10
 every weight_saving_iterations: test images encoded without views ─► representations [50000, 128] kept on the CPU
    ─► leave-one-out k-NN of the labelled ones (20 neighbours, weights exp(cosine / 0.07)): k-NN Accuracy, Balanced
-      Accuracy, Macro F1, per class precision, recall, F1; Effective Rank, Representation Standard Deviation
+      Accuracy, Macro F1, per class precision, recall with its 95% interval, F1; Effective Rank, Representation
+      Standard Deviation
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (class_metrics.csv, Samples/)
 export: InferenceEncoder (image_encoder), images [B, 3, 256, 256] ─► representations [B, 128], L2-normalized
 transfer: Backbone.pretrained of any task loads the backbone; the projection head is dropped
@@ -48,7 +49,7 @@ transfer: Backbone.pretrained of any task loads the backbone; the projection hea
 | Model | `vision_training/models/self_supervised/self_supervised_model.py`, `vision_training/models/backbones/backbone.py`, `vision_training/models/classification/classification_head.py` | `SelfSupervisedModel` (`represent`, `encode`, `compute_method_loss`, `forward`), `build_backbone`, `build_global_pooling`, `compute_pooled_features` |
 | Head | `vision_training/models/self_supervised/projection_head.py`, `vision_training/models/components/fully_connected_block.py` | `ProjectionHead`, `print_projection_head_summary`, `build_fully_connected_block` |
 | Losses | `vision_training/losses/self_supervised_losses.py` | `compute_info_nce_loss`, `compute_barlow_twins_loss`, `compute_feature_cross_correlation`, `compute_embedding_standard_deviation` |
-| Metrics and evaluation | `vision_training/evaluation/self_supervised/representation_metrics.py`, `vision_training/evaluation/classification/`, `vision_training/evaluation/evaluation_report.py` | `compute_nearest_neighbour_predictions`, `compute_effective_rank`, `compute_confusion_matrix`, `compute_metrics_from_confusion_matrix`, `build_class_metrics_table`, `write_class_metrics_file` |
+| Metrics and evaluation | `vision_training/evaluation/self_supervised/representation_metrics.py`, `vision_training/evaluation/classification/`, `vision_training/evaluation/recall_intervals.py`, `vision_training/evaluation/evaluation_report.py` | `compute_nearest_neighbour_predictions`, `compute_effective_rank`, `compute_confusion_matrix`, `compute_metrics_from_confusion_matrix`, `build_class_metrics_table`, `compute_clopper_pearson_intervals`, `build_recall_interval_table`, `write_class_metrics_file` |
 | Configuration checks | `vision_training/configuration_processing/self_supervised_checks.py` | `check_self_supervised_configuration`, `check_projection_head_configuration`, `check_grouped_batches_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_self_supervised_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (this configuration), `build_shape_count_labels` (the counted shapes) |
@@ -93,8 +94,8 @@ A dataset generated now holds the 35 classes of `SHAPE_CATEGORIES` (a k-NN chanc
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `k-NN Accuracy` (the headline metric), `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank` and `Representation Standard Deviation`, the notes `Labelled Test Images : <l> of <N>` and `k-NN : 20 neighbours among the other labelled test images`, and with `per_class_report` the table `Per Class k-NN Metrics`, worst F1 first. A test split with fewer than two labelled images gives the two collapse metrics only, `Effective Rank` being then the headline metric.
-- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (`class_index,class,samples,precision,recall,f1`, whatever `per_class_report`, when the k-NN is computed) and `Samples/<sample>.png` (the test image and two views drawn from a seed of the image, side by side below a 24 pixel caption bar `<class> | Views Similarity <cosine>`); `EMA/` with the moving average of the weights. There is no confusion matrix, threshold, prediction file, curve nor error image.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `k-NN Accuracy` (the headline metric), `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank` and `Representation Standard Deviation`, the notes `Labelled Test Images : <l> of <N>` and `k-NN : 20 neighbours among the other labelled test images`, and with `per_class_report` the table `Per Class k-NN Metrics`, worst F1 first, then the table `Per Class k-NN Recall` (the recall of every class with its exact 95% confidence interval over its labelled test images), worst recall first. A test split with fewer than two labelled images gives the two collapse metrics only, `Effective Rank` being then the headline metric.
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (`class_index,class,samples,precision,recall,recall_lower,recall_upper,f1`, whatever `per_class_report`, when the k-NN is computed) and `Samples/<sample>.png` (the test image and two views drawn from a seed of the image, side by side below a 24 pixel caption bar `<class> | Views Similarity <cosine>`); `EMA/` with the moving average of the weights. There is no confusion matrix, threshold, prediction file, curve nor error image.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `InfoNCE Loss`, `Positive Pair Accuracy`, `Embedding Standard Deviation` (Barlow Twins: `Barlow Twins Loss`, `Diagonal Correlation`, `Off-Diagonal Correlation`, `Embedding Standard Deviation`), and `Learning Rate` in Train; `Tensorboard/Test`: the 5 global metrics, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>` with `per_class_report`, and the images `Samples/<sample>`.
 - `Weights/Iteration_<n>/model_<n>.pt` (e.g. `Weights/Iteration_250/model_000250.pt`): the whole model, projection head included, so that the training resumes; only the backbone initialises other runs.
 - With the MLflow tracking: `test/<metric>`, `test_class/k-NN <Metric>/<class>`, `test/best_k-NN Accuracy` with the tag `best_iteration`, and `class_metrics.csv` under `evaluation/iteration_<n>/`.
@@ -262,6 +263,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   └── compute_nearest_neighbour_results()  (with at least two labelled test images)
 │       ├── compute_nearest_neighbour_predictions()   leave-one-out weighted k-NN vote among the labelled images
 │       ├── compute_confusion_matrix() + compute_metrics_from_confusion_matrix()
+│       ├── compute_clopper_pearson_intervals()       exact 95% interval of the recall of every class
+│       ├── build_class_metrics_table() + build_recall_interval_table()   Per Class k-NN Metrics and Recall tables
 │       └── write_class_metrics_file()                class_metrics.csv
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
@@ -983,7 +986,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`. They were captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and the report shows a `Per Class k-NN Recall` table after `Per Class k-NN Metrics` (Step 4.11).
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The test images are encoded as they are, without views, as in deployment.
@@ -1053,7 +1056,7 @@ With 9 classes, chance is about 0.11.
 Classifies every labelled test image by its neighbours among the other labelled test images, then scores it like a classifier (in `vision_training/evaluation/self_supervised/representation_metrics.py`):
 - The representations are L2-normalized and compared by cosine similarity, in chunks of `SIMILARITY_CHUNK_SIZE` (1024) rows, the similarity of an image with itself being excluded (leave-one-out).
 - The k = min(20, N - 1) most similar images vote for their class with the weight exp(similarity / `NEAREST_NEIGHBOUR_TEMPERATURE`), the temperature being 0.07, the votes being summed per class (`scatter_add`); the class with the most votes is the prediction.
-- `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class; `write_class_metrics_file()` saves them in `class_metrics.csv`.
+- `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class; `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py` gives the exact (Clopper-Pearson) 95% confidence interval of every recall from the true positives and the labelled test images of the class, the images being independent (`classification_workflow.md`, Step 4.14); `write_class_metrics_file()` saves them in `class_metrics.csv`, the bounds as `recall_lower` and `recall_upper` after `recall`.
 
 **Example: image 0 of the test split at iteration 12** (label 6, plus_sign)
 ```text
@@ -1093,7 +1096,7 @@ p_1 = 9.2822 / 9.3237 = 0.99555   entropy = 0.0448   effective rank = exp(0.0448
 ```
 
 ### Step 4.11 — the per-class table and scalars
-The table "Per Class k-NN Metrics" lists the classes with their number of labelled test images, precision, recall and F1, the worst F1 first. Each class also gives three TensorBoard and MLflow scalars, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>`.
+The table "Per Class k-NN Metrics" lists the classes with their number of labelled test images, precision, recall and F1, the worst F1 first. The table "Per Class k-NN Recall" (`build_recall_interval_table()`) follows it: the number of labelled test images, the recall and the bounds of its interval (`95% Lower`, `95% Upper`) of every class, the worst recall first. Each class also gives three TensorBoard and MLflow scalars, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>`.
 
 **Example: `Evaluation/Iteration_12/class_metrics.csv` and the scalars of one class** (the table itself is in the block of Step 4.12)
 ```text
@@ -1164,7 +1167,7 @@ With the moving average of the weights on (`Optimization.exponential_moving_aver
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`). They were captured before the per-class recall intervals were added (2026-11-01), whose `Per Class k-NN Recall` table now follows `Per Class k-NN Metrics` in the labelled blocks.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5), configured by the variables of its main block and run with `uv run python -m scripts.evaluation.evaluate_checkpoint`: set `run_name` to the self-supervised run and `experiment_folder` to its run folder, `iteration` to `None` (the last checkpoint), an integer or `"all"`, and `test_data_folder` to another split if needed. The self-supervised configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the self-supervised evaluation saves no error image. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).

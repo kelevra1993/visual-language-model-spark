@@ -22,6 +22,7 @@ from vision_training.evaluation.classification.classification_metrics import (co
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
+from vision_training.evaluation.recall_intervals import build_recall_interval_table, compute_bootstrap_recall_intervals
 from vision_training.evaluation.sequence.frame_selection_metrics import (compute_ranking_metrics,
                                                                          compute_selection_metrics,
                                                                          find_selection_thresholds)
@@ -420,11 +421,13 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         """
         Decodes the test sequences with both decodings and organises the metrics for the report: for every decoding
         its selection accuracy, its share of fully right sequences and its unselected precision and recall; before
-        decoding the top-k selection accuracy and the mean rank of the true frames; and the per-frame accuracy,
-        balanced accuracy and macro F1 of the most probable class of every frame. The confidence thresholds of the
-        decoding of the run, the metrics of every wanted class, the decoded confusion matrix table and, when asked,
-        the selections of every sequence are saved in the evaluation folder of the checkpoint whatever the per-class
-        report; the confusion matrix image only with it, also logged to TensorBoard.
+        decoding the top-k selection accuracy and the mean rank of the true frames; the per-frame accuracy, balanced
+        accuracy and macro F1 of the most probable class of every frame; and the selection accuracy of every wanted
+        class with the decoding of the run with its Korn-Graubard interval over the test sequences, in the per-class
+        recall table and in class_metrics.csv. The confidence thresholds of the decoding of the run, the metrics of
+        every wanted class, the decoded confusion matrix table and, when asked, the selections of every sequence are
+        saved in the evaluation folder of the checkpoint whatever the per-class report; the confusion matrix image only
+        with it, also logged to TensorBoard.
 
         Args:
             accumulator (Dict[str, Any]): The probabilities, true classes and identifiers of the test sequences.
@@ -493,19 +496,30 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
             indent=4))
         files["Class Thresholds"] = thresholds_path
 
-        # Metrics of every wanted class, saved whatever the per-class report
+        # Korn-Graubard interval over the test sequences of the selection accuracy of every wanted class with the
+        # decoding of the run, the share of its true frames chosen for it (its recall), the frames of a sequence being
+        # chosen together
+        accuracy_lower_bounds, accuracy_upper_bounds = compute_bootstrap_recall_intervals(
+            group_true_positives=selection_metrics[self.decoding]["sequence_class_right_frames"],
+            group_trials=selection_metrics[self.decoding]["sequence_class_true_frames"])
+
+        # Metrics of every wanted class, saved whatever the per-class report, the selection accuracy of the decoding of
+        # the run followed by the bounds of its interval
         class_rows = []
         for wanted_index, class_index in enumerate(self.wanted_class_indices):
             class_threshold = class_thresholds[wanted_index]
-            class_rows.append({
-                "class_index": class_index, "class": self.class_names[class_index],
-                "true_frames": selection_metrics[self.decoding]["class_true_frames"][wanted_index],
-                "hungarian_accuracy": selection_metrics["hungarian"]["class_accuracies"][wanted_index],
-                "greedy_accuracy": selection_metrics["greedy"]["class_accuracies"][wanted_index],
-                "top_k_accuracy": ranking_metrics["class_top_k_accuracies"][wanted_index],
-                "mean_rank": ranking_metrics["class_mean_ranks"][wanted_index],
-                "threshold_at_target_precision": None if class_threshold is None else class_threshold[0],
-                "recall_at_target_precision": None if class_threshold is None else class_threshold[1]})
+            class_row = {"class_index": class_index, "class": self.class_names[class_index],
+                         "true_frames": selection_metrics[self.decoding]["class_true_frames"][wanted_index]}
+            for decoding in VALID_DECODINGS:
+                class_row[f"{decoding}_accuracy"] = selection_metrics[decoding]["class_accuracies"][wanted_index]
+                if decoding == self.decoding:
+                    class_row[f"{decoding}_accuracy_lower"] = accuracy_lower_bounds[wanted_index]
+                    class_row[f"{decoding}_accuracy_upper"] = accuracy_upper_bounds[wanted_index]
+            class_row.update({"top_k_accuracy": ranking_metrics["class_top_k_accuracies"][wanted_index],
+                              "mean_rank": ranking_metrics["class_mean_ranks"][wanted_index],
+                              "threshold_at_target_precision": None if class_threshold is None else class_threshold[0],
+                              "recall_at_target_precision": None if class_threshold is None else class_threshold[1]})
+            class_rows.append(class_row)
         files["Class Metrics"] = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
 
         # Confusion matrix of the decoded classes of the frames, the image only with the per-class report
@@ -547,9 +561,20 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                 if class_row[column_name] is not None:
                     class_scalars[f"{scalar_name}/{class_row['class']}"] = class_row[column_name]
 
+        # Per-class selection table, then the selection accuracy of the decoding of the run with its interval in a
+        # table of its own
+        decoding_name = self.decoding.capitalize()
+        tables = [self.build_selection_table(class_rows=class_rows),
+                  build_recall_interval_table(class_rows=class_rows, support_key="true_frames",
+                                              support_column=self.CLASS_SUPPORT_COLUMN,
+                                              recall_columns=[(f"{self.decoding}_accuracy",
+                                                               f"{decoding_name}\nAccuracy")],
+                                              interval_description=self.RECALL_INTERVAL_DESCRIPTION,
+                                              legend_introduction=f"{decoding_name} selection accuracy of every "
+                                                                  f"wanted class: the share of its true frames chosen "
+                                                                  f"for it, its recall. ")]
         return {"evaluated_samples": self.describe_evaluated_samples(accumulator=accumulator),
-                "metrics": headline_metrics, "notes": notes,
-                "tables": [self.build_selection_table(class_rows=class_rows)], "scalars": dict(headline_metrics),
+                "metrics": headline_metrics, "notes": notes, "tables": tables, "scalars": dict(headline_metrics),
                 "class_scalars": class_scalars, "images": images, "files": files,
                 "headline_metric": f"{self.decoding.capitalize()} Selection Accuracy"}
 

@@ -90,28 +90,36 @@ def test_average_recall_table_and_resolution_of_the_sizes() -> None:
 
 def test_class_average_precision_rows_and_table() -> None:
     """
-    Verifies the per-class rows in class index order (the ground truth boxes and the four average precisions of the
-    area method, None for the class without ground truth) and the per-class table sorted by AP@0.5.
+    Verifies the per-class rows in class index order (the ground truth boxes, the four average precisions of the
+    area method and the recalls at 0.5 and 0.75 with their exact interval, None for the class without ground truth)
+    and the per-class table sorted by AP@0.5.
     """
     class_names = {0: "background", 1: "square", 2: "circle", 3: "star"}
     class_rows = build_class_average_precision_rows(results=get_two_class_results(), class_names=class_names)
 
-    # The 10 x 10 boxes are small objects, the medium and large ones have no average precision
+    # The 10 x 10 boxes are small objects, the medium and large ones have no average precision. The single ground
+    # truth found gives the exact interval [0.025, 1] of a recall of 1 of 1, the one missed [0, 0.975]
     empty_size_columns = {"average_precision_50_medium": None, "average_precision_50_95_medium": None,
                           "average_precision_50_large": None, "average_precision_50_95_large": None}
+    found_recalls = {f"recall_{threshold}{bound}": value for threshold in ["50", "75"]
+                     for bound, value in [("", 1.0), ("_lower", pytest.approx(expected=0.025)), ("_upper", 1.0)]}
+    missed_recalls = {f"recall_{threshold}{bound}": value for threshold in ["50", "75"]
+                      for bound, value in [("", 0.0), ("_lower", 0.0), ("_upper", pytest.approx(expected=0.975))]}
+    absent_recalls = {f"recall_{threshold}{bound}": None for threshold in ["50", "75"]
+                      for bound in ["", "_lower", "_upper"]}
     expected_rows: List[Dict[str, Any]] = [
         {"class_index": 1, "class": "square", "ground_truths": 1, "average_precision_50": 1.0,
          "average_precision_75": 1.0, "average_precision_95": 1.0, "average_precision_50_95": 1.0,
          "average_precision_50_small": 1.0,
-         "average_precision_50_95_small": 1.0, **empty_size_columns},
+         "average_precision_50_95_small": 1.0, **empty_size_columns, **found_recalls},
         {"class_index": 2, "class": "circle", "ground_truths": 1, "average_precision_50": 0.0,
          "average_precision_75": 0.0, "average_precision_95": 0.0, "average_precision_50_95": 0.0,
          "average_precision_50_small": 0.0,
-         "average_precision_50_95_small": 0.0, **empty_size_columns},
+         "average_precision_50_95_small": 0.0, **empty_size_columns, **missed_recalls},
         {"class_index": 3, "class": "star", "ground_truths": 0, "average_precision_50": None,
          "average_precision_75": None, "average_precision_95": None, "average_precision_50_95": None,
          "average_precision_50_small": None,
-         "average_precision_50_95_small": None, **empty_size_columns}]
+         "average_precision_50_95_small": None, **empty_size_columns, **absent_recalls}]
     assert class_rows == expected_rows
 
     table = build_class_average_precision_table(class_rows=class_rows)
@@ -168,7 +176,8 @@ def test_box_and_mask_tables_are_told_apart_by_their_prefixes() -> None:
     average_precision_columns = ["average_precision_50", "average_precision_75", "average_precision_95",
                                  "average_precision_50_95"] + [
         f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
-        for threshold in ["50", "50_95"]]
+        for threshold in ["50", "50_95"]] + [
+        f"recall_{threshold}{bound}" for threshold in ["50", "75"] for bound in ["", "_lower", "_upper"]]
     assert list(merged_rows[0]) == ["class_index", "class", "ground_truths"] + average_precision_columns + [
         f"mask_{column_name}" for column_name in average_precision_columns]
 

@@ -13,23 +13,26 @@ from vision_training.evaluation.classification.class_metrics_report import (buil
                                                                             build_class_metrics_table,
                                                                             build_class_thresholds_table)
 
-# Metrics of 3 classes, the last one without any evaluated sample
+# Metrics of 3 classes, the last one without any evaluated sample and so without recall interval
 CLASS_NAMES = ["circle", "square", "hexagon"]
-METRICS = {"support": [3, 2, 0], "precision": [1.0, 0.5, 0.0], "recall": [2 / 3, 1.0, 0.0], "f1": [0.8, 2 / 3, 0.0]}
+METRICS = {"support": [3, 2, 0], "precision": [1.0, 0.5, 0.0], "recall": [2 / 3, 1.0, 0.0],
+           "recall_lower": [0.09, 0.16, None], "recall_upper": [0.99, 1.0, None], "f1": [0.8, 2 / 3, 0.0]}
 CLASS_THRESHOLDS = [[(0.91, 0.5), None, None]]
 
 
 def test_class_metrics_rows() -> None:
     """
     Verifies the per-class rows of class_metrics.csv: one per class in class index order, with its samples, precision,
-    recall, F1 and the threshold reaching the target precision with its recall (None when unreachable).
+    recall with the bounds of its interval, F1 and the threshold reaching the target precision with its recall (None
+    when unreachable).
     """
     class_rows = build_class_metrics_rows(class_names=CLASS_NAMES, metrics=METRICS, class_thresholds=CLASS_THRESHOLDS,
                                           target_precisions=[0.99])
     assert [class_row["class"] for class_row in class_rows] == CLASS_NAMES
     assert class_rows[0] == {"class_index": 0, "class": "circle", "samples": 3, "precision": 1.0,
-                             "recall": pytest.approx(expected=2 / 3), "f1": 0.8, "threshold_at_target_precision": 0.91,
-                             "recall_at_target_precision": 0.5}
+                             "recall": pytest.approx(expected=2 / 3), "recall_lower": 0.09, "recall_upper": 0.99,
+                             "f1": 0.8, "threshold_at_target_precision": 0.91, "recall_at_target_precision": 0.5}
+    assert class_rows[2]["recall_lower"] is None and class_rows[2]["recall_upper"] is None
     assert class_rows[1]["threshold_at_target_precision"] is None
     assert class_rows[1]["recall_at_target_precision"] is None
 
@@ -68,8 +71,9 @@ def test_curve_metrics_of_the_per_class_report() -> None:
                     {"roc_auc": None, "average_precision": None}]
     class_rows = build_class_metrics_rows(class_names=CLASS_NAMES, metrics=METRICS, class_thresholds=CLASS_THRESHOLDS,
                                           target_precisions=[0.99], class_curves=class_curves)
-    assert list(class_rows[0]) == ["class_index", "class", "samples", "precision", "recall", "f1", "roc_auc",
-                                   "average_precision", "threshold_at_target_precision", "recall_at_target_precision"]
+    assert list(class_rows[0]) == ["class_index", "class", "samples", "precision", "recall", "recall_lower",
+                                   "recall_upper", "f1", "roc_auc", "average_precision",
+                                   "threshold_at_target_precision", "recall_at_target_precision"]
 
     # Table: both columns between the F1 and the thresholds, "—" for the undefined ones
     table = build_class_metrics_table(class_rows=class_rows, target_precision=0.99, support_column="Samples")
@@ -93,9 +97,9 @@ def test_threshold_columns_of_several_target_precisions() -> None:
     class_thresholds = [[(0.91, 0.5), None, None], [(0.42, 0.75), (0.3, 1.0), None]]
     class_rows = build_class_metrics_rows(class_names=CLASS_NAMES, metrics=METRICS, class_thresholds=class_thresholds,
                                           target_precisions=[0.99, 0.95])
-    assert list(class_rows[0])[6:] == ["threshold_at_target_precision", "recall_at_target_precision",
+    assert list(class_rows[0])[8:] == ["threshold_at_target_precision", "recall_at_target_precision",
                                        "threshold_at_precision_0.95", "recall_at_precision_0.95"]
-    assert [class_rows[1][column_name] for column_name in list(class_rows[1])[6:]] == [None, None, 0.3, 1.0]
+    assert [class_rows[1][column_name] for column_name in list(class_rows[1])[8:]] == [None, None, 0.3, 1.0]
 
     # Per-class table: the main target precision only, so that it stays within the width of the report
     table = build_class_metrics_table(class_rows=class_rows, target_precision=0.99, support_column="Samples")

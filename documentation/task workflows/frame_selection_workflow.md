@@ -24,7 +24,8 @@ GRU 1x128 bidirectional ─> [16, T, 256] ─> ClassificationHead [64] ─> clas
         ▼
 test    probabilities [T, 4] of every sequence ─> hungarian and greedy decodings ─> chosen frames [W=3, N=1]
         │ compute_selection_metrics() per decoding, compute_ranking_metrics() (Top-2, Mean True Frame Rank),
-        │ frame metrics of the most probable class, find_selection_thresholds() at target_precision 0.99
+        │ frame metrics of the most probable class, find_selection_thresholds() at target_precision 0.99,
+        │ Korn-Graubard interval (bootstrap over the test sequences) of the selection accuracy of every wanted class
         ▼
 Evaluation/Iteration_<n>/   class_thresholds.json   class_metrics.csv   confusion_matrix.csv .png (decoded frames)
                             selections.csv   Samples/<sequence>.png   Errors/<CLASS>/<sequence>.png
@@ -42,7 +43,7 @@ export  frame_selector_<format>: images [B, T, 3, 256, 256] ─> class_probabili
 | Head | `vision_training/models/classification/classification_head.py` | `ClassificationHead` |
 | Losses | `vision_training/losses/sequence_losses.py` | `compute_sequence_labelling_loss`, `compute_frame_selection_loss` |
 | Decoding | `vision_training/models/sequence/frame_selection_decoding.py` (numpy and scipy only) | `decode_frame_selection`, `decode_hungarian_selection`, `decode_greedy_selection`, `compute_frame_ranks`, `flag_low_confidence`, `run_frame_selection` |
-| Metrics and images | `vision_training/evaluation/sequence/frame_selection_metrics.py`, `vision_training/utilities/visualization.py` | `compute_selection_metrics`, `compute_ranking_metrics`, `find_selection_thresholds`, `build_frame_selection_image` |
+| Metrics and images | `vision_training/evaluation/sequence/frame_selection_metrics.py`, `vision_training/utilities/visualization.py` | `compute_selection_metrics`, `compute_ranking_metrics`, `find_selection_thresholds`, `build_frame_selection_image`; `compute_bootstrap_recall_intervals` and `build_recall_interval_table` of `vision_training/evaluation/recall_intervals.py` |
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_frame_selection_configuration`, `check_selection_configuration` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_selection_sequence`, `SELECTION_CATEGORIES` |
 | Export and deployment | `vision_training/deployment/export_model.py`, `frame_selection_deployment.py`, `frame_selection_decoder_backend.py`, `deployment_utilities.py` | `build_decoding_settings`, `export_frame_selection_decoding`, `TritonPythonModel` of the decoder |
@@ -81,8 +82,8 @@ uv run python -m vision_training.deployment.export_model
 | `ExperimentConfiguration.evaluation.save_predictions` | `True` | `selections.csv`, one row per test sequence and wanted class |
 
 ### What A Run Writes
-- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Frames · <date>`, the `Selection Accuracy`, `Fully Right Sequences`, `Unselected Precision` and `Unselected Recall` of each decoding, `Top-2 Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`, the note naming the decoding of the images and thresholds, then the `Per Class Selection` table with `per_class_report`.
-- `Evaluation/Iteration_<n>/`: `class_thresholds.json` (the target precision, the decoding, the unselected class, and the threshold and recall of every wanted class, `null` when never reached), `class_metrics.csv` (one row per wanted class), `confusion_matrix.csv` of the decoded frames and, with `per_class_report`, `confusion_matrix.png`; `selections.csv` with `save_predictions`.
+- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Frames · <date>`, the `Selection Accuracy`, `Fully Right Sequences`, `Unselected Precision` and `Unselected Recall` of each decoding, `Top-2 Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`, the note naming the decoding of the images and thresholds, then the `Per Class Selection` and `Per Class Recall` tables with `per_class_report`, the second giving the selection accuracy of every wanted class with the decoding of the run and its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst first.
+- `Evaluation/Iteration_<n>/`: `class_thresholds.json` (the target precision, the decoding, the unselected class, and the threshold and recall of every wanted class, `null` when never reached), `class_metrics.csv` (one row per wanted class, `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` following the accuracy of the decoding of the run), `confusion_matrix.csv` of the decoded frames and, with `per_class_report`, `confusion_matrix.png`; `selections.csv` with `save_predictions`.
 - `Samples/<sequence>.png` (8 fixed test sequences, evenly spread) and `Errors/<CLASS>/<sequence>.png` (with `error_dumps.activated`): the thumbnail grid of the whole sequence with the borders of the selection, the probability heat map and the number of right selections.
 - TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss`, `Selection Loss` and `Accuracy` (of the real frames), `Train/` also `Learning Rate`; `Test/` the 13 global metrics, `Hungarian Selection Accuracy/<class>`, `Greedy Selection Accuracy/<class>`, `Mean True Frame Rank/<class>`, `Samples/<sequence>` and `Confusion Matrix`.
 - `data.json` counts the frames of every class, the frames of unmapped categories with the unselected class.
@@ -197,13 +198,17 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │   ├── decode_frame_selection() -> decode_hungarian_selection() / decode_greedy_selection()   [W, N] frames
 │   │   ├── convert_selection_to_frame_labels()                   the decoded class of every frame
 │   │   └── compute_selection_metrics()                           selection accuracy, fully right sequences,
-│   │                                                             unselected precision and recall
+│   │                                                             unselected precision and recall, right and
+│   │                                                             true frames of every sequence and wanted class
 │   ├── compute_ranking_metrics() -> compute_frame_ranks()        top-k selection accuracy, mean true frame rank
 │   ├── the frame metrics of the most probable class              compute_confusion_matrix() +
 │   │                                                             compute_metrics_from_confusion_matrix()
 │   ├── find_selection_thresholds()                               class_thresholds.json
+│   ├── compute_bootstrap_recall_intervals()                      95% interval of the selection accuracy of every
+│   │                                                             wanted class with the decoding of the run
 │   ├── write_class_metrics_file() / save_confusion_matrix_table() / save_confusion_matrix_image()
-│   └── write_selections_file()                                   selections.csv (only with save_predictions)
+│   ├── write_selections_file()                                   selections.csv (only with save_predictions)
+│   └── build_selection_table() + build_recall_interval_table()   Per Class Selection and Per Class Recall tables
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
@@ -280,7 +285,7 @@ get_trainer_class(task="frame_selection") -> <class 'vision_training.trainers.fr
 > The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_sequences.yaml` (256 pixel frames, a maximum sequence length of 50 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.3 s on CPU.
 
 ### Step 2.1 — `FrameSelectionTrainer.__init__()`
-The constructor reads `Selection.decoding` and `Selection.frames_per_class`, then runs the constructor of the sequence labelling trainer. `LABEL_TYPE = "selection"` makes the loaders read whole sequences with one class per frame, and `CLASS_SUPPORT_COLUMN = "True Frames"` names the column of the per-class table counting the true frames of every wanted class. The trainer overrides the loaders (to find the unselected class), the model (to mark it), the tracked metrics, the evaluation accumulator, the error images, the sample images and the whole computation of the evaluation results.
+The constructor reads `Selection.decoding` and `Selection.frames_per_class`, then runs the constructor of the sequence labelling trainer. `LABEL_TYPE = "selection"` makes the loaders read whole sequences with one class per frame, and `CLASS_SUPPORT_COLUMN = "True Frames"` names the column of the per-class tables counting the true frames of every wanted class. The trainer overrides the loaders (to find the unselected class), the model (to mark it), the tracked metrics, the evaluation accumulator, the error images, the sample images and the whole computation of the evaluation results.
 
 **Example: the attributes after the construction**
 ```text
@@ -659,7 +664,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 463 frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints give `unselected` as the most probable class of every frame, with almost the same probabilities on all the frames of a sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 463 frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints give `unselected` as the most probable class of every frame, with almost the same probabilities on all the frames of a sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `hungarian_accuracy_lower` and `hungarian_accuracy_upper` after `hungarian_accuracy` (the decoding of this run), and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Selection` (Step 4.13).
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1).
@@ -724,7 +729,7 @@ The frame selection trainer replaces the whole computation:
 - both decodings choose the frames of every sequence on the same probabilities (Step 4.9), and each is scored with `compute_selection_metrics()` (Step 4.10);
 - `compute_ranking_metrics()` scores the probabilities before any decoding (Step 4.11);
 - the frame metrics of the classification are computed on the most probable class of every frame (Step 4.12);
-- the decoding of the run gives the confidence thresholds, the per-class file and the decoded confusion matrix (Step 4.13), and the selections file (Step 4.14).
+- the decoding of the run gives the confidence thresholds, the interval of the selection accuracy of every wanted class, the per-class file and the decoded confusion matrix (Step 4.13), and the selections file (Step 4.14).
 
 The headline metric is the selection accuracy of the decoding of the run.
 
@@ -776,7 +781,7 @@ Every frame has `unselected` as its most probable class, so the greedy decoding 
 
 ### Step 4.10 — `compute_selection_metrics()`
 The scores of one decoding over all the test sequences:
-- **Selection Accuracy**: the share of the true frames of the wanted classes chosen for their class, per class and over all the classes;
+- **Selection Accuracy**: the share of the true frames of the wanted classes chosen for their class, per class (the recall of the class) and over all the classes, with the right and true frames of every sequence and wanted class (`sequence_class_right_frames`, `sequence_class_true_frames`) for the interval of Step 4.13;
 - **Fully Right Sequences**: the share of the sequences in which every wanted class gets exactly its true frames;
 - **Unselected Precision** and **Unselected Recall**: the frames left unchosen that are truly unselected, among the frames left unchosen and among the truly unselected frames.
 
@@ -822,7 +827,7 @@ Frame Macro F1          = (2 x 0.6112 x 1.0 / 1.6112) / 4  = 0.1897
 ```
 
 ### Step 4.13 — `find_selection_thresholds()` + `write_class_metrics_file()` + `save_confusion_matrix_table()` / `save_confusion_matrix_image()`
-`find_selection_thresholds()` takes, for every wanted class, the probabilities of the frames the decoding of the run chose for it and whether each is a true frame, and finds the lowest probability from which these choices reach `target_precision`, with the share of all the true frames of the class kept. In deployment, a chosen frame below the threshold of its class, or every frame of a class without threshold, is flagged as low confidence for a human to check. The thresholds are saved in `class_thresholds.json`, with the decoding and the unselected class. The metrics of every wanted class go to `class_metrics.csv` whatever the per-class report; the confusion matrix of the decoded classes is saved as a table, and as an image (titled with the decoding and its selection accuracy) only with the per-class report.
+`find_selection_thresholds()` takes, for every wanted class, the probabilities of the frames the decoding of the run chose for it and whether each is a true frame, and finds the lowest probability from which these choices reach `target_precision`, with the share of all the true frames of the class kept. In deployment, a chosen frame below the threshold of its class, or every frame of a class without threshold, is flagged as low confidence for a human to check. The thresholds are saved in `class_thresholds.json`, with the decoding and the unselected class. The selection accuracy of every wanted class with the decoding of the run is its recall: the frames of a sequence being chosen together, `compute_bootstrap_recall_intervals()` of `vision_training/evaluation/recall_intervals.py` gives its 95% Korn-Graubard confidence interval from the right and true frames of every sequence of Step 4.10: the variance of the accuracy over 1000 resamples of the test sequences with replacement (fixed seed) gives an effective sample size, reduced for the degrees of freedom of the sequences holding the class, at which the exact (Clopper-Pearson) interval is taken, or the exact interval over those sequences when they all have the same accuracy, so that it never has zero width. The metrics of every wanted class go to `class_metrics.csv` whatever the per-class report, the bounds as `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` after the accuracy of the decoding of the run (`hungarian_accuracy_lower` and `hungarian_accuracy_upper` here), and with the per-class report `build_recall_interval_table()` shows them in the `Per Class Recall` table (`True Frames`, `Hungarian Accuracy`, `95% Lower`, `95% Upper`, worst accuracy first) after the `Per Class Selection` table. The confusion matrix of the decoded classes is saved as a table, and as an image (titled with the decoding and its selection accuracy) only with the per-class report.
 
 **Example: `Evaluation/Iteration_6/class_thresholds.json`** (at iteration 12 every class is `null`)
 ```text
@@ -913,7 +918,7 @@ This run was recorded before the record of the data existed (2026-10-15): a new 
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were also captured before the per-class recall intervals (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5). The test sequences are checked with the `Selection` section of the run, and both decodings are scored on every checkpoint.

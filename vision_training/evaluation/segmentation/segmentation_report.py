@@ -1,8 +1,9 @@
 """
 Per-class part of the evaluation reports of the semantic segmentation task: the metrics of every class (true pixels,
-IoU, Dice, boundary IoU, boundary F1, precision, recall, and with the per-class report the ROC AUC and average
-precision of its pixels) as the rows of class_metrics.csv, as the per-class table of the report and as the per-class
-TensorBoard scalars. Used by the segmentation trainer.
+IoU, Dice, boundary IoU, boundary F1, precision, recall with the bounds of its Korn-Graubard interval over the test
+images, and with the per-class report the ROC AUC and average precision of its pixels) as the rows of
+class_metrics.csv, as the per-class table of the report (the recall intervals in the recall table of
+recall_intervals.py) and as the per-class TensorBoard scalars. Used by the segmentation trainer.
 """
 
 from typing import Any, Dict, List, Optional
@@ -23,23 +24,25 @@ def build_segmentation_class_rows(class_names: List[str], metrics: Dict[str, Any
                                   class_curves: Optional[List[ScoreCurves]] = None) -> List[Dict[str, Any]]:
     """
     Gathers the metrics of every class of an evaluated checkpoint, in class index order, for the per-class metrics
-    file, table and scalars: its number of true pixels in the test split, its IoU, Dice, boundary IoU, boundary F1,
-    precision and recall, and with the per-class report the ROC AUC and average precision of its pixels. A class
-    without true pixels has no metric (None, an empty cell of the file and "—" in the table), being left out of the
-    means, a class without true edge has no boundary metric, and a class covering every labelled pixel has no ROC AUC.
+    file, tables and scalars: its number of true pixels in the test split, its IoU, Dice, boundary IoU, boundary F1,
+    precision and recall with the bounds of its Korn-Graubard interval over the test images, and with the per-class
+    report the ROC AUC and average precision of its pixels. A class without true pixels has no metric (None, an empty
+    cell of the file and "—" in the table), being left out of the means, a class without true edge has no boundary
+    metric, and a class covering every labelled pixel has no ROC AUC.
 
     Args:
         class_names (List[str]): The name of every class, in class index order, the background first.
         metrics (Dict[str, Any]): The per-class 'support', 'iou', 'dice', 'precision' and 'recall' lists of the
-            evaluation (compute_segmentation_metrics), and its 'boundary_iou' and 'boundary_f1' lists
-            (compute_boundary_metrics).
+            evaluation (compute_segmentation_metrics), its 'boundary_iou' and 'boundary_f1' lists
+            (compute_boundary_metrics), and its 'recall_lower' and 'recall_upper' lists
+            (compute_bootstrap_recall_intervals).
         class_curves (Optional[List[ScoreCurves]]): The ROC and precision-recall curves of the pixels of every class,
             computed with the per-class report, or None without them. Defaults to None.
 
     Returns:
         List[Dict[str, Any]]: One row per class, keyed by the columns of class_metrics.csv: 'class_index', 'class',
-            'pixels', 'iou', 'dice', 'boundary_iou', 'boundary_f1', 'precision' and 'recall', then 'roc_auc' and
-            'average_precision' when the curves are given.
+            'pixels', 'iou', 'dice', 'boundary_iou', 'boundary_f1', 'precision', 'recall', 'recall_lower' and
+            'recall_upper', then 'roc_auc' and 'average_precision' when the curves are given.
     """
     class_rows = []
     for class_index, class_name in enumerate(class_names):
@@ -47,6 +50,10 @@ def build_segmentation_class_rows(class_names: List[str], metrics: Dict[str, Any
         class_row = {"class_index": class_index, "class": class_name, "pixels": number_pixels}
         for metric_key in CLASS_METRIC_NAMES:
             class_row[metric_key] = metrics[metric_key][class_index] if number_pixels > 0 else None
+
+        # Bounds of the interval of the recall, after the recall, None without true pixels
+        class_row["recall_lower"] = metrics["recall_lower"][class_index] if number_pixels > 0 else None
+        class_row["recall_upper"] = metrics["recall_upper"][class_index] if number_pixels > 0 else None
 
         # ROC AUC and average precision of the pixels of the class, with the per-class report
         if class_curves is not None:

@@ -45,9 +45,10 @@ ExperimentConfiguration:
   evaluation:
     # Reports every wanted class: the class table (true frames, selection accuracy of both decodings, top-k accuracy,
     # mean rank of the true frames, the confidence threshold reaching target_precision with the share of true frames it
-    # keeps, worst Selection.decoding accuracy first) in the console and Results.txt, the selection accuracy and mean
-    # rank Test scalars in TensorBoard, and the decoded frame confusion_matrix.png (also in TensorBoard). False keeps
-    # the global metrics only; class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
+    # keeps, worst Selection.decoding accuracy first) and the accuracy table (Selection.decoding accuracy with its 95%
+    # interval, worst first) in the console and Results.txt, the selection accuracy and mean rank Test scalars in
+    # TensorBoard, and the decoded frame confusion_matrix.png (also in TensorBoard). False keeps the global metrics
+    # only; class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
     per_class_report: True
     # Test sequences drawn once and shown at every evaluation with the Selection.decoding selection: the frame grid (160
     # pixel thumbnails, 8 per row), solid green border on a frame chosen for its true class, solid red on a frame chosen
