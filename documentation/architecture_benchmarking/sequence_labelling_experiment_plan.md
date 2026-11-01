@@ -56,12 +56,11 @@ Every launch keeps a moving average of its weights, and the settings are compare
 | 8 | Pretraining | none, fine_tuned, fine_tuned_slow | 6000 |
 | 9 | `learning_rate`, pretrained | 1e-3, 1e-4, 2e-4, 2e-3 | 4000 |
 | 10 | `class_weighting`, pretrained | balanced, none | 6000 |
-| 11 | Direction, pretrained | bidirectional, unidirectional | 6000 |
-| 12 | `TemporalModel.type`, pretrained | lstm, gru, transformer, temporal_convolution | 6000 |
-| 13 | `TemporalModel.number_layers`, pretrained | 1, 2 | 6000 |
-| 14 | `global_pooling`, pretrained | max, flatten, average | 6000 |
+| 11 | `TemporalModel.type`, pretrained | lstm, gru, transformer | 6000 |
+| 12 | `TemporalModel.number_layers`, pretrained | 1, 2 | 6000 |
+| 13 | `global_pooling`, pretrained | max, flatten | 6000 |
 
-Stages 9 to 14, asked by the user on 2026-10-31 after stage 8, train stages 1 to 6 again from the settings kept by the 8 stages, the backbone of every launch loaded from the multi-label shape classifier and fine-tuned at the learning rate of the other components, the best value of a stage being kept for the following stages as before. The feature map normalization stays batch, the normalization of the pretrained backbone. The learning rate stage trains 4000 iterations, as the user chose. A reference is reused whenever an earlier stage trained launches with the same settings for as many iterations, or for more iterations under the constant learning rate schedule of every launch, its evaluation at the last iteration of the stage being then that of a launch stopped there: run_29 and run_30 (stage 8) are the reference of stage 9 at iteration 4000 and of the following stages while their values are kept. From 2026-10-31 the launches share the GPU through NVIDIA MPS, and launches started by the driver after its restart run in two slots, the two launches of a setting no longer always side by side.
+Stages 9 to 13, asked by the user on 2026-10-31 after stage 8, train stages 1 to 6 again from the settings kept by the 8 stages, the backbone of every launch loaded from the multi-label shape classifier and fine-tuned at the learning rate of the other components, the best value of a stage being kept for the following stages as before. On 2026-10-31, after stage 10, the user dropped the settings far behind from scratch that the pretrained backbone is not expected to bring back: the unidirectional direction (the direction stage, whose launches run_41 and run_42 were stopped after 250 iterations and deleted), the temporal convolution and the average pooling. The feature map normalization stays batch, the normalization of the pretrained backbone. The learning rate stage trains 4000 iterations, as the user chose. A reference is reused whenever an earlier stage trained launches with the same settings for as many iterations, or for more iterations under the constant learning rate schedule of every launch, its evaluation at the last iteration of the stage being then that of a launch stopped there: run_29 and run_30 (stage 8) are the reference of stage 9 at iteration 4000 and of the following stages while their values are kept. From 2026-10-31 the launches share the GPU through NVIDIA MPS, and launches started by the driver after its restart run in two slots, the two launches of a setting no longer always side by side.
 
 The direction is written as the flags of the temporal module: unidirectional is `causal: True` and `bidirectional: False` for every type; bidirectional is `bidirectional: True` and `causal: False` for the GRU and the LSTM, and `causal: False` (attention over every frame, centred convolutions) for the transformer and the temporal convolution.
 
@@ -274,3 +273,41 @@ The settings kept by stage 9, with the class weighting changed. The reference ba
 Kept: **balanced** (run_29 and run_30), the highest value at iteration 6000 (0.7467 against 0.4094 for none), also the highest mean over all the evaluations (0.6266 against 0.2791).
 
 - Without class weighting, the far more frequent frames without change dominate the loss: the two launches learn slower and spread apart (0.5550 and 0.2638 at iteration 6000), as in stage 2 from scratch (0.0233 against 0.1207 for balanced).
+
+### Stage 11: Temporal Module, Pretrained (4 new launches, 6000 iterations)
+
+The settings kept by stage 10, with the temporal module changed, all bidirectional. The reference lstm is run_29 and run_30 (stage 8). The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `temporal_type` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| lstm | run_29 | 0.3102 | 0.5104 | 0.5708 | 0.6117 | 0.6382 | 0.6632 | 0.6883 | 0.7038 | 0.7195 | 0.7295 | 0.7406 | 0.7444 | 0.6195 |
+| lstm | run_30 | 0.3221 | 0.5087 | 0.5898 | 0.6275 | 0.6658 | 0.6910 | 0.7114 | 0.7261 | 0.7348 | 0.7432 | 0.7419 | 0.7491 | 0.6337 |
+| lstm | **Mean** | 0.3162 | 0.5096 | 0.5803 | 0.6196 | 0.6520 | 0.6771 | 0.6998 | 0.7149 | 0.7271 | 0.7364 | 0.7413 | 0.7467 | 0.6266 |
+| gru | run_43 | 0.3683 | 0.4853 | 0.5468 | 0.5952 | 0.6349 | 0.6698 | 0.6931 | 0.7164 | 0.7272 | 0.7353 | 0.7363 | 0.7446 | 0.6206 |
+| gru | run_44 | 0.3655 | 0.5315 | 0.5802 | 0.6082 | 0.6359 | 0.6586 | 0.6776 | 0.7018 | 0.7101 | 0.7179 | 0.7292 | 0.7422 | 0.6213 |
+| gru | **Mean** | 0.3669 | 0.5084 | 0.5635 | 0.6017 | 0.6354 | 0.6642 | 0.6854 | 0.7091 | 0.7187 | 0.7266 | 0.7327 | 0.7434 | 0.6210 |
+| transformer | run_45 | 0.3426 | 0.5854 | 0.6699 | 0.7000 | 0.7174 | 0.7263 | 0.7324 | 0.7359 | 0.7327 | 0.7407 | 0.7407 | 0.7449 | 0.6644 |
+| transformer | run_46 | 0.3685 | 0.5965 | 0.6666 | 0.6931 | 0.7085 | 0.7232 | 0.7165 | 0.7244 | 0.7361 | 0.7403 | 0.7372 | 0.7401 | 0.6630 |
+| transformer | **Mean** | 0.3556 | 0.5909 | 0.6683 | 0.6966 | 0.7130 | 0.7247 | 0.7244 | 0.7302 | 0.7344 | 0.7405 | 0.7389 | 0.7425 | 0.6637 |
+
+Kept: **lstm** (run_29 and run_30), the highest value at iteration 6000 (0.7467 against 0.7434 for gru and 0.7425 for transformer).
+
+- The three modules end within 0.005, less than the gap between two launches of one setting: with the pretrained backbone, the temporal module barely matters at iteration 6000.
+- The transformer learns fastest (0.6966 at iteration 2000 against 0.6196 for lstm) and has the highest mean over all the evaluations (0.6637 against 0.6266), but flattens from iteration 3000 and is passed by the lstm at iteration 6000.
+
+### Stage 12: Temporal Layers, Pretrained (2 new launches, 6000 iterations)
+
+The settings kept by stage 11, with the number of layers of the LSTM changed. The reference 1 is run_29 and run_30 (stage 8). The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
+
+| `number_layers` | Launch | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | run_29 | 0.3102 | 0.5104 | 0.5708 | 0.6117 | 0.6382 | 0.6632 | 0.6883 | 0.7038 | 0.7195 | 0.7295 | 0.7406 | 0.7444 | 0.6195 |
+| 1 | run_30 | 0.3221 | 0.5087 | 0.5898 | 0.6275 | 0.6658 | 0.6910 | 0.7114 | 0.7261 | 0.7348 | 0.7432 | 0.7419 | 0.7491 | 0.6337 |
+| 1 | **Mean** | 0.3162 | 0.5096 | 0.5803 | 0.6196 | 0.6520 | 0.6771 | 0.6998 | 0.7149 | 0.7271 | 0.7364 | 0.7413 | 0.7467 | 0.6266 |
+| 2 | run_47 | 0.3281 | 0.5702 | 0.6326 | 0.6896 | 0.7319 | 0.7410 | 0.7501 | 0.7541 | 0.7553 | 0.7569 | 0.7594 | 0.7564 | 0.6675 |
+| 2 | run_48 | 0.3125 | 0.5541 | 0.6041 | 0.6484 | 0.6990 | 0.7256 | 0.7459 | 0.7487 | 0.7546 | 0.7517 | 0.7538 | 0.7567 | 0.6540 |
+| 2 | **Mean** | 0.3203 | 0.5621 | 0.6183 | 0.6690 | 0.7155 | 0.7333 | 0.7480 | 0.7514 | 0.7549 | 0.7543 | 0.7566 | 0.7565 | 0.6607 |
+
+Kept: **2** (run_47 and run_48), the highest value at iteration 6000 (0.7565 against 0.7467 for 1), also the highest mean over all the evaluations (0.6607 against 0.6266), the first change of a kept setting in the pretrained rerun.
+
+- From scratch the second layer halved the score (0.0891 against 0.1936 in stage 5); with the pretrained backbone it is ahead from iteration 1000 to the end, both launches agreeing (0.7564 and 0.7567), but it levels off from iteration 4500.
