@@ -22,9 +22,10 @@ PROBABILITIES = [np.array(object=[[0.9, 0.05, 0.05], [0.2, 0.1, 0.7], [0.1, 0.8,
 
 def test_selection_metrics_of_a_decoding() -> None:
     """
-    Verifies the metrics of a decoding: class 0 has one of its two true frames chosen, class 1 both, one sequence of
-    two is fully right, and the unselected class has 3 of its 4 decoded frames truly unselected and 3 of its 4 true
-    frames decoded unselected.
+    Verifies the metrics of a decoding: class 0 has one of its two true frames chosen (in the first sequence, not in
+    the second one, as the per-sequence counts of its Korn-Graubard interval give), class 1 both, one sequence of two is
+    fully right, and the unselected class has 3 of its 4 decoded frames truly unselected and 3 of its 4 true frames
+    decoded unselected.
     """
     decoded_frame_labels = [convert_selection_to_frame_labels(selected_frames=selection, wanted_class_indices=[0, 1],
                                                               number_frames=4, unselected_class_index=2)
@@ -34,6 +35,8 @@ def test_selection_metrics_of_a_decoding() -> None:
                                         unselected_class_index=2)
     assert metrics["class_accuracies"] == [0.5, 1.0]
     assert metrics["class_true_frames"] == [2, 2]
+    assert metrics["sequence_class_right_frames"].tolist() == [[1, 1], [0, 1]]
+    assert metrics["sequence_class_true_frames"].tolist() == [[1, 1], [1, 1]]
     assert metrics["selection_accuracy"] == pytest.approx(0.75)
     assert metrics["fully_right_sequences"] == pytest.approx(0.5)
     assert metrics["unselected_precision"] == pytest.approx(0.75)

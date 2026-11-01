@@ -137,7 +137,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert [table["title"] for table in results["tables"]] == ["Mean Average Precision",
                                                               "Mean Average Precision By Object Size (Area)",
                                                               "Mean Average Recall", "Proposal Recall",
-                                                              "Per Class Average Precision (Area)"]
+                                                              "Per Class Average Precision (Area)", "Per Class Recall"]
     assert "Per Class Average Precision (Area)" in results_blocks[1]["text"]
     assert "Proposal Recall" in results_blocks[1]["text"]
     assert all(scalar_name.startswith("AP@0.5/") for scalar_name in results["class_scalars"])
@@ -157,7 +157,9 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert list(class_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
                                    "average_precision_75", "average_precision_95", "average_precision_50_95"] + [
         f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
-        for threshold in ["50", "50_95"]] + ["threshold_at_target_precision", "recall_at_target_precision"]
+        for threshold in ["50", "50_95"]] + [f"recall_{threshold}{bound}" for threshold in ["50", "75"]
+                                             for bound in ["", "_lower", "_upper"]] + [
+        "threshold_at_target_precision", "recall_at_target_precision"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_boxes
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
 

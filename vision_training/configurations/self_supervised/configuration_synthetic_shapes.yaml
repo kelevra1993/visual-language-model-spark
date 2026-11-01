@@ -42,9 +42,10 @@ ExperimentConfiguration:
   # representations watch for collapse. An unlabelled test split is scored by the effective rank, then the headline
   # metric.
   evaluation:
-    # Reports every class: the k-NN class table (labelled test images, precision, recall, F1, worst F1 first) in the
-    # console and Results.txt and the k-NN Precision / Recall / F1 Test scalars in TensorBoard. False keeps the global
-    # metrics only; class_metrics.csv is always saved.
+    # Reports every class: the k-NN class table (labelled test images, precision, recall, F1, worst F1 first) and the
+    # k-NN recall table (worst recall first, with its 95% interval) in the console and Results.txt and the k-NN
+    # Precision / Recall / F1 Test scalars in TensorBoard. False keeps the global metrics only; class_metrics.csv is
+    # always saved.
     per_class_report: True
     # Test images drawn once and shown at every evaluation next to two random views, captioned with the class and the
     # cosine similarity of both view representations (near 1 for a view-invariant backbone), saved in

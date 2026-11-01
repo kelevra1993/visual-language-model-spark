@@ -3,14 +3,16 @@ Tables and per-class rows of the evaluation reports of the object detection, ins
 detection tasks: the mean average precisions of the three average precision methods, those of the small, medium and
 large objects (area method) and the mean average recalls of all the objects and of every size, always shown, and the
 average precisions of every class (area method, at an intersection over union of 0.5, 0.75, 0.95 and 0.5 to 0.95,
-with its ground truth boxes, those of every object size, and the score threshold reaching the target precision with
-the recall it keeps), as the rows of class_metrics.csv and as the per-class table of the report.
+with its ground truth boxes, those of every object size, the recall of all its detections at 0.5 and 0.75 with its
+exact confidence interval, and the score threshold reaching the target precision with the recall it keeps), as the
+rows of class_metrics.csv and as the per-class table and per-class recall table of the report.
 summarise_average_precisions evaluates the detections of the test split and gathers all of them with their TensorBoard
 scalars. The instance segmentation reports the box and the mask average precisions and recalls with the same
 builders, told apart by a title prefix and a column prefix, and the keypoint detection its average precisions on the
 object keypoint similarity. Used by the detection, instance segmentation and keypoint trainers.
 """
 
+import numpy as np
 import torch
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -18,6 +20,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from vision_training.core.contracts import EvaluationTable
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
 from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
+from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, RECALL_TABLE_TITLE,
+                                                         build_recall_interval_table,
+                                                         compute_clopper_pearson_intervals)
 
 # Displayed name of every average precision method, the area method being the headline one
 AVERAGE_PRECISION_METHOD_NAMES = {"area": "Area", "11_point": "11 Point", "101_point": "101 Point"}
@@ -28,6 +33,10 @@ CLASS_TABLE_SORT_COLUMN = "AP@0.5"
 
 # Legend of the table of the methods whose mAP compares the checkpoints of the run
 HEADLINE_LEGEND = "The mAP@0.5 of the area method compares the checkpoints of the run."
+
+# Recalls of every class written to class_metrics.csv with their exact interval over its ground truths: the column of
+# the recall of all the detections at an overlap, the per-class result it is read from, and its name in the table
+CLASS_RECALL_COLUMNS = [("recall_50", "class_AR@0.5", "Recall\n@0.5"), ("recall_75", "class_AR@0.75", "Recall\n@0.75")]
 
 
 def add_title_prefix(title: str, title_prefix: str) -> str:
@@ -138,22 +147,24 @@ def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class
     index order, for the per-class metrics file and the per-class table: its ground truth boxes and its average
     precision at 0.5, 0.75, 0.95 and averaged over 0.5 to 0.95 (None for a class without ground truth, which has no
     recall), its average precision at 0.5 and averaged over 0.5 to 0.95 for the objects of every size (None without
-    object of the size), then, for results evaluated with a target precision, the score threshold reaching it and the
-    recall it keeps (None when no threshold reaches it). The threshold columns are not prefixed: the instance
-    segmentation computes them on the masks only.
+    object of the size), the recall of all its detections at an overlap of 0.5 and 0.75 with the bounds of its exact
+    (Clopper-Pearson) interval over its ground truths (None without ground truth), then, for results evaluated with a
+    target precision, the score threshold reaching it and the recall it keeps (None when no threshold reaches it). The
+    threshold columns are not prefixed: the instance segmentation computes them on the masks only.
 
     Args:
         results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method, with the
             'class_score_thresholds' when they were evaluated with a target precision.
         class_names (Dict[int, str]): The name of every class index.
-        column_prefix (str): The prefix of the average precision columns ("mask_" for the mask average precisions),
-            empty for the object detection. Defaults to "".
+        column_prefix (str): The prefix of the average precision and recall columns ("mask_" for the mask average
+            precisions and recalls), empty for the object detection. Defaults to "".
 
     Returns:
         List[Dict[str, Any]]: One row per foreground class, keyed by the columns of class_metrics.csv: 'class_index',
             'class', 'ground_truths', the prefixed 'average_precision_50', 'average_precision_75',
             'average_precision_95' and 'average_precision_50_95', the prefixed 'average_precision_50_<size>' and
-            'average_precision_50_95_<size>' of every object size, and with the thresholds
+            'average_precision_50_95_<size>' of every object size, the prefixed 'recall_50', 'recall_50_lower',
+            'recall_50_upper', 'recall_75', 'recall_75_lower' and 'recall_75_upper', and with the thresholds
             'threshold_at_target_precision' and 'recall_at_target_precision'.
     """
     area_results = results["area"]
@@ -176,6 +187,21 @@ def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class
             class_average_precisions = source_results[result_key]
             class_rows[-1][f"{column_prefix}{column_name}"] = (class_average_precisions[class_index]
                                                                if class_index in class_average_precisions else None)
+
+        # Recall of all the detections at every overlap of CLASS_RECALL_COLUMNS with its exact interval over the
+        # ground truths of the class, the recall being their matched share (so its true positives are recovered by
+        # rounding), None without ground truth
+        number_ground_truths = area_results["class_ground_truths"][class_index]
+        for column_name, result_key, _ in CLASS_RECALL_COLUMNS:
+            class_recall = area_results[result_key][class_index] if class_index in area_results[result_key] else None
+            recall_lower, recall_upper = None, None
+            if class_recall is not None:
+                (recall_lower,), (recall_upper,) = compute_clopper_pearson_intervals(
+                    true_positives=np.array([round(class_recall * number_ground_truths)]),
+                    trials=np.array([number_ground_truths]))
+            class_rows[-1].update({f"{column_prefix}{column_name}": class_recall,
+                                   f"{column_prefix}{column_name}_lower": recall_lower,
+                                   f"{column_prefix}{column_name}_upper": recall_upper})
 
         # Score threshold of the class reaching the target precision, with the recall it keeps
         if "class_score_thresholds" in results:
@@ -257,7 +283,8 @@ def summarise_average_precisions(detections: List[Dict[str, torch.Tensor]],
             image" for the instance segmentation evaluated at the original resolution. Defaults to "network input".
 
     Returns:
-        Dict[str, Any]: The 'class_rows', the 'tables' ('methods', 'sizes', 'recalls' and 'classes'), the 'scalars',
+        Dict[str, Any]: The 'class_rows', the 'tables' ('methods', 'sizes', 'recalls', 'classes' and the per-class
+            recall table 'class_recalls'), the 'scalars',
             the 'class_scalars' and the 'class_score_thresholds' of every foreground class (None without target
             precision).
     """
@@ -296,6 +323,14 @@ def summarise_average_precisions(detections: List[Dict[str, torch.Tensor]],
                                                     resolution_name=resolution_name),
               "classes": build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
                                                              column_prefix=column_prefix,
-                                                             target_precision=target_precision)}
+                                                             target_precision=target_precision),
+              "class_recalls": build_recall_interval_table(
+                  class_rows=class_rows, support_key="ground_truths", support_column="Ground Truths",
+                  recall_columns=[(f"{column_prefix}{column_name}", table_name)
+                                  for column_name, _, table_name in CLASS_RECALL_COLUMNS],
+                  interval_description=CLOPPER_PEARSON_DESCRIPTION,
+                  title=add_title_prefix(title=RECALL_TABLE_TITLE, title_prefix=title_prefix),
+                  legend_introduction="Share of the ground truths matched by a detection at an overlap of 0.5 or "
+                                      "0.75, whatever its score. ")}
     return {"class_rows": class_rows, "tables": tables, "scalars": scalars, "class_scalars": class_scalars,
             "class_score_thresholds": results["class_score_thresholds"] if target_precision is not None else None}

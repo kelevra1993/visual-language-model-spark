@@ -159,27 +159,29 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
         "Mask Mean Average Precision", "Mask Mean Average Precision By Object Size (Area)",
         "Box Mean Average Precision", "Box Mean Average Precision By Object Size (Area)", "Mask Mean Average Recall",
         "Box Mean Average Recall", "Proposal Recall", "Mask Per Class Average Precision (Area)",
-        "Box Per Class Average Precision (Area)"]
+        "Mask Per Class Recall", "Box Per Class Average Precision (Area)", "Box Per Class Recall"]
     assert "Mask Per Class Average Precision (Area)" in results_blocks[1]["text"]
     assert all(scalar_name.startswith(("AP@0.5/", "Mask AP@0.5/")) for scalar_name in results["class_scalars"])
     assert any(scalar_name.startswith("Mask mAP@0.5 By Size/") for scalar_name in results["scalars"])
     assert {"mAR@0.5/all", "Mask mAR@[0.5:0.95]/all"} <= set(results["scalars"])
     assert "Proposal Recall@0.5/all" in results["scalars"] and "Proposal Recall" in results["files"]
 
-    # Box and mask average precisions of every class, the ground truth objects summing to those of the test images
+    # Box and mask average precisions and recalls of every class, the ground truth objects summing to those of the test
+    # images
     test_dataset = trainer.test_dataloader.dataset
     number_objects = sum(test_dataset[sample_index]["instance_masks"].shape[0]
                          for sample_index in range(len(test_dataset)))
     with open(file=trainer.experiment_folder / "Evaluation" / "Iteration_5" / "class_metrics.csv", mode="r",
               newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
-    average_precision_columns = ["average_precision_50", "average_precision_75", "average_precision_95",
-                                 "average_precision_50_95"] + [
+    precision_recall_columns = ["average_precision_50", "average_precision_75", "average_precision_95",
+                                "average_precision_50_95"] + [
         f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
-        for threshold in ["50", "50_95"]]
-    assert list(class_rows[0]) == ["class_index", "class", "ground_truths"] + average_precision_columns + [
-        f"mask_{column_name}" for column_name in average_precision_columns] + ["threshold_at_target_precision",
-                                                                               "recall_at_target_precision"]
+        for threshold in ["50", "50_95"]] + [f"recall_{threshold}{bound}" for threshold in ["50", "75"]
+                                             for bound in ["", "_lower", "_upper"]]
+    assert list(class_rows[0]) == ["class_index", "class", "ground_truths"] + precision_recall_columns + [
+        f"mask_{column_name}" for column_name in precision_recall_columns] + ["threshold_at_target_precision",
+                                                                              "recall_at_target_precision"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_objects
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
 

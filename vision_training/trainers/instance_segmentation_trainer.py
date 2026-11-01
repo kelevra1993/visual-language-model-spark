@@ -324,10 +324,11 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         files.update(error_analysis["files"])
 
         # Tables of the methods and object sizes first, then the mean average recalls and the proposal recall, then the
-        # per-class tables, the masks before the boxes
+        # per-class tables, each followed by its per-class recall table, the masks before the boxes
         tables = [mask_summary["tables"]["methods"], mask_summary["tables"]["sizes"], box_summary["tables"]["methods"],
                   box_summary["tables"]["sizes"], mask_summary["tables"]["recalls"], box_summary["tables"]["recalls"],
-                  proposal_recall["table"], mask_summary["tables"]["classes"], box_summary["tables"]["classes"]]
+                  proposal_recall["table"], mask_summary["tables"]["classes"], mask_summary["tables"]["class_recalls"],
+                  box_summary["tables"]["classes"], box_summary["tables"]["class_recalls"]]
         return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {},
                 "notes": error_analysis["notes"], "tables": tables,
                 "scalars": {**box_summary["scalars"], **mask_summary["scalars"], **proposal_recall["scalars"]},

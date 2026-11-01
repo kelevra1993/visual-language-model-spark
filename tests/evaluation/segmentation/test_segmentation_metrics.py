@@ -10,7 +10,8 @@ import pytest
 import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.evaluation.segmentation.segmentation_metrics import (compute_pixel_confusion_matrix,
+from vision_training.evaluation.segmentation.segmentation_metrics import (compute_image_class_pixel_counts,
+                                                                          compute_pixel_confusion_matrix,
                                                                           compute_pixel_score_histograms,
                                                                           compute_segmentation_metrics)
 from vision_training.evaluation.segmentation.segmentation_report import (build_segmentation_class_rows,
@@ -28,6 +29,24 @@ def test_pixel_confusion_matrix_leaves_out_the_ignored_pixels() -> None:
 
     confusion_matrix = compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks, number_classes=3)
     assert confusion_matrix.tolist() == [[1, 0, 0], [0, 0, 1], [0, 0, 1]]
+
+
+def test_image_class_pixel_counts_add_up_to_the_confusion_matrix() -> None:
+    """
+    Verifies the per-image counts of the Korn-Graubard interval of the recall: the true pixels of every class in every
+    image and those predicted as their class, the ignored pixels left out, adding up over the images to the rows and
+    the diagonal of the confusion matrix.
+    """
+    masks = torch.tensor(data=[[[0, 1], [1, IGNORED_LABEL_INDEX]], [[2, 2], [0, 1]]])
+    class_maps = torch.tensor(data=[[[0, 1], [0, 2]], [[2, 1], [0, 1]]])
+
+    true_positive_pixels, true_pixels = compute_image_class_pixel_counts(class_maps=class_maps, masks=masks,
+                                                                         number_classes=3)
+    assert true_pixels.tolist() == [[1, 2, 0], [1, 1, 2]]
+    assert true_positive_pixels.tolist() == [[1, 1, 0], [1, 1, 1]]
+    confusion_matrix = compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks, number_classes=3)
+    assert true_pixels.sum(dim=0).tolist() == confusion_matrix.sum(dim=1).tolist()
+    assert true_positive_pixels.sum(dim=0).tolist() == confusion_matrix.diagonal().tolist()
 
 
 def test_pixel_score_histograms_count_the_labelled_pixels() -> None:
@@ -51,12 +70,13 @@ def test_curve_metrics_join_the_class_rows_table_and_scalars() -> None:
     them.
     """
     metrics = compute_segmentation_metrics(confusion_matrix=torch.tensor(data=[[7, 0, 1], [1, 3, 0], [0, 0, 0]]))
-    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None]})
+    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None],
+                    "recall_lower": [0.6, 0.4, None], "recall_upper": [0.95, 0.9, None]})
     class_curves = [{"roc_auc": 0.95, "average_precision": 0.9}, {"roc_auc": 0.8, "average_precision": 0.7},
                     {"roc_auc": None, "average_precision": None}]
     class_rows = build_segmentation_class_rows(class_names=["background", "circle", "square"], metrics=metrics,
                                                class_curves=class_curves)
-    assert list(class_rows[0])[-3:] == ["recall", "roc_auc", "average_precision"]
+    assert list(class_rows[0])[-5:] == ["recall", "recall_lower", "recall_upper", "roc_auc", "average_precision"]
 
     table = build_segmentation_class_table(class_rows=class_rows)
     assert table["columns"][-3:] == ["Recall", "ROC AUC", "Average Precision"]
@@ -121,20 +141,22 @@ def test_metrics_without_labelled_pixel_are_zero() -> None:
 def test_class_rows_table_and_scalars_leave_out_the_absent_classes() -> None:
     """
     Verifies the per-class report: the rows of class_metrics.csv in class index order, a class without true pixels
-    having no metric and a class without true edge no boundary metric, the table sorted by IoU with its legend, and
-    the per-class scalars of the metrics the classes have.
+    having no metric nor recall interval and a class without true edge no boundary metric, the table sorted by IoU
+    with its legend, and the per-class scalars of the metrics the classes have.
     """
     metrics = compute_segmentation_metrics(confusion_matrix=torch.tensor(data=[[7, 0, 1], [1, 3, 0], [0, 0, 0]]))
-    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None]})
+    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None],
+                    "recall_lower": [0.6, 0.4, 0.0], "recall_upper": [0.95, 0.9, 1.0]})
     class_rows = build_segmentation_class_rows(class_names=["background", "circle", "square"], metrics=metrics)
 
     assert [list(class_row) for class_row in class_rows] == [["class_index", "class", "pixels", "iou", "dice",
                                                               "boundary_iou", "boundary_f1", "precision",
-                                                              "recall"]] * 3
+                                                              "recall", "recall_lower", "recall_upper"]] * 3
     assert [class_row["pixels"] for class_row in class_rows] == [8, 4, 0]
     assert class_rows[1]["iou"] == pytest.approx(expected=0.75) and class_rows[1]["boundary_iou"] is None
+    assert [class_rows[1]["recall_lower"], class_rows[1]["recall_upper"]] == [0.4, 0.9]
     assert [class_rows[2][metric_key] for metric_key in ["iou", "dice", "boundary_iou", "boundary_f1", "precision",
-                                                         "recall"]] == [None] * 6
+                                                         "recall", "recall_lower", "recall_upper"]] == [None] * 8
 
     table = build_segmentation_class_table(class_rows=class_rows)
     assert table["columns"] == ["Class", "Pixels", "IoU", "Dice", "Boundary IoU", "Boundary F1", "Precision", "Recall"]

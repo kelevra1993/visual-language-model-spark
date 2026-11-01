@@ -38,10 +38,10 @@ ExperimentConfiguration:
   # accuracy, balanced accuracy, macro F1, top-k accuracy, per-class precision / recall / F1, sequence exact match
   # (every frame right), confusion matrix and class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
   evaluation:
-    # Reports every class: the per-class table (worst F1 first) in the console and Results.txt, per-class scalars in
-    # TensorBoard, the frame confusion_matrix.png and the ROC and precision-recall curves of the frames. False keeps the
-    # global metrics only (e.g. many classes); class_metrics.csv, class_thresholds.json and confusion_matrix.csv are
-    # always saved.
+    # Reports every class: the per-class table (worst F1 first) and the recall table (worst recall first, with its 95%
+    # interval) in the console and Results.txt, per-class scalars in TensorBoard, the frame confusion_matrix.png and the
+    # ROC and precision-recall curves of the frames. False keeps the global metrics only (e.g. many classes);
+    # class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
     per_class_report: True
     # Test sequences drawn once and shown at every evaluation: the frame grid, every frame captioned 'true/predicted',
     # wrong ones marked 'X', under the count of right labelled frames (green when all right, red otherwise), saved in

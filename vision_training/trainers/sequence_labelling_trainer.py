@@ -10,9 +10,11 @@ import cv2
 import numpy as np
 import torch
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY
+from vision_training.evaluation.recall_intervals import (compute_bootstrap_recall_intervals,
+                                                         describe_bootstrap_interval, sum_counts_by_group)
 from vision_training.evaluation.sequence.segment_metrics import compute_segment_metrics, group_sequence_predictions
 from vision_training.evaluation.sequence.sequence_metrics import compute_frame_accuracy, compute_sequence_exact_matches
 from vision_training.trainers.sequence_classification_trainer import FRAME_GRID_COLUMNS, SequenceClassificationTrainer
@@ -38,6 +40,10 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
     # Name of the column of the evaluated samples of every class in the per-class table of the report: its labelled
     # frames, on which the classification metrics are computed
     CLASS_SUPPORT_COLUMN = "Frames"
+
+    # Confidence interval of the frame recall of every class: a Korn-Graubard interval from a bootstrap over the test
+    # sequences, the frames of a sequence being correlated (compute_recall_intervals)
+    RECALL_INTERVAL_DESCRIPTION = describe_bootstrap_interval(group_name="test sequences")
 
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
@@ -266,6 +272,47 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
         number_sequences = sum(len(exact_matches) for exact_matches in accumulator["exact_matches"])
         number_frames = sum(len(labels) for labels in accumulator["labels"])
         return f"{number_sequences} Test Sequences, {number_frames} Labelled Frames"
+
+    def compute_recall_intervals(self, accumulator: Dict[str, Any], probabilities: torch.Tensor, labels: torch.Tensor,
+                                 metrics: Dict[str, Any]) -> Tuple[List[Optional[float]], List[Optional[float]]]:
+        """
+        Computes the confidence interval of the frame recall of every class of the test split, a Korn-Graubard interval
+        from a bootstrap over the test sequences, written next to the recall in class_metrics.csv and shown in the
+        recall table: the frames of a sequence share its content and are predicted together, so an exact interval over
+        the frames would be far too narrow, while resampling whole sequences keeps their correlation in the variance
+        that sets the effective sample size of the interval. The true positive and true frames of every class are
+        added up per sequence from the most probable class of every labelled frame, as in the confusion matrix of the
+        metrics.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, with the 'frame_sequence_identifiers' of the
+                labelled frames.
+            probabilities (torch.Tensor): The [F, K] class probabilities of the labelled frames.
+            labels (torch.Tensor): The [F] true class of the labelled frames.
+            metrics (Dict[str, Any]): The metrics of the evaluation, with the per-class 'support' of labelled frames.
+
+        Returns:
+            Tuple[List[Optional[float]], List[Optional[float]]]: The lower and upper bounds of every class, None for a
+                class without labelled frames.
+
+        Raises:
+            ValueError: If the frames added up per sequence differ from the frames of the metrics.
+        """
+        # True frames of every class, and those whose most probable class is the true one, for every labelled frame
+        true_frames = torch.nn.functional.one_hot(input=labels, num_classes=len(self.class_names))
+        found_frames = true_frames * (probabilities.argmax(dim=1) == labels).unsqueeze(dim=1)
+
+        # Both counts added up per test sequence, checked against the frames of the metrics
+        frame_sequence_identifiers = torch.cat(tensors=accumulator["frame_sequence_identifiers"], dim=0).numpy()
+        sequence_true_frames = sum_counts_by_group(group_identifiers=frame_sequence_identifiers,
+                                                   counts=true_frames.numpy())
+        sequence_found_frames = sum_counts_by_group(group_identifiers=frame_sequence_identifiers,
+                                                    counts=found_frames.numpy())
+        if sequence_true_frames.sum(axis=0).tolist() != [int(support) for support in metrics["support"]]:
+            raise ValueError("Expected the labelled frames added up per test sequence to match the frames of the "
+                             "classification metrics.")
+        return compute_bootstrap_recall_intervals(group_true_positives=sequence_found_frames,
+                                                  group_trials=sequence_true_frames)
 
     def compute_extra_headline_metrics(self, accumulator: Dict[str, Any]) -> Dict[str, float]:
         """

@@ -35,12 +35,12 @@ Evaluation/Iteration_<n>/   class_metrics.csv   class_thresholds.json   confusio
 ### Files To Know
 | Role | File | Main functions or classes |
 |---|---|---|
-| Trainer | `vision_training/trainers/sequence_labelling_trainer.py`, on `sequence_classification_trainer.py` and `classification_trainer.py` | `SequenceLabellingTrainer`: `compute_batch_metrics`, `accumulate_evaluation_batch`, `dump_errors`, `build_sample_image`, `build_prediction_rows`, `compute_extra_headline_metrics`, `compute_segment_results` |
+| Trainer | `vision_training/trainers/sequence_labelling_trainer.py`, on `sequence_classification_trainer.py` and `classification_trainer.py` | `SequenceLabellingTrainer`: `compute_batch_metrics`, `accumulate_evaluation_batch`, `dump_errors`, `build_sample_image`, `build_prediction_rows`, `compute_extra_headline_metrics`, `compute_segment_results`, `compute_recall_intervals` |
 | Dataset and loaders | `vision_training/data/sequence/sequence_dataset.py`, `vision_training/data/loaders.py` | `SequenceDataset` (`label_type="frame"`), `collate_padded_sequences`, `get_sequence_dataloaders` |
 | Model | `vision_training/models/sequence/sequence_labeller.py`, `sequence_model.py`, `frame_encoder.py`, `temporal_modules.py` | `SequenceLabeller`, `SequenceFrameModel`, `encode_frames`, `build_temporal_module`, `RecurrentTemporalModule` |
 | Head | `vision_training/models/classification/classification_head.py` | `ClassificationHead`, `build_global_pooling`, `compute_pooled_features` |
 | Loss | `vision_training/losses/sequence_losses.py`, `vision_training/losses/classification_losses.py` | `compute_sequence_labelling_loss`, `compute_balanced_class_weights` |
-| Metrics and evaluation | `vision_training/evaluation/sequence/sequence_metrics.py`, `segment_metrics.py`, `vision_training/evaluation/classification/` | `compute_frame_accuracy`, `compute_sequence_exact_matches`, `group_sequence_predictions`, `compute_segment_metrics`, `compute_class_score_curves`, `find_class_thresholds` |
+| Metrics and evaluation | `vision_training/evaluation/sequence/sequence_metrics.py`, `segment_metrics.py`, `vision_training/evaluation/classification/`, `vision_training/evaluation/recall_intervals.py` | `compute_frame_accuracy`, `compute_sequence_exact_matches`, `group_sequence_predictions`, `compute_segment_metrics`, `compute_class_score_curves`, `find_class_thresholds`, `sum_counts_by_group`, `compute_bootstrap_recall_intervals` |
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_sequence_labelling_configuration`, `check_sequence_settings`, `check_temporal_model_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_sections`, `build_temporal_tokens` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_shape_change_sequence`, `CHANGE_CATEGORIES` |
@@ -72,13 +72,13 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `ClassificationHead.global_pooling` | `"average"` | frame vector of 64 features at any image size; `flatten` keeps the positions (64 x 32 x 32 = 65,536 features at 512 pixels) |
 | `ClassificationHead.class_weighting` | `"none"` | `"balanced"`: weight N / (K x n_c) of every class over the labelled training frames (`CWB` token) |
 | `ClassificationHead.label_smoothing` | `0.0` | smoothing of the per-frame cross entropy (`LS<rate>` token) |
-| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table and scalars, confusion matrix image, ROC and precision-recall curves |
+| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class recall table and scalars, confusion matrix image, ROC and precision-recall curves |
 | `ExperimentConfiguration.evaluation.save_predictions` | `True` | `predictions.csv`, one row per labelled frame |
 | `ExperimentConfiguration.evaluation.error_dumps` | `activated: False`, `maximum_per_class_pair: 20` | one image per wrong frame in `Errors/<TRUE>-TO-<PREDICTED>/` |
 
 ### What A Run Writes
-- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` table (column `Frames`) with `per_class_report`.
-- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (its `samples` are labelled frames), `class_thresholds.json`, `confusion_matrix.csv`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png`; `predictions.csv` with `save_predictions`, one row per labelled frame (`sequence`, `frame`, `true_class`, `predicted_class`, `correct`, `probability_<class>`).
+- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` and `Per Class Recall` tables (column `Frames`) with `per_class_report`, the second giving the frame recall of every class with its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst recall first.
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (its `samples` are labelled frames, `recall_lower` and `recall_upper` follow `recall`), `class_thresholds.json`, `confusion_matrix.csv`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png`; `predictions.csv` with `save_predictions`, one row per labelled frame (`sequence`, `frame`, `true_class`, `predicted_class`, `correct`, `probability_<class>`).
 - `Samples/<sequence>.png`: the frame grid of 8 fixed test sequences, 4 frames per row, every frame captioned `true/predicted` and `X` on the wrong ones; `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, one image per wrong frame, with `error_dumps.activated`.
 - TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss` and `Accuracy` (of the labelled frames), `Train/` also `Learning Rate`; `Test/` the global metrics, the `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
 - `data.json` counts the `frames` of every class in every split.
@@ -199,9 +199,14 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       ├── group_sequence_predictions()        the labelled frames grouped sequence by sequence, in frame order
 │   │       └── compute_segment_metrics()           extract_segments(), compute_edit_distance(),
 │   │                                               count_segment_matches(): Edit Score, Segment F1@10/25/50
+│   ├── compute_recall_intervals()                  overridden: sum_counts_by_group() adds up the true and right
+│   │                                               frames of every class per test sequence, then
+│   │                                               compute_bootstrap_recall_intervals() gives the 95% interval of
+│   │                                               every frame recall over 1000 resamples of the sequences
 │   ├── class_metrics.csv, confusion_matrix.png and save_score_curve_images() (the images with per_class_report)
 │   ├── write_predictions_file() -> build_prediction_rows()   one row per labelled frame
-│   └── describe_extra_notes()                      the number of true and predicted segments
+│   ├── describe_extra_notes()                      the number of true and predicted segments
+│   └── build_recall_interval_table()               the Per Class Recall table (column Frames), worst recall first
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
@@ -283,7 +288,7 @@ get_trainer_class(task="sequence_labelling") -> <class 'vision_training.trainers
 > The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_sequences.yaml` (512 pixel frames, sequences of at most 50 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.1 s on CPU.
 
 ### Step 2.1 — `SequenceLabellingTrainer.__init__()`
-The labelling trainer has no constructor of its own: it is the sequence classification trainer with `LABEL_TYPE = "frame"` (the loaders read one class per frame) and `CLASS_SUPPORT_COLUMN = "Frames"` (the per-class table counts frames). It overrides the batch metric, the evaluation accumulator, the error images, the sample images, the predictions file and the extra headline metrics, since every frame has its own class.
+The labelling trainer has no constructor of its own: it is the sequence classification trainer with `LABEL_TYPE = "frame"` (the loaders read one class per frame) and `CLASS_SUPPORT_COLUMN = "Frames"` (the per-class tables count frames). It overrides the batch metric, the evaluation accumulator, the error images, the sample images, the predictions file and the extra headline metrics, since every frame has its own class, and the recall intervals (`compute_recall_intervals()`, `RECALL_INTERVAL_DESCRIPTION`), the frames of a sequence being correlated.
 
 **Example: the attributes after the construction**
 ```text
@@ -670,6 +675,8 @@ This run was recorded before the ROC and precision-recall curves of the per-clas
 > The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 427 labelled frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `disappearing_hollow_ellipse` to every frame; the one of iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to the 120 others. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
 >
 > They were also captured before the ROC and precision-recall curves of the per-class report were added (2026-10-20). With `per_class_report`, the current code computes for every class, one against the others, its ROC and precision-recall curves on the labelled frames (`compute_class_score_curves()`, see `classification_workflow.md`, Steps 4.14 and 4.15): `Macro ROC AUC` and `Macro Average Precision` follow `Top-2 Accuracy` in the headline metrics, the per-class table, `class_metrics.csv` and the Test scalars gain the `ROC AUC` and `Average Precision` of every class, and `roc_curves.png` and `precision_recall_curves.png` are written and sent to TensorBoard and MLflow. Steps 4.7, 4.9, 4.13 and 5.5 give the differences next to the recorded outputs.
+>
+> All the examples of this stage, those of the README screenshot run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table (column `Frames`) after `Per Class Metrics`, with the frame recall of every class and the bounds of its interval (Step 4.9).
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1).
@@ -734,7 +741,7 @@ TensorBoard: Samples/test_000000, ..., Samples/test_000059
 ```
 
 ### Step 4.7 — `compute_evaluation_results()`
-The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), with `per_class_report` their ROC and precision-recall curves, then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
+The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), with `per_class_report` their ROC and precision-recall curves, then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), `compute_recall_intervals()` the 95% confidence interval of the frame recall of every class, a Korn-Graubard interval from a bootstrap over the test sequences (Step 4.9), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
 
 **Example: the results of iteration 12** (recorded before the curves)
 ```text
@@ -776,6 +783,8 @@ macro F1          = 0.4639 / 69                                     = 0.0067
 `appearing_star` and `appearing_semicircle` have no test frame, so they are left out of the averages.
 
 ### Step 4.9 — `find_class_thresholds()` + `write_class_metrics_file()` + `save_confusion_matrix_image()`
+The frames of a sequence share its content and are predicted together, so an exact interval over the frames would be far too narrow. The labelling trainer overrides `compute_recall_intervals()`: the true frames of every class and those whose most probable class is the true one are added up per test sequence (`sum_counts_by_group()` of `vision_training/evaluation/recall_intervals.py`, checked against the frames of the metrics), then `compute_bootstrap_recall_intervals()` computes the Korn-Graubard interval of every class. It draws 1000 resamples of the test sequences with replacement (fixed seed), every sequence kept whole, for the variance of the recall of every class, a resample without frames of a class not counting for it. The effective sample size of the class, `p (1 - p) / variance` capped at its frames, is reduced by `(z / t)²`, `t` being the Student quantile at the sequences holding the class minus one, so that the interval widens when few sequences hold it, and the bounds are the exact (Clopper-Pearson) interval of the recall at that size. With a recall of 0 or 1 in every sequence, every resample gives the same recall and the bounds are the exact interval over the sequences holding the class, each counted as one sample, instead of an interval of zero width. The bounds are written as `recall_lower` and `recall_upper` after `recall`, empty for a class without test frames, and shown in the `Per Class Recall` table with `per_class_report`.
+
 **Example: `Evaluation/Iteration_12/class_metrics.csv`** (72 lines; the `samples` column counts labelled frames)
 ```text
 class_index,class,samples,precision,recall,f1,threshold_at_target_precision,recall_at_target_precision
@@ -904,7 +913,7 @@ MLflow only accepts letters, digits, `_`, `-`, `.`, `/` and spaces in a metric n
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were also captured before the per-class recall intervals (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5). The test sequences are read with the `sequence_settings` of the run, so a test sequence longer than its `maximum_sequence_length` is left out with the warnings of Step 2.8.

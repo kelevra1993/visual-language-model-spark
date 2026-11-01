@@ -47,7 +47,8 @@ ExperimentConfiguration:
   # side), the mean OKS and the mean pixel error, a missed object or keypoint counting as wrong.
   evaluation:
     # Reports every class and keypoint: the class table (objects, OKS average precisions, matched objects, PCK, mean OKS
-    # and mean pixel error, worst AP@0.5 first) and the per-keypoint table of every class (labelled keypoints, PCK, mean
+    # and mean pixel error, worst AP@0.5 first), the OKS recall table (recall at OKS 0.5 and 0.75 with their 95%
+    # intervals, worst recall at 0.5 first) and the per-keypoint table of every class (labelled keypoints, PCK, mean
     # pixel error) in the console and Results.txt, and the per-class AP@0.5 Test scalar in TensorBoard. False keeps the
     # global metrics only; class_metrics.csv and keypoint_metrics.csv are always saved.
     per_class_report: True

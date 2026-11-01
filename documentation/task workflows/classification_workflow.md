@@ -30,7 +30,7 @@ ImageClassifier: InputNormalizer x / 255 - 0.5 ─► Backbone, 6 ConvolutionBlo
 loss: classification_loss = cross entropy (balanced class weights, no label smoothing) = total_loss
 batch metric: accuracy (argmax == label) ─► TensorBoard Train / Validation every iteration, console every 10
 every weight_saving_iterations: test split ─► confusion matrix, accuracy, balanced accuracy, macro F1, top-5,
-   per class precision, recall, F1, ROC AUC, average precision, threshold at precision 0.99
+   per class precision, recall with its 95% interval, F1, ROC AUC, average precision, threshold at precision 0.99
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion_matrix.csv/.png, class_metrics.csv,
       class_thresholds.json, roc_curves.png, precision_recall_curves.png, temperature_explorer.html,
       predictions.csv, Samples/, Errors/)
@@ -49,6 +49,7 @@ export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► cl
 | Head | `vision_training/models/classification/classification_head.py`, `vision_training/models/components/fully_connected_block.py` | `build_global_pooling`, `compute_pooled_features`, `ClassificationHead`, `build_fully_connected_block` |
 | Loss | `vision_training/losses/classification_losses.py` | `compute_classification_loss`, `convert_logits_to_probabilities`, `compute_balanced_class_weights`, `compute_decorrelation_loss` |
 | Metrics and evaluation | `vision_training/evaluation/classification/` | `compute_confusion_matrix`, `compute_metrics_from_confusion_matrix`, `compute_top_k_accuracy`, `find_class_thresholds`, `compute_class_score_curves`, `save_confusion_matrix_image`, `save_score_curve_images`, `build_class_metrics_table` |
+| Recall intervals | `vision_training/evaluation/recall_intervals.py` | `compute_clopper_pearson_intervals`, `build_recall_interval_table` |
 | Configuration checks | `vision_training/configuration_processing/classification_checks.py` | `check_classification_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_classification_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (one shape per image, or with `multi_label` the distinct classes of the counted shapes images of `configuration_synthetic_counted_shapes.yaml`) |
@@ -84,11 +85,11 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `ClassificationHead.label_smoothing` | `0.0` | above 0 gives `LS<rate>`; combined with balanced weights it favours the rare classes (pitfall below) |
 | `ClassificationHead.decorrelation` | `activated: False` | adds the squared off-diagonal correlations of one hidden layer to the loss, no run name token |
 | `ExperimentConfiguration.evaluation.target_precision` | `0.99` | the threshold of every class in `class_thresholds.json` and the `@ P0.99` columns; a list such as `[0.99, 0.95, 0.90]` adds the thresholds of the other precisions (Step 4.13) |
-| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class scalars, confusion matrix image, ROC and precision-recall curves |
+| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class recall table, per-class scalars, confusion matrix image, ROC and precision-recall curves |
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision` and the per-class table sorted by F1, worst first.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95% confidence interval) sorted by recall, worst first.
 - `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `temperature_explorer.html` with `per_class_report`; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
 - With the MLflow tracking: `test/<metric>`, `test_class/<metric>/<class>`, `test/best_Accuracy` and the tag `best_iteration`, and the files of `evaluation/iteration_<n>/`.
@@ -529,7 +530,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       columns predicted. Multi-class mode only.
 │   ├── compute_metrics_from_confusion_matrix() -> compute_precision_recall_f1()
 │   │       From the diagonal and the row and column sums: accuracy, balanced accuracy, macro F1 and, for each class,
-│   │       precision, recall, F1 and support (number of test images of the class).
+│   │       precision, recall, F1, support (number of test images of the class) and true positives (the diagonal).
 │   ├── compute_top_k_accuracy()
 │   │       Share of images whose true class is among the 5 highest probabilities (TOP_K_ACCURACY_CLASSES).
 │   ├── save_confusion_matrix_table()
@@ -543,9 +544,13 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       probability and gives its ROC curve and ROC AUC, its precision-recall curve and average precision (as
 │   │       scikit-learn computes them) and the point of its threshold; their means over the classes defining them are
 │   │       the Macro ROC AUC and Macro Average Precision headline metrics.
+│   ├── compute_recall_intervals() -> compute_clopper_pearson_intervals()
+│   │       For each class, the exact (Clopper-Pearson) 95% confidence interval of its recall, from its true positives
+│   │       and its test images (recall_intervals.py), None for a class without test image.
 │   ├── build_class_metrics_rows() + write_class_metrics_file()
-│   │       Merges the per-class metrics, curve metrics (with per_class_report) and thresholds into one row per class,
-│   │       in class index order, and writes class_metrics.csv. Written at every evaluation, whatever per_class_report.
+│   │       Merges the per-class metrics (the recall followed by recall_lower and recall_upper), curve metrics (with
+│   │       per_class_report) and thresholds into one row per class, in class index order, and writes
+│   │       class_metrics.csv. Written at every evaluation, whatever per_class_report.
 │   ├── save_confusion_matrix_image()   (only with per_class_report)
 │   │       Draws the confusion matrix with matplotlib (counts, shares, recall column, precision row, colour bar) and
 │   │       saves confusion_matrix.png. The same image is later sent to TensorBoard.
@@ -560,10 +565,11 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── write_predictions_file()   (only with save_predictions)
 │   │       Writes predictions.csv: one row per test image with its file name, true class, predicted class, whether it
 │   │       is correct and the probability of every class.
-│   └── build_class_metrics_table() + build_class_metric_scalars()
-│           Prepare what is displayed: the per-class table (columns, rows, sort by F1, legend) and the per-class
-│           TensorBoard scalars Precision/<class>, Recall/<class>, F1/<class> (and with per_class_report
-│           ROC AUC/<class>, Average Precision/<class>).
+│   └── build_class_metrics_table() + build_recall_interval_table() + build_class_metric_scalars()
+│           Prepare what is displayed: the per-class table (columns, rows, sort by F1, legend), the per-class recall
+│           table (recall and 95% bounds, sort by recall, legend) and the per-class TensorBoard scalars
+│           Precision/<class>, Recall/<class>, F1/<class> (and with per_class_report ROC AUC/<class>,
+│           Average Precision/<class>).
 └── report_evaluation()
     │
     ├── report_evaluation_results()
@@ -1469,7 +1475,7 @@ Error encountered during iteration 7. Continuing... (Consecutive Errors: 1/5)   
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (5,000 images, 9 classes), with `per_class_report: True`, `number_sample_images: 8`, `save_predictions: True`, `error_dumps` activated and the MLflow tracking on. The network was trained for 12 steps at most, so it predicts the same class for every image: the metrics are close to chance, but every file and every line of the report is the real one. (The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps, Step 3.6.) They were also recorded before the ROC and precision-recall curves: with `per_class_report`, the current evaluation adds `Macro ROC AUC` and `Macro Average Precision` to the headline metrics, the `ROC AUC` and `Average Precision` of every class to its row and its scalars, and `roc_curves.png` and `precision_recall_curves.png` to the files, which Steps 4.8, 4.14, 4.18 and 4.19 show with the README run.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (5,000 images, 9 classes), with `per_class_report: True`, `number_sample_images: 8`, `save_predictions: True`, `error_dumps` activated and the MLflow tracking on. The network was trained for 12 steps at most, so it predicts the same class for every image: the metrics are close to chance, but every file and every line of the report is the real one. (The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps, Step 3.6.) They were also recorded before the ROC and precision-recall curves: with `per_class_report`, the current evaluation adds `Macro ROC AUC` and `Macro Average Precision` to the headline metrics, the `ROC AUC` and `Average Precision` of every class to its row and its scalars, and `roc_curves.png` and `precision_recall_curves.png` to the files, which Steps 4.8, 4.14, 4.18 and 4.19 show with the README run. All the examples of this stage, those of the README run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics` (Step 4.17).
 
 ### Step 4.1 — `run_test_evaluation()`
 This function scores the current weights on the whole test split, which no training step ever sees, and reports the result. The training loop calls it at every `weight_saving_iterations` checkpoint, last in its iteration (Step 3.7), and Stage 5 calls it for every checkpoint it evaluates. It puts the model in `eval()` mode, creates the accumulator (4.2), runs the test loader without gradients within the `evaluation_context()` of the task (nothing for classification), then computes the results (4.8) and reports them (4.18). It also makes sure that every test image is counted exactly once: a loader filling its last batch with images already given would otherwise count them twice, so it keeps only the sample identifiers it has not seen yet (the loaders of the repository give a smaller last batch instead). It adds the sample images (4.7) to the results, with a note and their folder, and returns the results (with those of the averaged weights, `None` without them), which Stage 5 uses to compare the checkpoints.
@@ -1579,7 +1585,7 @@ tensor([[  0,   0, 579,   0,   0,   0,   0,   0,   0],      <- the 579 squares, 
 ```
 
 ### Step 4.10 — `compute_metrics_from_confusion_matrix()` → `compute_precision_recall_f1()`
-All the multi-class metrics come from the matrix. For a class: the **support** is its row sum (its test images), the **precision** is the diagonal divided by its column sum (how many images predicted as the class are right), the **recall** is the diagonal divided by its row sum (how many images of the class were found) and the **F1** is their harmonic mean. A class that is never predicted gets a precision of 0. The **accuracy** is the diagonal sum over all the images, the **balanced accuracy** is the mean recall over the classes present in the test set, and the **macro F1** the mean F1 over the classes present or predicted, a class predicted without any test image counting with its F1 of 0, as in scikit-learn: they do not depend on how many images each class has.
+All the multi-class metrics come from the matrix. For a class: the **support** is its row sum (its test images), the **precision** is the diagonal divided by its column sum (how many images predicted as the class are right), the **recall** is the diagonal divided by its row sum (how many images of the class were found) and the **F1** is their harmonic mean. A class that is never predicted gets a precision of 0. The **accuracy** is the diagonal sum over all the images, the **balanced accuracy** is the mean recall over the classes present in the test set, and the **macro F1** the mean F1 over the classes present or predicted, a class predicted without any test image counting with its F1 of 0, as in scikit-learn: they do not depend on how many images each class has. The **true positives** of every class (the diagonal) are returned with the support, for the confidence interval of its recall (Step 4.14).
 
 **Example: how the numbers of iteration 6 are obtained**
 ```text
@@ -1640,7 +1646,9 @@ The probabilities are the softmax of the class logits divided by a logit tempera
 ```
 
 ### Step 4.14 — `build_class_metrics_rows()` + `write_class_metrics_file()`
-`build_class_metrics_rows()` merges, for every class, its support, precision, recall, F1 and its threshold and recall at the target precision into one row, in class index order, followed by `threshold_at_precision_<p>` and `recall_at_precision_<p>` for every other target precision of a list. The per-class table of the report keeps the main target precision, and with several target precisions `build_class_thresholds_table()` adds the `Per Class Thresholds` table (class order, the threshold and recall of every target precision, the thresholds written as on `precision_recall_thresholds.png`). `write_class_metrics_file()` saves them as `class_metrics.csv`, with 6 decimals and an empty cell for a missing value. It is written at every evaluation, whatever `per_class_report`, so that the details of all the classes (a 1000 class run included) stay on the disk even when they are not displayed.
+Before the rows are built, `compute_recall_intervals()` gives the 95% confidence interval of the recall of every class with `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py`: the test images being independent, the interval is the exact (Clopper-Pearson) one, from the beta quantiles of the true positives and the support of the class, leaving 2.5% on each side. It covers the true recall at least 95% of the time, is wider for a class with few images, and stays within [0, 1] (lower bound 0 for a recall of 0, upper bound 1 for a recall of 1). A class without test image has no interval. In multi-label mode, the counts are those of the positive samples of the class.
+
+`build_class_metrics_rows()` merges, for every class, its support, precision, recall with the bounds of its interval (`recall_lower`, `recall_upper`), F1 and its threshold and recall at the target precision into one row, in class index order, followed by `threshold_at_precision_<p>` and `recall_at_precision_<p>` for every other target precision of a list. The per-class table of the report keeps the main target precision, and with several target precisions `build_class_thresholds_table()` adds the `Per Class Thresholds` table (class order, the threshold and recall of every target precision, the thresholds written as on `precision_recall_thresholds.png`). `write_class_metrics_file()` saves them as `class_metrics.csv`, with 6 decimals and an empty cell for a missing value. It is written at every evaluation, whatever `per_class_report`, so that the details of all the classes (a 1000 class run included) stay on the disk even when they are not displayed.
 
 With `per_class_report`, `compute_class_score_curves()` first scores every class one against the rest from the probabilities of the test images: the images are counted, positive or negative, at every distinct probability of the class, from the highest down, every probability being a threshold, which gives the ROC curve (false and true positive rates) with its trapezoidal area, the ROC AUC, and the step-wise precision-recall curve with its average precision (the precision of every threshold weighted by the recall it adds), as scikit-learn computes them. A class without image has neither, a class made of every image no ROC AUC. Their means over the classes defining them, `compute_macro_curve_metrics()`, are the `Macro ROC AUC` and `Macro Average Precision` headline metrics, placed after the other headline metrics and before the extra metrics of the task, and the rows then hold `roc_auc` and `average_precision` after `f1`. The first example below comes from the run of Stage 3, made before the curves, without these two columns; the second from the README run, with them.
 
@@ -1704,7 +1712,7 @@ test_000662.png,plus_sign,triangle,0,0.111758,0.105057,0.116420, ... ,0.115801
 ```
 
 ### Step 4.17 — `build_class_metrics_table()` + `build_class_metric_scalars()`
-These prepare what is displayed, without displaying it. `build_class_metrics_table()` returns the per-class table: the columns (with `per_class_report`, `ROC AUC` and `Average Precision` after the F1), one row per class, the sort column (F1, worst first, ties in class order, a class without test sample last and shown with a dash), and the legend. `build_class_metric_scalars()` returns one TensorBoard scalar per class and metric, with `per_class_report` also `ROC AUC/<class>` and `Average Precision/<class>` for the classes defining them (the example below predates them). Both are marked as per-class outputs: the reporter shows them only with `per_class_report`.
+These prepare what is displayed, without displaying it. `build_class_metrics_table()` returns the per-class table: the columns (with `per_class_report`, `ROC AUC` and `Average Precision` after the F1), one row per class, the sort column (F1, worst first, ties in class order, a class without test sample last and shown with a dash), and the legend. `build_recall_interval_table()` of `recall_intervals.py` returns the `Per Class Recall` table, shown after the per-class table and before the `Per Class Thresholds` table: the class, its samples, its recall and the bounds of its interval (`95% Lower`, `95% Upper`), read from the rows of `class_metrics.csv`, sorted by recall, worst first (a class without test sample last and shown with a dash), with a legend naming the interval. `build_class_metric_scalars()` returns one TensorBoard scalar per class and metric, with `per_class_report` also `ROC AUC/<class>` and `Average Precision/<class>` for the classes defining them (the example below predates them). Both are marked as per-class outputs: the reporter shows them only with `per_class_report`.
 
 **Example: the per-class scalars of the 9 classes**
 ```text
@@ -1713,7 +1721,7 @@ Precision/square, Recall/square, F1/square, Precision/circle, ... , F1/octagon  
 With the curves, the README run writes 45 per-class scalars (9 classes x 5 metrics): `Precision/square`, `Recall/square`, `F1/square`, `ROC AUC/square`, `Average Precision/square`, `Precision/circle`, ...
 
 ### Step 4.18 — `report_evaluation()` → `report_evaluation_results()`
-This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC and precision-recall curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the table, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
+This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC and precision-recall curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the tables, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
 
 **Example output: the block of iteration 6** (the same text, without the links, is appended to `Results.txt`; recorded before the curves, see the block of the README run below for the current layout)
 ```text
@@ -1814,7 +1822,7 @@ artifacts: evaluation/iteration_6/class_metrics.csv, class_thresholds.json, conf
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of this script logic run on the run of Stage 3 (checkpoints saved at iterations 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step), with `iteration = "all"` and, to keep it short, a test folder of 300 images taken from the test split (`test_data_folder`), instead of the 5,000 images of Stage 4.
+> The examples below are real outputs of this script logic run on the run of Stage 3 (checkpoints saved at iterations 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step), with `iteration = "all"` and, to keep it short, a test folder of 300 images taken from the test split (`test_data_folder`), instead of the 5,000 images of Stage 4. They were also captured before the per-class recall intervals were added (2026-11-01): the block of Step 5.6 now also holds the `Per Class Recall` table after `Per Class Metrics`, and `class_metrics.csv` the `recall_lower` and `recall_upper` columns after `recall`.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 This separate script evaluates checkpoints of a run that has already been trained (or is still training) without training anything: to compare several checkpoints, to pick the one to deploy, or to score a run on another labelled split. It is launched alone, as a module from the root of the repository (`uv run python -m scripts.evaluation.evaluate_checkpoint`), and has no command line: its settings are the variables at the top of its `__main__` block. The run folder is only read; everything the evaluation writes goes to a separate folder.

@@ -28,7 +28,8 @@ losses         1.0 x cross entropy + 1.0 x soft Dice (Lovász and boundary at 0)
 batch metrics  argmax -> pixel confusion matrix -> Pixel Accuracy, Mean IoU (console, TensorBoard, MLflow)
 evaluation     summed on the device over the test split: confusion [10, 10], boundary counts [10, 6], histograms
                [10, 2, 10000] -> Mean IoU (headline), Mean Dice, Mean Boundary IoU / F1, Pixel Accuracy,
-               Frequency Weighted IoU, Macro ROC AUC, Macro Average Precision, the same per class
+               Frequency Weighted IoU, Macro ROC AUC, Macro Average Precision, the same per class, the 95%
+               interval of every recall (Korn-Graubard, bootstrap over the test images)
 files          Evaluation/Iteration_<n>/ class_metrics.csv, confusion_matrix.csv and .png, roc_curves.png,
                precision_recall_curves.png, Samples/, Predicted_Masks/; Results.txt
 export         InferenceSegmenter: images [B, 3, 512, 512] -> class_map [B, 512, 512] int64,
@@ -43,7 +44,8 @@ export         InferenceSegmenter: images [B, 3, 512, 512] -> class_map [B, 512,
 | Dataset and loaders | `vision_training/data/segmentation/segmentation_dataset.py`, `vision_training/data/loaders.py` | `SegmentationDataset` (`cut_tile`, `count_class_pixels`), `build_class_lookup_table`, `get_segmentation_dataloaders`, `build_native_loader` |
 | Model | `vision_training/models/segmentation/semantic_segmenter.py`, `vision_training/models/segmentation/segmentation_decoder.py`, `vision_training/models/backbones/backbone.py` | `SemanticSegmenter` (`compute_mask_losses`), `SegmentationDecoder`, `compute_skip_block_numbers`, `Backbone.forward(return_pre_pooling_outputs=True)` |
 | Losses | `vision_training/losses/segmentation_losses.py`, `vision_training/utilities/mask_morphology.py` | `compute_segmentation_cross_entropy`, `compute_dice_loss`, `compute_lovasz_softmax_loss`, `compute_boundary_loss`, `compute_edge_distance_weights` |
-| Metrics and evaluation | `vision_training/evaluation/segmentation/segmentation_metrics.py`, `boundary_metrics.py`, `segmentation_report.py` | `compute_pixel_confusion_matrix`, `compute_segmentation_metrics`, `compute_pixel_score_histograms`, `compute_boundary_counts`, `compute_boundary_metrics`, `build_segmentation_class_rows`, `build_segmentation_class_table`, `build_segmentation_class_scalars` |
+| Metrics and evaluation | `vision_training/evaluation/segmentation/segmentation_metrics.py`, `boundary_metrics.py`, `segmentation_report.py` | `compute_pixel_confusion_matrix`, `compute_segmentation_metrics`, `compute_image_class_pixel_counts`, `compute_pixel_score_histograms`, `compute_boundary_counts`, `compute_boundary_metrics`, `build_segmentation_class_rows`, `build_segmentation_class_table`, `build_segmentation_class_scalars` |
+| Recall intervals | `vision_training/evaluation/recall_intervals.py` | `compute_bootstrap_recall_intervals`, `describe_bootstrap_interval`, `build_recall_interval_table` |
 | Curves and confusion matrix | `vision_training/evaluation/classification/score_curves.py`, `confusion_matrix.py` | `compute_histogram_score_curves`, `compute_macro_curve_metrics`, `save_score_curve_images`, `save_confusion_matrix_table`, `save_confusion_matrix_image` |
 | Tiles and original resolution | `vision_training/models/segmentation/sliding_window.py`, `vision_training/data/preprocessing.py` | `segment_image_by_tiles`, `restore_prediction_to_original_image` |
 | Sample images and input viewer | `vision_training/utilities/visualization.py` | `build_segmentation_sample_grid`, `build_segmentation_error_map`, `overlay_segmentation_mask` |
@@ -88,12 +90,12 @@ uv run python -m vision_training.deployment.export_model
 | `Data.tiling` | `activated: False`, `scale: 1.0`, `overlap: 128` | random tiles of the scaled images for the training, fixed ones for the validation, whole test images segmented tile by tile (`TL<scale>`) |
 | `ExperimentConfiguration.evaluation.boundary_tolerance` | `2` | distance in pixels within which a contour pixel is right, for the boundary IoU and F1 |
 | `ExperimentConfiguration.evaluation.save_predicted_masks`, `original_resolution` | `False`, `False` | the class index PNG of every test image in `Predicted_Masks/`; the scores against the original masks after `restore_prediction_to_original_image()` |
-| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table and scalars, confusion matrix image, ROC and precision-recall curves from the 10,000 bin histograms of the pixel probabilities |
+| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class recall table and scalars, confusion matrix image, ROC and precision-recall curves from the 10,000 bin histograms of the pixel probabilities |
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint with `Mean IoU` (the headline metric), `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, with `per_class_report` `Macro ROC AUC` and `Macro Average Precision`, the notes (labelled pixels and their resolution, boundary tolerance, predicted masks, sample images) and the per-class table sorted by IoU, worst first.
-- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (pixels, IoU, Dice, boundary IoU and F1, precision, recall, and with `per_class_report` ROC AUC and average precision) and `confusion_matrix.csv` (pixel counts) at every evaluation; `confusion_matrix.png` (shares of every true class), `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `Samples/<image>.png` (Input, Ground Truth, Prediction and Errors panels, 2060x560 for 512 pixel images); `Predicted_Masks/<image>.png` with `save_predicted_masks`. No `EMA/` folder: the moving average of the weights is off in this configuration.
+- `Results.txt`: one block per evaluated checkpoint with `Mean IoU` (the headline metric), `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, with `per_class_report` `Macro ROC AUC` and `Macro Average Precision`, the notes (labelled pixels and their resolution, boundary tolerance, predicted masks, sample images) the per-class table sorted by IoU, worst first, and the `Per Class Recall` table (the pixel recall of every class with its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test images) sorted by recall, worst first.
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (pixels, IoU, Dice, boundary IoU and F1, precision, recall with the bounds of its 95% confidence interval, `recall_lower` and `recall_upper`, and with `per_class_report` ROC AUC and average precision) and `confusion_matrix.csv` (pixel counts) at every evaluation; `confusion_matrix.png` (shares of every true class), `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `Samples/<image>.png` (Input, Ground Truth, Prediction and Errors panels, 2060x560 for 512 pixel images); `Predicted_Masks/<image>.png` with `save_predicted_masks`. No `EMA/` folder: the moving average of the weights is off in this configuration.
 - `class_pixel_counts.json` in the run folder with `class_weighting: "balanced"`.
 - `Tensorboard/Train` and `Validation`: `Total Loss`, `Cross Entropy Loss`, `Dice Loss`, `Pixel Accuracy`, `Mean IoU` (and `Learning Rate`); `Tensorboard/Test`: 88 scalars in the run of `experiments/readme_screenshots` (the 8 headline metrics and, for each of the 10 classes, `IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`, `ROC AUC` and `Average Precision`) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
 - `Weights/Iteration_<n>/model_<n>.pt`: about 9.6 MB, the 3.15 MB of the weights and the two Adam moments, with the source runs of `Backbone` and `SegmentationDecoder`.
@@ -249,7 +251,8 @@ main()
 run_test_evaluation(iteration)  [STAGE 4]
 ├── create_evaluation_accumulator()
 │       A [K, K] pixel confusion matrix and [K, 6] boundary counts, with per_class_report [K, 2, 10000] score
-│       histograms, all on the device, the number of images, and the Predicted_Masks folder of the checkpoint.
+│       histograms, all on the device, the lists of the per-image true positive and true pixels of every class,
+│       the number of images, and the Predicted_Masks folder of the checkpoint.
 ├── for each test batch:
 │   ├── prepare_batch()
 │   ├── predict_batch()
@@ -258,8 +261,9 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── accumulate_evaluation_batch()
 │   │       Adds compute_pixel_confusion_matrix() and compute_boundary_counts() of the batch (at the network
 │   │       resolution, or with original_resolution against every original mask after
-│   │       restore_prediction_to_original_image()), with per_class_report compute_pixel_score_histograms() of the
-│   │       same pixels, and with save_predicted_masks writes one class index PNG per image.
+│   │       restore_prediction_to_original_image()), keeps compute_image_class_pixel_counts() of every image, with
+│   │       per_class_report compute_pixel_score_histograms() of the same pixels, and with save_predicted_masks
+│   │       writes one class index PNG per image.
 │   └── save_sample_images() -> build_sample_image()
 │           Four panels per fixed image: the input, the true mask and the predicted mask painted over it, the error
 │           map, with the pixel accuracy of the image and a legend of its classes and of the error colours.
@@ -269,11 +273,14 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── compute_boundary_metrics()           boundary IoU and boundary F1 of every class, and their means
 │   ├── compute_histogram_score_curves() + compute_macro_curve_metrics()   (only with per_class_report)
 │   │                                        ROC AUC and average precision of the pixels of every class, their means
+│   ├── compute_bootstrap_recall_intervals()
+│   │                                        95% interval of the recall of every class, 1000 resamples of the
+│   │                                        test images
 │   ├── build_segmentation_class_rows() + write_class_metrics_file()           class_metrics.csv
 │   ├── save_confusion_matrix_table()                                          confusion_matrix.csv (pixel counts)
 │   ├── save_confusion_matrix_image()   (only with per_class_report)          confusion_matrix.png (shares only)
 │   ├── save_score_curve_images()   (only with per_class_report)    roc_curves.png, precision_recall_curves.png
-│   └── build_segmentation_class_table() + build_segmentation_class_scalars()
+│   └── build_segmentation_class_table() + build_recall_interval_table() + build_segmentation_class_scalars()
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
@@ -913,7 +920,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 images of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8` and `save_predicted_masks: True`. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 images of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8` and `save_predicted_masks: True`. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were also captured before the per-class recall intervals were added (2026-11-01): the accumulator now also holds the per-image pixel counts of Step 4.5, `class_metrics.csv` the `recall_lower` and `recall_upper` columns after `recall`, and with `per_class_report` the report a `Per Class Recall` table after `Per Class Metrics` (Steps 4.10 and 4.13).
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The `evaluation_context()` of the segmentation changes nothing.
@@ -924,7 +931,7 @@ Test Evaluation Iteration 6: 100%|██████████| 50/50
 ```
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-Storing the probabilities of every pixel of the test split would take a lot of memory, so the segmentation accumulates counts instead, on the device: the `[K, K]` pixel confusion matrix and the `[K, 6]` boundary counts of every class, and with `per_class_report` the `[K, 2, 10000]` `score_histograms` of the pixel probabilities (Step 4.5), next to the number of evaluated images and the `Predicted_Masks` folder of the checkpoint.
+Storing the probabilities of every pixel of the test split would take a lot of memory, so the segmentation accumulates counts instead, on the device: the `[K, K]` pixel confusion matrix and the `[K, 6]` boundary counts of every class, and with `per_class_report` the `[K, 2, 10000]` `score_histograms` of the pixel probabilities (Step 4.5), the lists of the `[B, K]` true positive and true pixels of every image and class (`image_true_positive_pixels`, `image_true_pixels`), next to the number of evaluated images and the `Predicted_Masks` folder of the checkpoint.
 
 **Example: the accumulator at the end of the loop**
 ```text
@@ -946,7 +953,7 @@ class_probabilities   [4, 10, 64, 64] torch.float32
 ```
 
 ### Step 4.5 — `accumulate_evaluation_batch()` (→ `compute_pixel_confusion_matrix()` + `compute_boundary_counts()`)
-The predicted class map of every kept image (the argmax of its probabilities) is compared with its mask: at the network resolution (the padding and the unlabelled pixels being ignored), or with `original_resolution: True` with the original mask of every image, its probabilities being first cut out of the letterbox and resized back to the original size (`restore_prediction_to_original_image()`). The pixel confusion matrix and the boundary counts of the batch are added to the accumulator. `compute_boundary_counts()` counts, for every class, the intersection and the union of the bands within `boundary_tolerance` pixels of the true and predicted contours, the predicted edge pixels with those within the tolerance of a true edge, and the true edge pixels with those within the tolerance of a predicted edge. With `per_class_report`, `compute_pixel_score_histograms()` counts the same labelled pixels, class by class, in a histogram of 10,000 bins (`SCORE_HISTOGRAM_BINS`) of their probability of the class, the pixels of the class (positives) apart from the others (negatives), added to the `[K, 2, 10000]` `score_histograms` of the accumulator on the device: the probabilities of all the test pixels are far too many to keep for the ROC and precision-recall curves. With `save_predicted_masks`, the class map of every image is written as a single-channel PNG named after the image.
+The predicted class map of every kept image (the argmax of its probabilities) is compared with its mask: at the network resolution (the padding and the unlabelled pixels being ignored), or with `original_resolution: True` with the original mask of every image, its probabilities being first cut out of the letterbox and resized back to the original size (`restore_prediction_to_original_image()`). The pixel confusion matrix and the boundary counts of the batch are added to the accumulator, and `compute_image_class_pixel_counts()` keeps, for every image and class, its labelled pixels and those predicted as the class, for the Korn-Graubard interval of the recall (Step 4.10). `compute_boundary_counts()` counts, for every class, the intersection and the union of the bands within `boundary_tolerance` pixels of the true and predicted contours, the predicted edge pixels with those within the tolerance of a true edge, and the true edge pixels with those within the tolerance of a predicted edge. With `per_class_report`, `compute_pixel_score_histograms()` counts the same labelled pixels, class by class, in a histogram of 10,000 bins (`SCORE_HISTOGRAM_BINS`) of their probability of the class, the pixels of the class (positives) apart from the others (negatives), added to the `[K, 2, 10000]` `score_histograms` of the accumulator on the device: the probabilities of all the test pixels are far too many to keep for the ROC and precision-recall curves. With `save_predicted_masks`, the class map of every image is written as a single-channel PNG named after the image.
 
 **Example: the predicted masks of the checkpoint of iteration 6**
 ```text
@@ -1013,6 +1020,8 @@ Mean Boundary IoU 0.0195   Mean Boundary F1 0.0608
 ```
 
 ### Step 4.10 — `build_segmentation_class_rows()` + `write_class_metrics_file()`
+The pixels of an image are correlated (a missed object loses all its pixels together), so an exact interval over the pixels would be far too narrow. Before the rows are built, the per-image counts of Step 4.5 are checked against the rows of the confusion matrix, then `compute_bootstrap_recall_intervals()` of `vision_training/evaluation/recall_intervals.py` computes the Korn-Graubard interval of every class: 1000 resamples of the test images with replacement (fixed seed), every image kept whole, give the variance of its pixel recall (a resample without pixels of the class not counting for it), the effective sample size `p (1 - p) / variance`, capped at its pixels, is reduced for the degrees of freedom of the images holding the class, and the bounds are the exact (Clopper-Pearson) interval of the recall at that size. When every image holding the class has the same recall (0 or 1 in every image), the bounds are the exact interval over those images, each counted as one sample, instead of an interval of zero width. The bounds join the row as `recall_lower` and `recall_upper` after `recall`, empty for a class without true pixels.
+
 One row per class, in class index order, with its true pixels and all its metrics, written as `class_metrics.csv` at every evaluation, whatever `per_class_report`. With `per_class_report`, `compute_histogram_score_curves()` first turns the histograms of Step 4.5 into the ROC and precision-recall curves of every class, one against the rest, the lower edge of every bin holding pixels being a threshold (the curves are exact at the bin edges, the pixels of a bin moving them together like tied scores): the ROC AUC and average precision of every class join its row as `roc_auc` and `average_precision`, and their means over the classes defining them (`compute_macro_curve_metrics()`) follow the headline metrics as `Macro ROC AUC` and `Macro Average Precision`. A class without pixels has neither, a class covering every labelled pixel no ROC AUC. The example below comes from a run made before the curves, without these two columns.
 
 **Example: `Evaluation/Iteration_12/class_metrics.csv`**
@@ -1033,7 +1042,7 @@ The table is the pixel confusion matrix of Step 4.8 (`confusion_matrix.csv`, wri
 The notes name what was scored: the number of labelled pixels and the resolution (`network resolution`, `original resolution of the images`, or `images scaled by <scale>, segmented tile by tile`), and the boundary tolerance. With `save_predicted_masks`, the `Predicted_Masks` folder and its number of images are added.
 
 ### Step 4.13 — `build_segmentation_class_table()` + `build_segmentation_class_scalars()`
-The per-class table sorts the classes by IoU, worst first; the per-class scalars are the 6 metrics of every class with pixels (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`), 60 scalars for 10 classes, written only with `per_class_report`, which also adds the `ROC AUC` and `Average Precision` columns and scalars of the classes defining them: 80 per-class scalars for 10 classes, next to the 8 headline metrics, in the 512 pixel run of `experiments/readme_screenshots`.
+The per-class table sorts the classes by IoU, worst first. `build_recall_interval_table()` adds the `Per Class Recall` table after it: the true pixels, the recall and the bounds of its interval (`95% Lower`, `95% Upper`) of every class, sorted by recall, worst first. The per-class scalars are the 6 metrics of every class with pixels (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`), 60 scalars for 10 classes, written only with `per_class_report`, which also adds the `ROC AUC` and `Average Precision` columns and scalars of the classes defining them: 80 per-class scalars for 10 classes, next to the 8 headline metrics, in the 512 pixel run of `experiments/readme_screenshots`.
 
 ### Step 4.14 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
@@ -1087,7 +1096,7 @@ The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accura
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked). They were also captured before the per-class recall intervals (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed. The segmentation configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the segmentation evaluation saves no error image.

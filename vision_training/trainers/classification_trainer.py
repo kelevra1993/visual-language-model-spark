@@ -1,9 +1,9 @@
 """
 Trainer of the image classification task: the data loaders of the 'labels.json' manifests, the classifier, the
 accuracy tracked on every batch, and the evaluation of the checkpoints on the test split (classification metrics,
-per-class metrics, confusion matrix, class thresholds, ROC and precision-recall curves with the per-class report, error
-images and the predictions file). Registered for the classification task and extended by the sequence classification
-trainer.
+per-class metrics with the confidence interval of every recall, confusion matrix, class thresholds, ROC and
+precision-recall curves with the per-class report, error images and the predictions file). Registered for the
+classification task and extended by the sequence classification trainer.
 """
 
 import csv
@@ -35,6 +35,8 @@ from vision_training.evaluation.classification.score_curves import (compute_clas
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 from vision_training.evaluation.classification.temperature_explorer import save_temperature_explorer
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
+from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
+                                                         compute_clopper_pearson_intervals)
 from vision_training.losses.classification_losses import (compute_balanced_class_weights,
                                                            convert_logits_to_probabilities)
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
@@ -63,6 +65,10 @@ class ClassificationTrainer(BaseTrainer):
     # Name of the column of the evaluated samples of every class in the per-class table of the report ("Positives" in
     # multi-label mode, the samples of the classes present)
     CLASS_SUPPORT_COLUMN = "Samples"
+
+    # Confidence interval of the recall of every class, described in the legend of the recall table: exact over the
+    # evaluated samples (images, sequences or pairs, independent), the sequence labelling resampling its sequences
+    RECALL_INTERVAL_DESCRIPTION = CLOPPER_PEARSON_DESCRIPTION
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
@@ -583,17 +589,40 @@ class ClassificationTrainer(BaseTrainer):
             writer.writerows(rows)
         return predictions_path
 
+    def compute_recall_intervals(self, accumulator: Dict[str, Any], probabilities: torch.Tensor, labels: torch.Tensor,
+                                 metrics: Dict[str, Any]) -> Tuple[List[Optional[float]], List[Optional[float]]]:
+        """
+        Computes the confidence interval of the recall of every class of the test split, written next to the recall
+        in class_metrics.csv and shown in the recall table: exact (Clopper-Pearson) over the evaluated samples, the
+        independent images, sequences or pairs whose true positives and true samples of every class are counted in the
+        metrics (the positive samples in multi-label mode). The sequence labelling trainer replaces it with a
+        Korn-Graubard interval from a bootstrap over the test sequences, its frames being correlated.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator of the test split, unused here.
+            probabilities (torch.Tensor): The class probabilities of the evaluated samples, unused here.
+            labels (torch.Tensor): The labels of the evaluated samples, unused here.
+            metrics (Dict[str, Any]): The metrics of the evaluation, with the per-class 'true_positives' and 'support'.
+
+        Returns:
+            Tuple[List[Optional[float]], List[Optional[float]]]: The lower and upper bounds of every class, None for a
+                class without evaluated samples.
+        """
+        return compute_clopper_pearson_intervals(true_positives=np.array(metrics["true_positives"]),
+                                                 trials=np.array(metrics["support"]))
+
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
         Computes the classification metrics of the test split and organises them for the report: the headline metrics
         (with the extra metrics of the task), the error images as a note, the per-class table (shown with the per-class
-        report, worst F1 first) and the per-class scalars. The threshold of every class reaching the target precision,
-        the metrics of every class, the confusion matrix table (multi-class mode) and, when asked, the predictions of
-        every sample are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever
-        the per-class report. Only with it, the confusion matrix image (multi-class mode) and the ROC and
-        precision-recall curves of every class, one against the rest, are saved and logged to TensorBoard, the curves
-        adding the macro ROC AUC and average precision to the headline metrics and the ROC AUC and average precision
-        of every class to its metrics.
+        report, worst F1 first), the recall table with the confidence interval of the recall of every class (shown with
+        the per-class report, worst recall first) and the per-class scalars. The threshold of every class reaching the
+        target precision, the metrics of every class, the confusion matrix table (multi-class mode) and, when asked,
+        the predictions of every sample are saved in the evaluation folder of the checkpoint,
+        '<run>/Evaluation/Iteration_<n>/', whatever the per-class report. Only with it, the confusion matrix image
+        (multi-class mode) and the ROC and precision-recall curves of every class, one against the rest, are saved and
+        logged to TensorBoard, the curves adding the macro ROC AUC and average precision to the headline metrics and
+        the ROC AUC and average precision of every class to its metrics.
 
         Args:
             accumulator (Dict[str, Any]): The class probabilities and labels of the test split.
@@ -662,7 +691,10 @@ class ClassificationTrainer(BaseTrainer):
         # Extra metrics of the task, e.g. the sequence exact match of the sequence labelling task
         headline_metrics.update(self.compute_extra_headline_metrics(accumulator=accumulator))
 
-        # Metrics of every class, saved whatever the per-class report so that they stay available for many classes
+        # Confidence interval of the recall of every class, then the metrics of every class, saved whatever the
+        # per-class report so that they stay available for many classes
+        metrics["recall_lower"], metrics["recall_upper"] = self.compute_recall_intervals(
+            accumulator=accumulator, probabilities=probabilities, labels=labels, metrics=metrics)
         class_rows = build_class_metrics_rows(class_names=self.class_names, metrics=metrics,
                                               class_thresholds=class_thresholds,
                                               target_precisions=self.target_precisions, class_curves=class_curves)
@@ -711,10 +743,14 @@ class ClassificationTrainer(BaseTrainer):
             if error_counts:
                 files["Error Images"] = accumulator["errors_folder"]
 
-        # Per-class table at the main target precision, and the thresholds of every target precision in a table of
-        # their own when several are given, so that the per-class table stays within the width of the report
+        # Per-class table at the main target precision, the recall intervals and the thresholds of every target
+        # precision (when several are given) in tables of their own, so that the per-class table stays within the width
+        # of the report
         tables = [build_class_metrics_table(class_rows=class_rows, target_precision=self.target_precision,
-                                            support_column=support_column)]
+                                            support_column=support_column),
+                  build_recall_interval_table(class_rows=class_rows, support_key="samples",
+                                              support_column=support_column, recall_columns=[("recall", "Recall")],
+                                              interval_description=self.RECALL_INTERVAL_DESCRIPTION)]
         if len(self.target_precisions) > 1:
             tables.append(build_class_thresholds_table(class_rows=class_rows, target_precisions=self.target_precisions,
                                                        class_curves=class_curves))

@@ -32,7 +32,8 @@ inference      heatmaps averaged at stride 2 -> 30 local maxima per channel: can
                candidate_scores [B, 243, 30], candidate_tags [B, 243, 30] (the exported outputs)
 grouping       group_keypoint_candidates (NumPy): labels [D], keypoints [D, 18, 2] (NaN not found), scores [D]
 evaluation     OKS of every object with every ground truth: OKS mAP@0.5/area (headline), OKS mAR, Matched
-               Objects, PCK@0.05, Mean OKS, Mean Keypoint Error, for the trained and the averaged weights
+               Objects, PCK@0.05, Mean OKS, Mean Keypoint Error, for the trained and the averaged weights; per
+               class, the OKS recall at 0.5 and 0.75 with its 95% interval
 files          Evaluation/Iteration_<n>/ class_metrics.csv, keypoint_metrics.csv, Samples/, EMA/; Results.txt
 ```
 
@@ -47,7 +48,7 @@ files          Evaluation/Iteration_<n>/ class_metrics.csv, keypoint_metrics.csv
 | Targets | `vision_training/data/keypoints/heatmap_targets.py` | `build_keypoint_targets`, `draw_gaussian_heatmaps` |
 | Losses | `vision_training/losses/keypoint_losses.py` | `compute_heatmap_loss`, `compute_tag_losses` |
 | Grouping | `vision_training/models/keypoints/keypoint_grouping.py` | `group_keypoint_candidates`, `match_candidates_to_objects` |
-| Metrics and evaluation | `vision_training/evaluation/keypoints/object_keypoint_similarity.py`, `vision_training/evaluation/detection/average_precision_report.py` | `build_keypoint_sigma_table`, `evaluate_image_keypoints`, `match_ground_truth_objects`, `summarise_keypoint_accuracy`; `summarise_average_precisions(overlap_type="keypoints")` |
+| Metrics and evaluation | `vision_training/evaluation/keypoints/object_keypoint_similarity.py`, `vision_training/evaluation/detection/average_precision_report.py` | `build_keypoint_sigma_table`, `evaluate_image_keypoints`, `match_ground_truth_objects`, `summarise_keypoint_accuracy`; `summarise_average_precisions(overlap_type="keypoints")`, with `compute_clopper_pearson_intervals` of `vision_training/evaluation/recall_intervals.py` |
 | Sample images and input viewer | `vision_training/utilities/visualization.py` | `build_keypoint_sample_grid`, `draw_keypoint_objects` |
 | Configuration checks | `vision_training/configuration_processing/keypoint_checks.py` | `check_keypoint_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_keypoint_sections` |
@@ -92,8 +93,8 @@ uv run python -m vision_training.deployment.export_model
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint and kind of weights, with `Matched Objects`, `PCK@0.05`, `Mean OKS` and `Mean Keypoint Error (pixels)`, then the OKS mAP tables of the methods, object sizes and recalls, and with `per_class_report` the OKS AP per class, the keypoint accuracy per class and per keypoint (Step 4.10).
-- `Evaluation/Iteration_<n>/class_metrics.csv` (one row per class: the `oks_` average precisions and the keypoint accuracy), `keypoint_metrics.csv` (one row per keypoint of every class: labelled, found, PCK, mean error), `Samples/<image>.png` (Ground Truth next to Prediction, 1028x560 for 512 pixel images, the objects of score >= `object_score_threshold`), and `EMA/` with the same files for the moving average of the weights. No confusion matrix and no error images: the task has no `evaluation.error_dumps`.
+- `Results.txt`: one block per evaluated checkpoint and kind of weights, with `Matched Objects`, `PCK@0.05`, `Mean OKS` and `Mean Keypoint Error (pixels)`, then the OKS mAP tables of the methods, object sizes and recalls, and with `per_class_report` the OKS AP per class, the OKS recall per class with its 95% confidence interval (`OKS Per Class Recall`), the keypoint accuracy per class and per keypoint (Step 4.10).
+- `Evaluation/Iteration_<n>/class_metrics.csv` (one row per class: the `oks_` average precisions, the OKS recall at 0.5 and 0.75 with the bounds of its 95% confidence interval, `oks_recall_50` to `oks_recall_75_upper`, and the keypoint accuracy), `keypoint_metrics.csv` (one row per keypoint of every class: labelled, found, PCK, mean error), `Samples/<image>.png` (Ground Truth next to Prediction, 1028x560 for 512 pixel images, the objects of score >= `object_score_threshold`), and `EMA/` with the same files for the moving average of the weights. No confusion matrix and no error images: the task has no `evaluation.error_dumps`.
 - `Tensorboard/Test` and `Tensorboard/Test_EMA`: 65 scalars on the synthetic dataset, which has no small object (the 12 `OKS mAP@<threshold>/<method>`, `OKS mAP@0.5 By Size/<size>` and `OKS mAP@[0.5:0.95] By Size/<size>` of the medium and large objects, the 12 `OKS mAR@<threshold>/<all, medium or large>`, the 4 `Keypoint Accuracy/<metric>` and the 33 `OKS AP@0.5/<class>`), and the 16 sample images; `Tensorboard/Train`, and `Tensorboard/Validation` only when `validation_iteration_ratio` is above 0 (0 in this configuration): `Total Loss`, `Heatmap Loss`, `Tag Pull Loss`, `Tag Push Loss` (and `Learning Rate` in Train).
 - `Weights/Iteration_<n>/model_<n>.pt`: about 51 MB, four times the 12.50 MB of the weights (the moving average and the two Adam moments), with the source runs of `Backbone`, `HRNet` and `KeypointHead`.
 
@@ -210,7 +211,8 @@ run_test_evaluation(iteration)   [STAGE 4]
 │   ├── compute_evaluation_results()
 │   │   ├── evaluate_image_keypoints()                        OKS of every object found with every ground truth,
 │   │   │   └── match_ground_truth_objects()                  one object found per ground truth object
-│   │   ├── summarise_average_precisions(overlap_type="keypoints")            OKS mAP, 3 methods, sizes, recalls
+│   │   ├── summarise_average_precisions(overlap_type="keypoints")            OKS mAP, 3 methods, sizes, recalls,
+│   │   │                                                                     recall of every class with its interval
 │   │   ├── summarise_keypoint_accuracy() -> measure_keypoint_accuracy()      matched objects, PCK@0.05, mean OKS,
 │   │   │                                                                     mean error
 │   │   └── write_class_metrics_file()                                        class_metrics.csv, keypoint_metrics.csv
@@ -910,7 +912,7 @@ Test_EMA has one scalar less, `Keypoint Accuracy/Mean Keypoint Error (pixels)`: 
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The reports below are real outputs of the evaluations of the checkpoints of iterations 30 and 60 of the run of Stage 3, on its whole test split (30 images of 102 objects, of which 90 have keypoints, the 12 others being distractors), with `per_class_report: True` and `number_sample_images: 16`. The outputs of iteration 30 were captured when its checkpoint was still saved before its training step, after 29 steps; it now holds 30 steps. After 60 iterations on CPU the detector finds almost nothing, so the steps inside one test batch also show the trained weights of iteration 2000 of a GPU run of the same model: `configuration_synthetic_shapes.yaml` with 6000 iterations (cosine decay over 5500) on the 250000 training images, loaded by `load_state_dict()` into the trainer of Stage 2 and run on the first test batch of the same 30 test images. The loaders shuffle every split, so the first test batch differs between two passes; the evaluation does not depend on the order.
+> The reports below are real outputs of the evaluations of the checkpoints of iterations 30 and 60 of the run of Stage 3, on its whole test split (30 images of 102 objects, of which 90 have keypoints, the 12 others being distractors), with `per_class_report: True` and `number_sample_images: 16`. They were captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `oks_recall_50`, `oks_recall_50_lower`, `oks_recall_50_upper`, `oks_recall_75`, `oks_recall_75_lower` and `oks_recall_75_upper` after the OKS average precisions, and with `per_class_report` the report shows an `OKS Per Class Recall` table after `OKS Per Class Average Precision (Area)` (Steps 4.8 and 4.10). The outputs of iteration 30 were captured when its checkpoint was still saved before its training step, after 29 steps; it now holds 30 steps. After 60 iterations on CPU the detector finds almost nothing, so the steps inside one test batch also show the trained weights of iteration 2000 of a GPU run of the same model: `configuration_synthetic_shapes.yaml` with 6000 iterations (cosine decay over 5500) on the 250000 training images, loaded by `load_state_dict()` into the trainer of Stage 2 and run on the first test batch of the same 30 test images. The loaders shuffle every split, so the first test batch differs between two passes; the evaluation does not depend on the order.
 
 ### Step 4.1 — `run_test_evaluation()` → `evaluate_test_split()`
 The evaluation of every task (see `classification_workflow.md`, Stage 4): the trained weights are evaluated by `evaluate_test_split()`, then the averaged weights in `use_averaged_weights()`, their files written in the `EMA` subfolder of the evaluation folder. The keypoint trainer keeps the default `evaluation_context()`, which changes nothing. The model runs as in deployment: on the whole resized image, without ground truth, every object being found by the grouping of the keypoint candidates. On the CPU of Stage 3, one evaluation of the 30 test images (4 batches of 8) takes about 20 seconds.
@@ -1036,7 +1038,7 @@ Only 1 of the 90 objects is matched, a hollow trapezoid, with 1 of its 8 keypoin
 > These outputs were recorded before 2026-10-25, when a match still needed only an OKS above 0. Since then a match needs an OKS of at least 0.5 (`MINIMUM_MATCH_SIMILARITY`, `bug_standards.md` B51), so the hollow trapezoid of OKS 0.1223 is missed: at iteration 60 `Matched Objects`, `PCK@0.05` and `Mean OKS` are 0 and the mean keypoint error has no value, like the other CPU checkpoints.
 
 ### Step 4.8 — `summarise_average_precisions(overlap_type="keypoints")`
-The average precision of `object_detection_workflow.md` on the OKS overlaps instead of the box IoU, with `title_prefix="OKS"`, `name_prefix="OKS "` and `column_prefix="oks_"`: the three methods (area, 11 point, 101 point) at OKS 0.5, 0.75, 0.95 and 0.5 to 0.95, the COCO object sizes by box area, the mean average recall and the per-class APs. As for the boxes, the objects found are taken by decreasing score, and each one is a true positive when its OKS with its best ground truth object reaches the threshold and no more confident object took that ground truth (the PASCAL VOC rule): the AP is high when the objects found are placed well and the false positives have low scores, like the objects 2 to 5 of Step 4.3.
+The average precision of `object_detection_workflow.md` on the OKS overlaps instead of the box IoU, with `title_prefix="OKS"`, `name_prefix="OKS "` and `column_prefix="oks_"`: the three methods (area, 11 point, 101 point) at OKS 0.5, 0.75, 0.95 and 0.5 to 0.95, the COCO object sizes by box area, the mean average recall, the per-class APs, and the OKS recall of every class at 0.5 and 0.75 with the bounds of its exact (Clopper-Pearson) 95% confidence interval over the ground truth objects (`oks_recall_50` to `oks_recall_75_upper`, the `OKS Per Class Recall` table, `object_detection_workflow.md`, Step 4.11). As for the boxes, the objects found are taken by decreasing score, and each one is a true positive when its OKS with its best ground truth object reaches the threshold and no more confident object took that ground truth (the PASCAL VOC rule): the AP is high when the objects found are placed well and the false positives have low scores, like the objects 2 to 5 of Step 4.3.
 
 **Example: the 30 test images with the checkpoint of iteration 2000**
 ```text
@@ -1062,7 +1064,7 @@ class_index,class,keypoint,labelled,found,percentage_correct_keypoints,mean_erro
 ```
 
 ### Step 4.10 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-The headline metric is `KEYPOINT_HEADLINE_METRIC` = `OKS mAP@0.5/area`, which compares the checkpoints. The keypoint accuracy is given first, then the tables of the methods, sizes and recalls, then, with the per-class report, the per-class APs, the accuracy per class and the accuracy per keypoint.
+The headline metric is `KEYPOINT_HEADLINE_METRIC` = `OKS mAP@0.5/area`, which compares the checkpoints. The keypoint accuracy is given first, then the tables of the methods, sizes and recalls, then, with the per-class report, the per-class APs, the per-class OKS recalls with their intervals (`OKS Per Class Recall`), the accuracy per class and the accuracy per keypoint.
 
 **Example output: the report of the checkpoint of iteration 60** (the per-class and per-keypoint tables shortened)
 ```text
@@ -1167,7 +1169,7 @@ The averaged weights follow the trained weights a few iterations behind (the n-t
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of a copy of `scripts/evaluation/evaluate_checkpoint.py` whose `run_name` and `experiment_folder` point to the run of Stage 3 (checkpoints 15, 30, 45 and 60, captured when those of iterations 15, 30 and 45 were still saved before their training step), with `iteration = "all"`, `batch_size = 16` and the whole test split, on CPU with the MLflow tracking on. The four checkpoints, each with its averaged weights, were evaluated in 2 min 27 s, about 17 s per evaluation.
+> The examples below are real outputs of a copy of `scripts/evaluation/evaluate_checkpoint.py` whose `run_name` and `experiment_folder` point to the run of Stage 3 (checkpoints 15, 30, 45 and 60, captured when those of iterations 15, 30 and 45 were still saved before their training step), with `iteration = "all"`, `batch_size = 16` and the whole test split, on CPU with the MLflow tracking on. The four checkpoints, each with its averaged weights, were evaluated in 2 min 27 s, about 17 s per evaluation. They were captured before the per-class recall intervals were added (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5). The keypoint configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the keypoint evaluation saves no error image.

@@ -1,10 +1,11 @@
 """
 Per-class part of the evaluation reports of the classification-like tasks: the metrics of every class (support,
-precision, recall, F1, with the per-class report its ROC AUC and average precision, and the threshold reaching every
-target precision with the recall it keeps) as the rows of class_metrics.csv, as the per-class table of the report
-(with the table of the thresholds of every target precision when several are given) and as the per-class TensorBoard
-scalars. Used by the classification trainer, from which the sequence trainers inherit, and, without the curves and
-thresholds, by the k-nearest neighbour report of the self-supervised trainer.
+precision, recall with the bounds of its confidence interval, F1, with the per-class report its ROC AUC and average
+precision, and the threshold reaching every target precision with the recall it keeps) as the rows of
+class_metrics.csv, as the per-class table of the report (with the table of the thresholds of every target precision
+when several are given, the recall intervals being shown in the recall table of recall_intervals.py) and as the
+per-class TensorBoard scalars. Used by the classification trainer, from which the sequence trainers inherit, and,
+without the curves and thresholds, by the k-nearest neighbour report of the self-supervised trainer.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -44,14 +45,16 @@ def build_class_metrics_rows(class_names: List[str], metrics: Dict[str, Any],
                              class_curves: Optional[List[ScoreCurves]] = None) -> List[Dict[str, Any]]:
     """
     Gathers the metrics of every class of an evaluated checkpoint, in class index order, for the per-class metrics
-    file and the per-class table: its number of evaluated samples (support), its precision, recall and F1, with the
-    per-class report its ROC AUC and average precision (None without positive, or negative for the ROC AUC), and, for
-    the evaluations giving thresholds, the threshold reaching every target precision with the recall it keeps (None
-    when no threshold reaches it).
+    file and the per-class tables: its number of evaluated samples (support), its precision, its recall with the
+    bounds of its confidence interval (recall_intervals.py) and its F1, with the per-class report its ROC AUC and
+    average precision (None without positive, or negative for the ROC AUC), and, for the evaluations giving
+    thresholds, the threshold reaching every target precision with the recall it keeps (None when no threshold
+    reaches it).
 
     Args:
         class_names (List[str]): The name of every class, in class index order.
-        metrics (Dict[str, Any]): The per-class 'support', 'precision', 'recall' and 'f1' lists of the evaluation.
+        metrics (Dict[str, Any]): The per-class 'support', 'precision', 'recall', 'recall_lower', 'recall_upper' and
+            'f1' lists of the evaluation, the bounds None for a class without evaluated samples.
         class_thresholds (Optional[List[List[Optional[Tuple[float, float]]]]]): For every target precision, the
             threshold and recall of every class (None for a class without one), or None for an evaluation without
             thresholds (the k-nearest neighbour classification of the self-supervised task). Defaults to None.
@@ -62,7 +65,8 @@ def build_class_metrics_rows(class_names: List[str], metrics: Dict[str, Any],
 
     Returns:
         List[Dict[str, Any]]: One row per class, keyed by the columns of class_metrics.csv: 'class_index', 'class',
-            'samples', 'precision', 'recall', 'f1', then 'roc_auc' and 'average_precision' when the curves are given,
+            'samples', 'precision', 'recall', 'recall_lower', 'recall_upper', 'f1', then 'roc_auc' and
+            'average_precision' when the curves are given,
             then the threshold and recall columns of every target precision when the thresholds are given
             (get_threshold_column_names).
 
@@ -76,7 +80,8 @@ def build_class_metrics_rows(class_names: List[str], metrics: Dict[str, Any],
     for class_index, class_name in enumerate(class_names):
         class_row = {"class_index": class_index, "class": class_name, "samples": int(metrics["support"][class_index]),
                      "precision": metrics["precision"][class_index], "recall": metrics["recall"][class_index],
-                     "f1": metrics["f1"][class_index]}
+                     "recall_lower": metrics["recall_lower"][class_index],
+                     "recall_upper": metrics["recall_upper"][class_index], "f1": metrics["f1"][class_index]}
 
         # ROC AUC and average precision of the class, with the per-class report
         if class_curves is not None:

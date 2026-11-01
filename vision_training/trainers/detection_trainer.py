@@ -437,9 +437,9 @@ class DetectionTrainer(CocoSplitTrainer):
                                                   class_score_thresholds=summary["class_score_thresholds"])
         files.update(error_analysis["files"])
 
-        # Tables always shown first, the per-class table last
+        # Tables always shown first, the per-class table and the per-class recall table last
         tables = [summary["tables"]["methods"], summary["tables"]["sizes"], summary["tables"]["recalls"],
-                  proposal_recall["table"], summary["tables"]["classes"]]
+                  proposal_recall["table"], summary["tables"]["classes"], summary["tables"]["class_recalls"]]
         return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {},
                 "notes": error_analysis["notes"], "tables": tables,
                 "scalars": {**summary["scalars"], **proposal_recall["scalars"]},

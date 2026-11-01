@@ -27,9 +27,13 @@ from vision_training.evaluation.classification.score_curves import (compute_hist
                                                                      compute_macro_curve_metrics,
                                                                      save_score_curve_images)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
+from vision_training.evaluation.recall_intervals import (build_recall_interval_table,
+                                                         compute_bootstrap_recall_intervals,
+                                                         describe_bootstrap_interval)
 from vision_training.evaluation.segmentation.boundary_metrics import (BOUNDARY_COUNT_COLUMNS, compute_boundary_counts,
                                                                       compute_boundary_metrics)
 from vision_training.evaluation.segmentation.segmentation_metrics import (SCORE_HISTOGRAM_BINS,
+                                                                          compute_image_class_pixel_counts,
                                                                           compute_pixel_confusion_matrix,
                                                                           compute_pixel_score_histograms,
                                                                           compute_segmentation_metrics)
@@ -332,14 +336,16 @@ class SegmentationTrainer(BaseTrainer):
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the pixel confusion matrix and the boundary counts filled on the device during the evaluation of the
-        test split, with the per-class report the histograms of the pixel probabilities of the ROC and precision-recall
-        curves, and the folder of the predicted masks of the checkpoint.
+        test split, the lists of the per-image true positive and true pixels of every class of the Korn-Graubard
+        interval of the recall, with the per-class report the histograms of the pixel probabilities of the ROC and
+        precision-recall curves, and the folder of the predicted masks of the checkpoint.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
-            Dict[str, Any]: The empty [K, K] 'confusion_matrix' and [K, 6] 'boundary_counts', with the per-class report
+            Dict[str, Any]: The empty [K, K] 'confusion_matrix' and [K, 6] 'boundary_counts', the empty
+                'image_true_positive_pixels' and 'image_true_pixels' lists of [B, K] counts, with the per-class report
                 the empty [K, 2, SCORE_HISTOGRAM_BINS] 'score_histograms', the 'number_images' evaluated and the
                 'predicted_masks_folder'.
         """
@@ -349,6 +355,7 @@ class SegmentationTrainer(BaseTrainer):
                                                        device=self.device),
                        "boundary_counts": torch.zeros(size=(number_classes, len(BOUNDARY_COUNT_COLUMNS)),
                                                       dtype=torch.int64, device=self.device),
+                       "image_true_positive_pixels": [], "image_true_pixels": [],
                        "number_images": 0, "predicted_masks_folder": evaluation_folder / "Predicted_Masks"}
 
         # Histograms of the pixel probabilities of every class, only for the curves of the per-class report
@@ -361,7 +368,8 @@ class SegmentationTrainer(BaseTrainer):
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Adds the labelled pixels of the kept images of a test batch to the confusion matrix and to the boundary
-        counts, with the per-class report their probabilities to the histograms of the curves, on the device, then,
+        counts, keeps the true positive and true pixels of every class of every image for the interval of the recall,
+        with the per-class report adds their probabilities to the histograms of the curves, on the device, then,
         when asked, saves the predicted mask of every image. The predictions are compared with the masks of the batch
         (network input, or scaled image with tiling), or with 'original_resolution' with the original mask of every
         image, its probabilities being restored to the original image first.
@@ -405,13 +413,18 @@ class SegmentationTrainer(BaseTrainer):
                     class_probabilities=predictions["class_probabilities"][sample_indices],
                     masks=batch["masks"][sample_indices], number_bins=SCORE_HISTOGRAM_BINS)
 
-        # Pixel confusion matrix and boundary counts of the labelled pixels
+        # Pixel confusion matrix and boundary counts of the labelled pixels, and the true positive and true pixels of
+        # every image and class, kept on the device for the Korn-Graubard interval of the recall
         for class_maps, masks in evaluated_groups:
             accumulator["confusion_matrix"] += compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks,
                                                                               number_classes=number_classes)
             accumulator["boundary_counts"] += compute_boundary_counts(class_maps=class_maps, masks=masks,
                                                                       number_classes=number_classes,
                                                                       tolerance=self.boundary_tolerance)
+            image_true_positive_pixels, image_true_pixels = compute_image_class_pixel_counts(
+                class_maps=class_maps, masks=masks, number_classes=number_classes)
+            accumulator["image_true_positive_pixels"].append(image_true_positive_pixels)
+            accumulator["image_true_pixels"].append(image_true_pixels)
         accumulator["number_images"] += len(sample_indices)
         if not self.save_predicted_masks:
             return
@@ -465,14 +478,15 @@ class SegmentationTrainer(BaseTrainer):
         """
         Computes the segmentation and boundary metrics of the labelled pixels of the test split and organises them for
         the report: the headline metrics, the evaluated pixels, their resolution, the boundary tolerance and the saved
-        images as notes, the per-class table (shown with the per-class report, worst IoU first) and the per-class
-        scalars. The metrics of every class and the pixel confusion matrix table are saved in the evaluation folder of
-        the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the per-class report; the confusion matrix image
-        only with it, also logged to TensorBoard, with the shares of every true class in its cells, the pixel counts
-        being too large to print. With the per-class report, the ROC and precision-recall curves of the pixels of every
-        class, one against the rest, come from the histograms of their probabilities, add the macro ROC AUC and average
-        precision to the headline metrics and the ROC AUC and average precision of every class to its metrics, and are
-        saved and logged to TensorBoard.
+        images as notes, the per-class table (shown with the per-class report, worst IoU first), the recall table with
+        the Korn-Graubard interval over the test images of the recall of every class (shown with the per-class report,
+        worst recall first) and the per-class scalars. The metrics of every class and the pixel confusion matrix table
+        are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the
+        per-class report; the confusion matrix image only with it, also logged to TensorBoard, with the shares of every
+        true class in its cells, the pixel counts being too large to print. With the per-class report, the ROC and
+        precision-recall curves of the pixels of every class, one against the rest, come from the histograms of their
+        probabilities, add the macro ROC AUC and average precision to the headline metrics and the ROC AUC and average
+        precision of every class to its metrics, and are saved and logged to TensorBoard.
 
         Args:
             accumulator (Dict[str, Any]): The pixel confusion matrix, the boundary counts, with the per-class report the
@@ -499,6 +513,16 @@ class SegmentationTrainer(BaseTrainer):
         if self.per_class_report:
             class_curves = compute_histogram_score_curves(score_histograms=accumulator["score_histograms"].cpu())
             headline_metrics.update(compute_macro_curve_metrics(class_curves=class_curves))
+
+        # Korn-Graubard interval of the recall of every class over the test images, the pixels of an image being
+        # correlated, from the per-image counts, checked against the confusion matrix
+        image_true_positive_pixels = torch.cat(tensors=accumulator["image_true_positive_pixels"], dim=0).cpu()
+        image_true_pixels = torch.cat(tensors=accumulator["image_true_pixels"], dim=0).cpu()
+        if image_true_pixels.sum(dim=0).tolist() != confusion_matrix.sum(dim=1).tolist():
+            raise ValueError("Expected the true pixels counted per test image to match the rows of the pixel confusion "
+                             "matrix.")
+        metrics["recall_lower"], metrics["recall_upper"] = compute_bootstrap_recall_intervals(
+            group_true_positives=image_true_positive_pixels.numpy(), group_trials=image_true_pixels.numpy())
 
         # Metrics of every class and pixel confusion matrix, saved whatever the per-class report
         class_rows = build_segmentation_class_rows(class_names=self.class_names, metrics=metrics,
@@ -537,9 +561,14 @@ class SegmentationTrainer(BaseTrainer):
             notes.append(f"Predicted Masks : {accumulator['number_images']} class index images")
             files["Predicted Masks"] = accumulator["predicted_masks_folder"]
 
+        # Per-class table, then the recall of every class with its interval in a table of its own
+        tables = [build_segmentation_class_table(class_rows=class_rows),
+                  build_recall_interval_table(class_rows=class_rows, support_key="pixels", support_column="Pixels",
+                                              recall_columns=[("recall", "Recall")],
+                                              interval_description=describe_bootstrap_interval(
+                                                  group_name="test images"))]
         return {"evaluated_samples": f"{accumulator['number_images']} Test {self.SAMPLE_NAME}",
-                "metrics": headline_metrics, "notes": notes,
-                "tables": [build_segmentation_class_table(class_rows=class_rows)], "scalars": dict(headline_metrics),
+                "metrics": headline_metrics, "notes": notes, "tables": tables, "scalars": dict(headline_metrics),
                 "class_scalars": build_segmentation_class_scalars(class_rows=class_rows), "images": images,
                 "files": files, "headline_metric": "Mean IoU"}
 

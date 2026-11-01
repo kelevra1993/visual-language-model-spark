@@ -159,8 +159,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     # Tables of the OKS average precisions, then of the keypoint accuracy per class and per keypoint, all written in
     # Results.txt with the matched objects, the PCK and the mean OKS of all the keypoints
     table_titles = ["OKS Mean Average Precision", "OKS Mean Average Precision By Object Size (Area)",
-                    "OKS Mean Average Recall", "OKS Per Class Average Precision (Area)", "Keypoint Accuracy Per Class",
-                    "Keypoint Accuracy Per Keypoint"]
+                    "OKS Mean Average Recall", "OKS Per Class Average Precision (Area)", "OKS Per Class Recall",
+                    "Keypoint Accuracy Per Class", "Keypoint Accuracy Per Keypoint"]
     assert [table["title"] for table in results["tables"]] == table_titles
     assert all(table_title in results_blocks[1]["text"] for table_title in table_titles)
     assert list(results["metrics"]) == ["Matched Objects", CORRECT_KEYPOINTS_NAME, "Mean OKS",

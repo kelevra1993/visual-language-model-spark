@@ -32,7 +32,8 @@ SequenceClassifier.forward(input_tensor, sequence_mask, labels)
    ClassificationHead: Dropout, Linear 64, ReLU, Dropout, Linear 4 ─► class_logits [16, 4] ─► softmax
 loss: classification_loss = cross entropy (no class weights, no label smoothing) = total_loss; batch accuracy
 every weight_saving_iterations (1000): the whole test split ─► accuracy, balanced accuracy, macro F1, top-5,
-   macro ROC AUC, macro average precision, per-class metrics and thresholds at precision 0.99
+   macro ROC AUC, macro average precision, per-class metrics (recall with its 95% interval) and thresholds at
+   precision 0.99
    ─► Results.txt, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion matrix, class_metrics.csv, curves,
       class_thresholds.json, predictions.csv, Samples/ and Errors/ as grids of the real frames, 4 columns)
 export: InferenceSequenceModel, images [B, T, 3, 128, 128] float32 BGR, every frame real ─► class_probabilities [B, 4]
@@ -91,7 +92,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Sequences · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision` and the per-class table sorted by F1, worst first; the notes `Error Images : ...` and `Sample Images : 8 fixed test sequences`.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Sequences · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its exact 95% confidence interval over the test sequences) sorted by recall, worst first; the notes `Error Images : ...` and `Sample Images : 8 fixed test sequences`.
 - `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv`, `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`); `predictions.csv` with `save_predictions`, one row per test sequence with its `sequence`, `first_frame` and `last_frame` before the classes and probabilities; `Samples/<sequence>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_<score>.png`, the real frames of the sequence on a numbered grid of 4 columns under the caption `true -> predicted probability` (532 pixels wide and 292 high for 8 frames of 128 pixels in the README run).
 - `data.json`: the `sequences` of every class in every split, and every frame of every split.
 - `Tensorboard/Train` and `Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate`); `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, the images `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
@@ -238,7 +239,8 @@ run_test_evaluation(iteration)  [STAGE 4]
     ├── dump_errors() -> build_input_image()           the real frames of the sequence laid out on a grid
     ├── save_sample_images() -> build_sample_image()   the frame grid captioned with the true and predicted classes
     ├── compute_evaluation_results()                   confusion matrix, accuracy, balanced accuracy, macro F1, top-k,
-    │                                                  thresholds, class_metrics.csv, predictions.csv (sequence, first
+    │                                                  thresholds, exact interval of every recall (Per Class Recall
+    │                                                  table), class_metrics.csv, predictions.csv (sequence, first
     │                                                  and last frame of every sequence); with per_class_report the ROC
     │                                                  and precision-recall curves (Macro ROC AUC, Macro Average
     │                                                  Precision, roc_curves.png, precision_recall_curves.png) and
@@ -873,7 +875,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.11 and 4.13 show the current layout from the README run at 128 pixels.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.11 and 4.13 show the current layout from the README run at 128 pixels. All the examples of this stage, those of the README run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation of the classification (see `classification_workflow.md`, Stage 4), every sample being a whole sequence. The test sequences are never augmented. The test loader shuffles its sequences, so the order of the rows of `predictions.csv` changes from one evaluation to the next.
@@ -998,7 +1000,7 @@ For every class, the lowest probability threshold keeping a precision of at leas
 At iteration 12 only `moving_left` reaches the precision: threshold 0.22249144315719604, recall 0.019230769230769232 (1 of the 52 `moving_left` sequences).
 
 ### Step 4.11 — `build_class_metrics_rows()` + `write_class_metrics_file()` + `save_confusion_matrix_image()` + `save_score_curve_images()`
-`class_metrics.csv` is written at every evaluation; `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png` only with `per_class_report`, which also adds the `roc_auc` and `average_precision` columns after `f1` (see `classification_workflow.md`, Steps 4.14 and 4.15). The example of this run predates the curves.
+`class_metrics.csv` is written at every evaluation; `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png` only with `per_class_report`, which also adds the `roc_auc` and `average_precision` columns after `f1` (see `classification_workflow.md`, Steps 4.14 and 4.15). The `recall_lower` and `recall_upper` columns after `recall` hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test sequences being independent (`classification_workflow.md`, Step 4.14). The example of this run predates the curves.
 
 **Example: `Evaluation/Iteration_6/class_metrics.csv`**
 ```text
@@ -1099,7 +1101,7 @@ The current evaluation writes 26 scalars to `Tensorboard/Test` (6 global + 20 pe
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, before the ROC and precision-recall curves (Stage 4).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.

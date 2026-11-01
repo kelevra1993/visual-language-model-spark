@@ -29,6 +29,8 @@ from vision_training.evaluation.classification.class_metrics_report import (buil
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
+from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
+                                                         compute_clopper_pearson_intervals)
 from vision_training.evaluation.self_supervised.representation_metrics import (compute_effective_rank,
                                                                                compute_nearest_neighbour_predictions)
 from vision_training.losses.self_supervised_losses import compute_embedding_standard_deviation
@@ -47,8 +49,10 @@ METHOD_TRACKED_METRICS = {"simclr": {"total_loss": "Total Loss", "info_nce_loss"
                                            "cross_correlation_off_diagonal": "Off-Diagonal Correlation",
                                            "embedding_standard_deviation": "Embedding Standard Deviation"}}
 
-# Name of the per-class table of the k-nearest neighbour classification, worst classes first
+# Names of the per-class table and of the per-class recall table of the k-nearest neighbour classification, worst
+# classes first
 NEAREST_NEIGHBOUR_TABLE_TITLE = "Per Class k-NN Metrics"
+NEAREST_NEIGHBOUR_RECALL_TABLE_TITLE = "Per Class k-NN Recall"
 
 # Caption of an image without mapped category in the sample images and the input viewer
 UNLABELLED_CAPTION = "unlabelled"
@@ -268,7 +272,8 @@ class SelfSupervisedTrainer(BaseTrainer):
         """
         Classifies the labelled test images by their nearest neighbours among the other labelled test images and
         scores the classification like a classifier: accuracy, balanced accuracy, macro F1, and the precision, recall
-        and F1 of every class, saved in class_metrics.csv and shown in the per-class table and scalars.
+        (with its exact confidence interval over the labelled test images of the class) and F1 of every class, saved
+        in class_metrics.csv and shown in the per-class table, the per-class recall table and the scalars.
 
         Args:
             representations (torch.Tensor): The [N, F] representations of the labelled test images.
@@ -277,7 +282,8 @@ class SelfSupervisedTrainer(BaseTrainer):
 
         Returns:
             Tuple[Dict[str, float], Dict[str, Any]]: The global k-NN metrics keyed by display name, and the per-class
-                outputs: the 'table', the 'class_scalars' and the 'class_metrics_path'.
+                outputs: the 'tables' (the per-class table, then the per-class recall table), the 'class_scalars' and
+                the 'class_metrics_path'.
         """
         number_classes = len(self.class_names)
         predicted_labels = compute_nearest_neighbour_predictions(representations=representations, labels=labels,
@@ -290,7 +296,10 @@ class SelfSupervisedTrainer(BaseTrainer):
                           "k-NN Balanced Accuracy": class_metrics["balanced_accuracy"],
                           "k-NN Macro F1": class_metrics["macro_f1"]}
 
-        # Metrics of every class without thresholds, in the file, the table (worst F1 first) and the TensorBoard scalars
+        # Metrics of every class without thresholds, the exact interval of its recall over its labelled test images, in
+        # the file, the tables (worst F1, then worst recall first) and the TensorBoard scalars
+        class_metrics["recall_lower"], class_metrics["recall_upper"] = compute_clopper_pearson_intervals(
+            true_positives=np.array(class_metrics["true_positives"]), trials=np.array(class_metrics["support"]))
         class_rows = build_class_metrics_rows(class_names=self.class_names, metrics=class_metrics)
         table = build_class_metrics_table(class_rows=class_rows, target_precision=None, support_column="Samples",
                                           title=NEAREST_NEIGHBOUR_TABLE_TITLE,
@@ -298,10 +307,14 @@ class SelfSupervisedTrainer(BaseTrainer):
                                                               f"({self.number_neighbours} neighbours) of the labelled "
                                                               f"test images by the other ones. ",
                                           support_description="labelled test image")
+        recall_table = build_recall_interval_table(class_rows=class_rows, support_key="samples",
+                                                   support_column="Samples", recall_columns=[("recall", "Recall")],
+                                                   interval_description=CLOPPER_PEARSON_DESCRIPTION,
+                                                   title=NEAREST_NEIGHBOUR_RECALL_TABLE_TITLE)
         class_scalars = build_class_metric_scalars(class_names=self.class_names, metrics=class_metrics,
                                                    tag_prefix="k-NN ")
         class_metrics_path = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
-        return global_metrics, {"table": table, "class_scalars": class_scalars,
+        return global_metrics, {"tables": [table, recall_table], "class_scalars": class_scalars,
                                 "class_metrics_path": class_metrics_path}
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
@@ -339,7 +352,7 @@ class SelfSupervisedTrainer(BaseTrainer):
             metrics, class_outputs = self.compute_nearest_neighbour_results(
                 representations=representations[labelled_mask], labels=labels[labelled_mask],
                 evaluation_folder=evaluation_folder)
-            tables.append(class_outputs["table"])
+            tables.extend(class_outputs["tables"])
             class_scalars = class_outputs["class_scalars"]
             files["Class Metrics"] = class_outputs["class_metrics_path"]
             headline_metric = "k-NN Accuracy"

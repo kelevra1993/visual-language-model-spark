@@ -148,7 +148,8 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     assert all(0.0 <= results["metrics"][metric_name] <= 1.0
                for metric_name in ["Macro ROC AUC", "Macro Average Precision"])
     assert "Per Class Metrics" in results_blocks[0]["text"] and "ROC AUC" in results_blocks[0]["text"]
-    assert [table["title"] for table in results["tables"]] == ["Per Class Metrics", "Per Class Thresholds"]
+    assert [table["title"] for table in results["tables"]] == ["Per Class Metrics", "Per Class Recall",
+                                                              "Per Class Thresholds"]
     assert "@ P0.1" not in "".join(results["tables"][0]["columns"])
     assert "Per Class Thresholds" in results_blocks[0]["text"] and "@ P0.1" in results_blocks[0]["text"]
     assert list(results["images"]) == ["Confusion Matrix", "ROC Curves", "Precision Recall Curves",

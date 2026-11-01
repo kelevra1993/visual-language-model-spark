@@ -92,7 +92,7 @@ A dataset described by one pair list file per split is converted to the `pairs` 
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision` and the per-class table; the note `Sample Images : 8 fixed test pairs`.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table and the `Per Class Recall` table (the recall of every class with its exact 95% confidence interval over the test pairs, worst recall first); the note `Sample Images : 8 fixed test pairs`.
 - `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv` and `.png`, `class_metrics.csv`, `class_thresholds.json`, `roc_curves.png`, `precision_recall_curves.png`); `predictions.csv` with `save_predictions`, one row per test pair, its `pair` name before the classes and probabilities; `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png`, the numbered grid of the real before frames (`0 before`, ...) above the grid of the real after frames, 4 columns, under the caption `true -> predicted probability` (2068 pixels wide and 1064, 1580 or 2096 pixels high in the README run, each member taking 1 or 2 rows of 512 pixel frames).
 - `data.json`: the `pairs` of every class in every split, and the frames of both members of every pair of every split.
 - `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of both classes, the images `Samples/<pair>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`; `Train` and `Validation` as in M2O.
@@ -217,7 +217,8 @@ main()
 
 run_test_evaluation(iteration)  [STAGE 4]
 └── the evaluation of the classification on pairs: the error and sample images show the before grid above the after
-    grid, and predictions.csv names every pair; with per_class_report, the ROC and precision-recall curves too.
+    grid, and predictions.csv names every pair; with per_class_report, the ROC and precision-recall curves and the
+    Per Class Recall table too.
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 └── same as every task
@@ -767,7 +768,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 pairs), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 1` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `same_number_of_objects` for every test pair. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-10, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also prints `Macro ROC AUC` and `Macro Average Precision` after `Top-1 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.9 and 4.11 show the current layout from the README run.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 pairs), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 1` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `same_number_of_objects` for every test pair. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-10, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also prints `Macro ROC AUC` and `Macro Average Precision` after `Top-1 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.9 and 4.11 show the current layout from the README run. All the examples of this stage, those of the README run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation of the classification (see `classification_workflow.md`, Stage 4), every sample being a pair.
@@ -851,6 +852,8 @@ macro F1                = (0.0 + 0.6301) / 2                        = 0.3151
 ```
 
 ### Step 4.9 — `find_class_thresholds()` + `write_class_metrics_file()`
+The `recall_lower` and `recall_upper` columns of `class_metrics.csv`, after `recall`, hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test pairs being independent (`classification_workflow.md`, Step 4.14).
+
 **Example: `Evaluation/Iteration_6/class_metrics.csv` and `class_thresholds.json`**
 ```text
 class_index,class,samples,precision,recall,f1,threshold_at_target_precision,recall_at_target_precision
@@ -935,7 +938,7 @@ The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 pe
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 pairs of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-10, before the ROC and precision-recall curves (Stage 4).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 pairs of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-10, before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
