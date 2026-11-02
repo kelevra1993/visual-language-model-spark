@@ -15,7 +15,7 @@ Every launch keeps a moving average of its weights, and the settings are compare
 ## Fixed Settings
 
 - `batch_size`: 64 images of 1024 pixels (two launches side by side reach about 63 Gigabytes above the idle machine, of its 121; one launch at 128 images would take about 49 alone)
-- `number_iterations`: 15,000 (960,000 images, 1.9 epochs of the 512,000 training images): lowered from 20,000 to 10,000 by the user on 2026-11-02 at iteration 2500 of run_1 and run_2 (a pair at 20,000 took about 26 hours), then raised to 15,000 at iteration 4500 as the scores were still rising, every launch being evaluated at both 10,000 and 15,000 so that the stage can also be read at 10,000. The constant learning rate makes run_1 and run_2, launched for 20,000 and stopped right after their evaluation at 15,000, the same as launches planned for 15,000
+- `number_iterations`: 20,000 (1,280,000 images, 2.5 epochs of the 512,000 training images): lowered from 20,000 to 10,000 by the user on 2026-11-02 at iteration 2500 of run_1 and run_2 (a pair at 20,000 took about 26 hours in the first estimate), raised to 15,000 at iteration 4500 as the scores were still rising, then back to 20,000 at iteration 13,500 (20:30), the user wanting the detection settings chosen carefully while run_1 still gained 0.4% relative per 500 iterations (78.29% at 13,500). run_1 and run_2 were launched for 20,000 and simply run to the end; every launch is evaluated at 10,000, 15,000 and 20,000, so the stage can also be read at the shorter lengths
 - `weight_saving_iterations`: 500, the test evaluation running every 500 iterations (30 tested models) on `test_10000`, the first 10,000 of the 50,000 test images (85,143 objects), its images read from the `test` split through a link; `intermediate_weight_saving_iterations`: 250
 - `information_dump`: 1000, `validation_iteration_ratio`: 0 (no validation during the training)
 - Backbone `{"1": [1, 16], "2": [2, 16], "3": [2, 16], "4": [3, 32], "5": [3, 32], "6": [5, 32], "7": [5, 32]}`, residual blocks with squeeze and excite, input normalization, batch normalization
@@ -35,14 +35,14 @@ Every launch keeps a moving average of its weights, and the settings are compare
 
 | Stage | Parameter | Values | Iterations |
 |---|---|---|---|
-| 1 | `learning_rate` | 1e-3, 1e-4, 2e-4, 2e-3 | 15,000 |
-| 2 | Feature pyramid network | none, feature pyramid network (to implement) | 15,000 |
+| 1 | `learning_rate` | 1e-3, 1e-4, 2e-4, 2e-3 | 20,000 |
+| 2 | Feature pyramid network | none, feature pyramid network (to implement) | 20,000 |
 
 ## Launches
 
-Every launch gives its test mean average precision at every evaluation (every 500 iterations up to 15,000) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "object_detection"`), launches and mean rows as in the tables below.
+Every launch gives its test mean average precision at every evaluation (every 500 iterations up to 20,000) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "object_detection"`), launches and mean rows as in the tables below.
 
-### Stage 1: Learning Rate (8 launches, 15,000 iterations)
+### Stage 1: Learning Rate (8 launches, 20,000 iterations)
 
 The learning rates are searched one pair at a time instead of all trained, as the user asked on 2026-11-02 so that no pair is trained once the answer is known, the early iterations of the smaller learning rates mostly measuring their speed: 2e-3 first, kept if better than 1e-3 and the stage then ending; otherwise 2e-4, the stage ending on 1e-3 if 2e-4 is not better, and 1e-4 last if it is. A challenger whose pair mean differs from the best value so far by less than the larger gap between the two launches of either value is a tie, within the noise of a single training: the search then ends on the earlier value (the user's rule of 2026-11-02, so that a noisy branch decision never sends the search further).
 
@@ -53,4 +53,4 @@ The learning rates are searched one pair at a time instead of all trained, as th
 | 2 (if 2e-3 is not better) | 2e-4 | run_5, run_6 |
 | 3 (if 2e-4 is better) | 1e-4 | run_7, run_8 |
 
-A pair trains in about 18 to 19 hours (4500 iterations of run_1 and run_2 in about 5.5 hours, test evaluations included), the stage in 1.5 to 3 days depending on the search.
+A pair trains in about 22 to 23 hours (13,500 iterations of run_1 and run_2 in about 15 hours, test evaluations included): run_1 and run_2 end on 2026-11-03 around 03:30, and the stage takes 2 to 4 days depending on the search.
