@@ -147,7 +147,7 @@ A highlight is `{match: <regular expression>, sentences: [...]}` (or `always: tr
 `views` of an image scene are `{box: [left, top, right, bottom], from_sentence: <index>}` in pixels of the figure; `highlights` are `{box, sentences}`; `reveals` uncover a region of the `overlay` image from its left edge while their `sentence` is spoken.
 
 ## Diagram Elements
-An html scene with `page: diagram` draws its `elements` in the content area, 1760 x 740 pixels from its top left corner. Every element has an optional `appear` (the sentence it fades in with, -1 or absent for the whole scene), `until` (the last sentence it stays), `highlight` and `dim` (lists of sentences). Arrows, bars, curves and grids grow when they appear.
+An html scene with `page: diagram` draws its `elements` in the content area, 1760 x 740 pixels from its top left corner. Every element has an optional `appear` (the sentence it fades in with, -1 or absent for the whole scene), `until` (the last sentence it stays), `highlight` and `dim` (lists of sentences). An element rises 14 pixels as it fades in, and the elements appearing with the same sentence enter 0.07 seconds apart in the order of the list (0.35 seconds at most); arrows, bars, curves and grids grow instead of rising. A highlighted element turns to the accent colour with a glow.
 
 | Type | Keys |
 |---|---|

@@ -164,6 +164,21 @@ def find_sentence_view(scene: Dict[str, Any], sentence_index: int) -> Tuple[floa
     return fit_view_to_viewport(view_box=view_box, image_size=image_size)
 
 
+def smooth_step(progress: float) -> float:
+    """
+    Eases a progress at both ends (smooth step), for the transitions of the videos drawn in Python: the camera moves
+    of interpolate_view, and the sentence fades, scene crossfades and final fade of frame_generation.py.
+
+    Args:
+        progress (float): The progress of the transition, clamped to [0, 1].
+
+    Returns:
+        float: The eased progress, within [0, 1].
+    """
+    clamped_progress = min(1.0, max(0.0, progress))
+    return clamped_progress * clamped_progress * (3.0 - 2.0 * clamped_progress)
+
+
 def interpolate_view(start_box: Tuple[float, float, float, float], end_box: Tuple[float, float, float, float],
                      progress: float) -> Tuple[float, float, float, float]:
     """
@@ -178,7 +193,7 @@ def interpolate_view(start_box: Tuple[float, float, float, float], end_box: Tupl
     Returns:
         Tuple[float, float, float, float]: The box at that progress, in the proportions of the viewport.
     """
-    eased_progress = progress * progress * (3.0 - 2.0 * progress)
+    eased_progress = smooth_step(progress=progress)
     centre_x = ((start_box[0] + start_box[2]) * (1.0 - eased_progress) + (end_box[0] + end_box[2]) * eased_progress) / 2
     centre_y = ((start_box[1] + start_box[3]) * (1.0 - eased_progress) + (end_box[1] + end_box[3]) * eased_progress) / 2
     width = math.exp(math.log(start_box[2] - start_box[0]) * (1.0 - eased_progress) +

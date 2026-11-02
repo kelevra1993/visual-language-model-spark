@@ -4,9 +4,10 @@
  * storyboard and the times of its sentences, then Tutorial.renderFrame(time) for every frame of the video, and
  * captures the page. The scene is an SVG diagram of elements (box, arrow, text, image, stack, bars, cuboid, grid,
  * curve) that appear, grow, are highlighted, dimmed and leave with the sentences of the narration, every change eased
- * over a fraction of a second. renderFrame returns whether something still moves, so that the builder captures a
- * still frame once. A page adds its own animated parts with Tutorial.registerCustom(setupFunction), the setup
- * returning the function that updates them at a time.
+ * over a fraction of a second: an element rises slightly as it fades in, the elements of one sentence enter one after
+ * the other, and a highlighted element glows. renderFrame returns whether something still moves, so that the builder
+ * captures a still frame once. A page adds its own animated parts with Tutorial.registerCustom(setupFunction), the
+ * setup returning the function that updates them at a time.
  */
 (function () {
     "use strict";
@@ -29,6 +30,16 @@
     const GROW_SECONDS = 0.6;
     const HIGHLIGHT_SECONDS = 0.25;
     const DIMMED_OPACITY = 0.3;
+
+    // Entrance of an element: the distance it rises while fading in (not for the growing ones), and the delay between
+    // two elements appearing with the same sentence, in the order of the storyboard, capped for long lists
+    const RISE_PIXELS = 14;
+    const STAGGER_SECONDS = 0.07;
+    const MAXIMUM_STAGGER_SECONDS = 0.35;
+
+    // Glow of a highlighted element: the SVG filter blurring its accent outline, and the blur radius in pixels
+    const GLOW_FILTER_IDENTIFIER = "tutorial-highlight-glow";
+    const GLOW_BLUR_PIXELS = 6;
 
     // Speed of the dots flowing along a highlighted arrow, in pixels per second
     const FLOW_PIXELS_PER_SECOND = 600;
@@ -74,6 +85,12 @@
     function ease(progress) {
         const clamped = clampUnit(progress);
         return clamped * clamped * (3 - 2 * clamped);
+    }
+
+    /* Cubic ease out of a progress, clamped to [0, 1]: fast, then settling softly, for entrances and growths. */
+    function easeOut(progress) {
+        const remaining = 1 - clampUnit(progress);
+        return 1 - remaining * remaining * remaining;
     }
 
     /* Linear map of a value from a range onto another one. */
@@ -138,15 +155,18 @@
     }
 
     /*
-     * Appearance of an element at a time: its opacity (fading in when its appear sentence starts and out when the
-     * sentence after its until sentence starts, at once for appear -1), its growth (arrows, bars, curves and grids
-     * grown from their start over GROW_SECONDS, or over grow_seconds) and whether either still moves.
+     * Appearance of an element at a time: its opacity (fading in when its appear sentence starts, after its stagger
+     * delay in seconds, and out when the sentence after its until sentence starts, at once for appear -1), its rise
+     * (the pixels it still has to climb while fading in, none for the growing elements), its growth (arrows, bars,
+     * curves and grids grown from their start over GROW_SECONDS, or over grow_seconds) and whether any still moves.
      */
-    function computeAppearance(element, time) {
+    function computeAppearance(element, time, delaySeconds) {
         const appearIndex = element.appear === undefined ? -1 : element.appear;
-        const appearTime = sentenceStart(appearIndex);
-        let opacity = appearIndex < 0 ? 1 : ease((time - appearTime) / APPEAR_SECONDS);
-        let moving = appearIndex >= 0 && time >= appearTime && time < appearTime + APPEAR_SECONDS;
+        const sentenceTime = sentenceStart(appearIndex);
+        const appearTime = sentenceTime + (delaySeconds || 0);
+        const entrance = appearIndex < 0 ? 1 : easeOut((time - appearTime) / APPEAR_SECONDS);
+        let opacity = entrance;
+        let moving = appearIndex >= 0 && time >= sentenceTime && time < appearTime + APPEAR_SECONDS;
         if (element.until !== undefined && element.until !== null) {
             const leaveTime = sentenceStart(element.until + 1);
             opacity *= 1 - ease((time - leaveTime) / APPEAR_SECONDS);
@@ -157,13 +177,13 @@
         const growSeconds = element.grow_seconds || GROW_SECONDS;
         let growth = 1;
         if (grows && appearIndex >= 0) {
-            growth = ease((time - appearTime) / growSeconds);
+            growth = easeOut((time - appearTime) / growSeconds);
             moving = moving || (time >= appearTime && time < appearTime + growSeconds);
         }
         if (time < appearTime) {
             opacity = 0;
         }
-        return { opacity: opacity, growth: growth, moving: moving };
+        return { opacity: opacity, rise: grows ? 0 : RISE_PIXELS * (1 - entrance), growth: growth, moving: moving };
     }
 
     /* Fills an SVG text element with the lines of a text, placed for its anchor ("la", "mm", "ls", "rm"...). */
@@ -243,26 +263,42 @@
                                           opacity: 0 }, parent);
     }
 
+    /* Glow of an accent outline: the blur filter of setupScene applied while the highlight shows, removed otherwise. */
+    function applyGlow(node, highlight) {
+        if (highlight > 0.001) {
+            node.setAttribute("filter", `url(#${GLOW_FILTER_IDENTIFIER})`);
+        } else {
+            node.removeAttribute("filter");
+        }
+    }
+
     /* Box: a rounded rectangle filled and outlined in its colours, its text centred; a null fill draws the outline
      * only, such as a frame over an image. */
     function buildBox(element, group) {
         const [left, top, right, bottom] = element.box;
         const fill = element.fill === null ? "none" : cssColour(resolveColour(element.fill || "box"));
+        const radius = element.radius === undefined ? 12 : element.radius;
+
+        // Accent ring under the rectangle, blurred into a glow while the box is highlighted
+        const glow = createSvgElement("rect", { x: left, y: top, width: right - left, height: bottom - top, rx: radius,
+                                                fill: "none", stroke: cssColour(COLOURS.accent), "stroke-width": 6,
+                                                opacity: 0 }, group);
         const rectangle = createSvgElement("rect", { x: left, y: top, width: right - left, height: bottom - top,
-                                                     rx: element.radius === undefined ? 12 : element.radius,
-                                                     fill: fill }, group);
+                                                     rx: radius, fill: fill }, group);
         if (element.text) {
             createText(group, element.text, (left + right) / 2, (top + bottom) / 2, "mm",
                        element.font || "diagram_text", element.text_colour || "text");
         }
-        return { rectangle: rectangle, outline: resolveColour(element.outline || "border") };
+        return { rectangle: rectangle, glow: glow, outline: resolveColour(element.outline || "border") };
     }
 
-    /* Box at a moment: its outline turning to the accent colour, and thicker, while highlighted. */
+    /* Box at a moment: its outline turning to the accent colour, thicker and glowing, while highlighted. */
     function updateBox(parts, element, state) {
         const width = element.width || 3;
         parts.rectangle.setAttribute("stroke", cssColour(mixColour(parts.outline, COLOURS.accent, state.highlight)));
         parts.rectangle.setAttribute("stroke-width", width + state.highlight * (4 - width));
+        parts.glow.setAttribute("opacity", state.highlight);
+        applyGlow(parts.glow, state.highlight);
         return false;
     }
 
@@ -924,8 +960,8 @@
         return sizes;
     }
 
-    /* Builds the scene once: the card, then every element in the order of the storyboard (later ones on top), then the
-     * custom parts of the page. */
+    /* Builds the scene once: the glow filter, the card, then every element in the order of the storyboard (later ones
+     * on top) with its stagger delay, then the custom parts of the page. */
     async function setupScene(scene, timing) {
         await document.fonts.ready;
         engine.scene = scene;
@@ -934,6 +970,15 @@
         while (engine.root.firstChild) {
             engine.root.removeChild(engine.root.firstChild);
         }
+
+        // Glow of the highlights: the accent outline blurred, the blur added twice under the sharp outline
+        const definitions = createSvgElement("defs", {}, engine.root);
+        const glowFilter = createSvgElement("filter", { id: GLOW_FILTER_IDENTIFIER, x: "-50%", y: "-50%",
+                                                        width: "200%", height: "200%" }, definitions);
+        createSvgElement("feGaussianBlur", { in: "SourceGraphic", stdDeviation: GLOW_BLUR_PIXELS, result: "blur" },
+                         glowFilter);
+        const merge = createSvgElement("feMerge", {}, glowFilter);
+        ["blur", "blur", "SourceGraphic"].forEach((input) => createSvgElement("feMergeNode", { in: input }, merge));
         if (scene.card !== false) {
             createSvgElement("rect", { x: 1, y: 1, width: SCENE_WIDTH - 2, height: SCENE_HEIGHT - 2, rx: 18,
                                        fill: cssColour(COLOURS.card), stroke: cssColour(COLOURS.border),
@@ -951,6 +996,15 @@
             engine.records.push({ element: element, group: group,
                                   parts: ELEMENT_TYPES[element.type].build(element, group, imageSizes) });
         });
+
+        // Stagger of the elements appearing with the same sentence, one after the other in the storyboard order
+        const appearedCounts = {};
+        engine.records.forEach((record) => {
+            const appearIndex = record.element.appear === undefined ? -1 : record.element.appear;
+            const order = appearIndex < 0 ? 0 : appearedCounts[appearIndex] || 0;
+            appearedCounts[appearIndex] = order + 1;
+            record.appearDelay = Math.min(order * STAGGER_SECONDS, MAXIMUM_STAGGER_SECONDS);
+        });
         engine.customUpdates = [];
         for (const customSetup of engine.customSetups) {
             engine.customUpdates.push(await customSetup({ root: engine.root, scene: scene, timing: timing,
@@ -963,13 +1017,25 @@
     function renderFrame(time) {
         let moving = false;
         engine.records.forEach((record) => {
-            const appearance = computeAppearance(record.element, time);
+            const appearance = computeAppearance(record.element, time, record.appearDelay);
             const dimmed = sentenceStateValue(record.element.dim, time, 1, DIMMED_OPACITY, HIGHLIGHT_SECONDS);
             const highlight = sentenceStateValue(record.element.highlight, time, 0, 1, HIGHLIGHT_SECONDS);
             record.group.setAttribute("opacity", (appearance.opacity * dimmed.value).toFixed(4));
             record.group.style.display = appearance.opacity <= 0.001 ? "none" : "";
+
+            // Rise of an element still entering, the transform removed once it has settled
+            if (appearance.rise > 0.01) {
+                record.group.setAttribute("transform", `translate(0 ${appearance.rise.toFixed(2)})`);
+            } else {
+                record.group.removeAttribute("transform");
+            }
             const state = { appearance: appearance, highlight: highlight.value };
             const elementMoving = ELEMENT_TYPES[record.element.type].update(record.parts, record.element, state, time);
+
+            // Glow of the accent outline of an image, stack, cuboid, bars or grid while it is highlighted
+            if (record.parts && record.parts.outline instanceof SVGElement) {
+                applyGlow(record.parts.outline, highlight.value);
+            }
             moving = moving || appearance.moving || dimmed.moving || highlight.moving || Boolean(elementMoving);
         });
         engine.customUpdates.forEach((customUpdate) => {
@@ -1022,8 +1088,9 @@
 
     const HELPERS = {
         COLOURS: COLOURS, resolveColour: resolveColour, cssColour: cssColour, mixColour: mixColour, ease: ease,
-        clampUnit: clampUnit, scaleValue: scaleValue, formatPoints: formatPoints, createSvgElement: createSvgElement,
-        createText: createText, setMultilineText: setMultilineText, sentenceStart: sentenceStart,
+        easeOut: easeOut, clampUnit: clampUnit, scaleValue: scaleValue, formatPoints: formatPoints,
+        createSvgElement: createSvgElement, createText: createText, setMultilineText: setMultilineText,
+        sentenceStart: sentenceStart,
         activeSentence: activeSentence, sentenceStateValue: sentenceStateValue, computeAppearance: computeAppearance,
         pointAlong: pointAlong, polylineLength: polylineLength, placeArrowHead: placeArrowHead,
         APPEAR_SECONDS: APPEAR_SECONDS, GROW_SECONDS: GROW_SECONDS, HIGHLIGHT_SECONDS: HIGHLIGHT_SECONDS,
