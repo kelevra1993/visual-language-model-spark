@@ -1,21 +1,11 @@
-# SimCLR self-supervised training on the synthetic counted shapes dataset (5 to 10 shapes of the 35 SHAPE_CATEGORIES
-# classes per 512 pixel image, drawn like the sequence labelling frames), created by
-# vision_training/data/synthetic/create_synthetic_dataset.py with the task "self_supervised". Labels are unused in
-# training: the shape count (6 classes) serves the k-NN evaluation of the test split, the shape classes
-# (shape_category_ids of labels.json) later probes of what the representation tells apart. The backbone and its
-# flattened feature map are those of sequence labelling run-9.yaml, so that it initialises the sequence labelling runs
-# (Backbone.pretrained), compared with runs from random weights. configuration_counted_shapes_barlow_twins.yaml trains
-# the same backbone with Barlow Twins.
+# SimCLR self-supervised training on synthetic counted shapes (5 to 10 of the 35 shape classes per 512 pixel image),
+# shape count (6 classes) for test k-NN; backbone of sequence labelling run-9.yaml; Barlow Twins twin.
 ExperimentConfiguration:
-  # Task trained, selecting the trainer, model and checks. "self_supervised" trains the backbone without labels from two
-  # random views of every image; needs ProjectionHead and Data.data_augmentation on. Its backbone then initialises any
-  # task (Backbone.pretrained).
+  # Task trained, selecting the trainer, model and checks. "self_supervised": label-free backbone training on two random
+  # views per image; needs ProjectionHead, Data.data_augmentation on; initialises any task (Backbone.pretrained).
   task: "self_supervised"
-  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, projection head,
-  # method and its setting, optimizer and weight decay unless plain Adam): the same settings resume, changed ones start
-  # a new folder, e.g. SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2. The views,
-  # batch size, learning rate and its schedule, and gradient clipping give no token and can change on resume (format:
-  # vision_training/configuration_processing/run_name.py).
+  # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; views, batch
+  # size, learning rate, schedule, gradient clipping can change on resume.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/ssl-experiments-counted-shapes"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
@@ -38,35 +28,25 @@ ExperimentConfiguration:
   number_iterations: 1e10
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 5
-  # Test evaluation at every weight_saving_iterations checkpoint on the whole test split, training no classifier: every
-  # labelled test image is classified by its nearest neighbours among the other labelled test images by cosine
-  # similarity (k-NN accuracy, balanced accuracy, macro F1 and per-class precision / recall / F1 in <run
-  # folder>/Evaluation/Iteration_<iteration>/class_metrics.csv); the effective rank and standard deviation of the test
-  # representations watch for collapse. An unlabelled test split is scored by the effective rank, then the headline
-  # metric.
+  # Test evaluation at every weight_saving_iterations checkpoint, no classifier trained: cosine k-NN among the labelled
+  # test images (accuracy, balanced accuracy, macro F1, per-class metrics); unlabelled test split: effective rank only.
   evaluation:
-    # Reports every class: the k-NN class table (labelled test images, precision, recall, F1, worst F1 first) and the
-    # k-NN recall table (worst recall first, with its 95% interval) in the console and Results.txt and the k-NN
-    # Precision / Recall / F1 Test scalars in TensorBoard. False keeps the global metrics only; class_metrics.csv is
-    # always saved.
+    # Reports every class: k-NN class and recall tables (console, Results.txt), k-NN Test scalars in TensorBoard. False:
+    # global metrics only; class_metrics.csv always saved.
     per_class_report: True
-    # Test images drawn once and shown at every evaluation next to two random views, captioned with the class and the
-    # cosine similarity of both view representations (near 1 for a view-invariant backbone), saved in
-    # Evaluation/Iteration_<n>/Samples/ and TensorBoard. Spread over the classes, unlabelled images forming their own
-    # group. 0 disables.
+    # Test images drawn once, shown at every evaluation next to two random views, captioned with the class and view
+    # cosine similarity, in Evaluation/Iteration_<n>/Samples/ and TensorBoard, spread over the classes. 0 disables.
     number_sample_images: 8
     # Nearest neighbours voting for the class of a labelled test image in the k-NN evaluation, each weighted by
     # exp(cosine similarity / 0.07); a positive integer, reduced to the labelled test images minus 1 for smaller splits.
     number_neighbours: 20
-  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
-  # metrics and small artifacts (configuration, confusion matrices, class metrics and thresholds, Results.txt). An
-  # MLflow error only prints a warning.
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
+  # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
     activated: False
-    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
-    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
-    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
     # MLflow experiment, null for the task name ("self_supervised").
     experiment_name: null
@@ -78,10 +58,8 @@ ExperimentConfiguration:
   diagnosis_modes:
       # Computes the receptive field
       compute_receptive_field: True
-      # Shows the network input: "View 1" and "View 2" windows with the two random views of a training image, each next
-      # to its drawn transformations. With Data.grouped_batches on, every training batch is first shown whole in a
-      # "Training Batch" window, cut into its blocks under their group values. SPACE: next images, ENTER: exit without
-      # training (set False to train). Needs a display; no run folder is created.
+      # Shows the network input: View 1 and View 2 windows, plus a Training Batch window with Data.grouped_batches.
+      # SPACE: next images, ENTER: exit without training (False to train); needs a display, creates no run folder.
       view_input_images: False
 
 Optimization:
@@ -101,11 +79,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
-  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
-  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
-  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
-  # 'pretrained' transfers load the averaged weights when present.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
+  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: False
@@ -124,13 +99,8 @@ Data:
     mode: "multi_class"
     # JSON file mapping the dataset category IDs to sequential class IDs.
     mapping_file_path: "/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes/label_mapping.json"
-  # Grouped batches (hard negatives): training and validation batches gather blocks of images sharing an attribute of
-  # the optional "groups" dictionary of their labels.json sample (e.g. {"camera": "c042", "site": "s3"}), so that the
-  # negatives of an image (its batch) include many of the same camera, scene or device type, which the views must still
-  # tell apart. Rebuilt every pass: the images of every (batch value, block value) are shuffled and cut into blocks of
-  # images_per_block, the blocks of every batch value joined into full batches, the leftovers shuffled into random
-  # batches. A split without the keys keeps random batches (warning); one where only some samples hold them stops the
-  # launch. The test split (k-NN evaluation) is not grouped. No run name token, can change on resume.
+  # Grouped batches (hard negatives): rebuilt every pass from blocks of images_per_block images sharing a labels.json
+  # "groups" value (e.g. {"camera": "c042"}); no keys: random batches, partial keys: error; test not grouped.
   grouped_batches:
     # Turns grouped batches on, random batches otherwise.
     activated: False
@@ -141,24 +111,16 @@ Data:
     # Attribute shared by every image of a batch (e.g. "site", its blocks from cameras of one site), or null for blocks
     # of any value.
     batch_key: null
-  # Data augmentation drawing the two views of the self-supervised task: every training and validation image is
-  # transformed twice on the GPU before the forward pass, each view drawing every activated type with its probability
-  # and own random values; the loss pulls the two views together. Strengths are hard-coded, mostly stronger than in the
-  # supervised tasks (SELF_SUPERVISED_AUGMENTATION_STRENGTHS, vision_training/data/augmentations.py); the configuration
-  # sets the types and probabilities, shared by both views except random_solarize and random_black_out (second view
-  # only, as in BYOL and Barlow Twins). The views must change everything but the image content: a cue shared by both
-  # (e.g. colour with the colour types off) lets the network match them without learning. No run name token, can change
-  # on resume.
+  # Self-supervised views: every training and validation image augmented twice, each view drawing the activated types by
+  # probability; strengths fixed (augmentations.py); solarize, black-out on view 2 only. Can change on resume.
   data_augmentation:
     # Global switch, True for the self-supervised task (otherwise both views are the image itself).
     activated: True
     # Probability that a training image is augmented, ignored by the self-supervised task (every image gets two views).
     probability: 1.0
     types:
-      # Geometric augmentations, drawn per view.
-      # Random Crop : random resized crop of 50% to 100% of the area, aspect ratio x1/2 to x2, the main view
-      # augmentation: probability 1.0 when activated, a crop missing the object leaving nothing to match.
-      # Off for this dataset: a crop changes the number of shapes of a view, the class of its k-NN evaluation
+      # Geometric augmentations, drawn per view. Random Crop : resized crop of 50% to 100% of the area, aspect ratio
+      # x1/2 to x2, probability 1.0 when activated; off here, a crop changing the shape count (the k-NN class)
       random_crop: { activated: False, probability: 1.0 }
       # Random Aspect Crop : 75% to 100% of the width and, drawn separately, of the height, resized back, stretching one
       # side by x0.75 to x1.33
@@ -282,31 +244,20 @@ Backbone:
     learning_rate_multiplier: 1.0
 
 ProjectionHead:
-  # Reduction of the final backbone feature map [C, H, W] to the image representation (compared by the k-NN evaluation,
-  # returned by the exported encoder): "average" or "max" (C values whatever the image size), or "flatten" (C x H x W
-  # values keeping positions, tied to Data.image_settings.size and Backbone.last_max_pooling). Flattened like the
-  # classification head of sequence labelling run-9.yaml, so that it keeps where the shapes are.
+  # Backbone feature map [C, H, W] to representation (k-NN, exported encoder): "average", "max", or "flatten" (C x H x W
+  # values, tied to Data.image_settings.size, Backbone.last_max_pooling), here to keep where the shapes are.
   global_pooling: "flatten"
-  # Layer units mapping the representation to the embedding compared by the loss, the last being the embedding size
-  # (linear, normalization and ReLU before it, linear last). SimCLR uses one hidden layer and a small embedding (e.g.
-  # [2048, 128]), Barlow Twins wide layers (e.g. [2048, 2048, 2048] or more, improving with the embedding size). Only
-  # the self-supervised training uses the head: the backbone initialises the other tasks.
+  # Projection layer units, the last the embedding size compared by the loss: SimCLR e.g. [2048, 128], Barlow Twins wide
+  # (e.g. [2048, 2048, 2048]). Self-supervised training only; the backbone initialises the other tasks.
   fully_connected: [2048, 128]
-  # Normalization of every hidden layer output before its ReLU: "batch" (per feature over the batch, as SimCLR and
-  # Barlow Twins), "layer" (per vector over its features) or "none". "none" when fully_connected holds the embedding
-  # layer only; gives the PBN or PLN token.
+  # Normalization of every hidden layer output before its ReLU: "batch" (as SimCLR and Barlow Twins), "layer" or "none"
+  # (needed when fully_connected holds the embedding layer only); PBN or PLN token.
   fully_connected_normalization: "batch"
   # Momentum of the batch normalization running statistics ("batch" only): 0.1 follows about the last 10 batches, 0.01
   # the last 100. No run name token, can change on resume.
   batch_normalization_momentum: 0.1
-  # Self-supervised method, giving the SIMCLR or BT token:
-  # - "simclr": InfoNCE over the 2N views of a batch of N images, every view finding the other view of its image among
-  #   the 2N - 1 others by cosine similarity over the temperature; large batches give more views to tell apart. Tracks
-  #   the positive pair accuracy (views whose most similar view is their partner).
-  # - "barlow_twins": the cross-correlation matrix of the embedding features of both views (normalized over the batch)
-  #   pushed to the identity, every feature equal on both views and the features decorrelated. Works with smaller
-  #   batches than SimCLR; tracks the mean diagonal and off-diagonal correlations.
-  # Both track the standard deviation of the normalized embeddings, about 1 when spread, 0 when collapsed.
+  # "simclr" (InfoNCE, negatives from the batch) or "barlow_twins" (view cross-correlation to identity, no negatives);
+  # SIMCLR or BT token.
   method: "simclr"
   simclr:
     # Temperature dividing the cosine similarities before the softmax, e.g. 0.1 to 0.5, lower focusing the loss on the

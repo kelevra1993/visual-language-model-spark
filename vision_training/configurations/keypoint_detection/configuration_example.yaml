@@ -1,20 +1,11 @@
-# COCO 2017 person keypoints (17 per person: nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles) with a
-# HigherHRNet-W32 on 512x512 images. Each split folder holds the COCO detection images ('data') and
-# person_keypoints_<split>2017.json as 'labels.json' (both linked from object_detection_data/coco-2017). Every image is
-# a sample with all its persons having a labelled keypoint: 56,599 of the 118,287 train images (149,813 of 262,465
-# persons), about 7,390 iterations per epoch at a batch of 16.
+# COCO 2017 person keypoints, HigherHRNet-W32 on 512x512 images; split folders link the COCO images ('data') and
+# person_keypoints_<split>2017.json ('labels.json'); 56,599 train images, 7,390 iterations per epoch at batch 16.
 ExperimentConfiguration:
-  # Task trained, selecting the trainer, model and checks. "keypoint_detection" trains the bottom-up keypoint detector
-  # (HigherHRNet: a heatmap and a tag map per keypoint of every class on the whole image, keypoints grouped into objects
-  # by their tags); needs HRNet and KeypointHead. Labels are COCO annotations with the 'keypoints' of every object and
-  # the 'keypoints' names and 'skeleton' of every category.
+  # Task trained, selecting the trainer, model and checks. "keypoint_detection": bottom-up HigherHRNet keypoint
+  # detector; needs HRNet, KeypointHead. Labels: COCO with object 'keypoints', category 'keypoints' and 'skeleton'.
   task: "keypoint_detection"
-  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, high resolution
-  # network, heatmap channels, hidden width and higher resolution branch, classes, optimizer and weight decay unless
-  # plain Adam): the same settings resume, changed ones start a new folder, e.g.
-  # KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17-HH_MC1. The augmentation, heatmap sigma,
-  # tag loss weights, grouping settings, batch size, learning rate and its schedule, and gradient clipping give no token
-  # and can change on resume (format: vision_training/configuration_processing/run_name.py).
+  # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
+  # heatmap sigma, tag loss, grouping, batch size, learning rate, schedule, gradient clipping can change on resume.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
@@ -23,10 +14,8 @@ ExperimentConfiguration:
   train_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/train"
   # Validation images and labels.json annotations.
   validation_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/validation"
-  # Test images and labels.json: the COCO validation split, the COCO test keypoints being withheld. Objects without
-  # labelled keypoint are left out of the labels of every split (nothing to learn or evaluate), their images kept (6,352
-  # of the 11,004 validation persons, in 2,346 of the 5,000 images). The persons left out (crowds, small persons) stay
-  # in the images, where the heatmaps learn to find no keypoint.
+  # Test images and labels.json: the COCO validation split (test keypoints withheld); objects without labelled keypoint
+  # are left out of the labels of every split, their images kept (6,352 of 11,004 validation persons).
   test_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/validation"
   # Whole images per forward/backward pass.
   batch_size: 16
@@ -40,46 +29,32 @@ ExperimentConfiguration:
   number_iterations: 150000
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 0
-  # Test evaluation at every weight_saving_iterations checkpoint on the whole test split: the keypoints found are
-  # grouped into objects with KeypointHead.inference (every object kept whatever its score), each scored against the
-  # ground truth objects of its class by the object keypoint similarity (OKS), which replaces the IoU of the detection
-  # average precisions (OKS mAP@0.5, @0.75, @0.95 and @0.5:0.95). Every ground truth object is then matched to at most
-  # one found object (largest total OKS) for the matched share, PCK@0.05 (a keypoint within 0.05 of the longest box
-  # side), the mean OKS and the mean pixel error, a missed object or keypoint counting as wrong.
+  # Test evaluation at every weight_saving_iterations checkpoint: KeypointHead.inference objects scored by OKS (mAP@0.5,
+  # @0.75, @0.95, @0.5:0.95); at most one match per ground truth for matched share, PCK@0.05, mean OKS, pixel error.
   evaluation:
-    # Reports every class and keypoint: the class table (objects, OKS average precisions, matched objects, PCK, mean OKS
-    # and mean pixel error, worst AP@0.5 first), the OKS recall table (recall at OKS 0.5 and 0.75 with their 95%
-    # intervals, worst recall at 0.5 first) and the per-keypoint table of every class (labelled keypoints, PCK, mean
-    # pixel error) in the console and Results.txt, and the per-class AP@0.5 Test scalar in TensorBoard. False keeps the
-    # global metrics only; class_metrics.csv and keypoint_metrics.csv are always saved.
+    # Reports every class and keypoint: class, OKS recall and per-keypoint tables (console, Results.txt), AP@0.5 in
+    # TensorBoard. False: global metrics only; class_metrics.csv and keypoint_metrics.csv always saved.
     per_class_report: True
-    # Test images drawn once and shown at every evaluation: ground truth objects next to the objects found reaching
-    # KeypointHead.inference.object_score_threshold, each with its keypoints and class skeleton, saved in
-    # Evaluation/Iteration_<n>/Samples/ and TensorBoard. 0 disables.
+    # Test images drawn once, shown at every evaluation: ground truth objects next to those above
+    # KeypointHead.inference.object_score_threshold, in Evaluation/Iteration_<n>/Samples/ and TensorBoard. 0 disables.
     number_sample_images: 16
-    # Standard deviation of every keypoint in the object keypoint similarity, as a fraction of the square root of the
-    # object box area (the COCO sigma, half the keypoint constant): a keypoint 2 x sigma x sqrt(box area) from the
-    # ground truth scores exp(-0.5) = 0.61. Used for the keypoints missing from keypoint_sigmas; > 0.
+    # Keypoint standard deviation in the object keypoint similarity, a fraction of sqrt(box area): a keypoint 2 x sigma
+    # x sqrt(box area) away scores exp(-0.5) = 0.61. For the keypoints missing from keypoint_sigmas; > 0.
     default_keypoint_sigma: 0.05
-    # Standard deviation of chosen keypoints, by category then keypoint name, the others keeping default_keypoint_sigma;
-    # a loose keypoint (a joint under clothes) gets more than a sharp corner. Categories merged by the label mapping
-    # must agree on their common keypoints; {} keeps the default. Below, the COCO keypoint evaluation sigmas; COCO
-    # scales by the person segmentation area where this evaluation uses the box area, so the scores are slightly below
-    # the official ones.
+    # Standard deviation of chosen keypoints by category then name, others (all with {}) default_keypoint_sigma; merged
+    # categories must agree on shared keypoints. Below, the COCO sigmas (box area used: scores below COCO).
     keypoint_sigmas:
       person: { nose: 0.026, left_eye: 0.025, right_eye: 0.025, left_ear: 0.035, right_ear: 0.035,
                 left_shoulder: 0.079, right_shoulder: 0.079, left_elbow: 0.072, right_elbow: 0.072, left_wrist: 0.062,
                 right_wrist: 0.062, left_hip: 0.107, right_hip: 0.107, left_knee: 0.087, right_knee: 0.087,
                 left_ankle: 0.089, right_ankle: 0.089 }
-  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
-  # metrics and small artifacts (configuration, class and keypoint metrics, Results.txt). An MLflow error only prints a
-  # warning.
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
+  # (configuration, class and keypoint metrics, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
     activated: False
-    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
-    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
-    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
     # MLflow experiment, null for the task name ("keypoint_detection").
     experiment_name: null
@@ -91,10 +66,8 @@ ExperimentConfiguration:
   diagnosis_modes:
       # Computes the receptive field
       compute_receptive_field: True
-      # Shows the network input: Training and Validation windows with the whole images, the boxes and keypoints of their
-      # objects (left blue, right orange, others yellow, occluded as rings) and the class skeleton, next to a panel of
-      # the objects per class, the keypoints by visibility and the drawn augmentations. SPACE: next images, ENTER: exit
-      # without training (set False to train). Needs a display; no run folder is created.
+      # Shows the network input: Training and Validation windows, boxes, keypoints (left blue, right orange), skeleton.
+      # SPACE: next images, ENTER: exit without training (False to train); needs a display, creates no run folder.
       view_input_images: False
 
 Optimization:
@@ -114,11 +87,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
-  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
-  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
-  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
-  # 'pretrained' transfers load the averaged weights when present.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
+  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True
@@ -127,9 +97,8 @@ Optimization:
 
 Data:
   image_settings:
-    # Input resolution of every image: 512 keeps 80% of the longest COCO side (640 pixels), where 1024 would upsample
-    # 1.6 times. It is a multiple of the stride of the lowest HRNet branch (4 x 2 ** the number of stages of
-    # HRNet.modules_per_stage, 32 for 3 stages); the keypoints are evaluated in its pixels.
+    # Input resolution (512: 80% of the 640 pixel COCO side); a multiple of the lowest HRNet branch stride (4 x 2 ** the
+    # stages of HRNet.modules_per_stage, 32 for 3 stages). Keypoints are evaluated in its pixels.
     size: 512
     # Keeps the original aspect ratio when resizing.
     keep_ratio: True
@@ -145,13 +114,8 @@ Data:
     # Probability that a training image is augmented; every activated type is then applied with its own probability.
     probability: 0.4
     types:
-      # Geometric augmentations : boxes and keypoints move with the image, keypoints leaving it become unlabelled, and
-      # an object is removed when under 25% of its box and none of its labelled keypoints stay inside. Keypoints keep
-      # their names and heatmap channels whatever the augmentation, so flips and large rotations only suit names free of
-      # side and orientation (the tip of a flame), the choice of the user.
-      # The left_ keypoints of a mirrored person would lie where its right_ ones are, so flips and 90 degree rotations
-      # are off.
-      # Random Crop : 75% to 100% of each side (same ratio), resized back
+      # Geometric augmentations : outside keypoints unlabelled, objects under 25% of box with none inside dropped; flips
+      # and 90° rotations off (names never swap). Random Crop : 75% to 100% of each side (same ratio), resized back
       random_crop: { activated: True, probability: 0.3 }
       # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
       # stretch; other camera proportions, for keep_ratio False)
@@ -216,10 +180,8 @@ Data:
       # unchanged
       random_erasing: { activated: False, probability: 0.3 }
 
-# Keypoint stem: the first backbone blocks, bringing the image to a quarter of its resolution (highest HRNet branch,
-# heatmaps). A 2x2 max pooling follows every block but the last: 3 blocks with last_max_pooling False, 2 with True.
-# These are the first 3 blocks of the ImageNet backbones (classification/configuration_large_model.yaml,
-# configuration_classic_model.yaml), so the stem can start from their runs.
+# Keypoint stem: first backbone blocks down to 1/4 resolution, 2x2 max pooling after each but the last: 3 blocks with
+# last_max_pooling False, 2 with True; the first 3 blocks of the ImageNet backbones, to start from their runs.
 Backbone:
   # Input channels of the first convolution block: 3, the loaders giving BGR images
   input_channels : 3
@@ -259,13 +221,11 @@ Backbone:
     # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
     squeeze_and_excite: True
 
-  # Backbone of another run (any task) loaded into the stem, as many first blocks as it has, e.g. from an ImageNet run.
-  # The layer settings (input_channels, first convolutions, modules, normalization) must match; the image size may
-  # differ.
+  # Backbone of another run (any task) loaded into the stem, as many first blocks as it has; input_channels, first
+  # convolutions, modules and normalization must match, the image size may differ.
   pretrained:
-    # Run folder of the loaded backbone, null for random weights; not reloaded when the run resumes. E.g.
+    # Run folder of the loaded backbone, null for random weights, not reloaded on resume; e.g. an ImageNet run:
     # experiments/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.16x128.20x128.20x128_HFLAT.512.256-HLN-CWB_MC1000
-    # (classification/configuration_large_model.yaml).
     experiment_folder: null
     # Checkpoint iteration, null for the last one.
     iteration: null
@@ -278,11 +238,8 @@ Backbone:
     # Learning rate factor of the loaded stem, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0
 
-# High resolution network (HRNet, https://arxiv.org/abs/1902.09212) on the stem: a branch at a quarter of the image
-# resolution through the whole network, plus a branch at half the resolution and twice the width per stage (1/4, 1/8,
-# 1/16, 1/32 for 3 stages; base_width, 2 x base_width...), the branches exchanging features at the end of every module
-# (each receiving the sum of all branches brought to its resolution and width). Only the highest resolution branch feeds
-# the keypoint head.
+# High resolution network (HRNet, https://arxiv.org/abs/1902.09212) on the stem: a 1/4 resolution branch, each stage
+# adding one at half resolution, twice the width (1/4 to 1/32 for 3 stages); only the 1/4 branch feeds the head.
 HRNet:
   # Channels of the highest resolution branch, doubled per lower branch, e.g. 32 for HRNet-W32.
   base_width: 32
@@ -314,43 +271,23 @@ HRNet:
     # Learning rate factor of the loaded network, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0
 
-# Keypoint head (HigherHRNet https://arxiv.org/abs/1908.10357, tags of Associative Embedding
-# https://arxiv.org/abs/1611.05424): a 1x1 convolution of the highest resolution branch giving, at a quarter of the
-# image resolution, a heatmap and a tag map per keypoint of every class (17 of each for the person). Heatmaps are the
-# sigmoid of the logits, their targets Gaussians centred on the keypoints of every object with the keypoint cell at 1,
-# every channel trained in every image (towards zero without keypoint). The keypoints found are the heatmap local
-# maxima, placed in their cell at the peak of the parabola through the log-heatmap at the cell and its neighbours,
-# scored by their cell value and grouped into objects by their tags.
+# Keypoint head (HigherHRNet https://arxiv.org/abs/1908.10357, tags of https://arxiv.org/abs/1611.05424): a 1x1
+# convolution of the 1/4 branch gives a heatmap and a tag map per keypoint of every class (17 each for the person).
 KeypointHead:
-  # Adds the HigherHRNet higher resolution branch: the highest resolution branch features and the heatmaps and tags
-  # predicted from them are upsampled by a transposed convolution to half the image resolution, refined by
-  # HRNet.blocks_per_branch residual blocks and turned into a second set of heatmaps with their own targets. Keypoints
-  # are then found on the average of both heatmaps at half resolution, which helps small objects. Gives the HH token.
+  # HigherHRNet branch: features, heatmaps and tags upsampled to half resolution, refined by HRNet.blocks_per_branch
+  # residual blocks into second heatmaps, averaged with the first, which helps small objects. Gives the HH token.
   higher_resolution: True
-  # Channels of a 3x3 convolution (with normalization and ReLU) before the 1x1 convolution giving heatmaps and tags, in
-  # the quarter resolution head and the higher resolution branch, 0 for none. The 1x1 convolution gives a linear
-  # combination of its input channels per cell, which cannot raise every heatmap on its own keypoints while keeping the
-  # others at zero when the heatmaps outnumber these channels: the hidden width should then reach the heatmap count (the
-  # K token). Gives the KH<width> token when above 0.
-  # The 17 COCO person heatmaps are fewer than the 32 channels of HRNet-W32, so the HigherHRNet 1x1 convolution reads
-  # the features directly.
+  # Channels of a 3x3 convolution before the 1x1 heatmap and tag convolution of both heads, 0 for none; needed (at least
+  # the K heatmap count) when heatmaps outnumber the HRNet channels, not here (17 < 32). KH<width> token above 0.
   hidden_width: 0
   # Standard deviation of the target Gaussians in heatmap cells (a quarter of the image pixels, half with the higher
   # resolution branch), the same at both resolutions, 2 in HigherHRNet.
   heatmap_sigma: 2.0
-  # Leaves the pixels of the objects without labelled keypoint (the COCO crowds and persons without keypoints, 4652 of
-  # the 11004 validation persons) out of the heatmap loss, as HigherHRNet: heatmap cells at least half covered by them
-  # are left out at both resolutions in every channel, so that the heatmaps learn neither keypoints nor their absence on
-  # persons that are there, the keypoint cells of labelled persons staying trained. The pixels come from the
-  # 'segmentation' of these objects, which all of them must then have in the training and validation splits. No run name
-  # token.
+  # Leaves out of the heatmap loss the cells at least half covered by objects without labelled keypoints (COCO crowds,
+  # unlabelled persons), in every channel; they then need a 'segmentation' (train, validation). No run name token.
   ignore_unlabelled_objects: True
-  # Weights of the tag losses next to the heatmap loss, the CornerNet focal loss (https://arxiv.org/abs/1808.01244)
-  # summed over the cells of every channel and divided by the keypoint count: -(1 - p)^2 log(p) on the cells at 1, -(1 -
-  # target)^4 p^2 log(1 - p) elsewhere, so that the many empty cells weigh little once below the keypoint cells and
-  # cells near a keypoint are penalised less. The pull loss gathers the keypoint tags of every object around their mean,
-  # the push loss separates the mean tags of the objects of one class in one image. CornerNet weights them by 0.1 next
-  # to this heatmap loss.
+  # Weights of the tag losses next to the CornerNet heatmap focal loss (https://arxiv.org/abs/1808.01244, which uses
+  # 0.1): pull gathers the tags of an object around their mean, push separates the mean tags of same-class objects.
   tag_pull_weight: 0.1
   tag_push_weight: 0.1
   # Grouping of keypoints into objects at inference (evaluation, sample images, deployment).
@@ -363,9 +300,8 @@ KeypointHead:
     # Largest distance between a keypoint tag and the mean tag of the object it joins, the keypoints of the class taken
     # in turn and matched to the objects of the previous ones, the others starting new objects. 1 in HigherHRNet.
     tag_threshold: 1.0
-    # Lowest score of an object kept by the deployment and sample images, the score being the sum of its keypoint scores
-    # over the keypoints of its class, so that an object missing keypoints scores lower. The evaluation keeps every
-    # object, for the low-confidence end of the precision-recall curves.
+    # Lowest object score (sum of its keypoint scores over its class keypoints) kept by deployment and sample images;
+    # the evaluation keeps every object for the precision-recall curves.
     object_score_threshold: 0.2
   # Keypoint head of another KPT run initialising this one; the classes, their keypoints and HRNet.base_width must
   # match.

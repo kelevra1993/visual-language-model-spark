@@ -1,19 +1,11 @@
-# Synthetic changing shapes dataset (frames of 5 to 10 shapes redrawn every frame, each frame from the second adding,
-# removing or keeping a shape), created by vision_training/data/synthetic/create_synthetic_dataset.py with the task
-# "sequence_labelling". Every frame is labelled 'appearing_<class>', 'disappearing_<class>' or 'no_change' (always the
-# first frame), 71 labels for the 35 shape classes, a change being told only by comparing the shape classes with the
-# previous frame.
+# Synthetic changing shapes dataset (task "sequence_labelling"), 71 labels: appearing_/disappearing_<class>, no_change.
 # Hyperparameter experiment run_33, pretrained learning rate stage: learning_rate 1.0e-4, launch A.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "sequence_labelling" trains the sequence labeller (one class
   # per frame, many to many); needs Data.sequence_settings, TemporalModel and ClassificationHead.
   task: "sequence_labelling"
-  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, maximum sequence
-  # length, temporal module, classification head, classes, optimizer and weight decay unless plain Adam): the same
-  # settings resume, changed ones start a new folder, e.g.
-  # M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71. The augmentation, batch size, learning
-  # rate and its schedule, gradient clipping and dropout rates give no token and can change on resume (format:
-  # vision_training/configuration_processing/run_name.py).
+  # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
+  # batch size, learning rate, schedule, gradient clipping, dropout can change on resume.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/hyperparameter_experiments/sequence_labelling/run_33"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
@@ -37,19 +29,14 @@ ExperimentConfiguration:
   number_iterations: 4000
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 0
-  # Test evaluation at every weight_saving_iterations checkpoint on the labelled frames of every test sequence: frame
-  # accuracy, balanced accuracy, macro F1, top-k accuracy, per-class precision / recall / F1, sequence exact match
-  # (every frame right), confusion matrix and class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
+  # Test evaluation at every weight_saving_iterations checkpoint on the labelled test frames: frame accuracy, balanced
+  # accuracy, macro F1, top-k, per-class metrics, sequence exact match, confusion matrix, thresholds.
   evaluation:
-    # Reports every class: the per-class table (worst F1 first) and the recall table (worst recall first, with its 95%
-    # interval) in the console and Results.txt, per-class scalars in TensorBoard, the frame confusion_matrix.png and the
-    # ROC and precision-recall curves of the frames. False keeps the global metrics only (e.g. many classes);
-    # class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
+    # Reports every class: per-class and recall tables (console, Results.txt), TensorBoard scalars, frame confusion
+    # matrix, ROC and precision-recall curves. False: global metrics only; CSV and JSON files always saved.
     per_class_report: False
-    # Test sequences drawn once and shown at every evaluation: the frame grid, every frame captioned 'true/predicted',
-    # wrong ones marked 'X', under the count of right labelled frames (green when all right, red otherwise), saved in
-    # Evaluation/Iteration_<n>/Samples/ and TensorBoard. Spread over the majority frame class, then evenly within each
-    # class. 0 disables.
+    # Test sequences drawn once, shown at every evaluation, frames captioned 'true/predicted' ('X' if wrong) under the
+    # right frame count, in Evaluation/Iteration_<n>/Samples/ and TensorBoard, spread over majority classes. 0 disables.
     number_sample_images: 8
     # Precision the threshold of every class must reach; the threshold of highest recall at that precision is saved for
     # deployment. Within [0, 1].
@@ -57,23 +44,20 @@ ExperimentConfiguration:
     # Saves 'predictions.csv' at every evaluation: true and predicted classes and every class probability per test
     # sample (labelled frame in sequence labelling). Grows with samples x classes.
     save_predictions: False
-    # Saves every misclassified test sample at every evaluation as
-    # 'Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png' (score: predicted class probability),
-    # as an image or a sequence or pair frame grid. Multi-class only.
+    # Saves every misclassified sample (image, sequence or pair frame grid) at every evaluation, multi-class only, as
+    # 'Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png', score: predicted class probability.
     error_dumps:
       # Saves error images.
       activated: False
       # Most images saved per (true, predicted) class pair.
       maximum_per_class_pair: 20
-  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
-  # metrics and small artifacts (configuration, confusion matrices, class metrics and thresholds, Results.txt). An
-  # MLflow error only prints a warning.
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
+  # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
     activated: False
-    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
-    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
-    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
     # MLflow experiment, null for the task name ("sequence_labelling").
     experiment_name: null
@@ -85,9 +69,8 @@ ExperimentConfiguration:
   diagnosis_modes:
       # Computes the receptive field
       compute_receptive_field: True
-      # Shows the network input: Training and Validation windows with the frames of a sequence on a grid, each captioned
-      # with its class. SPACE: next sequences, ENTER: exit without training (set False to train). Needs a display; no
-      # run folder is created.
+      # Shows the network input: Training and Validation windows with a sequence frame grid captioned with its class.
+      # SPACE: next sequences, ENTER: exit without training (False to train); needs a display, creates no run folder.
       view_input_images: False
 
 Optimization:
@@ -107,11 +90,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
-  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
-  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
-  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
-  # 'pretrained' transfers load the averaged weights when present.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
+  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True
@@ -125,9 +105,8 @@ Data:
     # Keeps the original aspect ratio when resizing.
     keep_ratio: True
   sequence_settings:
-    # Most frames of a sequence; sequences are fed whole, padded with black frames to the longest of the batch (masked
-    # out). A longer one is left out of its split with a red warning at startup. Also the size of the transformer
-    # positional embedding.
+    # Most frames of a sequence, fed whole and padded with masked black frames to the longest of the batch; a longer one
+    # is left out of its split (red warning at startup). Also the transformer positional embedding size.
     maximum_sequence_length: 50
   label_mapping:
     # Must be "multi_class" (sequence tasks): the mapping file gives the class index, 0 to K-1 (no background), of every
@@ -145,8 +124,7 @@ Data:
     # ones staying shared, as a crop or rotation per frame makes objects jump.
     independent_frames: False
     # Sequence tasks only: shuffles the real frames of a training sequence with this probability (independent of the one
-    # above), padding staying last, each pair member shuffled on its own. For sequences whose order carries no
-    # information (photo sets).
+    # above), padding staying last, each pair member on its own; for sequences whose order carries no information.
     shuffle_frames: { activated: False, probability: 0.5 }
     types:
       # Geometric augmentations : they do not change the class of a shape.
@@ -203,9 +181,8 @@ Data:
       random_blur: { activated: False, probability: 0.3 }
       # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
       random_motion_blur: { activated: False, probability: 0.3 }
-      # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
-      # the blurs, before solarization, black-out and erasing)
-      # Kept off in the hyperparameter experiment, whose launches up to run_10 predate the haze
+      # Random Haze : grey airlight of 180 to 255 levels over 20% to 60% of every pixel (after the blurs, before
+      # solarization, black-out and erasing); off in the hyperparameter experiment (launches up to run_10 predate it)
       random_haze: { activated: False, probability: 0.3 }
       # Random Solarize : pixels at or above 128 levels inverted
       random_solarize: { activated: False, probability: 0.2 }
@@ -295,17 +272,11 @@ TemporalModel:
   # Every frame only sees the earlier frames (transformer, temporal convolution), for online use without future frames;
   # GRU and LSTM are causal unless bidirectional.
   causal: False
-  # Learned position embedding added to every frame vector (transformer), so that the transformer uses the frame order.
-  # False treats a sequence as a set (e.g. photos in any order): shuffling the frames only shuffles the outputs with
-  # them, and the transformer weights no longer depend on Data.sequence_settings.maximum_sequence_length. A causal
-  # transformer still sees the order through its attention mask.
+  # Learned position embedding added to every frame vector, so the transformer uses the frame order. False treats a
+  # sequence as a set (weights independent of maximum_sequence_length); a causal transformer still sees the order.
   positional_embedding: True
-  # Temporal module of another sequence task run initialising this one. Its type, the settings defining its weights
-  # (hidden_size; number_layers and bidirectional for GRU and LSTM; number_layers, number_heads and positional_embedding
-  # for the transformer; number_layers and kernel_size for the temporal convolution), the channels of the last backbone
-  # block, the global pooling and image size when flattening and, for a transformer with positional embedding,
-  # Data.sequence_settings.maximum_sequence_length must match. Weightless poolings (mean_pooling, max_pooling) transfer
-  # nothing.
+  # Temporal module of another sequence run initialising this one; type, weight settings, last block channels, pooling
+  # and image size if flattening, maximum_sequence_length (positional embedding) must match; mean/max pooling: nothing.
   pretrained:
     # Run folder of the loaded temporal module, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
