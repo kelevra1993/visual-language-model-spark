@@ -15,8 +15,8 @@ Every launch keeps a moving average of its weights, and the settings are compare
 ## Fixed Settings
 
 - `batch_size`: 64 images of 1024 pixels (two launches side by side reach about 63 Gigabytes above the idle machine, of its 121; one launch at 128 images would take about 49 alone)
-- `number_iterations`: 20,000 (1,280,000 images, 2.5 epochs of the 512,000 training images)
-- `weight_saving_iterations`: 500, the test evaluation running every 500 iterations (40 tested models) on `test_10000`, the first 10,000 of the 50,000 test images (85,143 objects), its images read from the `test` split through a link; `intermediate_weight_saving_iterations`: 250
+- `number_iterations`: 10,000 (640,000 images, 1.25 epochs of the 512,000 training images), lowered from 20,000 by the user on 2026-11-02 at iteration 2500 of run_1 and run_2 (a pair at 20,000 took about 26 hours), the constant learning rate making their launches the same as launches planned for 10,000
+- `weight_saving_iterations`: 500, the test evaluation running every 500 iterations (20 tested models) on `test_10000`, the first 10,000 of the 50,000 test images (85,143 objects), its images read from the `test` split through a link; `intermediate_weight_saving_iterations`: 250
 - `information_dump`: 1000, `validation_iteration_ratio`: 0 (no validation during the training)
 - Backbone `{"1": [1, 16], "2": [2, 16], "3": [2, 16], "4": [3, 32], "5": [3, 32], "6": [5, 32], "7": [5, 32]}`, residual blocks with squeeze and excite, input normalization, batch normalization
 - Detection levels 4 to 7 (strides 16 to 128) with anchors of 16 and 32, 48 and 96, 128 and 256, 384 and 768 pixels, aspect ratios 0.5, 1 and 2, so that every size of the dataset has an anchor; region proposal heads `[2, 32]`, detection heads with a 7 x 7 RoIAlign grid, `[2, 32]` convolutions and `[64, 32]` fully connected layers, each level with its own heads (no feature pyramid network)
@@ -35,14 +35,14 @@ Every launch keeps a moving average of its weights, and the settings are compare
 
 | Stage | Parameter | Values | Iterations |
 |---|---|---|---|
-| 1 | `learning_rate` | 1e-3, 1e-4, 2e-4, 2e-3 | 20,000 |
-| 2 | Feature pyramid network | none, feature pyramid network (to implement) | 20,000 |
+| 1 | `learning_rate` | 1e-3, 1e-4, 2e-4, 2e-3 | 10,000 |
+| 2 | Feature pyramid network | none, feature pyramid network (to implement) | 10,000 |
 
 ## Launches
 
-Every launch gives its test mean average precision at every evaluation (every 500 iterations up to 20,000) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "object_detection"`), launches and mean rows as in the tables below.
+Every launch gives its test mean average precision at every evaluation (every 500 iterations up to 10,000) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "object_detection"`), launches and mean rows as in the tables below.
 
-### Stage 1: Learning Rate (8 launches, 20,000 iterations)
+### Stage 1: Learning Rate (8 launches, 10,000 iterations)
 
 | Value | Launches |
 |---|---|
@@ -51,4 +51,4 @@ Every launch gives its test mean average precision at every evaluation (every 50
 | 2e-4 | run_5, run_6 |
 | 2e-3 | run_7, run_8 |
 
-A pair trains in about 21 to 26 hours (about 20 images per second for each of two launches side by side, and 40 test evaluations of about 5 to 10 minutes each), the stage in about 3.5 to 4.5 days.
+A pair trains in about 13 hours (2500 iterations of run_1 and run_2 in about 3 hours, test evaluations included), the stage in about 2 days.
