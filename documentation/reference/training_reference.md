@@ -9,6 +9,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 - [Stopping And Resuming](#stopping-and-resuming)
 - [Data Augmentation](#data-augmentation)
 - [Viewing The Input Images](#viewing-the-input-images)
+- [Checking The Anchor Coverage](#checking-the-anchor-coverage)
 - [TensorBoard Monitoring](#tensorboard-monitoring)
 - [Moving Average Of The Weights](#moving-average-of-the-weights)
 - [Transfer Between Runs](#transfer-between-runs)
@@ -159,6 +160,12 @@ uv run python -m scripts.data.visualize_augmentation_strengths
 - The SSL runs show the two views of every image. With `Data.grouped_batches` on, every training batch is first shown whole, cut into its blocks.
 - SPACE shows the next samples, ENTER exits without training.
 - It needs a display and creates no run folder.
+
+## Checking The Anchor Coverage
+`ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (object detection and instance segmentation) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, per detection level and object size, then exits without training.
+- Every split is read from its annotations with a progress bar, no image being loaded.
+- The best anchor of every object is the grid anchor nearest its centre for every anchor shape, exact and computed on the CPU.
+- It creates no run folder and writes no file; the training launches measure the training split alone at `RegionProposal.foreground_iou_threshold.min` (`anchor_recall.csv`).
 
 ## TensorBoard Monitoring
 

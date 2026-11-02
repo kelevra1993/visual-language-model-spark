@@ -1,10 +1,12 @@
 """
 Smoke test of DetectionTrainer of vision_training/trainers/detection_trainer.py on a synthetic dataset: training saves
-checkpoints, evaluates with its sample images and resumes.
+checkpoints, evaluates with its sample images and resumes, and the anchor coverage diagnosis mode prints every split
+then exits.
 """
 
 import csv
 import pytest
+import re
 import torch
 import yaml
 
@@ -227,3 +229,44 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = first_run_output + capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_anchor_coverage_mode_prints_every_split_and_exits(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the anchor coverage diagnosis mode ('diagnosis_modes.compute_anchor_coverage'): the trainer prints the
+    anchor recall of the training, validation and test objects at the threshold of the mode, each split read with a
+    progress bar, then exits before any training without creating the run folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 4, "validation": 3, "test": 2}, maximum_objects=3,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="object_detection")
+
+    # Smoke configuration with the mode activated at an overlap of 0.3
+    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                   number_iterations=5)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["ExperimentConfiguration"]["diagnosis_modes"]["compute_anchor_coverage"] = {"activated": True,
+                                                                                               "iou_threshold": 0.3}
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    with pytest.raises(expected_exception=SystemExit):
+        build_trainer(configuration_path=configuration_path)
+
+    # One table per split in the order of the splits, at the threshold of the mode, each split with its progress bar
+    captured_output = capsys.readouterr()
+    split_names = re.findall(pattern=r"Anchor Recall Of The \d+ (\w+) Objects\.\.\.", string=captured_output.out)
+    assert split_names == ["Training", "Validation", "Test"]
+    assert all(f"Anchor Recall Of The {split_name} Objects" in captured_output.out for split_name in split_names)
+    assert "0.3 (ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.iou_threshold)" in " ".join(
+        captured_output.out.split())
+    assert all(f"Gathering The {split_name} Objects" in captured_output.err for split_name in split_names)
+
+    # No training and no run folder
+    assert "Run Folder Not Created" in captured_output.out
+    experiments_folder = tmp_path / "experiments"
+    assert not experiments_folder.exists() or not any(experiments_folder.iterdir())

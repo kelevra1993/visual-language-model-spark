@@ -1,9 +1,10 @@
 """
 Tests of vision_training/evaluation/detection/region_recall.py, the anchor recall measured at the launch of the
-object detection and instance segmentation runs and the proposal recall of every evaluated checkpoint: the training
-boxes read from the annotations (from the segmentation for the instance segmentation) and placed like the images,
-the best anchor overlaps whatever the chunk size, the recall of all the objects and of every size, the rows and table
-of anchor_recall.csv, and the proposal recall of the valid proposals only, with its rows, scalars and table.
+object detection and instance segmentation runs (and on every split by the anchor coverage diagnosis mode) and the
+proposal recall of every evaluated checkpoint: the boxes of a split read from the annotations (from the segmentation for
+the instance segmentation) and placed like the images, the best anchor overlaps of every level, the recall of all the
+objects and of every size, the rows and table of anchor_recall.csv, and the proposal recall of the valid proposals only,
+with its rows, scalars and table.
 """
 
 import json
@@ -15,15 +16,17 @@ from pathlib import Path
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.evaluation.detection.region_recall import (
     accumulate_proposal_recall, compute_best_anchor_overlaps, compute_group_recalls,
-    create_proposal_recall_accumulator, gather_training_object_boxes, summarise_anchor_recall,
-    summarise_proposal_recall)
+    create_proposal_recall_accumulator, gather_object_boxes, summarise_anchor_recall, summarise_proposal_recall)
+from vision_training.models.detection.anchors import Anchors
+from vision_training.models.detection.box_operations import get_intersection_over_union
 
 
-def test_training_object_boxes_follow_the_preprocessing(tmp_path: Path) -> None:
+def test_object_boxes_follow_the_preprocessing(tmp_path: Path) -> None:
     """
-    Verifies that the boxes of the training objects are read from the annotations in image order, scaled and shifted
+    Verifies that the boxes of the objects of a split are read from the annotations in image order, scaled and shifted
     into network input pixels like the letterboxed images, the crowd annotation kept like the other objects, the
-    category mapped to the background and the image without objects left out, without any image file being read.
+    category mapped to the background and the image without objects left out, without any image file being read, with
+    or without the progress bar of the anchor coverage diagnosis mode.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -43,37 +46,39 @@ def test_training_object_boxes_follow_the_preprocessing(tmp_path: Path) -> None:
                                    label_dictionary={1: 1, 2: 2}, shuffle=False)
 
     # The 40 x 20 image is scaled twice with 20 rows of padding above it, the 80 x 80 one is kept as it is
-    object_boxes = gather_training_object_boxes(dataset=dataset)
-    assert object_boxes.dtype == torch.float32
-    expected_boxes = [[4.0, 24.0, 12.0, 32.0], [0.0, 20.0, 80.0, 60.0], [10.0, 10.0, 30.0, 40.0]]
-    assert torch.equal(object_boxes, torch.tensor(data=expected_boxes))
+    expected_boxes = torch.tensor(data=[[4.0, 24.0, 12.0, 32.0], [0.0, 20.0, 80.0, 60.0], [10.0, 10.0, 30.0, 40.0]])
+    for progress_description in [None, "Gathering The Validation Objects"]:
+        object_boxes = gather_object_boxes(dataset=dataset, progress_description=progress_description)
+        assert object_boxes.dtype == torch.float32
+        assert torch.equal(object_boxes, expected_boxes)
 
     # A split without any learnt object gives an empty [0, 4] tensor
     dataset.images = [dataset.images[2]]
-    assert gather_training_object_boxes(dataset=dataset).shape == (0, 4)
+    assert gather_object_boxes(dataset=dataset).shape == (0, 4)
 
 
-@pytest.mark.parametrize(argnames="chunk_size", argvalues=[1, 2048])
-def test_best_anchor_overlaps_of_every_level(chunk_size: int) -> None:
+def test_best_anchor_overlaps_of_every_level() -> None:
     """
-    Verifies that every object gets the overlap of its best anchor in every level, the half precision anchors being
-    compared in float32, whatever the number of objects compared at once.
-
-    Args:
-        chunk_size (int): The number of objects compared with the anchors at once.
+    Verifies that every object gets the overlap of its best anchor in every level, equal to the highest overlap with
+    every anchor of the level, the anchors being in float32 like those of the model (MODEL_DTYPE).
     """
-    object_boxes = torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 30.0, 30.0]])
-    level_anchors = {3: torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 40.0, 40.0]], dtype=torch.float16),
-                     4: torch.tensor(data=[[0.0, 0.0, 20.0, 20.0]])}
-    best_anchor_overlaps = compute_best_anchor_overlaps(object_boxes=object_boxes, level_anchors=level_anchors,
-                                                        chunk_size=chunk_size)
+    object_boxes = torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 36.0, 36.0], [50.0, 2.0, 63.0, 30.0]])
+    level_anchor_generators = {
+        3: Anchors(scales=[8.0, 16.0], aspect_ratios=[0.5, 1.0, 2.0], input_image_size=64, feature_map_size=8,
+                   dtype=torch.float32, device=torch.device("cpu")),
+        4: Anchors(scales=[32.0], aspect_ratios=[1.0], input_image_size=64, feature_map_size=2, dtype=torch.float32,
+                   device=torch.device("cpu"))}
+    best_anchor_overlaps = compute_best_anchor_overlaps(object_boxes=object_boxes,
+                                                        level_anchor_generators=level_anchor_generators)
     assert sorted(best_anchor_overlaps) == [3, 4]
-    assert torch.allclose(best_anchor_overlaps[3], torch.tensor(data=[1.0, 0.25]))
-    assert torch.allclose(best_anchor_overlaps[4], torch.tensor(data=[0.25, 0.0]))
+    for level, anchor_generator in level_anchor_generators.items():
+        expected_overlaps = get_intersection_over_union(boxes_1=object_boxes, boxes_2=anchor_generator.anchors.float())
+        assert best_anchor_overlaps[level].dtype == torch.float32
+        assert torch.allclose(input=best_anchor_overlaps[level], other=expected_overlaps.max(dim=1).values, atol=1e-6)
 
     # Without objects, every level gives an empty overlap tensor
-    empty_overlaps = compute_best_anchor_overlaps(object_boxes=torch.zeros(size=(0, 4)), level_anchors=level_anchors,
-                                                  chunk_size=chunk_size)
+    empty_overlaps = compute_best_anchor_overlaps(object_boxes=torch.zeros(size=(0, 4)),
+                                                  level_anchor_generators=level_anchor_generators)
     assert all(level_overlaps.shape == (0,) for level_overlaps in empty_overlaps.values())
 
 
@@ -98,7 +103,8 @@ def test_anchor_recall_rows_and_table() -> None:
     """
     anchor_recall = summarise_anchor_recall(
         best_anchor_overlaps={4: torch.tensor(data=[0.1, 0.75]), 3: torch.tensor(data=[0.8, 0.2])},
-        object_areas=torch.tensor(data=[100.0, 10000.0]), foreground_threshold=0.7)
+        object_areas=torch.tensor(data=[100.0, 10000.0]), intersection_over_union_threshold=0.7,
+        split_name="Validation", threshold_setting="ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage")
     assert anchor_recall["rows"] == [
         {"objects": "all", "count": 2, "recall_block_3": 0.5, "recall_block_4": 0.5, "recall_all_levels": 1.0},
         {"objects": "small", "count": 1, "recall_block_3": 1.0, "recall_block_4": 0.0, "recall_all_levels": 1.0},
@@ -107,11 +113,12 @@ def test_anchor_recall_rows_and_table() -> None:
 
     # The table shows the same values under the displayed names, the levels in block order
     table = anchor_recall["table"]
-    assert table["title"] == "Anchor Recall Of The Training Objects"
+    assert table["title"] == "Anchor Recall Of The Validation Objects"
     assert table["columns"] == ["Objects", "Count", "Block 3", "Block 4", "All Levels"]
     assert table["rows"][0] == ["All Objects", 2, 0.5, 0.5, 1.0]
     assert [row[0] for row in table["rows"][1:]] == ["Small (< 32²)", "Medium (32² to 96²)", "Large (>= 96²)"]
-    assert "0.7" in table["legend"] and not table["per_class"]
+    assert "0.7 (ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage)" in table["legend"]
+    assert not table["per_class"]
 
 
 def test_proposal_recall_of_the_valid_proposals() -> None:
@@ -198,5 +205,5 @@ def test_instance_segmentation_object_boxes_come_from_the_segmentation(tmp_path:
     dataset = CocoDetectionDataset(data_directory=str(tmp_path / "missing"), labels_file=str(labels_file),
                                    image_size=80, keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1},
                                    load_instance_masks=True, shuffle=False)
-    object_boxes = gather_training_object_boxes(dataset=dataset)
+    object_boxes = gather_object_boxes(dataset=dataset)
     assert torch.equal(object_boxes, torch.tensor(data=[[10.0, 20.0, 30.0, 50.0], [40.0, 5.0, 41.0, 15.0]]))

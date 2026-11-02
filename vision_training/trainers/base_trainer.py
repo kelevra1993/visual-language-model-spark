@@ -168,6 +168,10 @@ class BaseTrainer(ABC):
         self.learning_rate = self.experiment_configuration["learning_rate"]
         self.diagnosis_modes = self.experiment_configuration["diagnosis_modes"]
 
+        # Diagnosis modes ending the program before the training (the input viewer, the anchor coverage of the
+        # detection tasks): the run folder, its data record and the resume checks are then left untouched
+        self.exits_after_diagnosis = self.uses_exiting_diagnosis_mode()
+
         # Whether the evaluation reports show every class (table, TensorBoard scalars, confusion matrix image) or only
         # the global metrics, for the runs with many classes
         self.per_class_report = self.experiment_configuration["evaluation"]["per_class_report"]
@@ -194,16 +198,15 @@ class BaseTrainer(ABC):
         self.label_dictionary = self.data_configuration["label_dictionary"]
 
         # A resume on changed labels is refused before the run folder is touched, changed data asking for a new run
-        if not self.diagnosis_modes["view_input_images"]:
+        if not self.exits_after_diagnosis:
             self.check_resumed_data()
 
-        # Paths of the run folder, created with the copy of the configuration only for a training: the input viewer
-        # exits without training, so it leaves no empty run folder and never overwrites the configuration of a run. A
+        # Paths of the run folder, created with the copy of the configuration only for a training: the diagnosis modes
+        # exit without training, so they leave no empty run folder and never overwrite the configuration of a run. A
         # resumed run also gets the settings changed since its last start, printed with the experiment information
         (self.tensorboard_directory, self.weights_directory, self.configuration_path,
          self.configuration_changes) = self.setup_training_paths(
-            initial_configuration_path=Path(configuration_path),
-            create_run_folder=not self.diagnosis_modes["view_input_images"])
+            initial_configuration_path=Path(configuration_path), create_run_folder=not self.exits_after_diagnosis)
 
         # We use lazy initialization for the tensorboard writers to avoid prematurely creating
         # empty log files on disk during the Trainer instantiation.
@@ -227,7 +230,7 @@ class BaseTrainer(ABC):
         # folder, a resumed run whose data changed keeping the record of its previous data
         self.data_record_path = self.experiment_folder / DATA_RECORD_FILE_NAME
         self.data_record_changes = None
-        if not self.diagnosis_modes["view_input_images"]:
+        if not self.exits_after_diagnosis:
             self.data_record_changes = self.save_data_record(data_record_path=self.data_record_path)
 
         # Fixed test samples drawn at every evaluation, chosen once from the classes of the test samples so that the
@@ -283,10 +286,13 @@ class BaseTrainer(ABC):
             self.model.print_receptive_field_summary()
         self.model.print_model_size_summary()
 
-        # Optional viewer of the training and validation samples fed to the network, the program exits once it is closed
-        # without having created the run folder
-        if self.diagnosis_modes["view_input_images"]:
-            self.view_input_batches()
+        # Optional diagnoses ending the program without training nor creating the run folder: the analysis of every
+        # split against the model (the anchor coverage of the detection tasks), then the viewer of the training and
+        # validation samples fed to the network
+        if self.exits_after_diagnosis:
+            self.diagnose_data_splits()
+            if self.diagnosis_modes["view_input_images"]:
+                self.view_input_batches()
             sys.exit()
 
         # Analysis of the training data against the model printed before the training (the anchor recall of the
@@ -554,6 +560,26 @@ class BaseTrainer(ABC):
             Dict[str, Path]: The written files keyed by display name, sent to MLflow by start_experiment_tracking.
         """
         return {}
+
+    def uses_exiting_diagnosis_mode(self) -> bool:
+        """
+        Tells whether a diagnosis mode of 'ExperimentConfiguration.diagnosis_modes' ends the program before the
+        training, so that the trainer creates no run folder and writes nothing to an existing one: the input viewer
+        ('view_input_images') for every task, the detection tasks adding their anchor coverage
+        ('compute_anchor_coverage').
+
+        Returns:
+            bool: Whether the program exits after the diagnosis.
+        """
+        return self.diagnosis_modes["view_input_images"]
+
+    def diagnose_data_splits(self) -> None:
+        """
+        Analyses every split against the built model in a diagnosis mode ending the program, printed before the input
+        viewer when it is also on: the detection tasks print the anchor coverage of their training, validation and
+        test objects ('compute_anchor_coverage'). Nothing for the other tasks.
+        """
+        return None
 
     def get_test_sample_name(self, sample_identifier: int) -> str:
         """
@@ -1023,8 +1049,8 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Configuration File      : "
                                          f"{format_path_link(path=self.configuration_path)}")
         print_color(color="blue", output=f"- Data Record             : {format_path_link(path=self.data_record_path)}")
-        if self.diagnosis_modes["view_input_images"]:
-            print_color(color="yellow", output="- Run Folder Not Created  : The Input Viewer Exits Without Training")
+        if self.exits_after_diagnosis:
+            print_color(color="yellow", output="- Run Folder Not Created  : The Diagnosis Mode Exits Without Training")
 
         # Settings and data changed since the last start of a resumed run, then every component initialised by another
         # run

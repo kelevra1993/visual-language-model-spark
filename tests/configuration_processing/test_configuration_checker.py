@@ -186,6 +186,17 @@ def set_invalid_detection_error_analysis(configuration: Dict[str, Any]) -> None:
         "target_precision": -0.1, "error_dumps": {"activated": "yes", "maximum_per_class_pair": 0}})
 
 
+def set_invalid_anchor_coverage(configuration: Dict[str, Any]) -> None:
+    """
+    Sets the switch of the anchor coverage diagnosis mode as a quoted string and its threshold above 1.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["diagnosis_modes"]["compute_anchor_coverage"] = {"activated": "yes",
+                                                                                               "iou_threshold": 1.5}
+
+
 def set_unknown_task(configuration: Dict[str, Any]) -> None:
     """
     Sets a task that no trainer implements.
@@ -453,6 +464,10 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                             "or False, got 'yes'.",
                                             "'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' "
                                             "must be an integer >= 1, got 0."]),
+    (set_invalid_anchor_coverage, ["'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.activated' "
+                                   "must be True or False, got 'yes'.",
+                                   "'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.iou_threshold' "
+                                   "must be a number within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' (1000) must be a multiple of 64",
                            "'Detector.number_training_positives' (500) must be <="]),
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "

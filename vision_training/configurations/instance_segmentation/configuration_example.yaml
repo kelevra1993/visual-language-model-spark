@@ -100,6 +100,9 @@ ExperimentConfiguration:
       # SPACE: next images, ENTER: exit without training (set False to train). Needs a display; no run folder is
       # created.
       view_input_images: False
+      # Prints the share of the training, validation and test objects with an anchor overlapping them by
+      # iou_threshold, per level and size, then exits without training; no run folder is created.
+      compute_anchor_coverage: { activated: False, iou_threshold: 0.5 }
 
 Optimization:
   # Optimizer: "adam", "adamw" (decoupled weight decay) or "sgd" (Nesterov momentum 0.9), at

@@ -1,29 +1,28 @@
 """
 Recall of the anchors and of the proposals of the two-stage detector of the object detection and instance segmentation
 tasks, the share of the objects the detection heads can find at all, split by object size (object_sizes.py). The
-anchor recall is measured once per launch on the objects of the training split, read from the annotations of its
-dataset without loading any image: an object whose best anchor overlaps it by less than the foreground threshold of the
-region proposal network only gets that single best anchor as foreground. The proposal recall is measured at every
-evaluated checkpoint on the test split, from the proposals the region proposal network gives the detection heads with
-its inference settings: an object no proposal overlaps cannot be detected whatever the detection heads learn. Used by
-the detection trainer (analyse_training_data and the evaluation of the checkpoints), whose tables, scalars and files
+anchor recall is measured once per launch on the objects of the training split, and on the training, validation and
+test splits by the 'compute_anchor_coverage' diagnosis mode, read from the annotations without loading any image: an
+object whose best anchor overlaps it by less than the foreground threshold of the region proposal network only gets
+that single best anchor as foreground. The proposal recall is measured at every evaluated checkpoint on the test split,
+from the proposals the region proposal network gives the detection heads with its inference settings: an object no
+proposal overlaps cannot be detected whatever the detection heads learn. Used by the detection trainer
+(analyse_training_data, diagnose_data_splits and the evaluation of the checkpoints), whose tables, scalars and files
 (anchor_recall.csv in the run folder, proposal_recall.csv in the evaluation folder) are built here.
 """
 
 import numpy as np
 import torch
 
-from typing import Any, Dict, List
+from tqdm import tqdm
+from typing import Any, Dict, List, Optional
 
 from vision_training.core.contracts import EvaluationTable
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, select_image_objects
 from vision_training.data.preprocessing import preprocess_boxes
 from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES, compute_box_areas, is_in_object_size
+from vision_training.models.detection.anchors import Anchors
 from vision_training.models.detection.box_operations import get_intersection_over_union
-
-# Number of objects compared with all the anchors of a level at once, bounding the memory of the anchor recall (2048
-# objects against the 9216 anchors of a 32 x 32 level take 75 MB)
-ANCHOR_RECALL_CHUNK_SIZE = 2048
 
 # Intersection over union thresholds of the proposal recall: the one of the headline mAP@0.5, and a stricter one
 # telling whether the proposals are close enough for the detection heads to refine them into precise boxes
@@ -34,21 +33,25 @@ ALL_OBJECTS_GROUP = "all"
 ALL_OBJECTS_NAME = "All Objects"
 
 
-def gather_training_object_boxes(dataset: CocoDetectionDataset) -> torch.Tensor:
+def gather_object_boxes(dataset: CocoDetectionDataset, progress_description: Optional[str] = None) -> torch.Tensor:
     """
-    Gathers the boxes of every object of the training split in network input pixels, the objects the network learns
-    (select_image_objects, without the background) placed like the dataset places them, for the anchor recall measured
-    at launch. Read from the annotations and the image sizes of the labels file, without loading any image; the
-    augmentations, random, are left out.
+    Gathers the boxes of every object of a split in network input pixels, the objects the network learns
+    (select_image_objects, without the background) placed like the dataset places them, for the anchor recall of the
+    training split at launch and of every split in the 'compute_anchor_coverage' diagnosis mode. Read from the
+    annotations and the image sizes of the labels file, without loading any image; the augmentations, random, are left
+    out.
 
     Args:
-        dataset (CocoDetectionDataset): The dataset of the training split.
+        dataset (CocoDetectionDataset): The dataset of the split.
+        progress_description (Optional[str]): The text of a progress bar over the images of the split, None for no
+            progress bar. Defaults to None.
 
     Returns:
         torch.Tensor: The [N, 4] float32 [x1, y1, x2, y2] boxes of the N objects of the split.
     """
     object_boxes = []
-    for image_information in dataset.images:
+    for image_information in tqdm(iterable=dataset.images, desc=progress_description, unit="image",
+                                  disable=progress_description is None):
         # Objects of the image the network learns, in original pixels, the instance segmentation boxes coming from
         # the segmentation of every object like in the dataset
         image_annotations = dataset.image_to_annotations.get(image_information["id"], [])
@@ -65,34 +68,24 @@ def gather_training_object_boxes(dataset: CocoDetectionDataset) -> torch.Tensor:
     return torch.tensor(data=np.array(object=object_boxes, dtype=np.float32).reshape(-1, 4))
 
 
-def compute_best_anchor_overlaps(object_boxes: torch.Tensor, level_anchors: Dict[int, torch.Tensor],
-                                 chunk_size: int = ANCHOR_RECALL_CHUNK_SIZE) -> Dict[int, torch.Tensor]:
+def compute_best_anchor_overlaps(object_boxes: torch.Tensor,
+                                 level_anchor_generators: Dict[int, Anchors]) -> Dict[int, torch.Tensor]:
     """
-    Finds, for every object of the training split, the intersection over union of its best anchor in every level, on
-    the device of the anchors and a chunk of objects at a time, for the anchor recall: the region proposal network
-    makes an anchor foreground when it overlaps an object by at least its foreground threshold.
+    Finds, for every object of a split, the intersection over union of its best anchor in every level, for the anchor
+    recall: the region proposal network makes an anchor foreground when it overlaps an object by at least its
+    foreground threshold. Every level gives the overlap of the grid anchor nearest every object of each anchor shape
+    (Anchors.compute_best_overlaps), exactly the best of all its anchors, on the CPU.
 
     Args:
         object_boxes (torch.Tensor): The [N, 4] boxes of the objects, in network input pixels.
-        level_anchors (Dict[int, torch.Tensor]): The [A, 4] anchors of every level, keyed by block number
-            (TwoStageDetector.get_level_anchors).
-        chunk_size (int): The number of objects compared at once. Defaults to ANCHOR_RECALL_CHUNK_SIZE.
+        level_anchor_generators (Dict[int, Anchors]): The anchor generator of every level, keyed by block number
+            (TwoStageDetector.get_level_anchor_generators).
 
     Returns:
-        Dict[int, torch.Tensor]: The [N] best overlap of every object in every level, on the CPU.
+        Dict[int, torch.Tensor]: The [N] float32 best overlap of every object in every level, on the CPU.
     """
-    best_anchor_overlaps = {}
-    for level, anchors in level_anchors.items():
-        # Anchors in float32 whatever the precision of the model, the overlaps of a few objects at a time
-        anchors = anchors.to(dtype=torch.float32)
-        level_overlaps = [torch.zeros(size=(0,), dtype=torch.float32)]
-        for chunk_start in range(0, object_boxes.shape[0], chunk_size):
-            chunk_boxes = object_boxes[chunk_start:chunk_start + chunk_size].to(device=anchors.device,
-                                                                                dtype=torch.float32)
-            level_overlaps.append(get_intersection_over_union(boxes_1=chunk_boxes, boxes_2=anchors)
-                                  .max(dim=1).values.cpu())
-        best_anchor_overlaps[level] = torch.cat(tensors=level_overlaps)
-    return best_anchor_overlaps
+    return {level: anchor_generator.compute_best_overlaps(boxes=object_boxes)
+            for level, anchor_generator in level_anchor_generators.items()}
 
 
 def compute_group_recalls(best_overlaps: torch.Tensor, object_areas: torch.Tensor,
@@ -120,18 +113,23 @@ def compute_group_recalls(best_overlaps: torch.Tensor, object_areas: torch.Tenso
 
 
 def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], object_areas: torch.Tensor,
-                            foreground_threshold: float) -> Dict[str, Any]:
+                            intersection_over_union_threshold: float, split_name: str,
+                            threshold_setting: str) -> Dict[str, Any]:
     """
-    Organises the anchor recall of the training split for the launch of a detection run: the share of the objects
-    with a foreground anchor in every level and in all the levels together (the region proposal network assigns the
-    objects to the anchors of all the levels at once), for all the objects and every object size, as the rows of
-    anchor_recall.csv and as the table printed in the console.
+    Organises the anchor recall of a split, the training split at the launch of a detection run or every split in the
+    'compute_anchor_coverage' diagnosis mode: the share of the objects with an anchor overlapping them by at least the
+    threshold in every level and in all the levels together (the region proposal network assigns the objects to the
+    anchors of all the levels at once), for all the objects and every object size, as the rows of anchor_recall.csv and
+    as the table printed in the console.
 
     Args:
         best_anchor_overlaps (Dict[int, torch.Tensor]): The [N] best anchor overlap of every object in every level
             (compute_best_anchor_overlaps).
         object_areas (torch.Tensor): The [N] box area of every object, in squared network input pixels.
-        foreground_threshold (float): The 'RegionProposal.foreground_iou_threshold.min' of the run.
+        intersection_over_union_threshold (float): The minimum overlap for an object to be covered.
+        split_name (str): The name of the split in the title of the table, e.g. 'Training'.
+        threshold_setting (str): The configuration setting giving the threshold, named in the legend, e.g.
+            'RegionProposal.foreground_iou_threshold.min'.
 
     Returns:
         Dict[str, Any]: The 'rows' of anchor_recall.csv (one per group of objects: 'objects', 'count', then the
@@ -143,9 +141,10 @@ def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], objec
     # Recall of every group of objects in every level and in all of them
     level_recalls = {f"block_{level}": compute_group_recalls(
         best_overlaps=best_anchor_overlaps[level], object_areas=object_areas,
-        intersection_over_union_threshold=foreground_threshold) for level in levels}
-    level_recalls["all_levels"] = compute_group_recalls(best_overlaps=all_level_overlaps, object_areas=object_areas,
-                                                        intersection_over_union_threshold=foreground_threshold)
+        intersection_over_union_threshold=intersection_over_union_threshold) for level in levels}
+    level_recalls["all_levels"] = compute_group_recalls(
+        best_overlaps=all_level_overlaps, object_areas=object_areas,
+        intersection_over_union_threshold=intersection_over_union_threshold)
 
     # One row per group of objects, in the file and in the table
     rows, table_rows = [], []
@@ -157,12 +156,13 @@ def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], objec
                                                             for recalls in level_recalls.values()])
 
     table: EvaluationTable = {
-        "title": "Anchor Recall Of The Training Objects",
+        "title": f"Anchor Recall Of The {split_name} Objects",
         "columns": ["Objects", "Count"] + [f"Block {level}" for level in levels] + ["All Levels"], "rows": table_rows,
         "sort_column": None, "per_class": False,
-        "legend": f"Share of the objects whose best anchor overlaps them by at least {foreground_threshold:g} "
-                  f"(RegionProposal.foreground_iou_threshold.min), sizes by box area in network input pixels. The "
-                  f"other objects only get their single best anchor as foreground. — : no object of the size."}
+        "legend": f"Share of the objects whose best anchor overlaps them by at least "
+                  f"{intersection_over_union_threshold:g} ({threshold_setting}), sizes by box area in network input "
+                  f"pixels. An object under RegionProposal.foreground_iou_threshold.min in every level only gets its "
+                  f"single best anchor as foreground. — : no object of the size."}
     return {"rows": rows, "table": table}
 
 

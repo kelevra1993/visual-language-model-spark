@@ -177,10 +177,11 @@ main()
 │       ├── get_loss_weights() / get_tracked_metrics() + MetricTracker()
 │       ├── print_experiment_information() -> describe_split() -> count_split_images_and_annotations()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
+│       ├── diagnose_data_splits()   anchor recall of every split, then exit   (only with compute_anchor_coverage)
 │       ├── view_input_batches() -> show_input_samples()   (only with view_input_images)
 │       ├── analyse_training_data()   anchor recall of the training objects, anchor_recall.csv
-│       │   └── gather_training_object_boxes() + get_level_anchors() + compute_best_anchor_overlaps() +
-│       │       summarise_anchor_recall()
+│       │   └── measure_anchor_recall(): gather_object_boxes() + get_level_anchor_generators() +
+│       │       compute_best_anchor_overlaps() + summarise_anchor_recall()
 │       └── restore_last_model()
 │
 └── trainer.run_training_loop()  [STAGE 3]
@@ -592,7 +593,9 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 ```
 
 ### Step 2.21 — `analyse_training_data()` → anchor recall
-Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` (Step 2.20), at every launch, resumes included, and never in the input viewer mode. The hook of the general trainer writes nothing; the detection one measures how many training objects the anchors can learn. `gather_training_object_boxes()` reads the boxes of the training split from its annotations (`select_image_objects()`, the background left out, as in `__getitem__()`), placed in network input pixels by `preprocess_boxes()` without loading any image and without the augmentations. `compute_best_anchor_overlaps()` gives the overlap of the best anchor of every object in every level (`TwoStageDetector.get_level_anchors()`), 2048 objects at a time on the device of the model. `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, in every level alone and in all of them, since the region proposal network assigns the objects to the anchors of all the levels at once. An object under the threshold everywhere only gets its single best anchor as foreground (the fallback assignment). The table is printed and `anchor_recall.csv` is written in the run folder, then sent to the `analysis` folder of the MLflow run by `start_experiment_tracking()` (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
+Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` (Step 2.20), at every launch, resumes included, and never in a diagnosis mode that exits (`view_input_images`, `compute_anchor_coverage`). The hook of the general trainer writes nothing; the detection one measures how many training objects the anchors can learn. `measure_anchor_recall()` does the work: `gather_object_boxes()` reads the boxes of the training split from its annotations (`select_image_objects()`, the background left out, as in `__getitem__()`), placed in network input pixels by `preprocess_boxes()` without loading any image and without the augmentations. `compute_best_anchor_overlaps()` gives the overlap of the best anchor of every object in every level from the anchor generator of the level (`TwoStageDetector.get_level_anchor_generators()`): for one anchor shape, the intersection only shrinks as the anchor centre moves away from the object centre along x or y, so `Anchors.compute_best_overlaps()` takes the grid anchor nearest the object centre for every scale and aspect ratio, the exact best of all the anchors from one overlap per anchor shape, in float64 on the CPU. `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, in every level alone and in all of them, since the region proposal network assigns the objects to the anchors of all the levels at once. An object under the threshold everywhere only gets its single best anchor as foreground (the fallback assignment). The table is printed and `anchor_recall.csv` is written in the run folder, then sent to the `analysis` folder of the MLflow run by `start_experiment_tracking()` (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
+
+With `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: <threshold> }`, `diagnose_data_splits()` runs `measure_anchor_recall()` on the training, validation and test splits at `iou_threshold`, each with a progress bar over its images (`Gathering The <Split> Objects`), prints the three tables and exits before `analyse_training_data()`: no run folder is created and no file is written, the input viewer following when `view_input_images` is also on.
 
 **Example output: the later run** (351 training objects)
 ```text
@@ -606,8 +609,8 @@ Anchor Recall Of The Training Objects
  Medium (32² to 96²)     178    0.7978    0.2978    0.0449       0.7978
  Large (>= 96²)          173    1.0000    0.7977    0.7977       1.0000
 Share of the objects whose best anchor overlaps them by at least 0.5 (RegionProposal.foreground_iou_threshold.min),
-sizes by box area in network input pixels. The other objects only get their single best anchor as foreground. — : no
-object of the size.
+sizes by box area in network input pixels. An object under RegionProposal.foreground_iou_threshold.min in every level
+only gets its single best anchor as foreground. — : no object of the size.
 ```
 ```text
 anchor_recall.csv
