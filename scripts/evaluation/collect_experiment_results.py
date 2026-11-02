@@ -1,6 +1,7 @@
 """
-When run, gathers the test evaluations of the launches of a hyperparameter experiment (classification or sequence
-labelling) into one CSV file, to compare the settings of every stage: each run_<n> launch folder of the experiment
+When run, gathers the test evaluations of the launches of a hyperparameter experiment (classification, sequence
+labelling or object detection) into one CSV file, to compare the settings of every stage: each run_<n> launch folder of
+the experiment
 folder (run_<n><letters> for a repeat launch of the same settings, such as run_23b) holds the run folder of one training
 (vision_training/main.py, one configuration file per launch), whose Tensorboard/Test curves give the test metric at
 every evaluated checkpoint and whose training_configuration.yaml gives the swept settings; a launch keeping a moving
@@ -59,8 +60,12 @@ SEQUENCE_LABELLING_SWEPT_SETTINGS = {
     "freeze_backbone": ("Backbone", "pretrained", "freeze"),
     "backbone_learning_rate_multiplier": ("Backbone", "pretrained", "learning_rate_multiplier"),
     "exponential_moving_average": ("Optimization", "exponential_moving_average", "activated")}
+OBJECT_DETECTION_SWEPT_SETTINGS = {
+    "learning_rate": ("ExperimentConfiguration", "learning_rate"),
+    "exponential_moving_average": ("Optimization", "exponential_moving_average", "activated")}
 TASK_SWEPT_SETTINGS = {"classification": CLASSIFICATION_SWEPT_SETTINGS,
-                       "sequence_labelling": SEQUENCE_LABELLING_SWEPT_SETTINGS}
+                       "sequence_labelling": SEQUENCE_LABELLING_SWEPT_SETTINGS,
+                       "object_detection": OBJECT_DETECTION_SWEPT_SETTINGS}
 
 # Launch name of the row averaging the launches of the same settings
 MEAN_ROW_NAME = "mean"
@@ -291,18 +296,23 @@ def write_results(columns: List[str], rows: List[Dict[str, Any]], output_path: P
 
 
 if __name__ == "__main__":
-    # Task of the experiment: "classification" or "sequence_labelling"
+    # Task of the experiment: "classification", "sequence_labelling" or "object_detection"
     task = "sequence_labelling"
     # Folder of the hyperparameter experiment of every task, holding a run_<n> or run_<n><letters> folder per launch
     # (the experiment_folder of every launch configuration file)
     experiments_root_folder = Path(__file__).absolute().parents[2] / "hyperparameter_experiments"
     experiment_folders = {"classification": experiments_root_folder,
-                          "sequence_labelling": experiments_root_folder / "sequence_labelling"}
+                          "sequence_labelling": experiments_root_folder / "sequence_labelling",
+                          "object_detection": experiments_root_folder / "object_detection"}
     # Test curve compared between the launches of every task, one of the scalars of Tensorboard/Test: "Accuracy",
     # "Balanced Accuracy", "Macro F1" or "Top-5 Accuracy" for the classification task, the same and "Sequence Exact
     # Match", "Edit Score" or "Segment F1@50" for the sequence labelling task, whose Macro F1 weighs the frames of
-    # every change as much as the far more frequent frames without change
-    metrics = {"classification": "Accuracy", "sequence_labelling": "Macro F1"}
+    # every change as much as the far more frequent frames without change, and the mean average precision over the
+    # intersection over union thresholds 0.5 to 0.95 ("mAP@[0.5:0.95]/area", the area under the precision recall
+    # curves) for the object detection task. The metric columns are named after the metric of every task
+    metrics = {"classification": "Accuracy", "sequence_labelling": "Macro F1",
+               "object_detection": "mAP@[0.5:0.95]/area"}
+    metric_columns = {"classification": "accuracy", "sequence_labelling": "macro_f1", "object_detection": "map_50_95"}
     experiment_folder = experiment_folders[task]
     metric = metrics[task]
     # Number of last iterations evaluated in the experiment averaged by the <metric>_last_<n>_mean column, 4 giving the
@@ -315,7 +325,7 @@ if __name__ == "__main__":
     # Read every launch, group the launches of the same settings and write the file
     launches = collect_launches(experiment_folder=experiment_folder, metric=metric,
                                 swept_settings=TASK_SWEPT_SETTINGS[task])
-    columns, rows = build_result_rows(launches=launches, metric_column=metric.lower().replace(" ", "_"),
+    columns, rows = build_result_rows(launches=launches, metric_column=metric_columns[task],
                                       number_last_evaluations=number_last_evaluations,
                                       swept_settings=TASK_SWEPT_SETTINGS[task])
     write_results(columns=columns, rows=rows, output_path=output_path, swept_settings=TASK_SWEPT_SETTINGS[task])

@@ -1,0 +1,409 @@
+# Synthetic hard shapes detection dataset (the 35 SHAPE_CATEGORIES classes, 5 to 12 shapes per image of 1024 pixels,
+# from 16 pixels to 80% of the image side with log-uniform sizes, small shapes over large ones, some cut by the image
+# border, in a colour close to a flat background or on a textured one), created by
+# vision_training/data/synthetic/create_synthetic_dataset.py with the "object_detection" task and hard_objects. The
+# test split is test_10000, the first 10000 test images, evaluated every 500 iterations.
+# Hyperparameter experiment run_1, learning rate stage: learning_rate 1.0e-3, launch A.
+ExperimentConfiguration:
+  # Task trained, selecting the trainer, model and checks. "object_detection" trains the two-stage detector; needs
+  # RegionProposal, DetectionLevels and Detector. Labels are COCO annotations, crowd annotations (iscrowd 1) being
+  # ordinary objects.
+  task: "object_detection"
+  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, levels, anchors,
+  # heads, classes, optimizer and weight decay unless plain Adam): the same settings resume, changed ones start a new
+  # folder, e.g. (without the line break)
+  #   DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_
+  #   DSE-DRES-DBN-D7.2x64.256.128_BIN
+  # The augmentation, batch size, learning rate and its schedule, and gradient clipping give no token and can change on
+  # resume (format: vision_training/configuration_processing/run_name.py).
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/hyperparameter_experiments/object_detection/run_1"
+  # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
+  # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
+  run_name_suffix: null
+  # Training images and labels.json annotations.
+  train_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes/train"
+  # Validation images and labels.json annotations.
+  validation_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes/validation"
+  # Test images and labels.json annotations.
+  test_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes/test_10000"
+  # Images per forward/backward pass.
+  batch_size: 64
+  # Metric logging interval, in iterations.
+  information_dump: 1000
+  # Checkpoint and test evaluation interval, in iterations.
+  weight_saving_iterations: 500
+  # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
+  intermediate_weight_saving_iterations: 250
+  # Total training iterations.
+  number_iterations: 20000
+  # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
+  validation_iteration_ratio: 0
+  # Test evaluation at every weight_saving_iterations checkpoint: mean average precision (mAP) on the whole test split.
+  evaluation:
+    # Reports every class: the class table (ground truth boxes, area method AP at IoU 0.5, 0.75, 0.95 and 0.5:0.95,
+    # worst AP@0.5 first, the threshold reaching target_precision with the recall it keeps) and the recall table (recall
+    # at IoU 0.5 and 0.75 with their 95% intervals, worst recall at 0.5 first) in the console and Results.txt, the
+    # AP@0.5 Test scalars in TensorBoard, and confusion_matrix.png (also in TensorBoard). False keeps the mean average
+    # precisions only; class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
+    per_class_report: True
+    # Test images drawn once and shown at every evaluation: ground truth boxes next to the detections reaching
+    # Detector.inference.score_threshold (the deployment threshold, not evaluation.score_threshold), in the colour of
+    # their class, saved in Evaluation/Iteration_<n>/Samples/ and TensorBoard, evenly spread over the test images. 0
+    # disables.
+    number_sample_images: 8
+    # Minimum class probability of the detections kept for the mAP, replacing Detector.inference.score_threshold during
+    # evaluation only: the mAP needs low-confidence detections too, or the end of the precision-recall curve is cut and
+    # the mAP underestimated. Within [0, 1].
+    score_threshold: 0.05
+    # Precision the score threshold of every class must reach, saved in class_thresholds.json for a class-by-class
+    # deployment: from the most confident, the detections of a class are right when they find an object of the class at
+    # IoU 0.5 (AP@0.5 matching), and the lowest score keeping the precision (highest recall) is saved with its recall.
+    # Only detections reaching score_threshold give a threshold. Within [0, 1].
+    target_precision: 0.99
+    # Saves the errors of the detections reaching Detector.inference.score_threshold (as deployed, matched at IoU 0.5,
+    # right class first, as in confusion_matrix.csv) as images at every evaluation:
+    # 'Evaluation/Iteration_<n>/Errors/FALSE-POSITIVE/<class>/' for a detection without object, 'Errors/MISSED/<class>/'
+    # for an undetected object and 'Errors/<TRUE>-TO-<PREDICTED>/' for a wrong class. Drawn like the sample images, the
+    # boxes in error in red dashes and the errors first in the caption, named '<image>_<score>.png' after the highest
+    # error score ('<image>.png' for missed objects).
+    error_dumps:
+      # Saves error images.
+      activated: False
+      # Most images saved per error folder, the first met.
+      maximum_per_class_pair: 20
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
+  # metrics and small artifacts (configuration, confusion matrices, class metrics and thresholds, Results.txt). An
+  # MLflow error only prints a warning.
+  tracking:
+    # Turns MLflow tracking on.
+    activated: False
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
+    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
+    tracking_uri: null
+    # MLflow experiment, null for the task name ("object_detection").
+    experiment_name: null
+  # Base learning rate.
+  learning_rate: 1.0e-3
+  # Lets a resumed run train on a changed labels.json (the previous data.json kept as data_until_iteration_<n>.json);
+  # False refuses it, a new run (run_name_suffix) being needed. A moved data folder with the same labels resumes.
+  allow_data_change_on_resume: false
+  diagnosis_modes:
+      # Computes the receptive field
+      compute_receptive_field: True
+      # Shows the network input: Training and Validation windows with the images and their ground truth boxes. SPACE:
+      # next images, ENTER: exit without training (set False to train). Needs a display; no run folder is created.
+      view_input_images: False
+
+Optimization:
+  # Optimizer: "adam", "adamw" (decoupled weight decay) or "sgd" (Nesterov momentum 0.9), at
+  # ExperimentConfiguration.learning_rate.
+  optimizer: "adam"
+  # Optimizer weight decay, 0 to disable.
+  weight_decay: 0.0
+  # After the warm-up: "constant", or "cosine" (to minimum_learning_rate_ratio x learning rate over decay_iterations,
+  # then constant).
+  learning_rate_schedule: "constant"
+  # Linear learning rate warm-up iterations from 0, 0 to disable.
+  warmup_iterations: 0
+  # Cosine decay iterations after the warm-up (cosine schedule only).
+  decay_iterations: 100000
+  # Final cosine learning rate, as a fraction of the learning rate (cosine only).
+  minimum_learning_rate_ratio: 0.01
+  # Maximum global gradient norm, clipped before every step, null to disable.
+  gradient_clipping_norm: null
+  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
+  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
+  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
+  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
+  # 'pretrained' transfers load the averaged weights when present.
+  exponential_moving_average:
+    # Turns the weight moving average on.
+    activated: True
+    # Share of the average kept per update, strictly between 0 and 1.
+    decay: 0.9998
+  # Weight of every detector loss in the total loss, e.g. above 1 on the regression losses when objects are found but
+  # their boxes poorly placed. Losses are tracked unweighted, the total weighted. Numbers >= 0, not all 0, a loss at 0
+  # leaving the layers only it trains unchanged. No run name token, can change on resume.
+  loss_weights:
+    # Objectness of the sampled region proposal anchors.
+    region_proposal_classification_loss: 1.0
+    # Box offsets of the positive region proposal anchors.
+    region_proposal_localisation_loss: 1.0
+    # Class of the sampled detection proposals, background included.
+    detection_classification_loss: 1.0
+    # Box offsets of the positive detection proposals.
+    detection_regression_loss: 1.0
+
+Data:
+  image_settings:
+    # Input resolution of every image, the size of the synthetic instance segmentation images.
+    size: 1024
+    # Keeps the original aspect ratio when resizing.
+    keep_ratio: True
+  label_mapping:
+    # "binary" maps every foreground object to 1; "multi_class" uses the mapping file.
+    mode: "multi_class"
+    # JSON file mapping the dataset category IDs to sequential class IDs.
+    mapping_file_path: "/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes/label_mapping.json"
+  data_augmentation:
+    # Global switch of the data augmentation (on the GPU, training batches only).
+    activated: True
+    # Probability that a training image is augmented, each activated type then applied with its own probability;
+    # sequence frames share one augmentation.
+    probability: 0.4
+    types:
+      # Geometric augmentations : boxes move with the image, those leaving it are removed.
+      # Random Crop : 75% to 100% of each side (same aspect ratio), resized back
+      random_crop: { activated: False, probability: 0.3 }
+      # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
+      # stretch; other camera proportions, for keep_ratio False)
+      random_aspect_crop: { activated: False, probability: 0.3 }
+      # Random Zoom Out : image shrunk to 50% to 100% of each side on a black canvas, objects appearing smaller
+      random_zoom_out: { activated: False, probability: 0.3 }
+      # Random Translation : shift of up to 25% along x, y or both, border filled black
+      random_translation: { activated: False, probability: 0.5 }
+      # Random Left-Right Flip
+      random_left_right_flip: { activated: False, probability: 0.5 }
+      # Random Up-Down Flip
+      random_up_down_flip: { activated: False, probability: 0.5 }
+      # Random Rotation of -5° to 5°, boxes enclosing their rotated corners
+      random_rotation: { activated: False, probability: 0.3 }
+      # Random +-90° rotation (square images only)
+      random_90_rotation: { activated: False, probability: 0.3 }
+      # Random Perspective : corners moved inwards by up to 5% of half the width and height, border filled black;
+      # refused for tasks with boxes, masks or keypoints
+      random_perspective: { activated: False, probability: 0.3 }
+      # Random Jigsaw : 2x2 pieces shuffled, breaking the global layout; refused for tasks with boxes, masks or
+      # keypoints
+      random_jigsaw: { activated: False, probability: 0.3 }
+
+      # Photometric augmentations: boxes unchanged.
+      # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
+      brightness_contrast_saturation: { activated: False, probability: 0.3 }
+      # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
+      random_hue: { activated: False, probability: 0.5 }
+      # CLAHE, clip limit 2.0 on a 4x4 tile grid
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram equalization of the luminance (Y of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram equalization of one random channel (B, G or R) or all three
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : Gaussian noise, standard deviation 20 levels
+      random_noise: { activated: False, probability: 0.3 }
+      # Grayscale, kept on three channels
+      gray_scale_augment: { activated: False, probability: 0.3 }
+      # Random Colour augmentation : BGR to RGB channel swap
+      random_colour_augmentation: { activated: False, probability: 0.3 }
+      # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
+      random_gamma: { activated: False, probability: 0.3 }
+      # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
+      random_linear_illumination: { activated: False, probability: 0.3 }
+      # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
+      random_plasma_shadow: { activated: False, probability: 0.3 }
+      # Random Blur : 9x9 Gaussian kernel, sigma 2.5
+      random_blur: { activated: False, probability: 0.3 }
+      # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
+      random_motion_blur: { activated: False, probability: 0.3 }
+      # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
+      # the blurs, before solarization, black-out and erasing)
+      random_haze: { activated: True, probability: 0.3 }
+      # Random Solarize : pixels at or above 128 levels inverted
+      random_solarize: { activated: False, probability: 0.2 }
+      # Random Black Out : grid_size x grid_size cells, each blacked out with probability 0.2 (after the other
+      # photometric types but the erasing); labels unchanged, so a hidden object keeps its label
+      random_black_out: { activated: False, probability: 0.3, grid_size: 8 }
+      # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3, applied last; labels
+      # unchanged
+      random_erasing: { activated: False, probability: 0.3 }
+
+Backbone:
+  # Input channels of the first convolution block: 3, the loaders giving BGR images
+  input_channels : 3
+
+  # [convolutions, output filters] of every block.
+  convolutions:
+    {
+      "1": [ 1, 16 ],
+      "2": [ 2, 16 ],
+      "3": [ 2, 16 ],
+      "4": [ 3, 32 ],
+      "5": [ 3, 32 ],
+      "6": [ 5, 32 ],
+      "7": [ 5, 32 ],
+    }
+
+  # Max pooling after the last block.
+  last_max_pooling: False
+
+  normalization:
+    # Scales the inputs to [-0.5, 0.5].
+    input_normalization: True
+
+    # Normalizes every image to zero mean and unit variance (after input_normalization).
+    per_sample_normalization: False
+
+    # Feature map normalization: "batch", "layer" (over channels) or "none".
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual shortcuts every two convolutions from block 2 (https://arxiv.org/abs/1512.03385).
+    residual_nets: True
+
+    # Pre-activation shortcuts (https://arxiv.org/abs/1603.05027): normalization and ReLU before every convolution.
+    # Requires residual_nets; RES2 token instead of RES.
+    residual_nets_v2: False
+
+    # Inception modules (https://arxiv.org/abs/1409.4842), output channels multiples of 8.
+    inception: False
+
+    # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
+    squeeze_and_excite: True
+
+  # Backbone of another run (any task) initialising this one. The layer settings (input_channels, convolutions, modules,
+  # normalization, last_max_pooling) must match; detection levels and image size may differ.
+  pretrained:
+    # Run folder of the loaded backbone, null for random weights (not reloaded on resume).
+    experiment_folder: null
+    # Checkpoint iteration, null for the last one.
+    iteration: null
+    # Freezes the loaded backbone (no gradient, frozen batch statistics); needs experiment_folder.
+    freeze: False
+    # Freezes the scale and shift of the loaded backbone normalizations while its convolutions learn; needs
+    # experiment_folder, freeze False and a normalization.
+    freeze_normalization_parameters: False
+    # Learning rate factor of the loaded backbone, e.g. 0.1 to train it 10x slower.
+    learning_rate_multiplier: 1.0
+
+# Detection levels: every key is the quoted number of a Backbone.convolutions block (from "1") whose feature map feeds
+# the heads of the level, from the finest map to the coarsest. Every level has its own anchors, region proposal and
+# detection heads; the shared settings are in RegionProposal and Detector. Every proposal and detection uses the heads
+# and feature map of the level of its anchor. Instance segmentation adds a mask_head to every level.
+DetectionLevels:
+  "4":
+    # Anchors per feature map position, one per scale and aspect ratio: a scale is the side in input pixels of a square
+    # anchor, an aspect ratio the height / width at the same area. scales x aspect_ratios gives the outputs of the
+    # region proposal head. Levels 4 to 7 (strides 16 to 128) with anchors from 16 to 768 pixels cover the 16 pixel to
+    # 80% of the image side shapes of the dataset.
+    anchors: { scales: [16, 32], aspect_ratios: [0.5, 1.0, 2.0] }
+    # Region proposal head: [number_layers, output_channels] of its convolutions, before its objectness and box
+    # regression layers.
+    region_proposal: { convolutions: [2, 32] }
+    # Detection head: RoIAlign grid side pooled per proposal, [number_layers, output_channels] of its convolutions
+    # (multiples of 8 with Detector.modules.inception) and its fully connected sizes before the classifier and box
+    # regressor.
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
+  "5":
+    anchors: { scales: [48, 96], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 32] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
+  "6":
+    anchors: { scales: [128, 256], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 32] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
+  "7":
+    anchors: { scales: [384, 768], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 32] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
+
+RegionProposal:
+  normalization:
+    # "batch", "layer" (over channels) or "none"
+    feature_map_normalization: "batch"
+    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
+    # No run name token, can change on resume.
+    batch_normalization_momentum: 0.1
+  training:
+    # Top raw proposals kept per image before non-maximum suppression in training.
+    pre_nms_proposals: 1000
+    # Proposals kept per image after non-maximum suppression in training.
+    post_nms_proposals: 500
+  inference:
+    # Top raw proposals kept per image before non-maximum suppression at inference.
+    pre_nms_proposals: 500
+    # Proposals kept per image after non-maximum suppression at inference.
+    post_nms_proposals: 250
+  foreground_iou_threshold:
+    # Minimum IoU of a positive foreground anchor.
+    min: 0.5
+    # Maximum matching IoU (capped at 1.0).
+    max: 1.0
+  background_iou_threshold:
+    # Minimum IoU of a strict background anchor. At 0.0 any anchor overlapping no object can be background; above it,
+    # those are ignored and only hard negatives (anchors touching an object) are sampled, allowed with a yellow warning.
+    min: 0.0
+    # Maximum IoU of a strict background anchor.
+    max: 0.3
+  # IoU threshold of the non-maximum suppression of overlapping proposals.
+  nms_iou_threshold: 0.7
+  # Assigns the best-overlapping anchors as foreground even below the minimum threshold.
+  strict_fallback_assignment: False
+  # Positive foreground anchors sampled per image for the loss.
+  number_training_positives: 128
+  # Positive and negative anchors sampled per image.
+  total_training_samples: 256
+  # Smooth L1 beta of the box regression loss.
+  localisation_loss_beta: 1/9
+  # Region proposal heads of another DET or INS run initialising this one. Levels, per-level region_proposal and anchors
+  # per position (scales x aspect_ratios), normalization and the channels of the feeding backbone blocks must match;
+  # other anchor scales or ratios of the same counts are reported, not refused.
+  pretrained:
+    # Run folder of the loaded region proposal heads, null for random weights; not reloaded when the run resumes.
+    experiment_folder: null
+    # Checkpoint iteration, null for the last one.
+    iteration: null
+    # Freezes the loaded heads (no gradient, frozen batch statistics). Requires experiment_folder.
+    freeze: False
+    # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
+    learning_rate_multiplier: 1.0
+
+Detector:
+  normalization:
+    # "batch", "layer" (over channels) or "none"
+    feature_map_normalization: "batch"
+    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
+    # No run name token, can change on resume.
+    batch_normalization_momentum: 0.1
+
+  modules:
+    # Residual nets (https://arxiv.org/abs/1512.03385)
+    residual_nets: True
+
+    # Inception modules (https://arxiv.org/abs/1409.4842); detection head output channels must be multiples of 8
+    inception: False
+
+    # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
+    squeeze_and_excite: True
+
+  inference:
+    # Minimum class probability of a returned detection
+    score_threshold: 0.5
+    # Detections returned per image (padded), fixed for exportable outputs; at most
+    # RegionProposal.inference.post_nms_proposals x the foreground classes.
+    maximum_detections: 100
+  # Minimum IoU for a sampled proposal to be a positive target.
+  foreground_iou_threshold: 0.5
+  # IoU threshold of the final per-class non-maximum suppression.
+  nms_iou_threshold: 0.5
+  # Most positive proposals sampled per image; the ground truth boxes fill its last proposal slots first, so every
+  # object has a positive to sample.
+  number_training_positives: 64
+  # Positive and negative proposals sampled per image.
+  total_training_samples: 128
+  # Smooth L1 beta of the box regression loss.
+  localisation_loss_beta: 1/9
+  # Detection heads of another DET or INS run initialising this one, with their classification and per-class box layers.
+  # Levels, per-level detectors, normalization, modules and the channels of the feeding backbone blocks must match. The
+  # source classes (its data.json) must come first in this run, in order; appended classes stay random.
+  pretrained:
+    # Run folder of the loaded detection heads, null for random weights; not reloaded when the run resumes.
+    experiment_folder: null
+    # Checkpoint iteration, null for the last one.
+    iteration: null
+    # Freezes the loaded heads (no gradient, frozen batch statistics), e.g. to train only the mask heads of an instance
+    # segmentation run. Requires experiment_folder.
+    freeze: False
+    # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
+    learning_rate_multiplier: 1.0
