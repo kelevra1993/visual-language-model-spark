@@ -11,6 +11,7 @@ from rich.panel import Panel
 from typing import Dict, Any, Tuple, Optional, List
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.task_model import TaskModel
+from vision_training.models.detection.anchors import Anchors
 from vision_training.models.detection.region_proposer import RegionProposal, RegionProposalFilter
 from vision_training.models.detection.detection_head import DetectionHead
 from vision_training.models.detection.target_assignment import (turn_boxes_to_transformation_targets,
@@ -209,6 +210,18 @@ class TwoStageDetector(TaskModel):
                 pixels, keyed by block number.
         """
         return {int(index_string): region_proposer.region_proposal_anchor_object.anchors
+                for index_string, region_proposer in self.region_proposer_dictionary.items()}
+
+    def get_level_anchor_generators(self) -> Dict[int, Anchors]:
+        """
+        Gives the anchor generator of every detection level, whose grid, scales and aspect ratios let the anchor recall
+        of the detection trainers (at launch and in the 'compute_anchor_coverage' diagnosis mode) find the best anchor
+        of every object without comparing it with every anchor (Anchors.compute_best_overlaps).
+
+        Returns:
+            Dict[int, Anchors]: The Anchors module of every level, keyed by block number.
+        """
+        return {int(index_string): region_proposer.region_proposal_anchor_object
                 for index_string, region_proposer in self.region_proposer_dictionary.items()}
 
     def _build_region_proposal_filter(self, region_proposal_configuration: Dict[str, Any]) -> RegionProposalFilter:

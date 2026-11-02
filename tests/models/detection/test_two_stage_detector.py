@@ -84,6 +84,11 @@ def test_detection_stages_carry_levels_and_matched_ground_truths() -> None:
     assert all(anchors.dim() == 2 and anchors.shape[1] == 4 and anchors.shape[0] > 0
                for anchors in level_anchors.values())
 
+    # Anchor generator of every level, holding those anchors, read by the anchor recall to find the best anchors
+    level_anchor_generators = model.get_level_anchor_generators()
+    assert set(level_anchor_generators) == level_numbers
+    assert all(level_anchor_generators[level].anchors is level_anchors[level] for level in level_numbers)
+
     # Every valid detection is the decoded box of its proposal for its class, clipped to the image
     for image_index in range(images.shape[0]):
         for detection_index in range(int(outputs["number_detections"][image_index])):

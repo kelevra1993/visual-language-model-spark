@@ -1,7 +1,8 @@
 """
 Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four
 losses, the geometric augmentations moving the bounding boxes, the anchor recall of the training objects printed at
-every launch, and the evaluation of the checkpoints on the test split with the mean average precision and the mean
+every launch (and of every split by the 'compute_anchor_coverage' diagnosis mode, which then exits), and the evaluation
+of the checkpoints on the test split with the mean average precision and the mean
 average recall (all the objects and every object size) and the average precision of every class, the proposal recall,
 the score threshold of every class reaching the target precision, the confusion matrix and the error images of the
 detections the deployed detector returns, and the sample images of fixed test images with their true and detected
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, DetectionBatch, EvaluationResults
+from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.loaders import get_detection_dataloaders
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
@@ -30,8 +32,8 @@ from vision_training.evaluation.detection.detection_confusion import (BACKGROUND
                                                                       summarise_confusion_matrix)
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.evaluation.detection.region_recall import (
-    accumulate_proposal_recall, compute_best_anchor_overlaps, create_proposal_recall_accumulator,
-    gather_training_object_boxes, summarise_anchor_recall, summarise_proposal_recall)
+    accumulate_proposal_recall, compute_best_anchor_overlaps, create_proposal_recall_accumulator, gather_object_boxes,
+    summarise_anchor_recall, summarise_proposal_recall)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.report_formatting import build_table_renderables, print_report
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
@@ -120,21 +122,82 @@ class DetectionTrainer(CocoSplitTrainer):
         Returns:
             Dict[str, Path]: The 'Anchor Recall' file.
         """
-        # Best anchor of every training object in every level
-        object_boxes = gather_training_object_boxes(dataset=self.train_dataloader.dataset)
-        best_anchor_overlaps = compute_best_anchor_overlaps(object_boxes=object_boxes,
-                                                            level_anchors=self.model.get_level_anchors())
-        anchor_recall = summarise_anchor_recall(
-            best_anchor_overlaps=best_anchor_overlaps, object_areas=compute_box_areas(boxes=object_boxes),
-            foreground_threshold=self.model_configuration["RegionProposal"]["foreground_iou_threshold"]["min"])
-
-        # Table printed with the layout of the report, and its rows saved in the run folder
-        print_color(color="blue", output=f"Anchor Recall Of The {object_boxes.shape[0]} Training Objects...",
-                    add_separators=True)
-        print_report(renderables=build_table_renderables(table=anchor_recall["table"]))
+        # Recall at the foreground threshold of the region proposal network, its rows saved in the run folder
+        anchor_recall = self.measure_anchor_recall(
+            dataset=self.train_dataloader.dataset, split_name="Training",
+            intersection_over_union_threshold=self.model_configuration["RegionProposal"]["foreground_iou_threshold"][
+                "min"], threshold_setting="RegionProposal.foreground_iou_threshold.min", show_progress=False)
         return {"Anchor Recall": write_class_metrics_file(class_rows=anchor_recall["rows"],
                                                           evaluation_folder=self.experiment_folder,
                                                           file_name=ANCHOR_RECALL_FILE_NAME)}
+
+    def uses_exiting_diagnosis_mode(self) -> bool:
+        """
+        Tells whether a diagnosis mode ends the program before the training: the input viewer of every task, or the
+        anchor coverage of the splits ('diagnosis_modes.compute_anchor_coverage'), which checks the anchor setting
+        without creating the run folder.
+
+        Returns:
+            bool: Whether the program exits after the diagnosis.
+        """
+        return super().uses_exiting_diagnosis_mode() or self.diagnosis_modes["compute_anchor_coverage"]["activated"]
+
+    def diagnose_data_splits(self) -> None:
+        """
+        Prints the anchor coverage of the training, validation and test splits when
+        'diagnosis_modes.compute_anchor_coverage' is activated: for every split, the share of its objects with an anchor
+        overlapping them by at least the 'iou_threshold' of the mode, in every level and in all of them, for all the
+        objects and every object size, so that the anchor setting can be checked against every split before a launch.
+        Nothing is written; the trainer exits afterwards.
+        """
+        anchor_coverage_configuration = self.diagnosis_modes["compute_anchor_coverage"]
+        if not anchor_coverage_configuration["activated"]:
+            return None
+
+        # One table per split, each read with a progress bar over its images
+        for split_name, data_loader in [("Training", self.train_dataloader), ("Validation", self.validation_dataloader),
+                                        ("Test", self.test_dataloader)]:
+            self.measure_anchor_recall(
+                dataset=data_loader.dataset, split_name=split_name,
+                intersection_over_union_threshold=anchor_coverage_configuration["iou_threshold"],
+                threshold_setting="ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.iou_threshold",
+                show_progress=True)
+        return None
+
+    def measure_anchor_recall(self, dataset: CocoDetectionDataset, split_name: str,
+                              intersection_over_union_threshold: float, threshold_setting: str,
+                              show_progress: bool) -> Dict[str, Any]:
+        """
+        Measures and prints the anchor recall of one split, shared by the check of the training split at every launch
+        (analyse_training_data) and the anchor coverage diagnosis mode (diagnose_data_splits): the boxes of the objects
+        read from the annotations without loading any image, the best anchor of every object in every level found from
+        the anchor grid of the level, then the recall of every level and of all of them at the threshold.
+
+        Args:
+            dataset (CocoDetectionDataset): The dataset of the split.
+            split_name (str): The name of the split in the console, e.g. 'Training'.
+            intersection_over_union_threshold (float): The minimum overlap for an object to be covered.
+            threshold_setting (str): The configuration setting giving the threshold, named in the legend of the table.
+            show_progress (bool): Whether a progress bar follows the images of the split.
+
+        Returns:
+            Dict[str, Any]: The 'rows' and 'table' of the anchor recall (summarise_anchor_recall).
+        """
+        # Best anchor of every object of the split in every level
+        object_boxes = gather_object_boxes(dataset=dataset, progress_description=(
+            f"Gathering The {split_name} Objects" if show_progress else None))
+        best_anchor_overlaps = compute_best_anchor_overlaps(
+            object_boxes=object_boxes, level_anchor_generators=self.model.get_level_anchor_generators())
+        anchor_recall = summarise_anchor_recall(
+            best_anchor_overlaps=best_anchor_overlaps, object_areas=compute_box_areas(boxes=object_boxes),
+            intersection_over_union_threshold=intersection_over_union_threshold, split_name=split_name,
+            threshold_setting=threshold_setting)
+
+        # Table printed with the layout of the report
+        print_color(color="blue", output=f"Anchor Recall Of The {object_boxes.shape[0]} {split_name} Objects...",
+                    add_separators=True)
+        print_report(renderables=build_table_renderables(table=anchor_recall["table"]))
+        return anchor_recall
 
     def build_model(self) -> TwoStageDetector:
         """

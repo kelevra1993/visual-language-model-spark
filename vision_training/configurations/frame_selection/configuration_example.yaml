@@ -1,18 +1,11 @@
-# Template of a frame selection dataset (the best frames of every wanted class of a sequence, e.g. one photo per viewing
-# angle of a product, the others unselected), stored as one frame folder per sequence in <split>/data/<sequence name>/
-# and a <split>/labels.json listing the categories (wanted classes and the unselected category) and the sequences with
-# their ordered frames and frame_category_ids. Point the data folders below to an actual dataset.
+# Frame selection dataset template (best frames per wanted class, others unselected): frames in
+# <split>/data/<sequence name>/, <split>/labels.json with categories and sequences (ordered frames, frame_category_ids).
 ExperimentConfiguration:
-  # Task trained, selecting the trainer, model and checks. "frame_selection" trains the frame selector (the best frames
-  # of every wanted class of a whole sequence, the others unselected); needs Data.sequence_settings, TemporalModel,
-  # ClassificationHead and Selection.
+  # Task trained, selecting the trainer, model and checks. "frame_selection" trains the frame selector (best frames per
+  # wanted class); needs Data.sequence_settings, TemporalModel, ClassificationHead and Selection.
   task: "frame_selection"
-  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, maximum sequence
-  # length, temporal module, classification head, classes, optimizer and weight decay unless plain Adam): the same
-  # settings resume, changed ones start a new folder, e.g.
-  # SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64_T50_GRU2x256-BI_HAVG.256_MC4_FPC1-SLW1. The augmentation, batch
-  # size, learning rate and its schedule, gradient clipping and dropout rates and decoding give no token and can change
-  # on resume (format: vision_training/configuration_processing/run_name.py).
+  # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
+  # batch size, learning rate, schedule, gradient clipping, dropout, decoding can change on resume.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
@@ -36,38 +29,23 @@ ExperimentConfiguration:
   number_iterations: 1e10
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 25
-  # Test evaluation at every weight_saving_iterations checkpoint on every test sequence, the frames of every wanted
-  # class chosen by both decodings (Hungarian and greedy) on the same probabilities: per decoding the selection accuracy
-  # (share of true frames chosen), the share of sequences fully right and the unselected class precision and recall;
-  # before decoding the top-k selection accuracy and mean rank of the true frames; and the per-frame accuracy, balanced
-  # accuracy and macro F1. Class metrics, confidence thresholds and the confusion matrix of the decoded frames are saved
-  # in <run folder>/Evaluation/Iteration_<iteration>/.
+  # Test evaluation at every weight_saving_iterations checkpoint on every test sequence, Hungarian and greedy decodings:
+  # selection accuracy, fully right sequences, unselected precision and recall, top-k, mean rank, per-frame metrics.
   evaluation:
-    # Reports every wanted class: the class table (true frames, selection accuracy of both decodings, top-k accuracy,
-    # mean rank of the true frames, the confidence threshold reaching target_precision with the share of true frames it
-    # keeps, worst Selection.decoding accuracy first) and the accuracy table (Selection.decoding accuracy with its 95%
-    # interval, worst first) in the console and Results.txt, the selection accuracy and mean rank Test scalars in
-    # TensorBoard, and the decoded frame confusion_matrix.png (also in TensorBoard). False keeps the global metrics
-    # only; class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
+    # Reports every wanted class: class and accuracy tables (console, Results.txt), TensorBoard scalars, decoded frame
+    # confusion matrix. False: global metrics only; CSV and JSON files always saved.
     per_class_report: True
-    # Test sequences drawn once and shown at every evaluation with the Selection.decoding selection: the frame grid (160
-    # pixel thumbnails, 8 per row), solid green border on a frame chosen for its true class, solid red on a frame chosen
-    # for a class it lacks, dashed yellow on an unchosen true frame, rightly unselected frames dimmed; below, the heat
-    # map of every frame probability per wanted class (chosen dotted, true outlined); above, the count of right
-    # selections (green when all right, red otherwise); saved in Evaluation/Iteration_<n>/Samples/ and TensorBoard. 0
-    # disables.
+    # Test sequences drawn once, shown at every evaluation with the Selection.decoding selection (frame borders,
+    # per-class probability heat map), in Evaluation/Iteration_<n>/Samples/ and TensorBoard. 0 disables.
     number_sample_images: 16
     # Most probable frames of a class among which its true frames must be for the top-k selection accuracy, and
     # candidate frames per class returned by the deployed decoder; a positive integer.
     top_k: 3
-    # Precision the confidence threshold of every wanted class must reach: the lowest probability from which the frames
-    # Selection.decoding chooses for the class are true at that precision, saved in class_thresholds.json. A chosen
-    # frame below it is flagged low confidence (selections.csv, deployed decoder) for a human check. A single number in
-    # [0, 1]: no list, the deployed decoder keeping one threshold per class.
+    # Precision every wanted class confidence threshold must reach (in class_thresholds.json); Selection.decoding frames
+    # below it are flagged low confidence for a human check. One number in [0, 1], no list.
     target_precision: 0.99
-    # Saves 'selections.csv' in every evaluation folder: one row per test sequence and wanted class with its true frames
-    # (probabilities, ranks), the frames chosen by both decodings with their probabilities and right count, and the
-    # Selection.decoding low-confidence flags. False skips it on large test sets.
+    # Saves 'selections.csv' at every evaluation: per test sequence and wanted class, the true frames, the frames chosen
+    # by both decodings and the low-confidence flags. False skips it on large test sets.
     save_predictions: True
     # Saves every test sequence whose Selection.decoding selection is wrong as an image (like the sample images) at
     # every evaluation, in 'Evaluation/Iteration_<n>/Errors/<CLASS>/<sequence>.png' for every wanted class picked wrong.
@@ -76,15 +54,13 @@ ExperimentConfiguration:
       activated: False
       # Most images saved per wanted class, the first met.
       maximum_per_class_pair: 20
-  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
-  # metrics and small artifacts (configuration, confusion matrices, class metrics and thresholds, Results.txt). An
-  # MLflow error only prints a warning.
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
+  # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
     activated: False
-    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
-    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
-    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
     # MLflow experiment, null for the task name ("frame_selection").
     experiment_name: null
@@ -96,9 +72,8 @@ ExperimentConfiguration:
   diagnosis_modes:
       # Computes the receptive field
       compute_receptive_field: True
-      # Shows the network input: Training and Validation windows with the frames of a sequence on a grid, the frames to
-      # select captioned with their class. SPACE: next sequences, ENTER: exit without training (set False to train).
-      # Needs a display; no run folder is created.
+      # Shows the network input: Training and Validation windows, a sequence frame grid captioning the frames to select.
+      # SPACE: next sequences, ENTER: exit without training (False to train); needs a display, creates no run folder.
       view_input_images: False
 
 Optimization:
@@ -118,11 +93,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
-  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
-  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
-  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
-  # 'pretrained' transfers load the averaged weights when present.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
+  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: False
@@ -136,14 +108,12 @@ Data:
     # Keeps the original aspect ratio when resizing.
     keep_ratio: True
   sequence_settings:
-    # Most frames of a sequence; sequences are fed whole, padded with black frames to the longest of the batch (masked
-    # out). A longer one is left out of its split with a red warning at startup. Also the size of the transformer
-    # positional embedding.
+    # Most frames of a sequence, fed whole and padded with masked black frames to the longest of the batch; a longer one
+    # is left out of its split (red warning at startup). Also the transformer positional embedding size.
     maximum_sequence_length: 50
   label_mapping:
     # Must be "multi_class" (sequence tasks): the mapping file gives the class index, 0 to K-1 (no background), of every
-    # labels.json category. It must map the unselected category (Selection.unselected_category); the frames of unmapped
-    # categories become unselected, so leaving a wanted class out turns its frames unselected.
+    # labels.json category, Selection.unselected_category included; frames of unmapped categories become unselected.
     mode: "multi_class"
     # JSON file mapping the dataset category IDs to sequential class IDs.
     mapping_file_path: "/home/robert_kelevra/Data/sequence_data/frame_selection/label_mapping.json"
@@ -157,12 +127,10 @@ Data:
     # ones staying shared, as a crop or rotation per frame makes objects jump.
     independent_frames: False
     # Sequence tasks only: shuffles the real frames of a training sequence with this probability (independent of the one
-    # above), padding staying last, frame classes following. For sequences whose order carries no information (photo
-    # sets); the synthetic frames are already in random order.
+    # above), padding staying last, frame classes following; for sequences whose order carries no information.
     shuffle_frames: { activated: False, probability: 0.5 }
     types:
-      # Geometric augmentations. Off when a class depends on an orientation (e.g. left and right views), the classes
-      # never being swapped on a flip.
+      # Geometric augmentations : off when a class depends on an orientation (e.g. left and right views, never swapped).
       # Random Crop : 75% to 100% of each side (same ratio), resized back
       random_crop: { activated: True, probability: 0.3 }
       # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
@@ -307,17 +275,11 @@ TemporalModel:
   # Every frame only sees the earlier frames (transformer, temporal convolution), for online use without future frames;
   # GRU and LSTM are causal unless bidirectional.
   causal: False
-  # Learned position embedding added to every frame vector (transformer), so that the transformer uses the frame order.
-  # False treats a sequence as a set (e.g. photos in any order): shuffling the frames only shuffles the outputs with
-  # them, and the transformer weights no longer depend on Data.sequence_settings.maximum_sequence_length. A causal
-  # transformer still sees the order through its attention mask.
+  # Learned position embedding added to every frame vector, so the transformer uses the frame order. False treats a
+  # sequence as a set (weights independent of maximum_sequence_length); a causal transformer still sees the order.
   positional_embedding: True
-  # Temporal module of another sequence task run initialising this one. Its type, the settings defining its weights
-  # (hidden_size; number_layers and bidirectional for GRU and LSTM; number_layers, number_heads and positional_embedding
-  # for the transformer; number_layers and kernel_size for the temporal convolution), the channels of the last backbone
-  # block, the global pooling and image size when flattening and, for a transformer with positional embedding,
-  # Data.sequence_settings.maximum_sequence_length must match. Weightless poolings (mean_pooling, max_pooling) transfer
-  # nothing.
+  # Temporal module of another sequence run initialising this one; type, weight settings, last block channels, pooling
+  # and image size if flattening, maximum_sequence_length (positional embedding) must match; mean/max pooling: nothing.
   pretrained:
     # Run folder of the loaded temporal module, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
@@ -361,15 +323,11 @@ Selection:
   # Manifest category of the unselected frames. Every other mapped class is a wanted class, of which every manifest
   # sequence must hold exactly frames_per_class frames (the others are listed at startup and the training stops).
   unselected_category: "unselected"
-  # Decoding of the frames of every wanted class from the per-frame probabilities: "hungarian" (optimal assignment, the
-  # most probable labelling of the sequence with every wanted class chosen frames_per_class times) or "greedy" (every
-  # frame takes its most probable class, an over-taken class keeping its most probable frames, an under-taken one
-  # completed with the unselected frames most probable for it). Both are scored at every evaluation; this one draws the
-  # sample and error images, gives the confidence thresholds and runs in the deployed decoder.
+  # Frame decoding per wanted class: "hungarian" (optimal assignment, frames_per_class frames each) or "greedy" (most
+  # probable class per frame, then rebalanced); both scored, this one drives samples, errors, thresholds, deployment.
   decoding: "hungarian"
   # Frames chosen per wanted class and sequence.
   frames_per_class: 1
-  # Weight of the selection loss added to the per-frame loss: for every wanted class, the softmax of its logit over the
-  # sequence frames is trained towards its true frames, the frames competing for the class. 0 trains with the per-frame
-  # loss alone.
+  # Weight of the selection loss added to the per-frame loss: per wanted class, the softmax of its logit over the frames
+  # is trained towards its true frames; 0 trains with the per-frame loss alone.
   selection_loss_weight: 1.0

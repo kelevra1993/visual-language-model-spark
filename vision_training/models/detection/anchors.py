@@ -1,12 +1,18 @@
 """
 Anchor generation of the object detection task: the Anchors module computes the reference boxes of one feature map
 level from its scales and aspect ratios, used by the region proposal heads and the target assignment of the
-TwoStageDetector.
+TwoStageDetector, and the best anchor overlap of every object, read by the anchor recall of the detection trainers.
 """
 
 import torch
 from torch import nn
 from typing import List
+
+# Number of boxes whose best anchor overlap is computed at once: millions of objects reuse a few megabytes of buffers
+# instead of touching about a gigabyte of fresh memory (25 s with the trainings holding the memory), and at 32768, the
+# size up to which PyTorch runs an element-wise operation on one thread, the many small operations skip the
+# synchronisation of the thread pool (12 s on busy cores); 4.35 million boxes then take about 2 s
+BEST_OVERLAP_CHUNK_SIZE = 32768
 
 
 class Anchors(nn.Module):
@@ -91,3 +97,63 @@ class Anchors(nn.Module):
         anchors = anchors.reshape(shape=(-1, 4))
 
         return anchors
+
+    def compute_best_overlaps(self, boxes: torch.Tensor) -> torch.Tensor:
+        """
+        Gives the intersection over union of every box with its best anchor of this level, for the anchor recall of the
+        detection trainers (at launch and in the 'compute_anchor_coverage' diagnosis mode), without comparing the box
+        with every anchor. For one anchor shape, the intersection only shrinks as the anchor centre moves away from the
+        box centre along x or along y, so the best anchor of a shape is the grid anchor nearest the box centre on each
+        axis, and the best anchor of the level the best of these, one per scale and aspect ratio. Computed in float64
+        on the CPU, BEST_OVERLAP_CHUNK_SIZE boxes at a time, about 2 seconds for the 4.35 million objects of a training
+        split.
+
+        Args:
+            boxes (torch.Tensor): The [N, 4] [x_min, y_min, x_max, y_max] boxes, in network input pixels.
+
+        Returns:
+            torch.Tensor: The [N] float32 best overlap of every box, on the CPU.
+        """
+        best_overlaps = torch.zeros(size=(boxes.shape[0],), dtype=torch.float32)
+        for chunk_start in range(0, boxes.shape[0], BEST_OVERLAP_CHUNK_SIZE):
+            chunk_end = chunk_start + BEST_OVERLAP_CHUNK_SIZE
+            best_overlaps[chunk_start:chunk_end] = self.compute_chunk_best_overlaps(boxes=boxes[chunk_start:chunk_end])
+        return best_overlaps
+
+    def compute_chunk_best_overlaps(self, boxes: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the best anchor overlap of one chunk of boxes for compute_best_overlaps, from the grid anchor nearest
+        every box centre for every scale and aspect ratio of the level.
+
+        Args:
+            boxes (torch.Tensor): The [M, 4] [x_min, y_min, x_max, y_max] boxes of the chunk, in network input pixels.
+
+        Returns:
+            torch.Tensor: The [M] float32 best overlap of every box of the chunk, on the CPU.
+        """
+        boxes = boxes.to(device="cpu", dtype=torch.float64)
+        box_areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+
+        # Nearest anchor centre of the grid on each axis, the grid of generate_anchors starting at 0 with the stride
+        stride = self.input_image_size // self.feature_map_size
+        nearest_centres = []
+        for minimum_column, maximum_column in [(0, 2), (1, 3)]:
+            box_centres = (boxes[:, minimum_column] + boxes[:, maximum_column]) / 2
+            nearest_centres.append(torch.clamp(input=torch.round(input=box_centres / stride), min=0,
+                                               max=self.feature_map_size - 1) * stride)
+        nearest_centre_x, nearest_centre_y = nearest_centres
+
+        # Overlap with the nearest anchor of every scale and aspect ratio, sized like in generate_anchors
+        best_overlaps = torch.zeros(size=(boxes.shape[0],), dtype=torch.float64)
+        for aspect_ratio in self.aspect_ratios.to(device="cpu", dtype=torch.float64):
+            for scale in self.scales.to(device="cpu", dtype=torch.float64):
+                half_height = torch.sqrt(input=aspect_ratio) * scale / 2
+                half_width = scale / torch.sqrt(input=aspect_ratio) / 2
+                intersection_width = (torch.minimum(input=boxes[:, 2], other=nearest_centre_x + half_width) -
+                                      torch.maximum(input=boxes[:, 0], other=nearest_centre_x - half_width))
+                intersection_height = (torch.minimum(input=boxes[:, 3], other=nearest_centre_y + half_height) -
+                                       torch.maximum(input=boxes[:, 1], other=nearest_centre_y - half_height))
+                intersections = intersection_width.clamp(min=0) * intersection_height.clamp(min=0)
+                unions = box_areas + 4 * half_width * half_height - intersections
+                best_overlaps = torch.maximum(input=best_overlaps, other=intersections / unions)
+        return best_overlaps.to(dtype=torch.float32)

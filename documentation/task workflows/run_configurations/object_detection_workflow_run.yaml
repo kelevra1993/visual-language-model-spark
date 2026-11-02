@@ -1,26 +1,11 @@
-# Run of the object_detection workflow document (documentation/task workflows/object_detection_workflow.md), trained on
-# the GPU on 2026-10-24 so that its Stages 3 to 5 show the outputs of the current code (ground truth proposals, the NMS
-# thresholds of the configuration, the IoU 0.95 columns, the mean average recall and the weight moving average). A copy
-# of vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml with its own experiment folder
-# (experiments/workflow_runs), 5000 iterations (the samples of a 2000 iteration run are nearly empty), a checkpoint
-# evaluated every 500 iterations and MLflow tracking on.
-# Synthetic shapes dataset (the 35 SHAPE_CATEGORIES classes, square to hollow_capsule, from 64 pixels to a third of the
-# image side, a dataset made before the last twenty-six were added keeping the first nine), created by
-# vision_training/data/synthetic/create_synthetic_dataset.py with the "instance_segmentation" task: the detector reads
-# its boxes (of the visible part of every shape), so that detection and instance segmentation train on the same images.
-# A trivial task checking that the detector learns.
+# Run of documentation/task workflows/object_detection_workflow.md (trained 2026-10-24, 5000 iterations), a copy of
+# object_detection/configuration_synthetic_shapes.yaml (instance segmentation shapes) in experiments/workflow_runs.
 ExperimentConfiguration:
-  # Task trained, selecting the trainer, model and checks. "object_detection" trains the two-stage detector; needs
-  # RegionProposal, DetectionLevels and Detector. Labels are COCO annotations, crowd annotations (iscrowd 1) being
-  # ordinary objects.
+  # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
+  # DetectionLevels and Detector. Labels: COCO annotations, crowd ones (iscrowd 1) as ordinary objects.
   task: "object_detection"
-  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, levels, anchors,
-  # heads, classes, optimizer and weight decay unless plain Adam): the same settings resume, changed ones start a new
-  # folder, e.g. (without the line break)
-  #   DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_
-  #   DSE-DRES-DBN-D7.2x64.256.128_BIN
-  # The augmentation, batch size, learning rate and its schedule, and gradient clipping give no token and can change on
-  # resume (format: vision_training/configuration_processing/run_name.py).
+  # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
+  # batch size, learning rate, schedule, gradient clipping can change on resume.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/workflow_runs"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
@@ -45,46 +30,32 @@ ExperimentConfiguration:
   validation_iteration_ratio: 0
   # Test evaluation at every weight_saving_iterations checkpoint: mean average precision (mAP) on the whole test split.
   evaluation:
-    # Reports every class: the class table (ground truth boxes, area method AP at IoU 0.5, 0.75, 0.95 and 0.5:0.95,
-    # worst AP@0.5 first, the threshold reaching target_precision with the recall it keeps) and the recall table (recall
-    # at IoU 0.5 and 0.75 with their 95% intervals, worst recall at 0.5 first) in the console and Results.txt, the
-    # AP@0.5 Test scalars in TensorBoard, and confusion_matrix.png (also in TensorBoard). False keeps the mean average
-    # precisions only; class_metrics.csv, class_thresholds.json and confusion_matrix.csv are always saved.
+    # Reports every class: AP and recall tables (console, Results.txt), AP@0.5 in TensorBoard, confusion matrix. False:
+    # mean average precisions only; CSV and JSON files always saved.
     per_class_report: True
-    # Test images drawn once and shown at every evaluation: ground truth boxes next to the detections reaching
-    # Detector.inference.score_threshold (the deployment threshold, not evaluation.score_threshold), in the colour of
-    # their class, saved in Evaluation/Iteration_<n>/Samples/ and TensorBoard, evenly spread over the test images. 0
-    # disables.
+    # Test images drawn once, evenly spread, shown at every evaluation: ground truth boxes next to detections above
+    # Detector.inference.score_threshold, in Evaluation/Iteration_<n>/Samples/ and TensorBoard. 0 disables.
     number_sample_images: 8
-    # Minimum class probability of the detections kept for the mAP, replacing Detector.inference.score_threshold during
-    # evaluation only: the mAP needs low-confidence detections too, or the end of the precision-recall curve is cut and
-    # the mAP underestimated. Within [0, 1].
+    # Lowest class probability of the detections kept for the mAP, replacing Detector.inference.score_threshold in
+    # evaluation only; keep it low, or the precision-recall curve is cut and the mAP underestimated. Within [0, 1].
     score_threshold: 0.05
-    # Precision the score threshold of every class must reach, saved in class_thresholds.json for a class-by-class
-    # deployment: from the most confident, the detections of a class are right when they find an object of the class at
-    # IoU 0.5 (AP@0.5 matching), and the lowest score keeping the precision (highest recall) is saved with its recall.
-    # Only detections reaching score_threshold give a threshold. Within [0, 1].
+    # Precision every class score threshold must reach, saved with its recall in class_thresholds.json for deployment
+    # (AP@0.5 matching); only detections reaching score_threshold count. Within [0, 1].
     target_precision: 0.99
-    # Saves the errors of the detections reaching Detector.inference.score_threshold (as deployed, matched at IoU 0.5,
-    # right class first, as in confusion_matrix.csv) as images at every evaluation:
-    # 'Evaluation/Iteration_<n>/Errors/FALSE-POSITIVE/<class>/' for a detection without object, 'Errors/MISSED/<class>/'
-    # for an undetected object and 'Errors/<TRUE>-TO-<PREDICTED>/' for a wrong class. Drawn like the sample images, the
-    # boxes in error in red dashes and the errors first in the caption, named '<image>_<score>.png' after the highest
-    # error score ('<image>.png' for missed objects).
+    # Saves error images of detections reaching Detector.inference.score_threshold (IoU 0.5) at every evaluation in
+    # Evaluation/Iteration_<n>/Errors/: FALSE-POSITIVE/<class>/, MISSED/<class>/, <TRUE>-TO-<PREDICTED>/.
     error_dumps:
       # Saves error images.
       activated: False
       # Most images saved per error folder, the first met.
       maximum_per_class_pair: 20
-  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
-  # metrics and small artifacts (configuration, confusion matrices, class metrics and thresholds, Results.txt). An
-  # MLflow error only prints a warning.
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
+  # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
     activated: True
-    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
-    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
-    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
     # MLflow experiment, null for the task name ("object_detection").
     experiment_name: null
@@ -99,6 +70,9 @@ ExperimentConfiguration:
       # Shows the network input: Training and Validation windows with the images and their ground truth boxes. SPACE:
       # next images, ENTER: exit without training (set False to train). Needs a display; no run folder is created.
       view_input_images: False
+      # Prints the share of the training, validation and test objects with an anchor overlapping them by
+      # iou_threshold, per level and size, then exits without training; no run folder is created.
+      compute_anchor_coverage: { activated: False, iou_threshold: 0.5 }
 
 Optimization:
   # Optimizer: "adam", "adamw" (decoupled weight decay) or "sgd" (Nesterov momentum 0.9), at
@@ -117,19 +91,15 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
-  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
-  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
-  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
-  # 'pretrained' transfers load the averaged weights when present.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
+  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True
     # Share of the average kept per update, strictly between 0 and 1.
     decay: 0.9998
-  # Weight of every detector loss in the total loss, e.g. above 1 on the regression losses when objects are found but
-  # their boxes poorly placed. Losses are tracked unweighted, the total weighted. Numbers >= 0, not all 0, a loss at 0
-  # leaving the layers only it trains unchanged. No run name token, can change on resume.
+  # Weight of every detector loss in the total loss, e.g. above 1 on the regression losses for poorly placed boxes.
+  # Numbers >= 0, not all 0, 0 freezing the layers only it trains; losses logged unweighted; can change on resume.
   loss_weights:
     # Objectness of the sampled region proposal anchors.
     region_proposal_classification_loss: 1.0
@@ -282,22 +252,18 @@ Backbone:
     # Learning rate factor of the loaded backbone, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0
 
-# Detection levels: every key is the quoted number of a Backbone.convolutions block (from "1") whose feature map feeds
-# the heads of the level, from the finest map to the coarsest. Every level has its own anchors, region proposal and
-# detection heads; the shared settings are in RegionProposal and Detector. Every proposal and detection uses the heads
-# and feature map of the level of its anchor. Instance segmentation adds a mask_head to every level.
+# Detection levels, finest to coarsest: each key is the quoted number of a Backbone.convolutions block (from "1") whose
+# map feeds the anchors and heads of the level; shared settings in RegionProposal and Detector.
 DetectionLevels:
   "5":
-    # Anchors per feature map position, one per scale and aspect ratio: a scale is the side in input pixels of a square
-    # anchor, an aspect ratio the height / width at the same area. scales x aspect_ratios gives the outputs of the
-    # region proposal head.
+    # Anchors per position, one per scale (square side, input pixels) and aspect ratio (height / width, same area);
+    # scales x aspect_ratios gives the region proposal head outputs.
     anchors: { scales: [32, 64], aspect_ratios: [0.5, 1.0, 2.0] }
     # Region proposal head: [number_layers, output_channels] of its convolutions, before its objectness and box
     # regression layers.
     region_proposal: { convolutions: [2, 32] }
-    # Detection head: RoIAlign grid side pooled per proposal, [number_layers, output_channels] of its convolutions
-    # (multiples of 8 with Detector.modules.inception) and its fully connected sizes before the classifier and box
-    # regressor.
+    # Detection head: RoIAlign grid side per proposal, [number_layers, output_channels] of its convolutions (multiples
+    # of 8 with Detector.modules.inception), then fully connected sizes before the classifier and box regressor.
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "6":
     anchors: { scales: [64, 128], aspect_ratios: [0.5, 1.0, 2.0] }
@@ -346,9 +312,8 @@ RegionProposal:
   total_training_samples: 256
   # Smooth L1 beta of the box regression loss.
   localisation_loss_beta: 1/9
-  # Region proposal heads of another DET or INS run initialising this one. Levels, per-level region_proposal and anchors
-  # per position (scales x aspect_ratios), normalization and the channels of the feeding backbone blocks must match;
-  # other anchor scales or ratios of the same counts are reported, not refused.
+  # Region proposal heads of another DET or INS run initialising this one; levels, per-level region_proposal, anchors
+  # per position, normalization and backbone channels must match (other scales or ratios only reported).
   pretrained:
     # Run folder of the loaded region proposal heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
@@ -394,9 +359,8 @@ Detector:
   total_training_samples: 128
   # Smooth L1 beta of the box regression loss.
   localisation_loss_beta: 1/9
-  # Detection heads of another DET or INS run initialising this one, with their classification and per-class box layers.
-  # Levels, per-level detectors, normalization, modules and the channels of the feeding backbone blocks must match. The
-  # source classes (its data.json) must come first in this run, in order; appended classes stay random.
+  # Detection heads of another DET or INS run initialising this one; levels, per-level detectors, normalization, modules
+  # and backbone channels must match; source classes (its data.json) first, in order, appended ones random.
   pretrained:
     # Run folder of the loaded detection heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null

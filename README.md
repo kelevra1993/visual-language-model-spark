@@ -17,6 +17,7 @@
   - [Stopping And Resuming](#stopping-and-resuming)
   - [Data Augmentation](#data-augmentation)
   - [Viewing The Input Images](#viewing-the-input-images)
+  - [Checking The Anchor Coverage](#checking-the-anchor-coverage)
   - [TensorBoard Monitoring](#tensorboard-monitoring)
   - [Moving Average Of The Weights](#moving-average-of-the-weights)
 - [Tasks](#tasks)
@@ -203,6 +204,9 @@ uv run python -m scripts.data.visualize_augmentation_strengths
 <p align="center">
   <img src="README/input_viewer.png" width="100%" />
 </p>
+
+### Checking The Anchor Coverage
+`ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (object detection and instance segmentation) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, per detection level and object size, then exits without training. It reads the annotations only, with a progress bar per split, and creates no run folder.
 
 ### TensorBoard Monitoring
 Start TensorBoard on the folder of a run and open http://localhost:6006:

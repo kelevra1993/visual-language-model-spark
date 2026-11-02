@@ -179,7 +179,7 @@ main()
 │           ├── view_input_batches() -> show_input_samples() -> get_input_sample_image() -> overlay_instance_masks()
 │           │                                                        (only with view_input_images)
 │           ├── analyse_training_data()                              anchor recall on the boxes of the segmentations
-│           │   └── gather_training_object_boxes() -> select_image_objects(boxes_from_segmentation=True) ->
+│           │   └── gather_object_boxes() -> select_image_objects(boxes_from_segmentation=True) ->
 │           │       compute_segmentation_bounding_box()              the box of every object read from its polygons
 │           │                                                        or RLE, not from 'bbox'
 │           └── restore_last_model()
@@ -627,7 +627,7 @@ The panels of the detection (backbone, region proposal, detection, receptive fie
 With `diagnosis_modes.view_input_images` on, the input viewer of the detection (`show_input_samples()`, see `object_detection_workflow.md`, Step 2.20) draws the boxes over the masks of the objects, every mask filled with the colour of its class by `overlay_instance_masks()` (`view_input_data()` of `vision_training/utilities/visualization.py` showing the windows). The configuration turns it off.
 
 ### Step 2.18 — `analyse_training_data()` → anchor recall
-The anchor recall of the detection (see `object_detection_workflow.md`, Step 2.21), on the boxes of the segmentations, the boxes the detector learns: `gather_training_object_boxes()` reads them with `select_image_objects(boxes_from_segmentation=True)`, since the dataset loads the instance masks. It reads the manifest only, so the 358 objects are measured without decoding any mask.
+The anchor recall of the detection (see `object_detection_workflow.md`, Step 2.21), on the boxes of the segmentations, the boxes the detector learns: `gather_object_boxes()` reads them with `select_image_objects(boxes_from_segmentation=True)`, since the dataset loads the instance masks. It reads the manifest only, so the 358 objects are measured without decoding any mask.
 
 **Example output**
 ```text
@@ -642,8 +642,8 @@ Anchor Recall Of The Training Objects
  Medium (32² to 96²)     164    0.7622    0.2561    0.0671       0.7622
  Large (>= 96²)          192    1.0000    0.7708    0.7708       1.0000
 Share of the objects whose best anchor overlaps them by at least 0.5 (RegionProposal.foreground_iou_threshold.min),
-sizes by box area in network input pixels. The other objects only get their single best anchor as foreground. — : no
-object of the size.
+sizes by box area in network input pixels. An object under RegionProposal.foreground_iou_threshold.min in every level
+only gets its single best anchor as foreground. — : no object of the size.
 ```
 The table is saved in `anchor_recall.csv` (263 bytes) and sent to MLflow as an analysis file.
 

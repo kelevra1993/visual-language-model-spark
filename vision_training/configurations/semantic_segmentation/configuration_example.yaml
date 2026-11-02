@@ -1,16 +1,11 @@
-# Template of a semantic segmentation dataset (one class per pixel): images in <split>/data/, masks in <split>/masks/
-# and a <split>/labels.json listing the 'categories' and the 'samples' (their 'file_name' and 'mask_file_name'). A mask
-# is a single-channel uint8 PNG of the image size holding the category of every pixel (0 background, 255 unlabelled).
-# Point the data folders below to an actual dataset.
+# Semantic segmentation dataset template: images in <split>/data/, masks in <split>/masks/ (uint8 single-channel PNG,
+# image size, 0 background, 255 unlabelled), <split>/labels.json: categories, samples (file_name, mask_file_name).
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "semantic_segmentation" trains the U-Net semantic segmenter
   # (one class per pixel); needs SegmentationDecoder and SegmentationLoss.
   task: "semantic_segmentation"
-  # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, decoder, classes,
-  # optimizer and weight decay unless plain Adam): the same settings resume, changed ones start a new folder, e.g.
-  # SEG_IN-KAR-512_SE-RES-BN-B1x32.2x64.2x64.2x128.2x128.2x256_UTC-DBN-D2x128.2x128.2x64.2x64.1x32_MC4. The
-  # augmentation, batch size, learning rate and its schedule, gradient clipping, dropout rates and SegmentationLoss
-  # settings give no token and can change on resume (format: vision_training/configuration_processing/run_name.py).
+  # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
+  # batch size, learning rate, schedule, gradient clipping, dropout, SegmentationLoss can change on resume.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
@@ -33,44 +28,31 @@ ExperimentConfiguration:
   number_iterations: 1e10
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 25
-  # Test evaluation at every weight_saving_iterations checkpoint on the whole test split at the network input resolution
-  # (see original_resolution), padding and unlabelled pixels ignored: pixel accuracy, mean IoU, frequency-weighted IoU,
-  # mean Dice, mean boundary IoU and boundary F1, per-class IoU / Dice / boundary IoU / boundary F1 / precision /
-  # recall, the pixel confusion matrix and sample images saved in <run folder>/Evaluation/Iteration_<iteration>/.
+  # Test evaluation at every weight_saving_iterations checkpoint at network input resolution (see original_resolution),
+  # padding and unlabelled pixels ignored: pixel accuracy, mean IoU, Dice, boundary IoU and F1, per-class metrics.
   evaluation:
-    # Reports every class: the class table (test pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall, ROC
-    # AUC, average precision, worst IoU first) and the recall table (worst recall first, with its 95% interval) in the
-    # console and Results.txt, the per-class and macro scalars in TensorBoard, confusion_matrix.png and the
-    # one-against-rest ROC and precision-recall curves of the pixels from probability histograms of 10,000 bins
-    # (roc_curves.png, precision_recall_curves.png, one plot up to 10 classes, panels above), also in TensorBoard. False
-    # keeps the global metrics only (e.g. many classes); class_metrics.csv and confusion_matrix.csv are always saved.
+    # Reports every class: class (IoU, Dice, boundary metrics) and recall tables (console, Results.txt), TensorBoard
+    # scalars, confusion matrix, ROC and precision-recall curves. False: global metrics only; CSV files always saved.
     per_class_report: True
-    # Test images drawn once and shown at every evaluation as a grid of input, ground truth mask, predicted mask and
-    # error map (right class pixels green, wrong class red, class missed as background yellow), saved in
-    # Evaluation/Iteration_<n>/Samples/ and TensorBoard, evenly spread over the test images. 0 disables.
+    # Test images drawn once, shown at every evaluation: input, ground truth, prediction, error map (right green, wrong
+    # red, missed yellow), in Evaluation/Iteration_<n>/Samples/ and TensorBoard, evenly spread. 0 disables.
     number_sample_images: 16
-    # Saves the predicted mask of every test image at every evaluation in Evaluation/Iteration_<n>/Predicted_Masks/
-    # (single-channel PNG of class indices at the evaluated resolution, see original_resolution). Grows with the test
-    # set; False skips it on large ones.
+    # Saves the predicted mask of every test image (class index PNG, evaluated resolution) at every evaluation in
+    # Evaluation/Iteration_<n>/Predicted_Masks/. Grows with the test set; False skips it on large ones.
     save_predicted_masks: False
-    # Computes the metrics at the original resolution of every test image against its original mask, the probabilities
-    # resized back to the image (without keep_ratio padding), as deployed: thin structures lost by mask resizing are
-    # then scored. False scores at the network resolution (or the tile scale with Data.tiling). Predicted masks are
-    # saved at the same resolution.
+    # Scores every test image at its original resolution against its original mask, as deployed (padding removed); False
+    # scores at the network (or tile, Data.tiling) resolution. Predicted masks are saved at the same resolution.
     original_resolution: False
-    # Pixels (at the evaluated resolution) within which a predicted contour counts as right for the boundary metrics
-    # (boundary IoU of bands of that width inside the true and predicted regions, boundary F1 of their edges), at least
-    # 1.
+    # Pixels (at the evaluated resolution) within which a predicted contour counts as right for boundary IoU (bands of
+    # that width inside true and predicted regions) and boundary F1 (edges); at least 1.
     boundary_tolerance: 2
-  # MLflow tracking next to TensorBoard: hyperparameters, metric averages per information_dump, learning rate, test
-  # metrics and small artifacts (configuration, confusion matrices, class metrics, Results.txt). An MLflow error only
-  # prints a warning.
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
+  # (configuration, confusion matrices, class metrics, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
     activated: False
-    # MLflow server address (e.g. "http://192.168.1.20:5000"), or null for <experiment_folder>/mlflow.db, browsed with
-    # "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". Credentials come from
-    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD.
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
     # MLflow experiment, null for the task name ("semantic_segmentation").
     experiment_name: null
@@ -103,11 +85,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average (EMA) of the weights, updated after every optimizer step:
-  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
-  # It averages about the last 1 / (1 − decay) iterations (0.999: 1,000). Every test evaluation also scores it
-  # (Evaluation/Iteration_<n>/EMA/, Test_EMA curves). Saved in the checkpoints, no run name token, can change on resume;
-  # 'pretrained' transfers load the averaged weights when present.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
+  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: False
@@ -120,10 +99,8 @@ Data:
     size: 512
     # Keeps the original aspect ratio when resizing, mask padding being ignored.
     keep_ratio: True
-  # Training on tiles, for images much larger than the network input holding small objects: images and masks are scaled
-  # by 'scale', training samples are image_settings.size tiles at random places (fixed per image in validation), and
-  # test images are segmented whole tile by tile, overlapping probabilities averaged, one image per batch. keep_ratio is
-  # unused. Inference clients tile large images with vision_training/models/segmentation/sliding_window.py.
+  # Tiles for images much larger than the input: images and masks scaled by 'scale', image_settings.size tiles at random
+  # places (fixed in validation), test images tiled whole, overlaps averaged, one per batch; keep_ratio unused.
   tiling:
     activated: False
     # Image and mask scale before tiling, 1.0 for full resolution.
@@ -131,9 +108,8 @@ Data:
     # Pixels shared by two neighbouring test tiles, below image_settings.size.
     overlap: 128
   label_mapping:
-    # "binary" maps every mask category (pixel values 1 to 254) to the foreground class 1, next to the background 0.
-    # "multi_class" uses the mapping file (class 0 being the background, pixel value 0); an unmapped category becomes
-    # background, and the pixel value 255 marks unlabelled pixels, ignored by losses and metrics.
+    # "binary": mask categories (pixel values 1 to 254) become class 1, background 0. "multi_class": the mapping file
+    # (class 0 background), unmapped categories background; pixel 255 unlabelled, ignored by losses and metrics.
     mode: "multi_class"
     # JSON file mapping the dataset category IDs to sequential class IDs.
     mapping_file_path: "/home/robert_kelevra/Data/segmentation_data/semantic_segmentation/label_mapping.json"
@@ -273,10 +249,8 @@ SegmentationDecoder:
   # Resolution doubling at every decoder level: "transposed" (learned 2x2 transposed convolution, stride 2) or
   # "bilinear" (bilinear upsampling then a 1x1 convolution to the level channels).
   upsampling: "transposed"
-  # Convolution block of every decoder level, keyed by the backbone block whose skip connection it merges, as [3x3
-  # convolutions, output channels], from the deepest level to the input resolution; the upsampled tensor is concatenated
-  # with the skip connection before the block. Every skip connection needs its level: blocks 1 to N-1 of an N block
-  # backbone, and block N with Backbone.last_max_pooling.
+  # [3x3 convolutions, output channels] of every decoder level, keyed by the backbone block whose skip connection it
+  # concatenates, deepest first; levels needed: blocks 1 to N-1 of N, and N with Backbone.last_max_pooling.
   convolutions:
     {
       "5": [ 2, 128 ],
@@ -298,14 +272,11 @@ SegmentationDecoder:
   batch_normalization_momentum: 0.1
   # Whole channel dropout before the final 1x1 class convolution, within [0, 1), 0 to disable.
   dropout_rate: 0.0
-  # Deep supervision: a 1x1 head on every listed decoder level (keyed like convolutions), its class logits upsampled to
-  # the input size and trained with the same losses times the level weight, to bring the gradient closer to the early
-  # layers; training only, never in inference or exports. Intermediate levels only (the finest gives the segmentation),
-  # e.g. { "5": 0.1, "4": 0.2, "3": 0.3, "2": 0.4 }; {} for none.
+  # Deep supervision: 1x1 heads on listed intermediate decoder levels (keyed like convolutions), same losses x level
+  # weight, training only. E.g. { "5": 0.1, "4": 0.2, "3": 0.3, "2": 0.4 }; {} for none.
   deep_supervision_weights: {}
-  # Decoder of another semantic segmentation run initialising this one. Upsampling, convolutions, modules, normalization
-  # and the channels of the backbone blocks feeding its skip connections must match. The final 1x1 class convolution and
-  # the deep supervision heads only transfer with load_class_layers, the classes being free otherwise.
+  # Decoder of another semantic segmentation run initialising this one; upsampling, convolutions, modules, normalization
+  # and skip connection channels must match. Its class convolution and supervision heads need load_class_layers.
   pretrained:
     # Run folder of the loaded decoder, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
@@ -313,9 +284,8 @@ SegmentationDecoder:
     iteration: null
     # Freezes the loaded decoder (no gradient, frozen batch statistics). Requires experiment_folder.
     freeze: False
-    # Also loads the segmentation head and the deep supervision heads of the levels in both runs, which keep learning
-    # when the decoder is frozen. The source classes (its data.json) must come first in this run, in order; appended
-    # classes stay random. Requires experiment_folder; gives the DCL token.
+    # Also loads the segmentation head and deep supervision heads of levels in both runs; source classes (its data.json)
+    # first in this run, in order, appended ones random. Requires experiment_folder; gives the DCL token.
     load_class_layers: False
     # Learning rate factor of the loaded decoder, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0
@@ -334,9 +304,8 @@ SegmentationLoss:
   # Weight of the soft Dice loss (one minus the mean Dice of the batch classes), counting every class equally whatever
   # its area, 0 to disable.
   dice_weight: 1.0
-  # Weight of the Lovasz-Softmax loss, optimising the IoU of every class directly (a convex surrogate of 1 - IoU
-  # averaged over the batch classes), often added late in training to push the mean IoU further, 0 to disable. The cross
-  # entropy, Dice and Lovasz weights cannot all be 0.
+  # Weight of the Lovasz-Softmax loss, a convex surrogate of 1 - IoU per class averaged over the batch classes, 0 to
+  # disable; the cross entropy, Dice and Lovasz weights cannot all be 0.
   lovasz_weight: 0.0
   # Weight of the boundary loss, the cross entropy of the pixels near the true edges (with a neighbour of another
   # class), weighted 1 on the edges down to 0 beyond boundary_distance pixels, for precise contours; 0 disables.
