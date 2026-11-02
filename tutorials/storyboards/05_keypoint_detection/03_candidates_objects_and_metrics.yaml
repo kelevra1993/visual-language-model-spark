@@ -158,6 +158,7 @@ scenes:
     narration:
       - "Per class, the {{keypoint_detection.worst_class}} is the weakest at {{keypoint_detection.worst_class_ap:.3f}}; per key point, the {{keypoint_detection.worst_keypoint_name}} of the {{keypoint_detection.worst_keypoint_class}}, with a PCK of {{keypoint_detection.worst_keypoint_pck:.3f}} and {{keypoint_detection.worst_keypoint_error:.0f}} pixels of mean error."
       - "Both tables come from class metrics and key point metrics, written in the evaluation folder of every checkpoint next to its sample images and to the same files for the averaged weights."
+      - "Class metrics also holds the recall of every class at an OKS of 0.5 and 0.75, with its exact 95% interval over its objects, shown worst first in a recall table of the per-class report."
 
   - kind: terminal
     title: "Generate, train, evaluate, export"
@@ -172,7 +173,7 @@ scenes:
       - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
-      - "To reproduce it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration."
+      - "To reproduce it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration set to {{keypoint_detection.run_iterations}} iterations and a cosine decay over {{keypoint_detection.run_decay_iterations}}."
       - "The evaluation script skips its maximum error images per class pair with a yellow warning, key point detection saving no error images."
       - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
 

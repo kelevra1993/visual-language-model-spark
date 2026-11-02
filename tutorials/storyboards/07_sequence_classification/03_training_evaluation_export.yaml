@@ -67,10 +67,11 @@ scenes:
       - {match: "^   moving_left ", sentences: [1]}
       - {match: "Threshold|@ P0.99|Worst F1 first", sentences: [3]}
     narration:
-      - "The results file gets one block per evaluated checkpoint: the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-2 accuracy, the macro ROC AUC and the macro average precision."
+      - "The results file gets one block per evaluated checkpoint: the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-k accuracy, the macro ROC AUC and the macro average precision."
       - "At iteration 500, one test sequence is wrong: sequence {{sequence_classification.evaluation.flatten_128.first_wrong.number}}, a {{sequence_classification.evaluation.flatten_128.first_wrong.true_class}} shape given {{sequence_classification.evaluation.flatten_128.first_wrong.predicted_class}} at {{sequence_classification.evaluation.flatten_128.first_wrong.probability:.2f}}, hence the recall of moving left."
       - "At iteration 1000, every metric of the block is {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:.0f}}."
       - "The per-class table is sorted by F1, worst first, with the lowest threshold keeping a precision of 0.99 and the recall it keeps."
+      - "Evaluations newer than this run also add a Per Class Recall table: the recall of every class with its exact Clopper-Pearson 95% confidence interval, the test sequences being independent."
 
   - kind: image
     title: "Flatten against average"

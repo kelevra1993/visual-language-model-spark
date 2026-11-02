@@ -88,7 +88,7 @@ scenes:
       - "Everything else is scheduled in iterations: in this run, a console summary every {{foundations.run.information_dump}} iterations."
       - "A checkpoint every {{foundations.run.intermediate_weight_saving_iterations}} iterations, and every {{foundations.run.weight_saving_iterations}}, a checkpoint that is also evaluated on the whole test split."
       - "Within one iteration the order is fixed: the optimizer step, the checkpoint, the validation batch, the console summary, and the test evaluation last."
-      - "Take a run launched from a synthetic configuration: it sets ten to the power of ten iterations, so the run goes on until you stop it."
+      - "Take a run launched from the synthetic classification configuration: it sets ten to the power of ten iterations, so the run goes on until you stop it."
 
   - kind: image
     title: "The console summary"

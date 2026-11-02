@@ -52,6 +52,7 @@ scenes:
       - "The top-2 selection accuracy and the mean true frame rank score the probabilities before any decoding: every true frame is among the two most probable of its class, and the mean rank is {{frame_selection.evaluation.mean_true_frame_rank:.3f}}."
       - "The frame metrics take the most probable class of every frame, before decoding: a frame accuracy of {{frame_selection.evaluation.frame_accuracy:.4f}}."
       - "The per-class table puts the worst class first, the triangle; at iteration two thousand, every selection metric is {{frame_selection.evaluation.iteration_2000.hungarian_selection_accuracy:.0f}}."
+      - "The current code adds a Per Class Recall table after it: the selection accuracy of every class with the run's decoding, and its 95% Korn-Graubard interval over the test sequences, whose frames are chosen together."
 
   - kind: image
     title: "The three wrong picks of iteration 1000"
@@ -152,7 +153,7 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Selection accuracy of both decodings, the run's one first"}
+      - {text: "Selection accuracy of both decodings, the run's decoding as headline"}
       - {text: "Top-k and mean rank: the probabilities before decoding"}
       - {text: "Thresholds at the target precision flag the doubtful picks"}
       - {text: "selections.csv: one row per sequence and wanted class"}

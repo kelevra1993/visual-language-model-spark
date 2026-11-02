@@ -16,6 +16,7 @@ references:
   - "vision_training/data/detection/coco_dataset.py · select_image_objects"
   - "vision_training/models/detection/anchors.py · Anchors.generate_anchors"
   - "vision_training/evaluation/detection/region_recall.py · summarise_anchor_recall"
+  - "vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml · ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage"
   - "vision_training/models/detection/region_proposer.py · RegionProposalFilter.forward"
   - "documentation/task workflows/object_detection_workflow.md"
 scenes:
@@ -185,11 +186,13 @@ scenes:
       - {type: text, position: [1230, 170], text: "measured at every launch\nfrom the annotations,\nwithout loading an image", font: diagram_small, colour: dim}
       - {type: text, position: [1230, 330], text: "large boxes from 96 pixels:\nbeyond the 64 pixel\nanchors of block 5", font: diagram_small, colour: dim, appear: 2}
       - {type: text, position: [1230, 490], text: "the other objects:\nonly their single best\nanchor, the fallback", font: diagram_small, colour: dim, appear: 3}
+      - {type: box, box: [470, 640, 1730, 730], text: "diagnosis_modes.compute_anchor_coverage: this table for the training, validation\nand test objects at its iou_threshold, then exit: no training, no run folder", font: diagram_small, outline: accent, appear: 4, highlight: [4]}
     narration:
       - "At every launch, the trainer measures how well the anchors fit the training objects, from the annotations alone, and writes anchor recall dot csv in the run folder."
       - "Of the {{object_detection.anchor_recall.all.count:,}} training objects, {{object_detection.anchor_recall.all.recall_all_levels:.1%}} have an anchor reaching 0.5 in some level."
       - "Block 5 covers {{object_detection.anchor_recall.medium.recall_block_5:.1%}} of the medium objects and none of the large ones, which blocks 6 and 7 take at {{object_detection.anchor_recall.large.recall_block_6:.1%}}."
       - "Only {{object_detection.anchor_recall.small.recall_all_levels:.1%}} of the {{object_detection.anchor_recall.small.count:,}} small objects have one; the others rely on the fallback alone, and the evaluation shows the cost."
+      - "To check the anchors before training, the compute anchor coverage diagnosis mode prints this table for the training, validation and test objects at its own overlap threshold, then exits without creating a run folder."
 
   - kind: html
     page: diagram
@@ -284,6 +287,7 @@ scenes:
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
       - "Assuming you would like to reproduce the run, generate the data set of the instance masks with the synthetic data set script, its task set in its main block; a new data set has 35 shapes, the one of this run 20."
+      - "With its hard objects option, the object detection task of the script draws the images of the detection benchmark instead: small, faint, covered or cut shapes next to very large ones."
       - "The training takes the synthetic detection configuration, which stops at two thousand iterations; the run shown here was resumed to five thousand."
       - "The evaluation script evaluates any checkpoint again, set in its main block like every script but the training."
 

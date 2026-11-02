@@ -75,6 +75,7 @@ scenes:
       - "The results file gives the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-1 accuracy, equal to the accuracy as it counts the most probable class only, and the macro ROC AUC and average precision."
       - "Same number of objects comes first, its F1 the lowest: a recall of 1, but a precision of {{sequence_comparison.evaluation_class.same_precision:.3f}}."
       - "Loss of object keeps a precision of one with a recall of {{sequence_comparison.evaluation_class.loss_recall:.3f}}: every error is a missed loss."
+      - "The current code adds a Per Class Recall table after this one, worst recall first: every recall with its exact 95% confidence interval, the pairs being independent."
 
   - kind: image
     title: "The evaluation images"
