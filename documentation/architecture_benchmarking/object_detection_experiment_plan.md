@@ -44,11 +44,13 @@ Every launch gives its test mean average precision at every evaluation (every 50
 
 ### Stage 1: Learning Rate (8 launches, 15,000 iterations)
 
-| Value | Launches |
-|---|---|
-| 1e-3 | run_1, run_2 |
-| 1e-4 | run_3, run_4 |
-| 2e-4 | run_5, run_6 |
-| 2e-3 | run_7, run_8 |
+The learning rates are searched one pair at a time instead of all trained, as the user asked on 2026-11-02 so that no pair is trained once the answer is known, the early iterations of the smaller learning rates mostly measuring their speed: 2e-3 first, kept if better than 1e-3 and the stage then ending; otherwise 2e-4, the stage ending on 1e-3 if 2e-4 is not better, and 1e-4 last if it is.
 
-A pair trains in about 18 to 19 hours (4500 iterations of run_1 and run_2 in about 5.5 hours, test evaluations included), the stage in about 3 days.
+| Order | Value | Launches |
+|---|---|---|
+| reference | 1e-3 | run_1, run_2 |
+| 1 | 2e-3 | run_3, run_4 |
+| 2 (if 2e-3 is not better) | 2e-4 | run_5, run_6 |
+| 3 (if 2e-4 is better) | 1e-4 | run_7, run_8 |
+
+A pair trains in about 18 to 19 hours (4500 iterations of run_1 and run_2 in about 5.5 hours, test evaluations included), the stage in 1.5 to 3 days depending on the search.
