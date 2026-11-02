@@ -51,6 +51,7 @@ scenes:
       - "The balanced accuracy, on the same line, is {{sequence_labelling.evaluation.balanced_accuracy:.4f}}: one over 71, a single class ever right."
       - "The macro F1 is {{sequence_labelling.evaluation.macro_f1:.3f}}, and the top-2 accuracy {{sequence_labelling.evaluation.top_2_accuracy:.4f}}, barely above the accuracy."
       - "The per-class rows confirm it: no change has a recall of one and a precision of {{sequence_labelling.evaluation.accuracy:.2f}}, and every change class a recall of zero."
+      - "Evaluations newer than this run also add a Per Class Recall table: the frame recall of every class with a 95% Korn-Graubard confidence interval over the test sequences, whose frames are correlated."
 
   - kind: image
     title: "What the predictions file shows"
@@ -202,7 +203,7 @@ scenes:
       - {match: "type: \"lstm\"|causal|global_pooling|class_weighting|size: 256|batch_size", sentences: [0]}
       - {match: "exponential_moving_average|activated: True|decay", sentences: [1]}
     narration:
-      - "The launches of the sequence labeling experiment plan, run one to run 12, start from other values: a causal LSTM, flatten pooling, balanced class weights, frames of 256 pixels and batches of 64 sequences."
+      - "The launches of the sequence labeling experiment plan, run one to run 50, start from other values: a causal LSTM, flatten pooling, balanced class weights, frames of 256 pixels and batches of 64 sequences."
       - "They keep a moving average of the weights and are compared on the test macro F1 of the averaged weights, which weighs every change as much as the frequent no change frames."
       - "At iteration 2000 of the learning rate stage, the launches at 0.001 reach a macro F1 of 0.024 on average and still rise, so the later stages train 6000 iterations."
       - "One launch at 0.002 stayed at 0.0068 from iteration 500 on, the score of a model that only learns that the first frame is no change: the same failure, caught by the same metric."

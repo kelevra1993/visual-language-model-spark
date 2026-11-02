@@ -133,10 +133,12 @@ scenes:
       - {type: text, position: [1060, 40], text: "k-NN F1 per class · iteration {{self_supervised.results.last_iteration:,}}", font: diagram_bold, appear: 1}
       - {type: bars, box: [1060, 100, 1720, 600], orientation: horizontal, values: "{{self_supervised.classes.f1_values}}", labels: "{{self_supervised.classes.f1_labels}}", value_labels: "{{self_supervised.classes.f1_value_labels}}", colour: blue, maximum: 0.5, label_width: 160, appear: 1, highlight: [2]}
       - {type: text, position: [1060, 650], text: "class_metrics.csv: the same metrics in class order", font: diagram_small, colour: dim, appear: 1}
+      - {type: text, position: [1060, 690], text: "newer evaluations: k-NN recall with its 95% interval", font: diagram_small, colour: dim, appear: 3, highlight: [3]}
     narration:
       - "Results.txt keeps one block per evaluation: the five global metrics, the labelled test images, the number of neighbours and the sample images."
       - "Then the table of the classes, worst F1 first, the class metrics file holding the same rows in class order."
       - "The {{self_supervised.classes.best_class}} and the {{self_supervised.classes.second_class}} lead with an F1 of {{self_supervised.classes.best_f1:.2f}} and {{self_supervised.classes.second_f1:.2f}}, while {{self_supervised.classes.bottom_four}} stay near {{self_supervised.classes.worst_f1:.2f}}: the shapes closest to a disc are the ones this backbone still mixes up."
+      - "Evaluations newer than this run add a per class k-NN recall table, the worst recall first, with the exact 95% confidence interval of every recall over the labelled test images of its class."
 
   - kind: image
     title: "The first validations"

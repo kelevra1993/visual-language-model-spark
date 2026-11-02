@@ -99,7 +99,7 @@ scenes:
     narration:
       - "The learning rate sets the size of the steps, and the benchmark of the repository tried five values on the synthetic shapes, two launches each."
       - "One and two ten-thousandths learn within a thousand iterations, at {{foundations.benchmark.learning_rate.learning_rate_1e_4.accuracy_1000:.1%}} and {{foundations.benchmark.learning_rate.learning_rate_2e_4.accuracy_1000:.1%}}, while from five ten-thousandths on, the launches stay near one class in nine for at least seven hundred and fifty iterations."
-      - "Two ten-thousandths was ahead over the first seven hundred and fifty iterations and became the value of the synthetic configurations: the largest usable value lies between two and five ten-thousandths."
+      - "Two ten-thousandths had the highest mean over the eight evaluations and became the value of the synthetic shapes classifier: the largest usable value lies between two and five ten-thousandths."
 
   - kind: image
     title: "Warm-up and cosine decay"

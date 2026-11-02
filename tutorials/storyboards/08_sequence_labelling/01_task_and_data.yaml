@@ -110,7 +110,7 @@ scenes:
       - "A sequence of the labels file lists its frames in order and, in frame category ids, the category of every frame: here no change twice, then disappearing trapezoid."
       - "The label mapping file maps every category to a class index, category one, no change, becoming class zero."
       - "A frame whose category the mapping leaves out gets the label minus 100: the loss and the metrics ignore it, and it ends a segment."
-      - "Imagine a list one category too long or too short: nothing checks it, so a longer list labels padding frames, and a shorter one silently drops real frames, an open item of the suggestions file."
+      - "Imagine a list one category too long or too short: nothing checks it, so the collate of the loader fails on the first batch holding that sequence, an open item of the suggestions file."
 
   - kind: image
     title: "The class balance and the position prior"

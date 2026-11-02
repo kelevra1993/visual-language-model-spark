@@ -1,5 +1,5 @@
-# COCO 2017 person keypoints, HigherHRNet-W32 on 512x512 images; split folders link the COCO images ('data') and
-# person_keypoints_<split>2017.json ('labels.json'); 56,599 train images, 7,390 iterations per epoch at batch 16.
+# COCO 2017 person keypoints, HigherHRNet-W32, 512x512 images; split folders link COCO images ('data') and labels.json
+# (person_keypoints_<split>2017.json); all 118,287 train images (56,599 with keypoints), 7,393 batches of 16 per epoch.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "keypoint_detection": bottom-up HigherHRNet keypoint
   # detector; needs HRNet, KeypointHead. Labels: COCO with object 'keypoints', category 'keypoints' and 'skeleton'.
@@ -15,7 +15,7 @@ ExperimentConfiguration:
   # Validation images and labels.json annotations.
   validation_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/validation"
   # Test images and labels.json: the COCO validation split (test keypoints withheld); objects without labelled keypoint
-  # are left out of the labels of every split, their images kept (6,352 of 11,004 validation persons).
+  # are left out of the labels of every split (6,352 of the 11,004 validation persons remain), their images kept.
   test_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/validation"
   # Whole images per forward/backward pass.
   batch_size: 16
@@ -42,7 +42,7 @@ ExperimentConfiguration:
     # x sqrt(box area) away scores exp(-0.5) = 0.61. For the keypoints missing from keypoint_sigmas; > 0.
     default_keypoint_sigma: 0.05
     # Standard deviation of chosen keypoints by category then name, others (all with {}) default_keypoint_sigma; merged
-    # categories must agree on shared keypoints. Below, the COCO sigmas (box area used: scores below COCO).
+    # categories must agree on shared keypoints. Below, COCO sigmas (box area, not COCO's mask area: more lenient OKS).
     keypoint_sigmas:
       person: { nose: 0.026, left_eye: 0.025, right_eye: 0.025, left_ear: 0.035, right_ear: 0.035,
                 left_shoulder: 0.079, right_shoulder: 0.079, left_elbow: 0.072, right_elbow: 0.072, left_wrist: 0.062,
@@ -87,8 +87,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
-  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
+  # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True

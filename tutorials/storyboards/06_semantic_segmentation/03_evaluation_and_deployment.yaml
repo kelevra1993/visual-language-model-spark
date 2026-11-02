@@ -38,9 +38,11 @@ scenes:
     highlights:
       - {match: "\"confusion_matrix\": torch.zeros", sentences: [0]}
       - {match: "\"boundary_counts\": torch.zeros", sentences: [0]}
-      - {match: "score_histograms", sentences: [1]}
+      - {match: "image_true_positive_pixels", sentences: [1]}
+      - {match: "score_histograms", sentences: [2]}
     narration:
       - "The accumulator holds the ten by ten confusion matrix of the labelled pixels and six boundary counts per class, summed batch after batch on the device."
+      - "It also keeps, for every test image, the pixels of every class and those predicted right: the 95% Korn-Graubard interval of every recall is then taken over whole images, whose pixels are correlated."
       - "The per-class report adds, for every class, two histograms of ten thousand bins of the probability of that class, for its pixels and for the others: every curve and metric comes from these counts."
 
   - kind: html
@@ -133,11 +135,13 @@ scenes:
         highlights:
           - {match: "class_metrics|confusion_matrix", sentences: [0]}
           - {match: "curves|Samples", sentences: [0]}
-      - {type: box, box: [40, 450, 1100, 670], text: "Results.txt: one block per checkpoint,\nthe classes sorted by IoU, worst first\nTensorBoard Test: {{semantic_segmentation.evaluation_test_scalars}} scalars and {{semantic_segmentation.evaluation_test_images}} images per evaluation", font: diagram_text, outline: violet, appear: 1, highlight: [1]}
-      - {type: box, box: [1160, 40, 1720, 670], text: "save_predicted_masks:\none class index PNG\nper test image\n\noriginal_resolution:\nscored against\nthe original masks", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
+          - {match: "class_metrics", sentences: [2]}
+      - {type: box, box: [40, 450, 1100, 670], text: "Results.txt: one block per checkpoint,\nthe classes sorted by IoU, worst first,\nand a recall table with 95% intervals\nTensorBoard Test: {{semantic_segmentation.evaluation_test_scalars}} scalars and {{semantic_segmentation.evaluation_test_images}} images per evaluation", font: diagram_text, outline: violet, appear: 1, highlight: [1, 2]}
+      - {type: box, box: [1160, 40, 1720, 670], text: "save_predicted_masks:\none class index PNG\nper test image\n\noriginal_resolution:\nscored against\nthe original masks", font: diagram_text, outline: aqua, appear: 3, highlight: [3]}
     narration:
       - "Every evaluation folder holds the class metrics, the confusion matrix as counts and as an image, the ROC and precision-recall curves and the sample images."
       - "The report goes to the results file, its classes sorted by IOU, worst first, and to TensorBoard with {{semantic_segmentation.evaluation_test_scalars}} scalars per evaluation, the per-class ones included."
+      - "In the report, a second table gives the recall of every class with its 95% interval, worst first, and the class metrics file keeps the bounds next to every recall."
       - "If, for instance, you need the masks, save predicted masks writes one class index image per test image, and original resolution scores the predictions against the original masks, as a deployment uses them."
 
   - kind: terminal

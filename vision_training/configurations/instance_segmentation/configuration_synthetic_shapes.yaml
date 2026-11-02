@@ -1,5 +1,5 @@
-# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", visible parts run length encoded), the
-# first 9 SHAPE_CATEGORIES classes (square to octagon) from 64 pixels to a third of the image side; sanity check.
+# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", visible parts run length encoded), 64
+# pixels to a third of the side; 20 classes (square to L-shape), made before the 15 hollow SHAPE_CATEGORIES were added.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "instance_segmentation" trains the Mask R-CNN-like segmenter;
   # needs RegionProposal, DetectionLevels, Detector, MaskHead and COCO 'segmentation' labels (crowds as objects).
@@ -95,8 +95,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
-  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
+  # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True

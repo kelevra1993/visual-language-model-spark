@@ -1,5 +1,5 @@
 # Synthetic counted shapes dataset (create_synthetic_dataset.py "multi_label_classification"), 5 to 10 shapes per
-# 512 pixel image, 35 classes; pretrains sequence_labelling/run-1.yaml (Backbone.pretrained), same backbone, frame size.
+# 512 pixel image, 35 classes; backbone and frame size of sequence_labelling/run-1.yaml, pre-trains run-29 to run-50.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.
@@ -89,8 +89,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
-  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
+  # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True

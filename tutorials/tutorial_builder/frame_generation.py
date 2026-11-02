@@ -19,9 +19,10 @@ from tutorial_builder.layout import (ACCENT_COLOUR, CAPTION_BAND_HEIGHT, CAPTION
 from tutorial_builder.scene_rendering import (compute_typing_schedule, find_sentence_view, interpolate_view,
                                               render_caption_band, render_code_scene, render_image_scene,
                                               render_summary, render_terminal_frame, render_terminal_window,
-                                              render_text_panel, render_title_card)
+                                              render_text_panel, render_title_card, smooth_step)
 
-# Fades between two scenes and at both ends of the video, and over the start of a new sentence of a scene
+# Fades between two scenes and at both ends of the video, and over the start of a new sentence of a scene, eased at
+# both ends by smooth_step
 CROSSFADE_SECONDS = 0.5
 SENTENCE_FADE_SECONDS = 0.35
 
@@ -258,7 +259,7 @@ def generate_frames(storyboard: Dict[str, Any], timeline: List[Dict[str, Any]],
             if fade_source_frame is not None and active_sentence_index >= 0:
                 fade_seconds = frame_time - scene_timing["sentences"][active_sentence_index]["start"]
                 if fade_seconds < SENTENCE_FADE_SECONDS:
-                    blend = fade_seconds / SENTENCE_FADE_SECONDS
+                    blend = smooth_step(progress=fade_seconds / SENTENCE_FADE_SECONDS)
                     frame = (fade_source_frame * (1.0 - blend) + frame * blend).astype(numpy.uint8)
             last_content_frame = frame
 
@@ -268,10 +269,10 @@ def generate_frames(storyboard: Dict[str, Any], timeline: List[Dict[str, Any]],
 
         # Crossfade from the previous scene, and fade to black over the last frames of the video
         if elapsed_seconds < CROSSFADE_SECONDS:
-            blend = elapsed_seconds / CROSSFADE_SECONDS
+            blend = smooth_step(progress=elapsed_seconds / CROSSFADE_SECONDS)
             frame = (previous_scene_frame * (1.0 - blend) + frame * blend).astype(numpy.uint8)
         if total_seconds - frame_time < CROSSFADE_SECONDS:
-            frame = (frame * ((total_seconds - frame_time) / CROSSFADE_SECONDS)).astype(numpy.uint8)
+            frame = (frame * smooth_step(progress=(total_seconds - frame_time) / CROSSFADE_SECONDS)).astype(numpy.uint8)
 
         # Progress bar along the bottom edge
         progress_width = round(VIDEO_WIDTH * (frame_index + 1) / number_frames)

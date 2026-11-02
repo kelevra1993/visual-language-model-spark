@@ -69,7 +69,7 @@ scenes:
     title: "Generate, train, evaluate"
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
     lines:
-      - {role: comment, text: "# The 9-class synthetic shapes of the classifier: task = \"classification\" in the main block"}
+      - {role: comment, text: "# The synthetic shapes of the classifier: task = \"classification\" in the main block"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
       - {role: comment, text: "# SimCLR on the synthetic shapes: data folders and label mapping set in the file"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml\""}

@@ -23,7 +23,7 @@ scenes:
     subheading: "From detections to mAP, and to Triton"
     footnote: "Object Detection · chapter 3"
     narration:
-      - "Every saved checkpoint of a detection run is evaluated on the whole test split, here twenty thousand images, with the trained weights and with their moving average."
+      - "Every evaluated checkpoint of a detection run is scored on the whole test split, here twenty thousand images, with the trained weights and with their moving average."
       - "This chapter reads that evaluation on the real run, then exports the detector and lists the pitfalls of the task."
 
   - kind: code
@@ -127,6 +127,7 @@ scenes:
       - "The classes spread widely: the {{object_detection.classes.worst_name}} reaches {{object_detection.classes.worst_ap_50:.3f}} at 0.5, the {{object_detection.classes.best_name}} {{object_detection.classes.best_ap_50:.3f}}, the orange marks giving the AP at 0.75."
       - "On the right, the class thresholds file: the lowest score at which a class keeps a precision of 0.99, with the recall left."
       - "The square keeps {{object_detection.classes.square.recall:.1%}} of its objects from a score of {{object_detection.classes.square.threshold:.3f}}; the trapezoid never reaches that precision."
+      - "With the per-class report, a Per Class Recall table adds the share of the objects of every class found at 0.5 and 0.75, whatever the score, with its exact 95% interval."
 
   - kind: image
     title: "The confusion matrix"

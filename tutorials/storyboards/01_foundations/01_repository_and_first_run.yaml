@@ -210,7 +210,7 @@ scenes:
     views:
       - {box: [470, 95, 1500, 265], from_sentence: 0}
     narration:
-      - "Suppose you launch four learning rates of the same configuration: with tracking on, every run is also an MLflow run with its parameters, metrics and artifacts, so the four are compared in one table."
+      - "Suppose you launch four learning rates of the same configuration, each with its run name suffix: with tracking on, every run is also an MLflow run with its parameters, metrics and artifacts, so the four are compared in one table."
 
   - kind: summary
     title: "Recap"

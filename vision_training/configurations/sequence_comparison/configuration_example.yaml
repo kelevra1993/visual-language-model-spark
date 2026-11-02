@@ -89,8 +89,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
-  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
+  # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: False
@@ -273,8 +273,8 @@ TemporalModel:
   # Learned position embedding added to every frame vector, so the transformer uses the frame order. False treats a
   # sequence as a set (weights independent of maximum_sequence_length); a causal transformer still sees the order.
   positional_embedding: True
-  # Temporal module of another sequence run (sequence classification too) initialising the module of both members; type,
-  # weight settings, last block channels, pooling and image size if flattening, maximum_sequence_length must match.
+  # Temporal module of a sequence run (sequence classification too) initialising both members; must match: type, weight
+  # settings, last block channels, pooling and image size if flattening, maximum_sequence_length (positional embedding).
   pretrained:
     # Run folder of the loaded temporal module, null for random weights; not reloaded when the run resumes.
     experiment_folder: null

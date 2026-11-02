@@ -63,7 +63,7 @@ scenes:
       - {type: box, box: [1200, 380, 1720, 520], text: "M2M · SEL\na class or a choice per frame", font: diagram_small, outline: violet, appear: 2}
       - {type: box, box: [40, 580, 1720, 700], text: "SequenceComparisonTrainer: the SequenceClassificationTrainer with LABEL_TYPE \"pair\", MEMBERS_PER_SAMPLE 2", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
     narration:
-      - "In the synthetic object loss pairs, the before member shows two to six objects in independent views, and the after member shows the same objects, or loses one of them."
+      - "In the synthetic object loss pairs, the before member shows two to four objects in independent views, up to six with the generator now, and the after member shows the same objects, or loses one of them."
       - "No single member gives the class, only their comparison: here a pair keeping its objects, and a test pair that lost its small dark rectangle."
       - "Think of a case where the class compares two separately recorded sequences, each with its own length: choose it rather than the sequence classifier."
       - "Its trainer is the sequence classification trainer with pairs: two members per sample, and the loss and evaluation of the classification, computed per pair."
