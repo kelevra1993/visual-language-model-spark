@@ -1,5 +1,5 @@
-# Large classifier, 20 synthetic shape classes (run_37's 9 first), as run-37.yaml, from run_37 averaged weights at 2000.
-# Launch run_42 of the experiment, class extension stage 14: run_37 backbone and head (now as run-44.yaml), launch B.
+# Large classifier, 20 synthetic shape classes (run_37's 9 first), as run-37.yaml; class extension stage 14, launch B.
+# run_42: run_37 backbone and head (averaged, at 2000), new classes started quiet (since removed, now as run-44.yaml).
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.
@@ -89,8 +89,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
-  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
+  # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True

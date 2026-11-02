@@ -1,5 +1,5 @@
 # Run of documentation/task workflows/instance_segmentation_workflow.md (trained 2026-10-24, 5000 iterations), a copy of
-# instance_segmentation/configuration_synthetic_shapes.yaml (35 shape classes) in experiments/workflow_runs.
+# instance_segmentation/configuration_synthetic_shapes.yaml (20 shape classes) in experiments/workflow_runs.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "instance_segmentation" trains the Mask R-CNN-like segmenter;
   # needs RegionProposal, DetectionLevels, Detector, MaskHead and COCO 'segmentation' labels (crowds as objects).
@@ -95,8 +95,8 @@ Optimization:
   minimum_learning_rate_ratio: 0.01
   # Maximum global gradient norm, clipped before every step, null to disable.
   gradient_clipping_norm: null
-  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights after every step, about the
-  # last 1 / (1 - decay) iterations; scored at every test (Test_EMA), can change on resume, loaded by pretrained.
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
+  # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: True
