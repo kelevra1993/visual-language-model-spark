@@ -44,7 +44,7 @@ Every launch gives its test mean average precision at every evaluation (every 50
 
 ### Stage 1: Learning Rate (8 launches, 15,000 iterations)
 
-The learning rates are searched one pair at a time instead of all trained, as the user asked on 2026-11-02 so that no pair is trained once the answer is known, the early iterations of the smaller learning rates mostly measuring their speed: 2e-3 first, kept if better than 1e-3 and the stage then ending; otherwise 2e-4, the stage ending on 1e-3 if 2e-4 is not better, and 1e-4 last if it is.
+The learning rates are searched one pair at a time instead of all trained, as the user asked on 2026-11-02 so that no pair is trained once the answer is known, the early iterations of the smaller learning rates mostly measuring their speed: 2e-3 first, kept if better than 1e-3 and the stage then ending; otherwise 2e-4, the stage ending on 1e-3 if 2e-4 is not better, and 1e-4 last if it is. A challenger whose pair mean differs from the best value so far by less than the larger gap between the two launches of either value is a tie, within the noise of a single training: the search then ends on the earlier value (the user's rule of 2026-11-02, so that a noisy branch decision never sends the search further).
 
 | Order | Value | Launches |
 |---|---|---|
