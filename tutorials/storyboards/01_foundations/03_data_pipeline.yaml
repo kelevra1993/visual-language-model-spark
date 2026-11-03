@@ -35,12 +35,10 @@ scenes:
     elements:
       - {type: box, box: [30, 290, 290, 450], text: "images\n+ labels.json\nof the split", font: diagram_small}
       - {type: arrow, points: [[300, 370], [380, 370]], appear: 0}
-      - {type: box, box: [390, 90, 760, 650], outline: blue, appear: 0, highlight: [0]}
-      - {type: text, position: [575, 125], text: "4 worker processes", font: diagram_small, colour: dim, anchor: mm, appear: 0}
-      - {type: box, box: [410, 170, 740, 230], text: "worker 1 · read, resize", font: diagram_small, appear: 0}
-      - {type: box, box: [410, 287, 740, 347], text: "worker 2 · read, resize", font: diagram_small, appear: 0}
-      - {type: box, box: [410, 403, 740, 463], text: "worker 3 · read, resize", font: diagram_small, appear: 0}
-      - {type: box, box: [410, 520, 740, 580], text: "worker 4 · read, resize", font: diagram_small, appear: 0}
+      - {type: box, box: [390, 180, 760, 500], outline: blue, appear: 0, highlight: [0]}
+      - {type: text, position: [575, 215], text: "2 worker processes", font: diagram_small, colour: dim, anchor: mm, appear: 0}
+      - {type: box, box: [410, 260, 740, 320], text: "worker 1 · read, resize", font: diagram_small, appear: 0}
+      - {type: box, box: [410, 400, 740, 460], text: "worker 2 · read, resize", font: diagram_small, appear: 0}
       - {type: arrow, points: [[770, 370], [860, 370]], appear: 1}
       - {type: box, box: [870, 290, 1130, 450], text: "2 batches\nready per worker", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1140, 370], [1220, 370]], appear: 2, flow: true, highlight: [2]}
@@ -51,12 +49,12 @@ scenes:
       - {type: box, box: [1270, 340, 1700, 440], text: "input normalization\nfirst layer of the model", font: diagram_small, outline: violet, appear: 2}
       - {type: arrow, points: [[1485, 445], [1485, 485]], appear: 2}
       - {type: box, box: [1270, 490, 1700, 590], text: "backbone\nand head of the task", font: diagram_small, outline: blue, appear: 2}
-      - {type: text, position: [575, 715], text: "fixed in the code: 4 workers, 2 batches ahead each", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+      - {type: text, position: [575, 565], text: "fixed in the code: 2 workers, 2 batches ahead each", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
     narration:
-      - "Four loader workers read the images listed in the labels file and resize them to the input size, each decoding with a single OpenCV thread."
+      - "Two loader workers read the images listed in the labels file and resize them to the input size, each decoding with a single OpenCV thread."
       - "Every worker keeps two batches ready in advance, and the training, validation and test loaders each have their own workers, alive for the whole run."
       - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
-      - "The four workers and their two batches in advance are fixed in the code, the same for every task, so no configuration file sets them."
+      - "The two workers and their two batches in advance are fixed in the code, the same for every task, so no configuration file sets them."
 
   - kind: yaml
     title: "Image size and pixel range"

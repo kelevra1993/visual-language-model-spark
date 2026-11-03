@@ -17,7 +17,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 
 ## Launching A Run
 - A `--configuration_path` leading to no file, or a configuration with problems, stops the program before anything starts, with the list of every problem. A setting removed from the configuration files is refused with a message naming what replaced it ([Fixed Settings](configuration_reference.md#fixed-settings)).
-- The training, validation and test loaders each read their batches with 4 worker processes, each preparing 2 batches in advance, and the training and validation forward passes always run in bfloat16 (mixed precision), the weights and the test evaluation staying in float32.
+- The training, validation and test loaders each read their batches with 2 worker processes, each preparing 2 batches in advance, and the training and validation forward passes always run in bfloat16 (mixed precision), the weights and the test evaluation staying in float32.
 - The launch adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF`, keeping its other settings. Without it, the changing shapes of the sequence batches make the allocator reserve more and more GPU memory.
 
 ## Run Folder

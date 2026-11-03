@@ -253,7 +253,7 @@ main()
 │       │       │       batch is requested.
 │       │       └── build_native_loader()
 │       │               Wraps the dataset in a torch DataLoader: batch_size from the YAML, reshuffling at every epoch,
-│       │               4 persistent worker processes (NUMBER_LOADER_WORKERS), 2 batches prepared ahead by each
+│       │               2 persistent worker processes (NUMBER_LOADER_WORKERS), 2 batches prepared ahead by each
 │       │               (PREFETCH_BATCHES), pinned memory for a fast copy to the GPU, one OpenCV thread per worker.
 │       │               The training loader leaves out its last incomplete batch (drop_last) when the hidden layers
 │       │               of the head are batch normalized (fully_connected_normalization "batch").
@@ -859,7 +859,7 @@ kept (shuffled order, its raw category is mapped to the class index 948, 'groups
 ```
 
 ### Step 2.10 — `build_native_loader()`
-This wraps the dataset in a PyTorch `DataLoader`: the samples are reshuffled at every epoch, 4 worker processes decode the images (`NUMBER_LOADER_WORKERS` of `vision_training/data/loaders.py`, each with a single OpenCV thread, kept alive between epochs and evaluations), each preparing 2 batches ahead of the model (`PREFETCH_BATCHES`), and the batches are copied to pinned memory so that the transfer to the GPU is fast. Its `number_workers` argument, given by the embedding clustering script and the tests, loads the images in the main process at 0, which is slower but easier to debug.
+This wraps the dataset in a PyTorch `DataLoader`: the samples are reshuffled at every epoch, 2 worker processes decode the images (`NUMBER_LOADER_WORKERS` of `vision_training/data/loaders.py`, each with a single OpenCV thread, kept alive between epochs and evaluations), each preparing 2 batches ahead of the model (`PREFETCH_BATCHES`), and the batches are copied to pinned memory so that the transfer to the GPU is fast. Its `number_workers` argument, given by the embedding clustering script and the tests, loads the images in the main process at 0, which is slower but easier to debug.
 
 The training loader leaves out the last incomplete batch of every epoch (`drop_last`) when its training needs batch statistics (`ClassificationTrainer.drops_last_training_batch()`): when the hidden layers of the head are batch normalized (`ClassificationHead.fully_connected_normalization: "batch"`), since a last batch of a single image gives no batch statistics and would fail at every epoch. An epoch is then `floor(training samples / batch size)` iterations, which the launch panel prints (Step 2.22), and a training split holding fewer images than a batch is refused. Otherwise, as in `configuration_example.yaml` (`fully_connected_normalization: "layer"`), the last incomplete batch is kept. The validation and test loaders always keep it.
 
