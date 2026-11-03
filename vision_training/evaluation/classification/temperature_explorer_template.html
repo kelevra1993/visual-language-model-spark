@@ -2,7 +2,9 @@
 <!--
 Template of temperature_explorer.html, filled by vision_training/evaluation/classification/temperature_explorer.py with
 the probabilities of the class logits of a classification evaluation divided by every temperature of its slider. The
-page is self-contained (no library, no network), so that it opens from the evaluation folder of the checkpoint.
+page is self-contained (no library), so that it opens from the evaluation folder of the checkpoint; its save button
+posts the thresholds of the temperature shown to scripts/evaluation/serve_temperature_explorer.py, or downloads them
+when the page is opened as a plain file.
 -->
 <html lang="en">
 <head>
@@ -57,6 +59,9 @@ page is self-contained (no library, no network), so that it opens from the evalu
   button { font: inherit; font-size: 13px; color: var(--text-primary); background: var(--surface);
            border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
   button[aria-pressed="true"] { border-color: var(--series-class); box-shadow: inset 0 0 0 1px var(--series-class); }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
+  .save-status { flex: 1 1 100%; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+  .save-status:empty { display: none; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 14px; }
   .tile, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
   .tile-label { color: var(--text-secondary); font-size: 12px; }
@@ -91,10 +96,12 @@ page is self-contained (no library, no network), so that it opens from the evalu
      The predicted class, the accuracy and the confusion matrix do not change with T: only the spread of the
      probabilities, so the thresholds move with it. With two classes the recall at a target precision stays the same;
      with more classes it can move a little.</p>
-  <p>To use a temperature, set it as <code>logit_temperature</code> in
-     <code>scripts/evaluation/evaluate_checkpoint.py</code>: <code>class_thresholds.json</code> is then written at that
-     temperature, and <code>vision_training/deployment/export_model.py</code> builds it into the exported model when
-     given that file.</p>
+  <p>To deploy a temperature, open this page with <code>scripts/evaluation/serve_temperature_explorer.py</code> and
+     press <b>Save Thresholds At This Temperature</b>: the thresholds of every class at the temperature shown are
+     written next to the page as <code>saved_temperature_thresholds.json</code>, which
+     <code>vision_training/deployment/export_model.py</code> builds into the exported model with
+     <code>use_saved_temperature</code>. Opened as a plain file, the button downloads that file instead, to be placed
+     next to the page.</p>
 
   <div class="controls">
     <div class="slider-group">
@@ -106,6 +113,10 @@ page is self-contained (no library, no network), so that it opens from the evalu
       <button type="button" id="linear-scale" aria-pressed="true">Linear</button>
       <button type="button" id="log-scale" aria-pressed="false">Log</button>
     </div>
+    <div class="button-row">
+      <button type="button" id="save-thresholds">Save Thresholds At This Temperature</button>
+    </div>
+    <div class="save-status" id="save-status" role="status"></div>
   </div>
 
   <div class="tiles" id="tiles"></div>
@@ -354,6 +365,58 @@ page is self-contained (no library, no network), so that it opens from the evalu
     table.innerHTML = rows.join("");
   }
 
+  // Thresholds of every class at a temperature in the format of class_thresholds.json, the classes in their order
+  // (the page draws the lowest F1 first): the main target precision first, the others in additional_targets
+  function buildSavedThresholds(state) {
+    const shownClasses = DATA.class_indices.map((classIndex, shownIndex) => [classIndex, shownIndex])
+      .sort((first, second) => first[0] - second[0]);
+    const targets = DATA.target_precisions.map((targetPrecision, targetIndex) => {
+      const classes = {};
+      shownClasses.forEach(([, shownIndex]) => {
+        const threshold = state.classes[shownIndex].thresholds[targetIndex];
+        classes[DATA.class_names[shownIndex]] = threshold === null ? null
+          : {threshold: threshold[0], recall: threshold[1]};
+      });
+      return {target_precision: targetPrecision, classes: classes};
+    });
+    const savedThresholds = {logit_temperature: state.temperature, ...targets[0]};
+    if (targets.length > 1) savedThresholds.additional_targets = targets.slice(1);
+    return savedThresholds;
+  }
+
+  // Saves the thresholds of the temperature shown: posted to the serve script, which checks them against
+  // class_thresholds.json and writes them next to the page, or downloaded when the page is opened as a plain file
+  async function saveThresholds() {
+    const state = DATA.states[view.stateIndex];
+    const savedThresholds = buildSavedThresholds(state);
+    const status = document.getElementById("save-status");
+    const temperatureText = `T = ${formatTemperature(state.temperature)}`;
+    if (!window.location.protocol.startsWith("http")) {
+      const blob = new Blob([JSON.stringify(savedThresholds, null, 4)], {type: "application/json"});
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = DATA.saved_file_name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 0);
+      status.textContent = `Downloaded ${DATA.saved_file_name} at ${temperatureText}: place it next to this page for ` +
+                           "the export.";
+      return;
+    }
+
+    // The answer of the serve script gives the written file, or the reason of the refusal
+    status.textContent = `Saving the thresholds at ${temperatureText}…`;
+    try {
+      const response = await fetch(DATA.save_route, {method: "POST", headers: {"Content-Type": "application/json"},
+                                                     body: JSON.stringify(savedThresholds)});
+      const answer = await response.json();
+      if (!response.ok) throw new Error(answer.error);
+      status.textContent = `Saved at T = ${formatTemperature(answer.temperature)}: ${answer.path}`;
+    } catch (error) {
+      status.textContent = `Not saved: ${error.message} Serve the page with ` +
+                           "scripts/evaluation/serve_temperature_explorer.py.";
+    }
+  }
+
   function escapeHtml(text) {
     const element = document.createElement("span");
     element.textContent = text;
@@ -399,7 +462,7 @@ page is self-contained (no library, no network), so that it opens from the evalu
     renderTable(state);
   }
 
-  // Header, slider, shortcut buttons and scale toggle, then the first drawing at the evaluated temperature
+  // Header, slider, shortcut buttons, scale toggle and save button, then the first drawing at the temperature 1
   function initialise() {
     const titleParts = [DATA.title, `${DATA.number_samples} test images`, `${DATA.number_classes} classes`,
                         DATA.output_mode === "multi_class" ? "softmax" : "sigmoid"].filter(Boolean);
@@ -411,9 +474,8 @@ page is self-contained (no library, no network), so that it opens from the evalu
     slider.max = DATA.states.length - 1;
     slider.addEventListener("input", () => { view.stateIndex = Number(slider.value); render(); });
 
-    // Shortcuts to the temperature 1, the evaluated temperature and the calibrated one, each listed once
-    const shortcuts = [["T = 1", 1], [`Evaluated · ${formatTemperature(DATA.evaluated_temperature)}`,
-                                      DATA.evaluated_temperature],
+    // Shortcuts to the temperature 1 and the calibrated one, each listed once
+    const shortcuts = [["T = 1", 1],
                        [`Calibrated · ${formatTemperature(DATA.calibrated_temperature)}`, DATA.calibrated_temperature]];
     const usedIndices = new Set();
     shortcuts.forEach(([label, temperature]) => {
@@ -429,6 +491,15 @@ page is self-contained (no library, no network), so that it opens from the evalu
     });
     document.getElementById("linear-scale").addEventListener("click", () => { view.logScale = false; render(); });
     document.getElementById("log-scale").addEventListener("click", () => { view.logScale = true; render(); });
+
+    // Save button, turned off when the page lacks classes, the saved file needing the thresholds of every class
+    const saveButton = document.getElementById("save-thresholds");
+    saveButton.addEventListener("click", saveThresholds);
+    if (!DATA.all_classes_shown) {
+      saveButton.disabled = true;
+      document.getElementById("save-status").textContent = `Only ${DATA.class_names.length} of the ` +
+        `${DATA.number_classes} classes are shown: the thresholds of every class cannot be saved from this page.`;
+    }
 
     // Tooltip of the bars, following the pointer
     const tooltip = document.getElementById("tooltip");
@@ -449,7 +520,7 @@ page is self-contained (no library, no network), so that it opens from the evalu
     });
 
     buildClassCards();
-    view.stateIndex = findStateIndex(DATA.evaluated_temperature);
+    view.stateIndex = findStateIndex(1);
     render();
   }
 

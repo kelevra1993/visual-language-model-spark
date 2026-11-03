@@ -20,7 +20,8 @@ references:
   - "vision_training/evaluation/classification/score_curves.py · save_score_curve_images"
   - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.dump_errors"
   - "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
-  - "vision_training/deployment/export_model.py · read_logit_temperature"
+  - "vision_training/deployment/export_model.py · find_saved_thresholds_path"
+  - "scripts/evaluation/serve_temperature_explorer.py"
   - "vision_training/deployment/export_specifications.py · TASK_MODEL_NAMES"
   - "scripts/evaluation/evaluate_checkpoint.py"
   - "documentation/suggestions.md"
@@ -163,13 +164,13 @@ scenes:
       - {type: text, position: [700, 160], text: "the same logits, T = 3", font: diagram_small, colour: dim, appear: 1}
       - {type: bars, box: [700, 200, 1260, 600], maximum: 1, values: [0.665, 0.245, 0.090], labels: ["square", "rectangle", "circle"], value_labels: ["0.665", "0.245", "0.090"], colours: [blue, aqua, violet], gap: 40, appear: 1, highlight: [1]}
       - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from 0.5 to 10\nthe calibrated T", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
-      - {type: box, box: [1340, 380, 1740, 600], text: "logit_temperature\nin evaluate_checkpoint.py\nrecorded in\nclass_thresholds.json", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [1340, 380, 1740, 600], text: "Save Thresholds\nAt This Temperature\nthen the export with\nuse_saved_temperature", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: text, position: [880, 680], text: "the order of the logits is kept: the same predicted class, the same accuracy · classification only", font: diagram_small, colour: dim, anchor: mm, appear: 1}
     narration:
       - "A well trained softmax often squeezes its probabilities against one, which leaves the thresholds little room: dividing the logits by a temperature before the softmax spreads them out."
       - "Say a square gets the logits six, three and zero: at a temperature of one, square takes 0.95; at three, it keeps the lead with 0.67, against 0.24 for rectangle and 0.09 for circle, so the predicted class and the accuracy never change."
       - "With the per class report on, every evaluation writes temperature explorer html, where a slider from 0.5 to 10 redraws the probabilities, the thresholds and the calibration, next to the temperature that calibrates the test split best."
-      - "Once you have chosen one, set it as the logit temperature of the evaluate checkpoint script: the thresholds are found again at that temperature, and class thresholds json records it for the export."
+      - "Once you have chosen one, the save button of the page, opened with the serve temperature explorer script, writes the thresholds found at that temperature next to it, and the export reads them with use saved temperature."
 
   - kind: image
     title: "Sample images"
