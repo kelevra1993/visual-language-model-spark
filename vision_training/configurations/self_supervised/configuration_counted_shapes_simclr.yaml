@@ -178,7 +178,7 @@ Data:
       # Random Haze : uniform grey airlight of 160 to 255 levels taking 20% to 70% of every pixel, a camera fog (after
       # the blurs)
       random_haze: { activated: True, probability: 0.3 }
-      # Random Solarize : pixels at or above 191 levels inverted, second view only
+      # Random Solarize : pixels at or above 191.25 levels inverted, second view only
       random_solarize: { activated: True, probability: 0.2 }
       # Random Black Out : grid_size x grid_size cells (smaller cells hide smaller parts), each blacked out with
       # probability 0.35, second view only

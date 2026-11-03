@@ -82,7 +82,7 @@ scenes:
     code_reference: "scripts/evaluation/collect_experiment_results.py"
     source:
       file: scripts/evaluation/collect_experiment_results.py
-      start: "^if __name__ == \"__main__\":"
+      start: "^    # Folder of the hyperparameter experiment of every task"
       end: "output_path = experiment_folder"
     highlights:
       - {match: "^    experiments_root_folder = ", sentences: [0]}

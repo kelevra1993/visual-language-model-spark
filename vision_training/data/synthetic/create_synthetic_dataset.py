@@ -2854,7 +2854,7 @@ if __name__ == "__main__":
     # triangle and star being the frames to select), "self_supervised" (5 to 10 shapes per image drawn like a
     # sequence labelling frame, labelled with their number of shapes and keeping the classes of their shapes) or
     # "multi_label_classification" (the same images, labelled with the distinct classes of their shapes)
-    task = "object_detection"
+    task = "classification"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/, the object detection configuration reading the instance segmentation dataset
     # (the boxes of the visible part of every shape) and the object detection folder holding the hard object detection
