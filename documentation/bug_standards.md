@@ -99,7 +99,7 @@
   the source split, which the generator regenerates in place without seed and without clearing `data/`: the old labels
   then point at new frames, or at a mix of new and stale frames when a sequence got shorter, and nothing fails since
   every listed file exists.
-- **Failure scenario:** `test_10000` (the test split of the 12 sequence_labelling run-*.yaml files) is built from
+- **Failure scenario:** `test_10000` (the test split of the 48 sequence_labelling run-*.yaml files) is built from
   `synthetic_changing_shapes/test`; regenerating that dataset makes every later test evaluation score labels of
   sequences that no longer exist (reproduced: 3 of 6 and 5 of 5 frames contradicting their subset label).
 - **Fix:** store the SHA-256 of the source labels.json in the subset and refuse or warn when it changes; or empty

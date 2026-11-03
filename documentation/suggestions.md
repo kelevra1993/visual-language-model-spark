@@ -1071,12 +1071,13 @@ committed): every image can be taken again from them without training, except wh
 - **Fix:** drop the samples with no mapped class (or make it an option), and de-duplicate their class indices.
 
 #### L10. Nothing checks that `frame_category_ids` has one label per frame
-- **Where:** `sequence_dataset.py:269-270`, `292` and `347`.
-- **Effect (reproduced):**
-  - A 3-frame sequence with 5 labels gives the padding frame a label, so it takes part in the M2M loss and can be a
-    true SEL frame.
-  - Fewer labels than frames silently make real frames ignored.
-  - The SEL error message reports labels as "frames".
+- **Where:** `sequence_dataset.py:282-284` (frame labels built without a length check), `346` (label tensor) and
+  `128-137` (`collate_padded_sequences`).
+- **Effect (reproduced on 2026-11-03 with `collate_padded_sequences`):**
+  - A sequence with more or fewer labels than frames stops the loader on the first batch holding it, with a
+    `RuntimeError` of `unflatten` ("Provided sizes [1, 3] don't multiply up to the size of dim 0 (5)") that names
+    neither the sequence nor the labels file.
+  - The SEL check of the dataset counts the labels and reports them as "frames".
 - **Fix:** raise a `ValueError` listing the sequences whose label count differs from their frame count.
 
 #### L11. M2M sequences or batches with no labelled frame give a NaN loss and inflate the exact match
