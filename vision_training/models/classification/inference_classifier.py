@@ -41,9 +41,9 @@ class InferenceClassifier(nn.Module):
 
     def set_logit_temperature(self, logit_temperature: float) -> None:
         """
-        Sets the temperature dividing the class logits before the softmax, read by deployment/export_model.py from
-        the 'class_thresholds.json' of the evaluation it deploys, so that the exported probabilities are those the
-        thresholds were found on.
+        Sets the temperature dividing the class logits before the softmax, read by deployment/export_model.py with
+        use_saved_temperature from the 'saved_temperature_thresholds.json' saved from the temperature explorer of the
+        evaluation it deploys, so that the exported probabilities are those the saved thresholds were found on.
 
         Args:
             logit_temperature (float): The temperature, above 0.

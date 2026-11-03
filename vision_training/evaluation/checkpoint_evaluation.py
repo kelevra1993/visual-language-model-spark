@@ -23,6 +23,10 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # Prefix of the columns of the averaged weights in the evaluation summary, next to those of the trained weights
 AVERAGED_WEIGHTS_COLUMN_PREFIX = "ema_"
 
+# Default folder of the evaluations of scripts/evaluation/evaluate_checkpoint.py next to the evaluated run folders,
+# '<runs>/evaluations/<run name>/', where the export also looks for the thresholds saved from the temperature explorer
+EVALUATIONS_FOLDER_NAME = "evaluations"
+
 
 def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
                               iterations: List[int]) -> ExperimentTracker:

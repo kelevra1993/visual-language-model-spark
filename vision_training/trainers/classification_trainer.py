@@ -37,8 +37,7 @@ from vision_training.evaluation.classification.temperature_explorer import save_
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
                                                          compute_clopper_pearson_intervals)
-from vision_training.losses.classification_losses import (compute_balanced_class_weights,
-                                                           convert_logits_to_probabilities)
+from vision_training.losses.classification_losses import compute_balanced_class_weights
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
@@ -100,10 +99,6 @@ class ClassificationTrainer(BaseTrainer):
         self.target_precision = self.target_precisions[0]
         self.save_predictions = experiment_configuration["evaluation"]["save_predictions"]
         self.error_dumps_configuration = experiment_configuration["evaluation"]["error_dumps"]
-        # Temperature dividing the class logits before the softmax of the evaluation, 1 during the training, replaced
-        # by scripts/evaluation/evaluate_checkpoint.py to find the thresholds of the probabilities of an export built
-        # with the same temperature
-        self.logit_temperature = 1.0
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
@@ -234,9 +229,7 @@ class ClassificationTrainer(BaseTrainer):
 
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runs the classifier without labels, as in deployment, the class probabilities being those of the class logits
-        divided by the logit temperature, as the exported InferenceClassifier computes them. A temperature of 1 gives
-        the probabilities of the classifier exactly.
+        Runs the classifier without labels, as in deployment.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -244,10 +237,7 @@ class ClassificationTrainer(BaseTrainer):
         Returns:
             Dict[str, Any]: The class logits and probabilities.
         """
-        predictions = self.model(input_tensor=batch["images"])
-        predictions["class_probabilities"] = convert_logits_to_probabilities(
-            class_logits=predictions["class_logits"] / self.logit_temperature, output_mode=self.output_mode)
-        return predictions
+        return self.model(input_tensor=batch["images"])
 
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
@@ -665,15 +655,16 @@ class ClassificationTrainer(BaseTrainer):
             support_column = "Positives"
 
         # Threshold of every class reaching every target precision, saved for the deployment of the checkpoint: the
-        # logit temperature of the probabilities they were found on (built into the export reading the file), the
-        # main target precision in 'target_precision' and 'classes', the others in 'additional_targets'
+        # logit temperature of 1 of the probabilities they were found on (another temperature being saved from the
+        # temperature explorer), the main target precision in 'target_precision' and 'classes', the others in
+        # 'additional_targets'
         class_thresholds = [find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
                                                   target_precision=target_precision)
                             for target_precision in self.target_precisions]
         target_descriptions = [{"target_precision": target_precision,
                                 "classes": self.describe_class_thresholds(target_thresholds=target_thresholds)}
                                for target_precision, target_thresholds in zip(self.target_precisions, class_thresholds)]
-        thresholds_file = {"logit_temperature": self.logit_temperature, **target_descriptions[0]}
+        thresholds_file = {"logit_temperature": 1.0, **target_descriptions[0]}
         if len(target_descriptions) > 1:
             thresholds_file["additional_targets"] = target_descriptions[1:]
         thresholds_path = evaluation_folder / "class_thresholds.json"
@@ -722,20 +713,16 @@ class ClassificationTrainer(BaseTrainer):
             files["Temperature Explorer"] = save_temperature_explorer(
                 class_logits=torch.cat(tensors=accumulator["logits"], dim=0), labels=labels,
                 class_names=self.class_names, output_mode=self.output_mode, target_precisions=self.target_precisions,
-                evaluated_temperature=self.logit_temperature, class_f1_scores=metrics["f1"],
-                output_folder=evaluation_folder, title=f"Iteration {iteration}{weights_description}")
+                class_f1_scores=metrics["f1"], output_folder=evaluation_folder,
+                title=f"Iteration {iteration}{weights_description}")
 
         # Predictions of every evaluated sample, when asked
         if self.save_predictions:
             files["Predictions"] = self.write_predictions_file(accumulator=accumulator,
                                                                evaluation_folder=evaluation_folder)
 
-        # Notes of the task, the logit temperature of the probabilities when it is not 1, then the number of error
-        # images and their folder when some were saved
+        # Notes of the task, then the number of error images and their folder when some were saved
         notes = self.describe_extra_notes(accumulator=accumulator)
-        if self.logit_temperature != 1.0:
-            notes.append(f"Logit Temperature : {self.logit_temperature:g} (class logits divided by it before the "
-                         f"{'softmax' if self.output_mode == 'multi_class' else 'sigmoid'})")
         if self.error_dumps_configuration["activated"]:
             error_counts = accumulator["error_counts"]
             notes.append(f"Error Images : {sum(error_counts.values())} in {len(error_counts)} class pairs, at most "

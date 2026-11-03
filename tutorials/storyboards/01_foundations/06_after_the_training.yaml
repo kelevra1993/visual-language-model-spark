@@ -48,15 +48,13 @@ scenes:
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
       start: "^    # Largest number of error images saved"
-      end: "^    logit_temperature = "
+      end: "^    target_precisions = "
     highlights:
       - {match: "^    maximum_error_images_per_class_pair = ", sentences: [0]}
       - {match: "^    target_precisions = ", sentences: [1]}
-      - {match: "^    logit_temperature = ", sentences: [2]}
     narration:
       - "The maximum number of error images per pair of classes turns the error images on, and the tasks without error images skip it with a yellow warning."
-      - "Target precisions replaces the precision of the class thresholds, a list giving the classifiers the threshold of every class at each precision."
-      - "For a classifier, the logit temperature divides the logits before the softmax, chosen on the temperature explorer page of an evaluation, and the thresholds are found at it; then run the script as a module with uv."
+      - "Target precisions replaces the precision of the class thresholds, a list giving the classifiers the threshold of every class at each precision; then run the script as a module with uv."
 
   - kind: html
     page: diagram

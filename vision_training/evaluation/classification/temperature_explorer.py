@@ -4,8 +4,9 @@ temperature of a grid, giving for each the distribution of the probability of ev
 other images, the thresholds and recalls of the target precisions, and the calibration of the probabilities (negative
 log likelihood, calibration error, reliability), written as the self-contained page 'temperature_explorer.html' in the
 evaluation folder of the checkpoint. Written by the classification trainer with the per-class report, to choose the
-'logit_temperature' of scripts/evaluation/evaluate_checkpoint.py, which class_thresholds.json records and
-vision_training/deployment/export_model.py builds into the exported classifier.
+temperature of the export: the save button of the page, served by scripts/evaluation/serve_temperature_explorer.py,
+writes the thresholds of the chosen temperature to 'saved_temperature_thresholds.json' (checked here against
+class_thresholds.json), which vision_training/deployment/export_model.py builds into the exported classifier.
 """
 
 import json
@@ -13,7 +14,7 @@ import math
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 from vision_training.losses.classification_losses import compute_classification_loss, convert_logits_to_probabilities
@@ -39,6 +40,11 @@ MAXIMUM_EXPLORER_CLASSES = 100
 TEMPLATE_PATH = Path(__file__).absolute().parent / "temperature_explorer_template.html"
 DATA_PLACEHOLDER = "__EXPLORER_DATA__"
 EXPLORER_FILE_NAME = "temperature_explorer.html"
+
+# Thresholds of the temperature chosen on the page, in the format of class_thresholds.json, written next to the page by
+# the route of scripts/evaluation/serve_temperature_explorer.py its save button posts to, and read by the export
+SAVED_THRESHOLDS_FILE_NAME = "saved_temperature_thresholds.json"
+SAVE_THRESHOLDS_ROUTE = "/save_temperature_thresholds"
 
 
 def compute_negative_log_likelihood(class_logits: torch.Tensor, labels: torch.Tensor, output_mode: str,
@@ -193,16 +199,16 @@ def describe_temperature(class_logits: torch.Tensor, labels: torch.Tensor, posit
 
 
 def save_temperature_explorer(class_logits: torch.Tensor, labels: torch.Tensor, class_names: List[str],
-                              output_mode: str, target_precisions: List[float], evaluated_temperature: float,
-                              class_f1_scores: List[float], output_folder: Path, title: Optional[str]) -> Path:
+                              output_mode: str, target_precisions: List[float], class_f1_scores: List[float],
+                              output_folder: Path, title: Optional[str]) -> Path:
     """
     Writes 'temperature_explorer.html' in the evaluation folder of a checkpoint: a self-contained page whose slider
-    divides the class logits of the test split by temperatures from 0.5 to 10 (with the evaluated and the calibrated
-    temperatures), showing for every temperature the calibration of the probabilities and, for every class, the
-    distribution of its probability over its images and the other images with its thresholds and recalls at the target
-    precisions. The logits are computed once by the evaluation, every temperature being computed here, so that the
-    temperature of the export can be chosen without evaluating again. The classes are drawn the lowest F1 first, at
-    most MAXIMUM_EXPLORER_CLASSES of them.
+    divides the class logits of the test split by temperatures from 0.5 to 10 (with the calibrated temperature),
+    showing for every temperature the calibration of the probabilities and, for every class, the distribution of its
+    probability over its images and the other images with its thresholds and recalls at the target precisions. The
+    logits are computed once by the evaluation, every temperature being computed here, so that the temperature of the
+    export can be chosen, and its thresholds saved by the button of the page, without evaluating again. The classes are
+    drawn the lowest F1 first, at most MAXIMUM_EXPLORER_CLASSES of them, the save button needing all of them.
 
     Args:
         class_logits (torch.Tensor): The [N, K] float32 class logits of the evaluated test samples.
@@ -210,8 +216,6 @@ def save_temperature_explorer(class_logits: torch.Tensor, labels: torch.Tensor, 
         class_names (List[str]): The class names, in class index order.
         output_mode (str): "multi_class" or "multi_label".
         target_precisions (List[float]): The precisions targeted by the class thresholds, the main one first.
-        evaluated_temperature (float): The temperature of the probabilities of the evaluation and of
-            class_thresholds.json.
         class_f1_scores (List[float]): The F1 of every class, in class index order, ordering the drawn classes.
         output_folder (Path): The evaluation folder of the checkpoint.
         title (Optional[str]): The title of the evaluation shown by the page, e.g. 'Iteration 800', or None.
@@ -234,18 +238,21 @@ def save_temperature_explorer(class_logits: torch.Tensor, labels: torch.Tensor, 
     shown_class_indices = sorted(range(number_classes),
                                  key=lambda class_index: class_f1_scores[class_index])[:MAXIMUM_EXPLORER_CLASSES]
 
-    # Temperatures of the slider: the grid, the evaluated temperature and the calibrated one with 3 significant digits
+    # Temperatures of the slider: the grid and the calibrated temperature with 3 significant digits
     calibrated_temperature = find_calibrated_temperature(class_logits=class_logits, labels=labels,
                                                          output_mode=output_mode)
     calibrated_temperature = float(f"{calibrated_temperature:.3g}")
-    temperatures = sorted(set(TEMPERATURE_GRID + [float(evaluated_temperature), calibrated_temperature]))
+    temperatures = sorted(set(TEMPERATURE_GRID + [calibrated_temperature]))
 
-    # Data of the page, the description of every temperature of the slider
+    # Data of the page, the description of every temperature of the slider, with the class index of every drawn class
+    # and the file and route of its save button, offered when every class is drawn
     explorer_data = {"title": title, "output_mode": output_mode, "number_samples": len(class_logits),
-                     "number_classes": number_classes,
+                     "number_classes": number_classes, "class_indices": shown_class_indices,
                      "class_names": [class_names[class_index] for class_index in shown_class_indices],
                      "positives": [int(positive_masks[:, class_index].sum()) for class_index in shown_class_indices],
-                     "target_precisions": target_precisions, "evaluated_temperature": float(evaluated_temperature),
+                     "all_classes_shown": len(shown_class_indices) == number_classes,
+                     "saved_file_name": SAVED_THRESHOLDS_FILE_NAME, "save_route": SAVE_THRESHOLDS_ROUTE,
+                     "target_precisions": target_precisions,
                      "calibrated_temperature": calibrated_temperature, "number_score_bins": NUMBER_SCORE_BINS,
                      "number_calibration_bins": NUMBER_CALIBRATION_BINS,
                      "states": [describe_temperature(class_logits=class_logits, labels=labels,
@@ -260,3 +267,119 @@ def save_temperature_explorer(class_logits: torch.Tensor, labels: torch.Tensor, 
     explorer_path = output_folder / EXPLORER_FILE_NAME
     explorer_path.write_text(data=TEMPLATE_PATH.read_text().replace(DATA_PLACEHOLDER, explorer_json))
     return explorer_path
+
+
+def is_json_number(value: Any) -> bool:
+    """
+    Tells whether a value read from a thresholds file is a finite number, a boolean (a subclass of int in Python) and
+    NaN being refused, for the checks of the saved thresholds.
+
+    Args:
+        value (Any): The value read from the file.
+
+    Returns:
+        bool: True for a finite number.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def list_target_thresholds(thresholds: Dict[str, Any]) -> List[Tuple[Any, Any]]:
+    """
+    Lists the target precisions of a thresholds file with the thresholds of their classes, the main target first, then
+    the 'additional_targets' of the evaluations of several target precisions, so that the saved thresholds are compared
+    with class_thresholds.json target by target.
+
+    Args:
+        thresholds (Dict[str, Any]): The thresholds file, in the format of class_thresholds.json.
+
+    Returns:
+        List[Tuple[Any, Any]]: The target precision and the 'classes' of every target, in the order of the file.
+    """
+    additional_targets = thresholds["additional_targets"] if "additional_targets" in thresholds else []
+    return [(thresholds["target_precision"], thresholds["classes"])] + [
+        (target["target_precision"], target["classes"]) for target in additional_targets]
+
+
+def check_saved_thresholds(saved_thresholds: Any, evaluation_folder: Path) -> None:
+    """
+    Checks the thresholds saved from the temperature explorer against the class_thresholds.json of the evaluation
+    folder they are saved to or exported from, so that the export never deploys the thresholds of another evaluation or
+    an invalid temperature: the fields of class_thresholds.json, a temperature above 0, the same target precisions in
+    the same order, the same classes at every target, and every threshold and recall within [0, 1] (null for a class
+    not reaching the target precision).
+
+    Args:
+        saved_thresholds (Any): The saved thresholds, read from JSON.
+        evaluation_folder (Path): The evaluation folder of the checkpoint, holding class_thresholds.json.
+
+    Raises:
+        FileNotFoundError: If the folder holds no class_thresholds.json.
+        ValueError: If the saved thresholds are not those of the evaluation of the folder at a temperature above 0.
+    """
+    class_thresholds_path = evaluation_folder / "class_thresholds.json"
+    if not class_thresholds_path.is_file():
+        raise FileNotFoundError(f"No class_thresholds.json in {evaluation_folder} to check the saved thresholds "
+                                f"against.")
+    class_thresholds = json.loads(s=class_thresholds_path.read_text())
+
+    # Fields of the thresholds of the evaluation, with the temperature, and the additional targets well formed
+    expected_fields = {"logit_temperature", "target_precision", "classes"} | (
+        {"additional_targets"} if "additional_targets" in class_thresholds else set())
+    if not isinstance(saved_thresholds, dict) or set(saved_thresholds) != expected_fields:
+        found_fields = sorted(saved_thresholds) if isinstance(saved_thresholds, dict) else type(saved_thresholds)
+        raise ValueError(f"Expected the saved thresholds to hold the fields {sorted(expected_fields)}, got "
+                         f"{found_fields}.")
+    temperature = saved_thresholds["logit_temperature"]
+    if not is_json_number(value=temperature) or temperature <= 0:
+        raise ValueError(f"Expected a logit temperature above 0, got {temperature!r}.")
+    if "additional_targets" in saved_thresholds and not (
+            isinstance(saved_thresholds["additional_targets"], list) and
+            all(isinstance(target, dict) and set(target) == {"target_precision", "classes"}
+                for target in saved_thresholds["additional_targets"])):
+        raise ValueError("Expected 'additional_targets' to list objects of a 'target_precision' and its 'classes'.")
+
+    # Target precisions of the evaluation, in its order
+    saved_targets = list_target_thresholds(thresholds=saved_thresholds)
+    expected_targets = list_target_thresholds(thresholds=class_thresholds)
+    saved_precisions = [target_precision for target_precision, _ in saved_targets]
+    expected_precisions = [target_precision for target_precision, _ in expected_targets]
+    if saved_precisions != expected_precisions:
+        raise ValueError(f"Expected the target precisions {expected_precisions} of {class_thresholds_path}, got "
+                         f"{saved_precisions}.")
+
+    # Classes of the evaluation at every target, each with a threshold and a recall within [0, 1], or null
+    for (target_precision, saved_classes), (_, expected_classes) in zip(saved_targets, expected_targets):
+        if not isinstance(saved_classes, dict) or set(saved_classes) != set(expected_classes):
+            found_classes = sorted(saved_classes) if isinstance(saved_classes, dict) else type(saved_classes)
+            raise ValueError(f"Expected the class names {sorted(expected_classes)} at the target precision "
+                             f"{target_precision}, got {found_classes}.")
+        for class_name, class_threshold in saved_classes.items():
+            if class_threshold is not None and not (
+                    isinstance(class_threshold, dict) and set(class_threshold) == {"threshold", "recall"} and
+                    all(is_json_number(value=value) and 0.0 <= value <= 1.0 for value in class_threshold.values())):
+                raise ValueError(f"Expected the threshold and recall of {class_name} at the target precision "
+                                 f"{target_precision} within [0, 1], or null, got {class_threshold!r}.")
+
+
+def write_saved_thresholds(evaluation_folder: Path, saved_thresholds: Any) -> Path:
+    """
+    Writes the thresholds posted by the save button of the temperature explorer next to the page, as
+    'saved_temperature_thresholds.json', after checking them against the class_thresholds.json of the folder, so that
+    the export of the checkpoint finds the temperature chosen on the page with its thresholds. An earlier save of the
+    folder is replaced.
+
+    Args:
+        evaluation_folder (Path): The evaluation folder of the checkpoint, holding the page and class_thresholds.json.
+        saved_thresholds (Any): The posted thresholds, read from JSON.
+
+    Returns:
+        Path: The written file.
+
+    Raises:
+        FileNotFoundError: If the folder holds no class_thresholds.json.
+        ValueError: If the thresholds are not those of the evaluation of the folder at a temperature above 0.
+    """
+    check_saved_thresholds(saved_thresholds=saved_thresholds, evaluation_folder=evaluation_folder)
+    saved_path = evaluation_folder / SAVED_THRESHOLDS_FILE_NAME
+    saved_path.write_text(data=json.dumps(obj=saved_thresholds, indent=4))
+    return saved_path

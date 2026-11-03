@@ -5,14 +5,12 @@ limit of error images per pair of classes turns the error images on for the task
 error images (semantic segmentation, keypoint detection, self-supervised learning) instead of stopping the script with
 a KeyError (B56); the target precisions of the class thresholds replace the experiment's one (a list for the tasks
 sharing the evaluation of the classification, a single precision for the frame selection and the detection), are
-refused when invalid, and are skipped with a warning for the tasks without class thresholds; the logit temperature
-must be a number above 0, and 1 for the tasks other than the classification.
+refused when invalid, and are skipped with a warning for the tasks without class thresholds.
 """
 
 import pytest
 
-from scripts.evaluation.evaluate_checkpoint import (apply_error_image_limit, apply_target_precisions,
-                                                    check_logit_temperature)
+from scripts.evaluation.evaluate_checkpoint import apply_error_image_limit, apply_target_precisions
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
 
@@ -99,29 +97,3 @@ def test_target_precisions_are_skipped_without_class_thresholds(task: str, capsy
     apply_target_precisions(experiment_configuration=experiment_configuration, target_precisions=[0.99, 0.95])
     assert experiment_configuration["evaluation"] == evaluation_before
     assert "target_precisions is skipped" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize(argnames=("task", "logit_temperature"),
-                         argvalues=[("classification", 1.0), ("classification", 3), ("classification", 0.5),
-                                    ("sequence_classification", 1.0), ("object_detection", 1)])
-def test_logit_temperature_is_accepted(task: str, logit_temperature: float) -> None:
-    """
-    Verifies that a temperature above 0 is accepted for the classification, and the temperature 1 (the probabilities of
-    the model) for every task.
-    """
-    check_logit_temperature(task=task, logit_temperature=logit_temperature)
-
-
-@pytest.mark.parametrize(argnames=("task", "logit_temperature", "expected_message"), argvalues=[
-    ("classification", 0.0, "must be a number above 0"), ("classification", -2.0, "must be a number above 0"),
-    ("classification", "3", "must be a number above 0"), ("classification", True, "must be a number above 0"),
-    ("classification", None, "must be a number above 0"),
-    ("sequence_classification", 2.0, "must be 1 for the sequence_classification task"),
-    ("frame_selection", 0.5, "must be 1 for the frame_selection task")])
-def test_invalid_logit_temperature_is_refused(task: str, logit_temperature: float, expected_message: str) -> None:
-    """
-    Verifies that a temperature that is not a number above 0, or a temperature other than 1 for a task whose export
-    has no logit temperature, stops the script before the trainer is built.
-    """
-    with pytest.raises(expected_exception=ValueError, match=expected_message):
-        check_logit_temperature(task=task, logit_temperature=logit_temperature)
