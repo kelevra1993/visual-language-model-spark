@@ -394,9 +394,11 @@ def compare_best_evaluations(experiment_folders: List[Path], best_metric: str, h
 
 if __name__ == "__main__":
     repository_folder = Path(__file__).absolute().parents[2]
-    # Experiment folders (the 'experiment_folder' of the configurations) whose run folders are compared, or run folders
-    experiment_folders = [repository_folder / "ficha-experiments-empty-bins",
-                          repository_folder / "ficha-experiments-compactor-to-front"]
+    # Experiment folders (the 'experiment_folder' of the configurations) whose run folders are compared, or run folders,
+    # here the synthetic shapes classifier trained at four learning rates, told apart by their run name suffix
+    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9"
+    experiment_folders = [repository_folder / "experiments" / "readme_screenshots" / f"{run_name}{suffix}"
+                          for suffix in ["", "_lr-0.001", "_lr-0.0005", "_lr-0.0001"]]
     # Test curve choosing the best evaluation of every run, one of the scalars of Tensorboard/Test, e.g. "Accuracy",
     # "Balanced Accuracy" or "Macro F1" for the classification, and True when a higher value is better
     best_metric = "Balanced Accuracy"

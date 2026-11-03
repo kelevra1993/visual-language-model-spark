@@ -119,11 +119,11 @@ def check_logit_temperature(task: str, logit_temperature: float) -> None:
 if __name__ == "__main__":
     # Run name of the trained experiment whose configuration and checkpoints are evaluated, it is only read, in the
     # experiments root folder of its configuration ('experiment_folder')
-    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64.16x128.20x128.20x128-PT_HFLAT.512.256-HLN-CWB_MC2"
-    experiment_folder = Path(__file__).absolute().parents[2] / "ficha-experiments-compactor-to-front" / run_name
+    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9"
+    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "readme_screenshots" / run_name
     # Checkpoint iteration to evaluate, None for the last saved one, or "all" for every checkpoint of the registry
     # (the intermediate ones included, the last saved first), compared in 'Evaluation/evaluation_summary.csv'
-    iteration = 800
+    iteration = 1500
     # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one
     test_data_folder = None
     # Batch size of the evaluation, which can be larger than the training one since no gradient is kept, None to

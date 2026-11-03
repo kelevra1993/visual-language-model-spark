@@ -158,14 +158,14 @@ scenes:
     image: "repository:README/experiment_launch_information.png"
     views:
       - {box: [0, 40, 940, 205], from_sentence: 0}
-      - {box: [0, 200, 700, 300], from_sentence: 1}
-      - {box: [0, 290, 620, 560], from_sentence: 2}
+      - {box: [0, 180, 700, 280], from_sentence: 1}
+      - {box: [0, 270, 620, 500], from_sentence: 2}
     highlights:
       - {box: [10, 77, 915, 95], sentences: [0]}
       - {box: [10, 97, 915, 195], sentences: [0]}
-      - {box: [10, 217, 600, 275], sentences: [1]}
-      - {box: [10, 277, 330, 295], sentences: [1]}
-      - {box: [10, 297, 520, 435], sentences: [2]}
+      - {box: [10, 197, 600, 255], sentences: [1]}
+      - {box: [10, 257, 330, 275], sentences: [1]}
+      - {box: [10, 277, 520, 415], sentences: [2]}
     narration:
       - "At launch, the trainer prints the run name, then its folders and files as clickable links."
       - "Then every split with its images and categories, and the length of one epoch in iterations, the only place where epochs appear."
