@@ -51,7 +51,7 @@
     pretrained source, the content of the label mapping), so a different configuration resumes another run.
   - **H4, H6, M6 to M9 and M20:** missing shortcuts in channel-changing blocks, swallowed data errors,
     iterations counted from the resume point, fresh starts mixing two runs, and an empty split looping forever.
-- **57 new bugs:** 17 medium and 40 low, listed by area below. Two come from the commits of
+- **34 new bugs:** 6 medium and 28 low, listed by area below. Two come from the commits of
   2026-10-20: [B7](#b7-motion-blur-of-the-views-the-largest-kernel-size-is-never-drawn-and-the-viewer-describes-kernels-kornia-does-not-apply) (the motion blur kernel sizes of the views) and the solarize bound of [B20](#b20-the-view-augmentation-checks-accept-values-kornia-rejects).
 - **Coding standards:** most rules are respected everywhere (module docstrings, imports, no nested functions, no bare
   `except`, `Args:` docstrings, strict configuration access, linked paths, YAML comments, README layout). The
@@ -62,99 +62,20 @@
 
 | Area | Medium | Low |
 |---|---|---|
-| Configuration | [B1](#b1-a-missing-key-discards-every-problem-already-found-and-a-mode-typo-is-reported-as-a-missing-datalabel_dictionary) | [B20](#b20-the-view-augmentation-checks-accept-values-kornia-rejects), [B21](#b21-the-loader-coerces-malformed-values-before-the-checks-and-some-malformed-sections-crash-the-checker), [B22](#b22-read_json-swallows-json-parse-errors-and-returns-none), [B23](#b23-the-det-checks-require-mask-head-settings-whenever-a-maskhead-section-is-present), [B24](#b24-stale-run-name-and-checker-documentation) |
-| Data generation | [B2](#b2-a-sequence-split-subset-silently-goes-stale-when-its-source-split-is-regenerated), [B3](#b3-duplicates-are-merged-only-on-identical-hashes-resized-copies-of-one-photo-stay-in-both-train-and-test) | [B25](#b25-failed-image-writes-are-ignored-so-the-labels-can-list-images-never-written), [B26](#b26-image-tasks-crash-with-an-obscure-numpy-error-on-images-smaller-than-34-pixels), [B27](#b27-two-cached-files-are-written-in-place-so-an-interrupted-write-is-trusted-on-the-next-run), [B28](#b28-comments-left-from-the-top-down-keypoint-detector-contradict-the-code), [B29](#b29-the-readme-gives-the-wrong-number-of-objects-per-synthetic-keypoint-image) |
-| Data loading | [B4](#b4-datajson-crashes-at-launch-on-a-self-supervised-split-mixing-labelled-and-unlabelled-images), [B5](#b5-datajson-crashes-at-launch-on-a-coco-split-without-annotations-which-the-loaders-accept), [B6](#b6-datajson-overstates-the-keypoint-objects-it-counts-the-objects-the-keypoint-loader-drops), [B7](#b7-motion-blur-of-the-views-the-largest-kernel-size-is-never-drawn-and-the-viewer-describes-kernels-kornia-does-not-apply) | [B30](#b30-a-category-mapped-to-0-to-exclude-it-names-the-background-class-and-is-counted-under-it-in-datajson), [B31](#b31-get_image_paths-ignores-tif-and-webp-images) |
+| Configuration | | [B20](#b20-the-view-augmentation-checks-accept-values-kornia-rejects), [B22](#b22-read_json-swallows-json-parse-errors-and-returns-none), [B24](#b24-stale-run-name-and-checker-documentation) |
+| Data generation | | [B28](#b28-comments-left-from-the-top-down-keypoint-detector-contradict-the-code), [B29](#b29-the-readme-gives-the-wrong-number-of-objects-per-synthetic-keypoint-image) |
+| Data loading | [B7](#b7-motion-blur-of-the-views-the-largest-kernel-size-is-never-drawn-and-the-viewer-describes-kernels-kornia-does-not-apply) | [B30](#b30-a-category-mapped-to-0-to-exclude-it-names-the-background-class-and-is-counted-under-it-in-datajson) |
 | Core models | [B8](#b8-a-causal-sequence-labeller-or-frame-selector-with-sequence-normalization-uses-the-future-frames), [B9](#b9-a-batch-normalized-classification-head-crashes-on-a-training-batch-of-a-single-vector) | [B32](#b32-backbonecompute_detection_input_information-dry-runs-in-training-mode-with-gradients), [B33](#b33-model-builders-silently-fall-back-on-misspelled-option-strings), [B34](#b34-sequenceclassifier-and-sequencelabeller-are-near-copies) |
-| Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B36](#b36-the-rpn-classification-loss-is-nan-when-no-anchor-of-the-batch-is-sampled), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B38](#b38-a-detection-head-transfer-from-a-run-saved-before-detectionlevels-fails-with-a-bare-keyerror), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B40](#b40-the-batch_assign_targets_to_anchors-docstring-promises-a-positive-anchor-for-every-ground-truth), [B41](#b41-detectionheadforward-documents-a-tensor_to_concatenate-argument-it-never-reads), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
-| Training loop | [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved), [B12](#b12-ctrlc-during-a-periodic-save-is-ignored-by-the-trainer-but-kills-the-persistent-loader-workers-the-run-fails-5-iterations-later) | [B43](#b43-resuming-by-launching-the-runs-own-training_configurationyaml-crashes-with-samefileerror), [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries), [B45](#b45-the-console-summary-treats-the-correlation-metrics-as-higher-is-better-a-rising-off-diagonal-correlation-prints-green-with-best), [B46](#b46-iterations-per-epoch-and-the-sample-counts-logged-to-mlflow-come-from-the-manifest-before-the-label-mapping), [B47](#b47-the-self-supervised-k-nn-report-re-implements-the-per-class-rows-table-and-scalars-of-class_metrics_reportpy) |
+| Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B40](#b40-the-batch_assign_targets_to_anchors-docstring-promises-a-positive-anchor-for-every-ground-truth), [B41](#b41-detectionheadforward-documents-a-tensor_to_concatenate-argument-it-never-reads), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
+| Training loop | [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved) | [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries), [B45](#b45-the-console-summary-treats-the-correlation-metrics-as-higher-is-better-a-rising-off-diagonal-correlation-prints-green-with-best), [B47](#b47-the-self-supervised-k-nn-report-re-implements-the-per-class-rows-table-and-scalars-of-class_metrics_reportpy) |
 | Task trainers and losses | | [B48](#b48-the-det-and-ins-input-viewer-captions-the-boxes-with-raw-category-ids-instead-of-class-names), [B49](#b49-an-evaluation-score-threshold-above-the-deployment-threshold-silently-removes-detections-from-the-confusion-matrix-and-the-images), [B50](#b50-keypointtrainer-copies-four-detectiontrainer-methods-and-frameselectiontrainer-redefines-the-describe_split-it-inherits) |
-| Evaluation and tracking | [B15](#b15-in-mlflow-testbest_metric-of-a-standalone-all-evaluation-shows-the-last-evaluated-value-not-the-best), [B16](#b16-one-artifact-write-failing-with-a-permanent-oserror-blocks-every-later-mlflow-write-and-leaves-the-run-running) | [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object), [B52](#b52-tied-probabilities-give-every-tied-frame-rank-1-inflating-top-k-selection-accuracy-and-mean-rank), [B53](#b53-mean-iou-mean-dice-and-macro-f1-leave-out-the-classes-predicted-but-absent-from-the-ground-truth), [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints), [B55](#b55-a-detection-test-split-without-objects-reports-map-and-mar-00-instead-of-no-value) |
-| Deployment and scripts | [B17](#b17-an-exported-frame-selector-with-averaged-ema-weights-gets-the-confidence-thresholds-of-the-trained-weights), [B18](#b18-a-maximum-batch-size-of-1-crashes-the-onnx-export-and-at-2-the-dynamic-batch-is-never-checked), [B19](#b19-standalone-evaluations-of-another-split-overwrite-and-mix-with-the-earlier-ones-in-the-same-output-folder) | [B56](#b56-evaluate_checkpointpys-default-error-image-setting-stops-seg-kpt-and-ssl-runs-with-a-bare-keyerror), [B57](#b57-a-run-without-checkpoint-registry-is-evaluated-on-nothing-and-the-script-ends-normally), [B58](#b58-a-misspelled-export-format-is-silently-exported-as-onnx-and-its-tensorrt-setting-dropped), [B59](#b59-load_inference_inputs-claims-the-preprocessing-of-the-loaders-but-a-tiled-segmentation-run-gets-a-whole-image-squeezed-into-one-tile) |
-| **Total** | **17** | **40** |
+| Evaluation and tracking | | [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object), [B53](#b53-mean-iou-mean-dice-and-macro-f1-leave-out-the-classes-predicted-but-absent-from-the-ground-truth), [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints) |
+| Deployment and scripts | [B19](#b19-standalone-evaluations-of-another-split-overwrite-and-mix-with-the-earlier-ones-in-the-same-output-folder) | [B56](#b56-evaluate_checkpointpys-default-error-image-setting-stops-seg-kpt-and-ssl-runs-with-a-bare-keyerror), [B57](#b57-a-run-without-checkpoint-registry-is-evaluated-on-nothing-and-the-script-ends-normally), [B58](#b58-a-misspelled-export-format-is-silently-exported-as-onnx-and-its-tensorrt-setting-dropped), [B59](#b59-load_inference_inputs-claims-the-preprocessing-of-the-loaders-but-a-tiled-segmentation-run-gets-a-whole-image-squeezed-into-one-tile) |
+| **Total** | **6** | **28** |
 
 ## Bugs
 
 ### Medium
-
-#### B1. A missing key discards every problem already found, and a mode typo is reported as a missing Data.label_dictionary
-- **Area:** configuration · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer) · **Category:**
-  error-handling
-- **Where:** `vision_training/configuration_processing/configuration_checker.py:57-73`; `configuration_values.py:58-61`;
-  `detection_checks.py:308-309`.
-- **Problem:** `get_configuration_value` raises at the first missing key and the error escapes `check_configuration`,
-  dropping the errors already collected (README line 155: "the list of every problem found"); the detection checks read
-  the injected `Data.label_dictionary` unconditionally.
-- **Failure scenario:** a DET file with `mode: "multiclass"` and `batch_size: 0` reports only "Missing configuration key
-  'Data.label_dictionary'."
-- **Fix:** wrap each check to collect its configuration errors, and skip the dictionary checks when the mode is invalid.
-
-#### B2. A sequence split subset silently goes stale when its source split is regenerated
-- **Area:** data generation · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer) · **Category:**
-  bug
-- **Where:** `scripts/data/create_sequence_split_subset.py:46-55`;
-  `vision_training/data/synthetic/create_synthetic_dataset.py:2372-2389` (`save_frames`), `2529-2530`
-  (`generate_split`), `2672` (main block: existing images and labels overwritten).
-- **Problem:** the subset copies the labels of the drawn sequences, but its `data` is a symlink to the live frames of
-  the source split, which the generator regenerates in place without seed and without clearing `data/`: the old labels
-  then point at new frames, or at a mix of new and stale frames when a sequence got shorter, and nothing fails since
-  every listed file exists.
-- **Failure scenario:** `test_10000` (the test split of the 48 sequence_labelling run-*.yaml files) is built from
-  `synthetic_changing_shapes/test`; regenerating that dataset makes every later test evaluation score labels of
-  sequences that no longer exist (reproduced: 3 of 6 and 5 of 5 frames contradicting their subset label).
-- **Fix:** store the SHA-256 of the source labels.json in the subset and refuse or warn when it changes; or empty
-  `data/` in `generate_split` and accept a seed.
-
-#### B3. Duplicates are merged only on identical hashes: resized copies of one photo stay in both train and test
-- **Area:** data generation · **Severity:** medium · **Status:** confirmed (measured by the reviewer on local Open
-  Images photos) · **Category:** bug
-- **Where:** `vision_training/data/classification/foundation_model_image_downloader.py:1145-1176`
-  (`merge_duplicate_samples`), `1222-1227` (`build_manifests`), `320-333` (docstring).
-- **Problem:** samples are grouped by exact perceptual hash, while the docstring promises that no picture "appears in
-  both the training and the test images" and that the hash survives resizing; copies of one photo at another resolution
-  often differ by 1 to 3 bits, and only the ImageNet-1k exclusion uses the 3-bit tolerance.
-- **Failure scenario:** a Flickr photo in the Tencent ImageNet train list and, larger, in the Open Images validation
-  list: 1 bit apart, it lands in both train and test manifests (57 of 300 resized copies would not be merged; how many
-  such copies the lists hold was not measured).
-- **Fix:** keep exact-hash label merging, then drop the train and validation samples within `EXCLUSION_MAXIMUM_DISTANCE`
-  of a test sample (`build_hash_chunk_index`, `is_near_copy`), and correct the docstrings (a 3-bit tolerance also
-  matches 4 pairs of unrelated simple pictures among 41,606, so label merging should stay exact).
-
-#### B4. data.json crashes at launch on a self-supervised split mixing labelled and unlabelled images
-- **Area:** data loading · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer, code read again) ·
-  **Category:** bug
-- **Where:** `vision_training/data/data_record.py:174-182` (`count_manifest_classes`), called by
-  `BaseTrainer.save_data_record` at every launch.
-- **Problem:** once any sample has a category, every sample without `category_ids` is read with `sample["category_id"]`,
-  while `ClassificationDataset(keep_unlabelled_samples=True)` accepts samples with neither key (README: "with its
-  `category_id`, its `category_ids` ... or neither").
-- **Failure scenario:** a self-supervised training split where only some images carry `category_id`, with a non-empty
-  label mapping: the loaders build, then the launch stops with `KeyError: 'category_id'`.
-- **Fix:** count only the samples that have a category (`[]` when neither key is present).
-
-#### B5. data.json crashes at launch on a COCO split without "annotations", which the loaders accept
-- **Area:** data loading · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer, code read again) ·
-  **Category:** bug
-- **Where:** `vision_training/data/data_record.py:165-170`; the loader accepts it at `coco_dataset.py:197-203`,
-  `split_description.py:29` counts 0.
-- **Problem:** `labels["annotations"]` is read without the check that `CocoDetectionDataset` and `split_description.py`
-  make for unlabelled splits.
-- **Failure scenario:** `test_data_folder` pointing to an unlabelled COCO split (the default "test" split of
-  `data_retriever.py`): a DET, INS or KPT launch stops with `KeyError: 'annotations'`.
-- **Fix:** iterate over `labels["annotations"] if "annotations" in labels else []`.
-
-#### B6. data.json overstates the keypoint objects: it counts the objects the keypoint loader drops
-- **Area:** data loading · **Severity:** medium · **Status:** confirmed (measured by the reviewer on COCO 2017
-  validation) · **Category:** documentation
-- **Where:** `vision_training/data/data_record.py:164-170`; the loader drops them at `coco_dataset.py:341-347`; README
-  line 198 and `build_class_records` say the counts are the trained data.
-- **Problem:** for KPT every manifest annotation of a mapped category is counted, while `add_keypoints` removes the
-  objects without a labelled keypoint (crowds, persons without keypoints); these counts also feed
-  `compare_best_evaluations.py`.
-- **Failure scenario:** COCO 2017 validation: data.json gives person 11004 annotations in 2693 images, the loader keeps
-  6352 objects in 2346 images (+73 %).
-- **Fix:** count, for KPT, only the annotations with a visible keypoint (the loader rule), or document that the counts
-  are manifest annotations.
 
 #### B7. Motion blur of the views: the largest kernel size is never drawn, and the viewer describes kernels kornia does not apply
 - **Area:** data loading · **Severity:** medium · **Status:** fixed on 2026-10-20 (found confirmed, reproduced by the reviewer; kornia 0.8.3 source
@@ -237,77 +158,6 @@
 - **Fix:** raise an ordinary exception (or break out of the loop) so that the final save runs, printing the exception
   with its traceback.
 
-#### B12. Ctrl+C during a periodic save is ignored by the trainer but kills the persistent loader workers: the run fails 5 iterations later
-- **Area:** training loop · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer with a SIGINT to
-  the process group during `torch.save`) · **Category:** error-handling
-- **Where:** `vision_training/trainers/checkpointing.py:151-170` (`SIG_IGN` during `save_checkpoint`),
-  `vision_training/data/loaders.py:64-67` (`persistent_workers=True`), torch `utils/data/_utils/worker.py` (a worker
-  ends on `KeyboardInterrupt`).
-- **Problem:** a terminal Ctrl+C reaches the whole process group; the main process drops it while saving instead of
-  deferring it, but the workers exit, so training continues on dead workers: every iteration fails with "DataLoader
-  worker ... exited unexpectedly", the run stops after 5 errors as FAILED instead of KILLED, and saves and evaluates
-  stale weights under new iteration numbers in between (README: "Ctrl+C stops the training and saves a checkpoint of the
-  current iteration").
-- **Failure scenario:** Ctrl+C during the save of iteration 4: iterations 4 to 8 fail, checkpoints 4, 6, 8 and 9 hold
-  the same weights, Results.txt holds an "Iteration 8" evaluation of them, and a resume starts at 10.
-- **Fix:** record the SIGINT during the save and raise `KeyboardInterrupt` once the save is complete; optionally ignore
-  SIGINT in the workers (`worker_init_fn`) so that only the main process shuts them down.
-
-#### B15. In MLflow, test/best_<metric> of a standalone "all" evaluation shows the last evaluated value, not the best
-- **Area:** evaluation and tracking · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer on a
-  scratch database) · **Category:** bug
-- **Where:** `vision_training/tracking/mlflow_tracker.py:775-810` (`add_best_metric`),
-  `scripts/evaluation/evaluate_checkpoint.py:75` (`[::-1]`), `checkpoint_evaluation.py:116-129`.
-- **Problem:** the best value so far is logged at the step of each evaluated iteration, and MLflow summarises a metric
-  by its value at the highest step, while the standalone evaluation goes from the highest iteration down.
-- **Failure scenario:** 300 (0.90), 200 (0.95), 100 (0.80) evaluated in that order: tag `best_iteration` 200, but the
-  runs table shows `test/best_Accuracy` 0.9.
-- **Fix:** evaluate in increasing iteration order before tracking, or log the best value once at close at the step of
-  the best iteration.
-
-#### B16. One artifact write failing with a permanent OSError blocks every later MLflow write and leaves the run RUNNING
-- **Area:** evaluation and tracking · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer for
-  PermissionError; HTTP 4xx traced) · **Category:** error-handling
-- **Where:** `vision_training/tracking/mlflow_tracker.py:505` (every OSError retried), `459-470` (operations in turn),
-  `845-865` (`write_artifact`).
-- **Problem:** every OSError is treated as "MLflow unavailable" and retried until close, including permanent ones
-  (PermissionError on a read-only artifact folder, `requests.HTTPError` for an HTTP 4xx such as a 413 on a large
-  confusion matrix), so the worker stays on that artifact and every later metric batch waits and is abandoned at close,
-  `set_terminated` never running.
-- **Failure scenario:** a read-only artifact folder: the configuration artifact logged at start blocks the run, no
-  metric reaches MLflow and the run stays RUNNING.
-- **Fix:** drop an artifact after a few failures or treat PermissionError and HTTP 4xx as permanent, and do not make
-  metrics wait behind artifact copies.
-
-#### B17. An exported frame selector with averaged (EMA) weights gets the confidence thresholds of the trained weights
-- **Area:** deployment and scripts · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer, code read
-  again) · **Category:** bug
-- **Where:** `vision_training/deployment/frame_selection_deployment.py:68` (`build_decoding_settings`),
-  `export_model.py:265-269`; the averaged weights are evaluated in `Evaluation/Iteration_<n>/EMA/`
-  (`base_trainer.py:1747-1749`).
-- **Problem:** with `use_averaged_weights=True` the moving average is exported, but `build_decoding_settings` always
-  reads `Evaluation/Iteration_<n>/class_thresholds.json`, the thresholds of the trained weights; the
-  `EMA/class_thresholds.json` of the exported weights is never read.
-- **Failure scenario:** a frame selection run with EMA exported with averaged weights: the Triton decoder's
-  `decoding_settings.json` holds thresholds of other weights, so the deployed `low_confidence` flags are wrong, without
-  warning.
-- **Fix:** pass `use_averaged_weights` to `build_decoding_settings` and read the `EMA/` thresholds for averaged weights,
-  warning when they are missing.
-
-#### B18. A maximum batch size of 1 crashes the ONNX export, and at 2 the dynamic batch is never checked
-- **Area:** deployment and scripts · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer, code read
-  again) · **Category:** bug
-- **Where:** `vision_training/deployment/export_specifications.py:363-365, 398-399`; `export_model.py:151-160, 181-182,
-  223-227`.
-- **Problem:** the traced batch (2) and the checked batch (3) are both capped at `maximum_batch_size`: at 1,
-  `torch.export.Dim("batch", min=1, max=1)` is refused by torch after the TorchScript model and the ONNX folder were
-  written; at 2, traced and checked batches are equal, so the "batch of another size" check silently does not happen
-  (`maximum_sequence_length = 1` fails the same way).
-- **Failure scenario:** a large sequence model exported with `maximum_batch_size = 1` dies with an AssertionError and
-  leaves an empty ONNX model folder in the served repository.
-- **Fix:** validate the setting up front (static batch or clear error at 1) and always check a batch size different from
-  the traced one.
-
 #### B19. Standalone evaluations of another split overwrite and mix with the earlier ones in the same output folder
 - **Area:** deployment and scripts · **Severity:** medium · **Status:** likely (traced by the reviewer, not run) ·
   **Category:** bug
@@ -345,19 +195,6 @@
   83 refused did. The checker test has a new case (it failed before the fix), and the expected
   message of the solarize addition shows the excluded bounds.
 
-#### B21. The loader coerces malformed values before the checks, and some malformed sections crash the checker
-- **Area:** configuration · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:**
-  error-handling
-- **Where:** `vision_training/configuration_processing/configuration_loader.py:119-127`; `common_checks.py:126-128,
-  190-192, 254-261, 312-320`; `segmentation_checks.py:107`; `run_name.py:150`.
-- **Problem:** the loader applies `int(float())` to the iteration counts and `float()` to the learning rate before the
-  checks: the boolean rejection never fires, fractions are truncated and null gives a TypeError; `Backbone.convolutions`
-  or `SegmentationDecoder.convolutions` written as lists, `data_augmentation.types: null` or `inception_starting_block:
-  2.0` crash the checker, and `inception_starting_block: True` passes and names the run `INCTrue`.
-- **Failure scenario:** `learning_rate: True` trains at 1.0; `number_iterations: null` ends with a traceback.
-- **Fix:** convert only numeric strings in the loader, check container types before `.keys()`, `.items()` and `set()`,
-  validate `inception_starting_block` with `check_positive_integers`.
-
 #### B22. read_json swallows JSON parse errors and returns None
 - **Area:** configuration · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:**
   error-handling
@@ -368,16 +205,6 @@
 - **Failure scenario:** a truncated data.json makes the resume fail with `TypeError: 'NoneType' object is not
   subscriptable`.
 - **Fix:** let the error propagate, or raise it again with the path.
-
-#### B23. The DET checks require mask head settings whenever a MaskHead section is present
-- **Area:** configuration · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:**
-  configuration
-- **Where:** `vision_training/configuration_processing/detection_checks.py:118-119, 420`.
-- **Problem:** the checks look at the presence of `MaskHead` instead of the task (README line 1090: a section only used
-  by another task is ignored).
-- **Failure scenario:** a DET file with a leftover `MaskHead` section is refused with demands for `mask_head` levels and
-  a `mask_loss` weight the detector never reads.
-- **Fix:** pass the task (or a mask head flag) to `check_detection_configuration`.
 
 #### B24. Stale run name and checker documentation
 - **Area:** configuration · **Severity:** low · **Status:** confirmed (the reviewer built every run name) ·
@@ -393,37 +220,6 @@
   `ExperimentConfiguration.evaluation.keypoint_sigmas`; the `load_configuration` docstring promises `yaml.YAMLError` but
   an unchained ValueError is raised.
 - **Fix:** regenerate the examples, fix the key path and the docstring.
-
-#### B25. Failed image writes are ignored, so the labels can list images never written
-- **Area:** data generation · **Severity:** low · **Status:** confirmed (reproduced by the reviewer with a read-only
-  folder) · **Category:** error-handling
-- **Where:** `vision_training/data/synthetic/create_synthetic_dataset.py:1741, 1750, 1757, 2388`.
-- **Problem:** `cv2.imwrite` returns False instead of raising, and no call checks it; the only trace is an OpenCV
-  warning among the output of 8 workers.
-- **Failure scenario:** a disk filling during a 500,000 image generation: success reported with missing images
-  (reproduced: labels list 5 images, 0 on disk).
-- **Fix:** check every `cv2.imwrite` and raise an OSError naming the path.
-
-#### B26. Image tasks crash with an obscure numpy error on images smaller than 34 pixels
-- **Area:** data generation · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:** bug
-- **Where:** `vision_training/data/synthetic/create_synthetic_dataset.py:1584-1585` (`max(33, image_size // 3)`),
-  `1453`, `1524-1525`.
-- **Problem:** the smallest shape canvas is 34 pixels (17 for the hollow sequence shapes), larger than such images, so
-  `integers(high <= 0)` raises inside a worker without mentioning the image size.
-- **Failure scenario:** `create_synthetic_dataset(image_size=32, task="classification")` (and DET, INS, SEG; M2M and CMP
-  at 16): `ValueError: high <= 0`.
-- **Fix:** validate the image size against the canvas of every task, or cap the shape size at `image_size - 1`.
-
-#### B27. Two cached files are written in place, so an interrupted write is trusted on the next run
-- **Area:** data generation · **Severity:** low · **Status:** confirmed (reproduced by the reviewer with truncated
-  files) · **Category:** error-handling
-- **Where:** `vision_training/data/classification/foundation_model_image_downloader.py:457-470` (`np.save`), `981-990`
-  (`write_text`).
-- **Problem:** every other cache of the module is written to `.part` and renamed, these two directly, and only their
-  existence is checked next time.
-- **Failure scenario:** an interruption while saving the 86 MB wanted keys array: every rerun stops with `ValueError:
-  mmap length is greater than file size` until `progress/imagenet_wanted_keys.npy` is found and deleted.
-- **Fix:** write both to `.part` and rename, as `download_file` and `write_records` do.
 
 #### B28. Comments left from the top-down keypoint detector contradict the code
 - **Area:** data generation · **Severity:** low · **Status:** confirmed (history traced by the reviewer) · **Category:**
@@ -456,15 +252,6 @@
   reports, viewers and data.json call the background "bicycle"; a transfer comparing class names sees class 0 renamed.
 - **Fix:** for the tasks with a background class, always name class 0 "background" and leave the categories mapped to 0
   out of the names and counts.
-
-#### B31. get_image_paths ignores .tif and .webp images
-- **Area:** data loading · **Severity:** low · **Status:** confirmed (read in the code) · **Category:** bug
-- **Where:** `vision_training/utilities/os_utilities.py:228` (`IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp",
-  ".tiff"}`).
-- **Problem:** `.tif` (the usual spelling of TIFF) and `.webp`, both read by OpenCV, are not listed, and the function
-  serves the manifest builders, the inference inputs and the clustering script.
-- **Failure scenario:** a folder of `.tif` images: "No image found", although the images are readable.
-- **Fix:** add `.tif` and `.webp` (the suffixes are already compared in lower case, line 237).
 
 #### B32. Backbone.compute_detection_input_information dry-runs in training mode with gradients
 - **Area:** core models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:** bug
@@ -522,19 +309,6 @@
 - **Fix:** carry `valid_proposal_mask` through the per-level slicing and the per-image rearrangement like the scores,
   and pass it to `postprocess_detections`.
 
-#### B36. The RPN classification loss is NaN when no anchor of the batch is sampled
-- **Area:** detection and keypoint models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** bug
-- **Where:** `vision_training/models/detection/target_assignment.py:165-176, 190-194, 229-231`;
-  `losses/detection_losses.py:58-63` (mean over an empty selection).
-- **Problem:** with `RegionProposal.background_iou_threshold.min` above 0 (accepted with a warning), anchors overlapping
-  no object are ignored and an object whose best anchor IoU is 0 resurrects none, so a batch of such objects (zero-width
-  boxes, see L8, or boxes outside the anchors) samples no anchor; the localisation loss already clamps its count.
-- **Failure scenario:** background min 0.2 and one image whose only box is `[100, 100, 100, 180]`: the RPN
-  classification loss and the total loss are NaN (the gradients stay finite).
-- **Fix:** sum the BCE and divide by the sampled count clamped to 1, or label every anchor background in an image where
-  no object has a positive best IoU.
-
 #### B37. get_box_dimensions_and_centers ends the process with exit() and status 0 on a wrong box shape
 - **Area:** detection and keypoint models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer; the
   other `exit` calls of the repository checked) · **Category:** error-handling
@@ -545,17 +319,6 @@
   `base_trainer.py:1230` is [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved)).
 - **Failure scenario:** `apply_regression_predictions` given boxes of shape `[2, 5]`: a red message, then exit code 0.
 - **Fix:** raise a ValueError with the same message.
-
-#### B38. A detection head transfer from a run saved before DetectionLevels fails with a bare KeyError
-- **Area:** detection and keypoint models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** error-handling
-- **Where:** `vision_training/models/model_transfer.py:423-424, 433, 443, 456, 968`.
-- **Problem:** `compare_detection_heads` and the anchor message read `source_configuration["DetectionLevels"]` strictly,
-  while the other components report a setting missing from an older source run with the instruction to add it (lines
-  277-281, 343-347); the section exists since a10bb7a (2026-10-15).
-- **Failure scenario:** `Detector.pretrained.experiment_folder` pointing to an older run: `KeyError: 'DetectionLevels'`
-  without hint (the 8 local detection runs already have the section).
-- **Fix:** return the same "missing from the source run" difference as the other `compare_*` functions.
 
 #### B39. HRNet with feature_map_normalization "none" builds every convolution without bias
 - **Area:** detection and keypoint models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
@@ -599,16 +362,6 @@
 - **Fix:** skip the rearrangement and the postprocessing when ground truth is given (also the fix of item H3 of
   suggestions.md), or rearrange with one argsort and gather.
 
-#### B43. Resuming by launching the run's own training_configuration.yaml crashes with SameFileError
-- **Area:** training loop · **Severity:** low · **Status:** confirmed (reproduced by the reviewer, code read again) ·
-  **Category:** bug
-- **Where:** `vision_training/trainers/base_trainer.py:812, 829` (`copyfile` of the launched file onto `<run
-  folder>/training_configuration.yaml`).
-- **Problem:** when the launched file is the run's own copy, `shutil.copyfile` raises `SameFileError`, after
-  `compare_with_saved_configuration` has run.
-- **Failure scenario:** `--configuration_path <run>/training_configuration.yaml` (resumed or not) stops at launch.
-- **Fix:** skip the copy when `os.path.samefile(initial, destination)`.
-
 #### B44. Evaluated checkpoints are overwritten, or left unevaluated, at stop and resume boundaries
 - **Area:** training loop · **Severity:** low · **Status:** fixed on 2026-10-21 (found confirmed, reproduced by the
   reviewer, two cases) ·
@@ -639,18 +392,6 @@
   keys).
 - **Fixed:** `LOWER_IS_BETTER_KEYS` of `metric_tracking.py` holds the two correlations, which `is_lower_better` reads
   next to the `_loss` suffix; `test_correlations_improve_when_they_decrease` covers both.
-
-#### B46. "Iterations Per Epoch" and the sample counts logged to MLflow come from the manifest before the label mapping
-- **Area:** training loop · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:** bug
-  (misleading output)
-- **Where:** `vision_training/trainers/classification_trainer.py:225-236` (`describe_split` → `count_split_samples`),
-  `base_trainer.py:995-1000, 1496-1502`.
-- **Problem:** the classification loader leaves out the samples of unmapped categories, so the printed epoch length and
-  the MLflow parameters `number_*_samples` and `iterations_per_epoch` are overstated when the mapping keeps a subset of
-  the categories.
-- **Failure scenario:** 18 of 35 categories mapped on 40 training images: "Iterations Per Epoch : 10" against 7 real
-  batches (batch 4, 25 kept samples).
-- **Fix:** compute the epoch length and the counts from the built datasets (`len(dataset)`).
 
 #### B47. The self-supervised k-NN report re-implements the per-class rows, table and scalars of class_metrics_report.py
 - **Area:** training loop · **Severity:** low · **Status:** fixed on 2026-10-20 (found likely, code paths compared by the reviewer) · **Category:**
@@ -722,16 +463,6 @@
   and never matches them, so the far prediction of the scenario leaves its object missed (Matched Objects 0, no mean
   keypoint error); `test_a_far_prediction_is_neither_matched_nor_measured` runs the scenario.
 
-#### B52. Tied probabilities give every tied frame rank 1, inflating top-k selection accuracy and mean rank
-- **Area:** evaluation and tracking · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** bug
-- **Where:** `vision_training/evaluation/sequence/frame_selection_metrics.py:90-125`, ranks from
-  `models/sequence/frame_selection_decoding.py:231`.
-- **Problem:** tied frames take the best of their ranks (documented in `compute_frame_ranks`), so a collapsed model, or
-  frames whose float32 softmax saturates at 1.0, score perfectly although the decoding must pick one.
-- **Failure scenario:** uniform probabilities on 5 sequences: Top-1 Selection Accuracy 1.0, Mean True Frame Rank 1.0.
-- **Fix:** break ties pessimistically or use the average rank of the tie.
-
 #### B53. Mean IoU, mean Dice and macro F1 leave out the classes predicted but absent from the ground truth
 - **Area:** evaluation and tracking · **Severity:** low · **Status:** fixed on 2026-10-25 (found confirmed, measured
   against the standard definitions and scikit-learn) · **Category:** bug
@@ -760,16 +491,6 @@
 - **Failure scenario:** a moved or archived run folder: the panel names `experiments/mlflow.db`, the evaluation run is
   created in `archive/mlflow.db`, away from the training run its `evaluation_of` tag points to.
 - **Fix:** pass `tracking_root` (or the run record's `tracking_uri`) to `create_experiment_tracker`.
-
-#### B55. A detection test split without objects reports mAP and mAR 0.0 instead of no value
-- **Area:** evaluation and tracking · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** bug
-- **Where:** `vision_training/evaluation/detection/mean_average_precision.py:366-368` against `494-496`.
-- **Problem:** without ground truth in any class, the overall mAP and mAR are 0.0 while the per-size results are None
-  ("—").
-- **Failure scenario:** a negatives-only split given to `evaluate_checkpoint.py`: `mAP@0.5 area = 0.0` reported, logged
-  and compared as a real value.
-- **Fix:** return None and skip the scalars without ground truth, handling None in the best checkpoint comparison.
 
 #### B56. evaluate_checkpoint.py's default error image setting stops SEG, KPT and SSL runs with a bare KeyError
 - **Area:** deployment and scripts · **Severity:** low · **Status:** fixed on 2026-10-25 (found confirmed, reproduced
@@ -891,7 +612,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | `sequence_classification_trainer.py:66-72` frame shuffle warning | **open** | still warns for every transformer, whatever `positional_embedding` and `causal` |
 | `base_trainer.py:984-986` MLflow after the workers | **open** | now lines 1359-1360, true for the training and validation workers only (L15) |
 | Loader: `dtype: "float16"` bare `KeyError` | fixed | the key is gone, and an old `dtype` key is now ignored silently |
-| Loader: `int(float(...))` truncation | **open** | see [B21](#b21-the-loader-coerces-malformed-values-before-the-checks-and-some-malformed-sections-crash-the-checker) |
+| Loader: `int(float(...))` truncation | **open** | `configuration_loader.py:126, 150` |
 | Loader: unknown or misspelled keys ignored | **open** | only the augmentation types are checked for unknown names (`common_checks.py:189-195`) |
 
 ### What This Audit Adds
@@ -953,8 +674,8 @@ Statuses come from reading the code at this commit. The items re-found by the re
   vector at any image size.
 - **Statements contradicting the code:** the README CLS run name is still `..._HAVG.128_MC4`. [B24](#b24-stale-run-name-and-checker-documentation) adds the
   stale M2O and CMP examples.
-- **Robustness gaps of the configuration loader:** the `int(float(...))` truncation remains. [B21](#b21-the-loader-coerces-malformed-values-before-the-checks-and-some-malformed-sections-crash-the-checker) adds the
-  other coercions and the sections that crash the checker.
+- **Robustness gaps of the configuration loader:** the `int(float(...))` truncation remains
+  (`configuration_loader.py:126, 150`).
 
 ## Coding Standards
 
@@ -1074,22 +795,18 @@ the README screenshots, was done on 2026-10-23.
    - C3 (the class count of DET and INS), with [B30](#b30-a-category-mapped-to-0-to-exclude-it-names-the-background-class-and-is-counted-under-it-in-datajson);
    - C4 and M17 (run names and the label mapping);
    - M7 (a fresh start reusing a run folder);
-   - then H6, M6, M8, M9, M20 and L13 of suggestions.md, with [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved), [B12](#b12-ctrlc-during-a-periodic-save-is-ignored-by-the-trainer-but-kills-the-persistent-loader-workers-the-run-fails-5-iterations-later),
+   - then H6, M6, M8, M9, M20 and L13 of suggestions.md, with [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved),
      [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) and [B9](#b9-a-batch-normalized-classification-head-crashes-on-a-training-batch-of-a-single-vector).
 
    A run name token added to every run would stop the running ImageNet runs from resuming in their folders, so the
    new tokens of C4 should only appear for non-default values.
 2. **The new findings that give silently wrong results:**
-   - [B2](#b2-a-sequence-split-subset-silently-goes-stale-when-its-source-split-is-regenerated) and [B3](#b3-duplicates-are-merged-only-on-identical-hashes-resized-copies-of-one-photo-stay-in-both-train-and-test) (stale test labels, test images leaking into training);
    - [B8](#b8-a-causal-sequence-labeller-or-frame-selector-with-sequence-normalization-uses-the-future-frames) (causal models seeing later frames);
    - [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) (a keypoint head loaded onto the wrong channels);
-   - [B17](#b17-an-exported-frame-selector-with-averaged-ema-weights-gets-the-confidence-thresholds-of-the-trained-weights) (thresholds taken from other weights);
-   - [B19](#b19-standalone-evaluations-of-another-split-overwrite-and-mix-with-the-earlier-ones-in-the-same-output-folder), [B15](#b15-in-mlflow-testbest_metric-of-a-standalone-all-evaluation-shows-the-last-evaluated-value-not-the-best) and [B6](#b6-datajson-overstates-the-keypoint-objects-it-counts-the-objects-the-keypoint-loader-drops) (evaluations or counts mixed or misreported);
-3. **The launches and runs that crash or hang:** [B1](#b1-a-missing-key-discards-every-problem-already-found-and-a-mode-typo-is-reported-as-a-missing-datalabel_dictionary), [B4](#b4-datajson-crashes-at-launch-on-a-self-supervised-split-mixing-labelled-and-unlabelled-images), [B5](#b5-datajson-crashes-at-launch-on-a-coco-split-without-annotations-which-the-loaders-accept),
-   [B18](#b18-a-maximum-batch-size-of-1-crashes-the-onnx-export-and-at-2-the-dynamic-batch-is-never-checked) and [B16](#b16-one-artifact-write-failing-with-a-permanent-oserror-blocks-every-later-mlflow-write-and-leaves-the-run-running).
-4. **The low bugs, area by area**, starting with the misleading reports: [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object) to [B55](#b55-a-detection-test-split-without-objects-reports-map-and-mar-00-instead-of-no-value),
-   [B45](#b45-the-console-summary-treats-the-correlation-metrics-as-higher-is-better-a-rising-off-diagonal-correlation-prints-green-with-best) and [B46](#b46-iterations-per-epoch-and-the-sample-counts-logged-to-mlflow-come-from-the-manifest-before-the-label-mapping).
-5. **The standards:** S1 to S10 are done (2026-10-20), S11 too (2026-10-23).
+   - [B19](#b19-standalone-evaluations-of-another-split-overwrite-and-mix-with-the-earlier-ones-in-the-same-output-folder) (evaluations of two splits mixed in one folder);
+3. **The low bugs, area by area**, starting with the misleading reports: [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object) to [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints)
+   and [B45](#b45-the-console-summary-treats-the-correlation-metrics-as-higher-is-better-a-rising-off-diagonal-correlation-prints-green-with-best).
+4. **The standards:** S1 to S10 are done (2026-10-20), S11 too (2026-10-23).
 
 ## How It Was Checked
 
