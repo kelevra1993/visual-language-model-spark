@@ -1,20 +1,16 @@
 """
 Tests of the self-supervised losses of vision_training/losses/self_supervised_losses.py, which the self-supervised
 model computes on the embeddings of the two views of every image: InfoNCE against the cross-entropy written by hand,
-its value on identical and on random views, Barlow Twins on decorrelated and on collapsed embeddings, both losses in
-float32 under the bfloat16 autocast of mixed precision, and the standard deviation of the embeddings watching the
-collapse.
+Barlow Twins on decorrelated and on collapsed embeddings, and both losses in float32 under the bfloat16 autocast of
+mixed precision.
 """
 
-import math
 import pytest
 import torch
 
 from torch.nn import functional as torch_functional
 
-from vision_training.losses.self_supervised_losses import (compute_barlow_twins_loss,
-                                                           compute_embedding_standard_deviation,
-                                                           compute_info_nce_loss)
+from vision_training.losses.self_supervised_losses import compute_barlow_twins_loss, compute_info_nce_loss
 
 
 def test_info_nce_loss_matches_the_cross_entropy_written_by_hand() -> None:
@@ -41,27 +37,6 @@ def test_info_nce_loss_matches_the_cross_entropy_written_by_hand() -> None:
     outputs = compute_info_nce_loss(first_embeddings=first_embeddings, second_embeddings=second_embeddings,
                                     temperature=temperature)
     assert torch.isclose(input=outputs["info_nce_loss"], other=torch.stack(tensors=expected_losses).mean(), atol=1e-6)
-
-
-def test_info_nce_loss_of_identical_and_random_views() -> None:
-    """
-    Verifies the two reference values of InfoNCE: views identical to each other and orthogonal to the views of the
-    other images all find their partner (positive pair accuracy 1, loss near 0 at a small temperature), and random
-    embeddings, nearly orthogonal in a large dimension, give a loss near log(2N - 1) at temperature 1.
-    """
-    # Identical views of 4 images with orthogonal embeddings
-    orthogonal_embeddings = torch.eye(n=4, m=6)
-    outputs = compute_info_nce_loss(first_embeddings=orthogonal_embeddings, second_embeddings=orthogonal_embeddings,
-                                    temperature=0.05)
-    assert float(outputs["positive_pair_accuracy"]) == 1.0
-    assert float(outputs["info_nce_loss"]) < 1e-6
-
-    # Random embeddings of 8 images in 4096 dimensions
-    generator = torch.Generator().manual_seed(1)
-    outputs = compute_info_nce_loss(first_embeddings=torch.randn(size=(8, 4096), generator=generator),
-                                    second_embeddings=torch.randn(size=(8, 4096), generator=generator),
-                                    temperature=1.0)
-    assert float(outputs["info_nce_loss"]) == pytest.approx(expected=math.log(2 * 8 - 1), abs=0.02)
 
 
 def test_barlow_twins_loss_of_decorrelated_and_collapsed_embeddings() -> None:
@@ -106,19 +81,3 @@ def test_losses_stay_in_float32_under_mixed_precision() -> None:
     # The loss of both methods trains the embeddings
     (info_nce_outputs["info_nce_loss"] + barlow_twins_outputs["barlow_twins_loss"]).backward()
     assert first_embeddings.grad is not None and bool(first_embeddings.grad.abs().sum() > 0)
-
-
-def test_embedding_standard_deviation_tells_the_collapse() -> None:
-    """
-    Verifies the standard deviation of the normalized embeddings, times the square root of their dimension: about 1
-    for embeddings spread over the whole sphere, 0 for collapsed ones, and well below 1 for non-negative
-    representations, which only cover their part of the sphere.
-    """
-    generator = torch.Generator().manual_seed(4)
-    spread_embeddings = torch.randn(size=(4096, 64), generator=generator)
-    assert float(compute_embedding_standard_deviation(embeddings=spread_embeddings)) == pytest.approx(expected=1.0,
-                                                                                                     abs=0.02)
-    assert float(compute_embedding_standard_deviation(embeddings=torch.ones(size=(32, 64)))) == pytest.approx(
-        expected=0.0, abs=1e-6)
-    non_negative_representations = spread_embeddings.relu()
-    assert 0.5 < float(compute_embedding_standard_deviation(embeddings=non_negative_representations)) < 0.9

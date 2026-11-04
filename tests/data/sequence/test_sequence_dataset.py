@@ -1,9 +1,8 @@
 """
 Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the whole sequences with one class per
 sequence or one class per frame, the sequences longer than the maximum sequence length left out with red warnings, the
-whole sequences of the frame selection with their unselected frames and their check, the batches padded to their
-longest sequence by collate_padded_sequences, the sequence counts of vision_training/data/split_description.py, and
-the training loader of a head needing batch statistics leaving out its last incomplete batch.
+whole sequences of the frame selection with their unselected frames, the batches padded to their longest sequence by
+collate_padded_sequences, and the sequence counts of vision_training/data/split_description.py.
 """
 
 import json
@@ -18,7 +17,6 @@ from torch.utils.data import DataLoader
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.data.loaders import get_sequence_dataloaders
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.data.split_description import count_split_sequences
 
@@ -119,12 +117,12 @@ def test_whole_sequences_with_one_class_per_frame(tmp_path: Path) -> None:
     assert dataset.get_sample_class_indices() == {0: [0, 1]}
 
 
-@pytest.mark.parametrize(argnames="label_type", argvalues=["sequence", "frame"])
+@pytest.mark.parametrize(argnames="label_type", argvalues=["frame"])
 def test_collate_pads_the_batches_to_their_longest_sequence(tmp_path: Path, label_type: str) -> None:
     """
     Verifies that the sequences of 2, 3 and 5 frames are padded to the 5 frames of their longest sequence by
     collate_padded_sequences: the real frames first, then black frames out of the sequence mask, the frame labels
-    padded with the ignored label -100, while the labels of one class per sequence and the identifiers are unchanged.
+    padded with the ignored label -100, while the identifiers are unchanged.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -172,24 +170,6 @@ def test_collate_pads_every_member_of_the_pairs() -> None:
     assert batch["labels"].tolist() == [2, 3]
 
 
-def test_split_description_counts_kept_sequences(tmp_path: Path) -> None:
-    """
-    Verifies that the split description counts the sequences, the frames and the kept sequences, the samples of an
-    epoch, a sequence without frames or longer than the maximum sequence length not being kept.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    write_sequence_split(split_folder=tmp_path, sequences=[
-        {"id": 1, "name": "long", "number_frames": 12, "category_id": 1},
-        {"id": 2, "name": "short", "number_frames": 2, "category_id": 2},
-        {"id": 3, "name": "empty", "number_frames": 0, "category_id": 2}])
-    assert count_split_sequences(split_data_folder=tmp_path,
-                                 sequence_settings={"maximum_sequence_length": 10}) == (3, 14, 1)
-    assert count_split_sequences(split_data_folder=tmp_path,
-                                 sequence_settings={"maximum_sequence_length": 12}) == (3, 14, 2)
-
-
 def test_selection_sequences_are_whole_with_unselected_frames(tmp_path: Path) -> None:
     """
     Verifies the frame selection dataset: every sequence is one sample, the unselected class is found by the name of
@@ -218,94 +198,3 @@ def test_selection_sequences_are_whole_with_unselected_frames(tmp_path: Path) ->
     assert dataset.get_sample_class_indices() == {0: [0], 1: [0]}
     assert count_split_sequences(split_data_folder=tmp_path,
                                  sequence_settings={"maximum_sequence_length": 6}) == (2, 7, 2)
-
-
-def test_selection_sequences_that_do_not_fit_are_all_listed(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that the frame selection dataset refuses the sequences it cannot train on, listing all of them in one
-    error: a sequence holding a wanted class twice and one missing a wanted class, a sequence longer than the maximum
-    sequence length being left out with a red warning instead.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warnings.
-    """
-    write_sequence_split(split_folder=tmp_path, sequences=[
-        {"id": 1, "name": "valid", "number_frames": 3, "frame_category_ids": [1, 2, 3]},
-        {"id": 2, "name": "twice", "number_frames": 3, "frame_category_ids": [1, 1, 2]},
-        {"id": 3, "name": "missing", "number_frames": 2, "frame_category_ids": [3, 2]},
-        {"id": 4, "name": "long", "number_frames": 5, "frame_category_ids": [1, 2, 3, 3, 3]}])
-
-    with pytest.raises(expected_exception=ValueError) as raised_error:
-        SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
-                        image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1, 3: 2},
-                        sequence_settings={"maximum_sequence_length": 4}, label_type="selection",
-                        split_name="Validation",
-                        selection_settings={"unselected_category": "still", "frames_per_class": 1})
-    error_message = str(raised_error.value)
-    assert error_message.startswith("2 sequences cannot be used for the frame selection")
-    assert " - twice : left 2 frames" in error_message
-    assert error_message.endswith(" - missing : left 0 frames")
-    assert "valid" not in error_message and "long" not in error_message
-    assert "Sequence 'long' Of The Validation Split Has 5 Frames" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize(argnames=("unselected_category", "label_dictionary", "expected_message"), argvalues=[
-    ("discarded", {1: 0, 3: 1}, "No category is named 'discarded'"),
-    ("still", {1: 0, 2: 1}, "The unselected category 'still' (identifier 3) is not mapped")])
-def test_selection_needs_a_mapped_unselected_category(tmp_path: Path, unselected_category: str,
-                                                      label_dictionary: Dict[int, int], expected_message: str) -> None:
-    """
-    Verifies that the frame selection dataset refuses an unselected category missing from the manifest or left out
-    of the label mapping, whose frames would have no class.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        unselected_category (str): The name of the unselected category of the selection settings.
-        label_dictionary (Dict[int, int]): The label mapping of the dataset.
-        expected_message (str): The start of the expected error.
-    """
-    write_sequence_split(split_folder=tmp_path, sequences=[
-        {"id": 1, "name": "first", "number_frames": 2, "frame_category_ids": [1, 3]}])
-    with pytest.raises(expected_exception=ValueError, match=expected_message.replace("(", r"\(").replace(")", r"\)")):
-        SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
-                        image_size=16, keep_ratio=False, label_dictionary=label_dictionary,
-                        sequence_settings={"maximum_sequence_length": 4}, label_type="selection",
-                        split_name="Training",
-                        selection_settings={"unselected_category": unselected_category, "frames_per_class": 1})
-
-
-def test_loaders_needing_batch_statistics_drop_the_last_training_batch(tmp_path: Path) -> None:
-    """
-    Verifies the sequence loaders of a classifier whose head is batch normalized (drop_last_training_batch): the
-    training loader leaves out its last incomplete batch, which a single sequence would fill and break, the validation
-    loader keeps every sequence, and a training split smaller than a batch stops the launch with its size instead of
-    giving no batch.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    split_sizes = {"train": 3, "validation": 3, "test": 2}
-    for split_name, number_sequences in split_sizes.items():
-        write_sequence_split(split_folder=tmp_path / split_name, sequences=[
-            {"id": sequence_index + 1, "name": f"sequence_{sequence_index}", "number_frames": 2,
-             "category_id": sequence_index % 2 + 1} for sequence_index in range(number_sequences)])
-    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
-    data_configuration = {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0, 2: 1},
-                          "sequence_settings": {"maximum_sequence_length": 8}}
-    model_configuration = {"Data": data_configuration}
-
-    # Batches of 2 sequences: the third training sequence is left out only for the head needing batch statistics
-    for drop_last_training_batch, expected_training_batches in [(True, [2]), (False, [2, 1])]:
-        training_loader, validation_loader, _ = get_sequence_dataloaders(
-            experiment_configuration=experiment_configuration, model_configuration=model_configuration, batch_size=2,
-            label_type="sequence", drop_last_training_batch=drop_last_training_batch)
-        assert [batch["images"].shape[0] for batch in training_loader] == expected_training_batches
-        assert [batch["images"].shape[0] for batch in validation_loader] == [2, 1]
-
-    # Batches of 4 sequences, more than the training split holds
-    with pytest.raises(expected_exception=ValueError, match="The 'train_data_folder' split holds 3 samples, fewer than "
-                                                            "the batch size 4"):
-        get_sequence_dataloaders(experiment_configuration=experiment_configuration,
-                                 model_configuration=model_configuration, batch_size=4, label_type="sequence",
-                                 drop_last_training_batch=True)

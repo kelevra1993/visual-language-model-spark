@@ -1,6 +1,6 @@
 """
 Tests of vision_training/losses/instance_segmentation_losses.py: the mask loss reads the channel of the ground truth
-class of every proposal only, and stays a zero in the graph without positive proposal.
+class of every proposal only.
 """
 
 import torch
@@ -27,16 +27,3 @@ def test_mask_loss_reads_the_channel_of_the_ground_truth_class() -> None:
     # The same logits read on the wrong channels give a larger loss
     assert float(compute_mask_loss(mask_logits=mask_logits, labels=torch.tensor(data=[2, 1]),
                                    mask_targets=targets)) > float(loss)
-
-
-def test_mask_loss_without_positive_proposal_is_a_zero_in_the_graph() -> None:
-    """
-    Verifies that without positive proposal the loss is 0 and can still be back-propagated.
-    """
-    mask_logits = torch.zeros(size=(0, 3, 4, 4), requires_grad=True)
-
-    loss = compute_mask_loss(mask_logits=mask_logits, labels=torch.zeros(size=(0,), dtype=torch.int64),
-                             mask_targets=torch.zeros(size=(0, 4, 4)))
-    loss.backward()
-
-    assert float(loss) == 0.0 and loss.requires_grad

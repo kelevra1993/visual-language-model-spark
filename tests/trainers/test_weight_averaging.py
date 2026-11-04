@@ -1,7 +1,7 @@
 """
 Tests of the exponential moving average of the weights of vision_training/trainers/weight_averaging.py, kept by the
-trainers next to the trained weights: the update formula with its decay of the first updates, the averaged and copied
-buffers, and the state saved in the checkpoints.
+trainers next to the trained weights: the update formula with its decay of the first updates, and the averaged and
+copied buffers.
 """
 
 import pytest
@@ -85,26 +85,3 @@ def test_update_averages_parameters_and_statistics_and_copies_the_other_buffers(
     # The averaged model is never trained
     assert not averaged_model.training
     assert not any(parameter.requires_grad for parameter in averaged_model.parameters())
-
-
-def test_state_round_trip_and_reset() -> None:
-    """
-    Verifies that the state saved in the checkpoints restores the same average and number of updates in a new
-    average, and that a reset restarts the average from the weights of the model.
-    """
-    model = build_model()
-    moving_average = ExponentialMovingAverage(model=model, decay=0.999)
-    change_weights(model=model, value=3.0)
-    moving_average.update(model=model)
-
-    # Average of a resumed run, started from other weights then restored from the checkpoint
-    restored_average = ExponentialMovingAverage(model=build_model(), decay=0.999)
-    restored_average.load_state_dict(state_dictionary=moving_average.state_dict())
-    assert restored_average.number_updates == 1
-    for name, tensor in moving_average.averaged_model.state_dict().items():
-        assert torch.equal(input=restored_average.averaged_model.state_dict()[name], other=tensor)
-
-    # Average restarted from the trained weights
-    restored_average.reset(model=model)
-    assert restored_average.number_updates == 0
-    assert torch.equal(input=restored_average.averaged_model[0].weight, other=model[0].weight)

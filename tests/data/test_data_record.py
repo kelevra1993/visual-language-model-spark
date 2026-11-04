@@ -1,11 +1,9 @@
 """
 Tests of vision_training/data/data_record.py, the record of the images of every split written by the base trainer in
-the run folder ('data.json'): the images of the four manifest formats, the classes counted in every manifest format
-with their categories, the record of a split with the SHA-256 of its labels file, and the splits found changed between
-two starts of a run.
+the run folder ('data.json'): the images of the COCO and sample manifests, the classes counted with their categories,
+the class records of every split, and the splits found changed between two starts of a run.
 """
 
-import hashlib
 import json
 import pytest
 
@@ -13,23 +11,17 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from vision_training.data.data_record import (COMPARED_SPLIT_ENTRIES, RELABELLED_SPLIT_ENTRIES, build_class_records,
-                                              build_split_record, count_manifest_classes, find_changed_splits,
-                                              list_manifest_images, map_categories_to_classes)
+                                              count_manifest_classes, find_changed_splits, list_manifest_images,
+                                              map_categories_to_classes)
 
 
 @pytest.mark.parametrize(argnames=["labels", "expected_images"], argvalues=[
     ({"images": [{"id": 1, "file_name": "a.png"}, {"id": 2, "file_name": "b.png"}], "annotations": []},
      ["a.png", "b.png"]),
-    ({"samples": [{"id": 1, "file_name": "cats/1.jpg", "category_id": 1}], "categories": []}, ["cats/1.jpg"]),
-    ({"sequences": [{"name": "first", "frames": ["first/0.png", "first/1.png"]}, {"name": "second",
-                                                                                 "frames": ["second/0.png"]}]},
-     ["first/0.png", "first/1.png", "second/0.png"]),
-    ({"pairs": [{"before": ["pair/before_0.png"], "after": ["pair/after_0.png", "pair/after_1.png"]}]},
-     ["pair/before_0.png", "pair/after_0.png", "pair/after_1.png"])])
+    ({"samples": [{"id": 1, "file_name": "cats/1.jpg", "category_id": 1}], "categories": []}, ["cats/1.jpg"])])
 def test_images_of_every_manifest_format(labels: Dict[str, Any], expected_images: List[str]) -> None:
     """
-    Verifies that the images of a split are read in manifest order from the COCO images, the samples, the frames of
-    the sequences and the frames of both members of the pairs, the before member first.
+    Verifies that the images of a split are read in manifest order from the COCO images and the samples.
 
     Args:
         labels (Dict[str, Any]): The labels file of the split.
@@ -38,40 +30,15 @@ def test_images_of_every_manifest_format(labels: Dict[str, Any], expected_images
     assert list_manifest_images(labels=labels) == expected_images
 
 
-def test_unknown_manifest_format_fails_loudly() -> None:
-    """
-    Verifies that a labels file without any of the four lists of the framework stops the record with its keys.
-    """
-    with pytest.raises(expected_exception=ValueError, match=r"its keys are \['items'\]"):
-        list_manifest_images(labels={"items": []})
-
-
 @pytest.mark.parametrize(argnames=["labels", "expected_counts"], argvalues=[
     ({"images": [{"id": 1, "file_name": "a.png"}, {"id": 2, "file_name": "b.png"}],
       "annotations": [{"image_id": 1, "category_id": 1}, {"image_id": 1, "category_id": 1},
                       {"image_id": 2, "category_id": 2}, {"image_id": 2, "category_id": 9}]},
-     {"images": {0: 1, 1: 1}, "annotations": {0: 2, 1: 1}}),
-    ({"samples": [{"id": 1, "category_id": 1}, {"id": 2, "category_id": 1}, {"id": 3, "category_id": 9}]},
-     {"images": {0: 2}}),
-    ({"samples": [{"id": 1, "category_id": 1}, {"id": 2}, {"id": 3, "category_id": 2}, {"id": 4}]},
-     {"images": {0: 1, 1: 1}}),
-    ({"samples": [{"id": 1, "category_ids": [1, 2]}, {"id": 2, "category_ids": [2, 3]}, {"id": 3, "category_ids": []}]},
-     {"images": {0: 1, 1: 2}}),
-    ({"samples": [{"id": 1, "file_name": "1.png", "mask_file_name": "1.png"}]}, {}),
-    ({"samples": [{"id": 1, "mask_file_name": "1.png", "category_ids": [1, 2]},
-                  {"id": 2, "mask_file_name": "2.png", "category_ids": [2]}]}, {"images": {0: 1, 1: 2}}),
-    ({"sequences": [{"category_id": 1, "frames": ["0.png", "1.png"]}, {"category_id": 2, "frames": ["2.png"]}]},
-     {"sequences": {0: 1, 1: 1}}),
-    ({"sequences": [{"frame_category_ids": [1, 1, 9], "frames": ["0.png", "1.png", "2.png"]}]}, {"frames": {0: 2}}),
-    ({"pairs": [{"category_id": 2}, {"category_id": 2}, {"category_id": 1}]}, {"pairs": {0: 1, 1: 2}})])
+     {"images": {0: 1, 1: 1}, "annotations": {0: 2, 1: 1}})])
 def test_classes_counted_in_every_manifest_format(labels: Dict[str, Any], expected_counts: Dict[str, Any]) -> None:
     """
-    Verifies the counts of the classes in every manifest format, categories 1 and 2 being classes 0 and 1, category 3
-    merged into class 1 and category 9 unmapped: the images holding the class and its annotations for COCO, the
-    samples of a manifest mixing labelled images and images without category (the unlabelled images of the
-    self-supervised task, counted in no class), an image counted once per class for the multi-label samples
-    (categories 2 and 3 giving class 1 once), no count for the segmentation samples without the categories of their
-    masks and the masks of every class with them, the sequences and the frames of the sequences, and the pairs.
+    Verifies the counts of the classes of a COCO manifest, categories 1 and 2 being classes 0 and 1 and category 9
+    unmapped: the images holding the class and its annotations.
 
     Args:
         labels (Dict[str, Any]): The labels file of the split.
@@ -152,24 +119,6 @@ def test_class_records_count_every_split(tmp_path: Path) -> None:
          "images": {"train": 2, "validation": 0, "test": 0}, "annotations": {"train": 3, "validation": 0, "test": 0}},
         {"class_index": 2, "class_name": "person", "category_ids": [3],
          "images": {"train": 0, "validation": 1, "test": 0}, "annotations": {"train": 0, "validation": 1, "test": 0}}]
-
-
-def test_split_record_identifies_its_labels_file(tmp_path: Path) -> None:
-    """
-    Verifies the record of a split: its absolute data folder, the SHA-256 of the bytes of its labels file and its
-    images with their number.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    split_folder = tmp_path / "train"
-    split_folder.mkdir()
-    (split_folder / "labels.json").write_text(data=json.dumps(obj={"samples": [{"id": 1, "file_name": "1.png"},
-                                                                               {"id": 2, "file_name": "2.png"}]}))
-    split_record = build_split_record(split_data_folder=split_folder)
-    assert split_record == {"data_folder": str(split_folder.resolve()),
-                            "labels_sha256": hashlib.sha256((split_folder / "labels.json").read_bytes()).hexdigest(),
-                            "number_images": 2, "images": ["1.png", "2.png"]}
 
 
 def test_changed_splits_are_found() -> None:

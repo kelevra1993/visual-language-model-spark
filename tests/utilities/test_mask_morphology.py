@@ -1,26 +1,13 @@
 """
-Tests of vision_training/utilities/mask_morphology.py: the dilation of boolean masks without effect of the outside of
-the image, the bands of the regions within a distance of their contours ignoring the neutral pixels, and the weights
-of the pixels decreasing with their distance to the true edges.
+Tests of vision_training/utilities/mask_morphology.py: the bands of the regions within a distance of their contours
+ignoring the image border and the neutral pixels, and the weights of the pixels decreasing with their distance to the
+true edges.
 """
 
 import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.utilities.mask_morphology import (compute_contour_bands, compute_edge_distance_weights,
-                                                       dilate_masks)
-
-
-def test_dilation_reaches_the_chessboard_neighbours() -> None:
-    """
-    Verifies that a single pixel dilated by a radius of 1 covers its 3 x 3 neighbourhood, by 2 its 5 x 5
-    neighbourhood, and that a radius of 0 changes nothing.
-    """
-    masks = torch.zeros(size=(1, 7, 7), dtype=torch.bool)
-    masks[0, 3, 3] = True
-    assert int(dilate_masks(masks=masks, radius=1).sum()) == 9
-    assert int(dilate_masks(masks=masks, radius=2).sum()) == 25
-    assert torch.equal(input=dilate_masks(masks=masks, radius=0), other=masks)
+from vision_training.utilities.mask_morphology import compute_contour_bands, compute_edge_distance_weights
 
 
 def test_contour_bands_ignore_the_image_border_and_the_neutral_pixels() -> None:

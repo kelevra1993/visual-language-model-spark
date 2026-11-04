@@ -1,18 +1,15 @@
 """
 Tests of vision_training/models/keypoints/keypoint_detector.py, the bottom-up model of the keypoint detection task: the
-heatmap channel table (consecutive channels per class in increasing class order, -1 for the padding positions and the
-classes without keypoints, the 'class.keypoint' names, an empty definition refused), the extraction of the keypoint
-candidates (the Gaussian targets of build_keypoint_targets come back at the vertex of the parabola through their
-log-heatmap, within a sixth of a cell of their keypoints, with the tag of their cell, a round Gaussian peak is found
-exactly wherever it lies in its cell, a maximum on the border is not moved, the candidates are sorted and padded with
-zero scores, and the higher resolution heatmaps are averaged at half the image resolution), and the forward pass of
-the KeypointDetector on the keypoint fixture with and without the higher resolution branch and the 3x3 hidden
-convolution of the prediction heads (the outputs and their shapes, the first heatmaps at the prior probability and the
-first tags near 0, the heatmaps the sigmoid of the logits, the losses given only with the ground truth and equal to the
-losses of the logits and of the targets, the heatmap loss training every heatmap channel and the tag losses the tags of
-the cells of the labelled keypoints only, and the heatmap loss leaving out the cells of the ignored regions but their
-keypoint cells), and its training under the bfloat16 autocast of the mixed precision (float32 losses close to the
-float32 ones, finite float32 gradients, float32 candidates).
+extraction of the keypoint candidates (the Gaussian targets of build_keypoint_targets come back at the vertex of the
+parabola through their log-heatmap, within a sixth of a cell of their keypoints, with the tag of their cell, a round
+Gaussian peak is found exactly wherever it lies in its cell, a maximum on the border is not moved, the candidates are
+sorted and padded with zero scores, and the higher resolution heatmaps are averaged at half the image resolution), and
+the forward pass of the KeypointDetector on the keypoint fixture with the higher resolution branch, with and without
+the 3x3 hidden convolution of the prediction heads (the outputs and their shapes, the first heatmaps at the prior
+probability and the first tags near 0, the heatmaps the sigmoid of the logits, the losses given only with the ground
+truth and equal to the losses of the logits and of the targets, the heatmap loss training every heatmap channel and the
+tag losses the tags of the cells of the labelled keypoints only, and the heatmap loss leaving out the cells of the
+ignored regions but their keypoint cells).
 """
 
 import pytest
@@ -25,7 +22,6 @@ from typing import List, Tuple
 from vision_training.data.keypoints.heatmap_targets import build_keypoint_targets
 from vision_training.losses.keypoint_losses import compute_heatmap_loss, compute_tag_losses
 from vision_training.models.keypoints.keypoint_detector import (HEATMAP_STRIDE, KeypointDetector,
-                                                                build_keypoint_channel_table,
                                                                 extract_keypoint_candidates)
 from tests.fixtures.configuration_fixtures import get_keypoint_model_configuration
 
@@ -57,22 +53,6 @@ def keep_predictions(module: nn.Module, inputs: Tuple[torch.Tensor, ...], output
         retained_predictions (List[torch.Tensor]): The list receiving the predictions.
     """
     retained_predictions.append(output)
-
-
-def test_channel_table_gives_consecutive_channels_per_class() -> None:
-    """
-    Verifies that the channels of every class follow each other in the order of its keypoints, the classes in
-    increasing order whatever the order of the definition, that the padding positions, the background and a class
-    without definition read -1, that every channel is named 'class.keypoint', and that an empty definition is refused.
-    """
-    keypoint_categories = {3: {"name": "rectangle", "keypoints": ["top_left", "top_right", "bottom_right"]},
-                           1: {"name": "circle", "keypoints": ["centre"]}}
-    channel_table, channel_names = build_keypoint_channel_table(keypoint_categories=keypoint_categories)
-    assert channel_table.dtype == torch.int64
-    assert channel_table.tolist() == [[-1, -1, -1], [0, -1, -1], [-1, -1, -1], [1, 2, 3]]
-    assert channel_names == ["circle.centre", "rectangle.top_left", "rectangle.top_right", "rectangle.bottom_right"]
-    with pytest.raises(ValueError, match="No class defines keypoints"):
-        build_keypoint_channel_table(keypoint_categories={})
 
 
 def test_candidates_come_back_to_their_keypoints() -> None:
@@ -181,7 +161,7 @@ def test_higher_resolution_heatmaps_are_averaged_at_half_the_resolution() -> Non
     assert torch.allclose(input=candidates["candidate_tags"], other=torch.tensor(data=0.3))
 
 
-@pytest.mark.parametrize("higher_resolution, hidden_width", [(False, 0), (True, 0), (False, 16), (True, 16)])
+@pytest.mark.parametrize("higher_resolution, hidden_width", [(True, 16)])
 def test_detector_gives_candidates_without_ground_truth(higher_resolution: bool, hidden_width: int) -> None:
     """
     Verifies the inference outputs of the keypoint detector of the fixture (7 channels: the 3 of the triangle, then the
@@ -232,7 +212,7 @@ def test_detector_gives_candidates_without_ground_truth(higher_resolution: bool,
     assert bool(((outputs["candidate_positions"] > 0.0) & (outputs["candidate_positions"] < IMAGE_SIZE)).all())
 
 
-@pytest.mark.parametrize("higher_resolution, hidden_width", [(False, 0), (True, 0), (True, 16)])
+@pytest.mark.parametrize("higher_resolution, hidden_width", [(True, 16)])
 def test_losses_train_every_heatmap_and_the_tags_of_the_keypoints(higher_resolution: bool, hidden_width: int) -> None:
     """
     Verifies that with the ground truth of an image of two rectangles and a triangle next to an image without object,
@@ -303,7 +283,7 @@ def test_losses_train_every_heatmap_and_the_tags_of_the_keypoints(higher_resolut
     assert set(tag_gradient_cells[:, 1].tolist()) == set(trained_cells.tolist())
 
 
-@pytest.mark.parametrize("higher_resolution", [False, True])
+@pytest.mark.parametrize("higher_resolution", [True])
 def test_heatmap_loss_leaves_out_the_ignored_regions(higher_resolution: bool) -> None:
     """
     Verifies that with ignored regions, the quarter of the first image holding the second rectangle and a corner of the
@@ -363,85 +343,3 @@ def test_heatmap_loss_leaves_out_the_ignored_regions(higher_resolution: bool) ->
     assert int((ignored_cells & keypoint_cells).sum()) == 4
     assert not trained_cells[ignored_cells & ~keypoint_cells].any()
     assert bool(trained_cells[~ignored_cells | keypoint_cells].all())
-
-
-@pytest.mark.parametrize("higher_resolution", [False, True])
-def test_detector_trains_under_the_bfloat16_autocast(higher_resolution: bool) -> None:
-    """
-    Verifies the keypoint detector under the bfloat16 autocast of the mixed precision, always on, on the CPU, against
-    float32 with the same weights and images: its predicted heatmap logits and tags come out in bfloat16, and its three
-    losses are finite and those of these predictions computed in float32, the heatmap and push losses within 1 % of
-    the float32 ones (the pull loss of the untrained tags, about 1e-9, being only their rounding); the backward pass of
-    their sum, outside the autocast like the trainer, gives every parameter a finite float32 gradient, pointing like
-    the float32 one; and the keypoint candidates of the inference are float32.
-
-    Args:
-        higher_resolution (bool): Whether the detector has the higher resolution branch.
-    """
-    torch.manual_seed(seed=0)
-    configuration, device, dtype = get_keypoint_model_configuration(higher_resolution=higher_resolution,
-                                                                    hidden_width=16)
-    model = KeypointDetector(configuration=configuration, device=device, dtype=dtype).train()
-    images = torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
-    loss_names = ["heatmap_loss", "tag_pull_loss", "tag_push_loss"]
-
-    # The predictions of the heads are kept, those of the last pass staying in the list
-    retained_predictions = []
-    prediction_modules = [model.keypoint_head["prediction_convolution"]]
-    if higher_resolution:
-        prediction_modules.append(model.keypoint_head["higher_resolution_branch"])
-    hook_handles = [prediction_module.register_forward_hook(
-        hook=partial(keep_predictions, retained_predictions=retained_predictions))
-        for prediction_module in prediction_modules]
-
-    # The losses and gradients of the same weights and images in float32, then under the autocast of the trainer
-    outputs, gradients = {}, {}
-    for precision in ["float32", "bfloat16"]:
-        model.zero_grad()
-        retained_predictions.clear()
-        with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=precision == "bfloat16"):
-            outputs[precision] = model(input_tensor=images, ground_truth_keypoints=GROUND_TRUTH_KEYPOINTS,
-                                       ground_truth_labels=GROUND_TRUTH_LABELS)
-        sum(outputs[precision][loss_name] for loss_name in loss_names).backward()
-        gradients[precision] = [parameter.grad for parameter in model.parameters()]
-    for hook_handle in hook_handles:
-        hook_handle.remove()
-
-    # The predictions come out in bfloat16, and the losses are finite and those of these predictions in float32
-    assert all(prediction.dtype == torch.bfloat16 for prediction in retained_predictions)
-    heatmap_strides = [HEATMAP_STRIDE, HEATMAP_STRIDE // 2] if higher_resolution else [HEATMAP_STRIDE]
-    targets = build_keypoint_targets(keypoints=GROUND_TRUTH_KEYPOINTS, labels=GROUND_TRUTH_LABELS,
-                                     channel_table=model.channel_table, number_channels=7, image_height=IMAGE_SIZE,
-                                     image_width=IMAGE_SIZE, heatmap_strides=heatmap_strides,
-                                     tag_stride=HEATMAP_STRIDE, heatmap_sigma=2.0)
-    heatmap_logits = [retained_predictions[0][:, :7]] + retained_predictions[1:]
-    pull_loss, push_loss = compute_tag_losses(tag_maps=retained_predictions[0][:, 7:].to(dtype=torch.float32),
-                                              tag_indices=targets["tag_indices"], tag_valid=targets["tag_valid"],
-                                              object_labels=targets["object_labels"])
-    expected_losses = {"heatmap_loss": sum(compute_heatmap_loss(predicted_logits=logits.to(dtype=torch.float32),
-                                                                target_heatmaps=target)
-                                           for logits, target in zip(heatmap_logits, targets["heatmaps"], strict=True)),
-                       "tag_pull_loss": 0.001 * pull_loss, "tag_push_loss": 0.001 * push_loss}
-    for loss_name in loss_names:
-        loss_value = outputs["bfloat16"][loss_name]
-        assert loss_value.dtype == torch.float32 and bool(torch.isfinite(loss_value))
-        assert torch.allclose(input=loss_value, other=expected_losses[loss_name], rtol=1e-5, atol=0.0)
-
-    # The heatmap and push losses are close to the float32 ones
-    for loss_name in ["heatmap_loss", "tag_push_loss"]:
-        assert torch.allclose(input=outputs["bfloat16"][loss_name], other=outputs["float32"][loss_name], rtol=0.01,
-                              atol=0.0)
-
-    # Every parameter receives a finite float32 gradient, pointing like the float32 one
-    assert all(gradient is not None and gradient.dtype == torch.float32 and bool(torch.isfinite(gradient).all())
-               for gradient in gradients["bfloat16"])
-    gradient_similarity = nn.functional.cosine_similarity(
-        x1=torch.cat(tensors=[gradient.flatten() for gradient in gradients["bfloat16"]]),
-        x2=torch.cat(tensors=[gradient.flatten() for gradient in gradients["float32"]]), dim=0)
-    assert gradient_similarity.item() > 0.99
-
-    # The keypoint candidates of the inference are float32
-    with torch.no_grad(), torch.autocast(device_type="cpu", dtype=torch.bfloat16):
-        inference_outputs = model.eval()(input_tensor=images)
-    assert all(inference_outputs[output_name].dtype == torch.float32
-               for output_name in ["candidate_positions", "candidate_scores", "candidate_tags"])

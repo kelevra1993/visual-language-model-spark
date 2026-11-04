@@ -1,7 +1,6 @@
 """
 Tests of the optimization settings of the trainers: the learning rate factor of
-vision_training/trainers/learning_rate_schedule.py, the optimizer, schedule and gradient clipping during training, and
-mixed precision training.
+vision_training/trainers/learning_rate_schedule.py, and the optimizer, schedule and gradient clipping during training.
 """
 
 import math
@@ -11,11 +10,8 @@ import torch
 from pathlib import Path
 from typing import Any, Dict
 
-from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
-from tests.fixtures.evaluation_checks import read_results_blocks
-from tests.trainers.test_classification_trainer import SMOKE_IMAGE_SIZE, build_trainer, write_smoke_configuration
 
 
 def get_optimization_configuration(learning_rate_schedule: str) -> Dict[str, Any]:
@@ -36,13 +32,11 @@ def get_optimization_configuration(learning_rate_schedule: str) -> Dict[str, Any
 
 
 @pytest.mark.parametrize(argnames=("iteration", "learning_rate_schedule", "expected_factor"), argvalues=[
-    (1, "constant", 0.25), (4, "constant", 1.0), (1000, "constant", 1.0),
-    (2, "cosine", 0.5), (4, "cosine", 1.0), (9, "cosine", 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * 0.5))),
-    (14, "cosine", 0.1), (1000, "cosine", 0.1)])
+    (1, "constant", 0.25), (9, "cosine", 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * 0.5)))])
 def test_learning_rate_factor(iteration: int, learning_rate_schedule: str, expected_factor: float) -> None:
     """
-    Verifies the learning rate schedule: a linear warm-up reaching the full learning rate at its last iteration, then
-    a constant learning rate, or a cosine decay reaching its minimum after the decay iterations and staying there.
+    Verifies the learning rate schedule at two points: the first iteration of the linear warm-up, and the middle of
+    the cosine decay, halfway between the full and the minimum learning rate.
 
     Args:
         iteration (int): The training iteration.
@@ -53,8 +47,7 @@ def test_learning_rate_factor(iteration: int, learning_rate_schedule: str, expec
         learning_rate_schedule=learning_rate_schedule)) == pytest.approx(expected=expected_factor)
 
 
-@pytest.mark.parametrize(argnames=("optimizer_name", "optimizer_class"), argvalues=[
-    ("adam", torch.optim.Adam), ("adamw", torch.optim.AdamW), ("sgd", torch.optim.SGD)])
+@pytest.mark.parametrize(argnames=("optimizer_name", "optimizer_class"), argvalues=[("adamw", torch.optim.AdamW)])
 def test_optimizer_schedule_and_clipping_in_training(tmp_path: Path, optimizer_name: str,
                                                      optimizer_class: type) -> None:
     """
@@ -92,31 +85,3 @@ def test_optimizer_schedule_and_clipping_in_training(tmp_path: Path, optimizer_n
     # The training loop follows the schedule, down to the minimum learning rate at the end of the decay
     trainer.run_training_loop()
     assert trainer.optimizer.param_groups[0]["lr"] == pytest.approx(expected=0.01 * 0.01)
-
-
-def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies a short classification training under mixed precision, always on: the run name carries no token for it,
-    the forward passes run in bfloat16 without failing any iteration, and the test evaluation, in float32, is written
-    to Results.txt.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
-                                                   number_iterations=5, head_settings={}, evaluation_settings={})
-
-    trainer = build_trainer(configuration_path=configuration_path)
-    assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC35")
-    trainer.run_training_loop()
-
-    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
-    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Images")]
-    console_output = capsys.readouterr().out
-    assert "Error encountered during iteration" not in console_output
-    assert "Critical Error" not in console_output

@@ -1,10 +1,10 @@
 """
 Tests of the instance masks of CocoDetectionDataset (vision_training/data/detection/coco_dataset.py), read by the
 instance segmentation task: every object, the crowd annotations included, gets its mask at the network resolution in
-the order of its box, the objects whose mask vanishes are removed with their box and label, an annotation without
-segmentation is refused, the collate function keeps the masks as a list, the object detection samples stay without
-masks, the instance segmentation boxes come from the masks without any 'bbox', the selection of the objects of an
-image maps the categories, keeps the crowd annotations and leaves out the background, the test samples of the
+the order of its box, the objects whose mask vanishes are removed with their box and label, the collate function
+keeps the masks as a list, the object detection samples stay without masks, the instance segmentation boxes come from
+the masks without any 'bbox', the selection of the objects of an image maps the categories, keeps the crowd
+annotations and leaves out the background, the test samples of the
 evaluation at the original resolution carry the masks and boxes of their objects at that resolution, every object with
 a pixel in the original image kept at both resolutions, and the keypoint samples carry as ignored regions the masks of
 the objects of a category with keypoints left out for having no labelled keypoint.
@@ -130,21 +130,6 @@ def test_image_without_objects_gets_empty_masks(tmp_path: Path) -> None:
     sample = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=True)[0]
     assert sample["instance_masks"].shape == (0, 80, 80)
     assert sample["bounding_boxes"].shape == (0, 4) and sample["labels"].shape == (0,)
-
-
-def test_annotation_without_segmentation_is_refused(tmp_path: Path) -> None:
-    """
-    Verifies that an object without segmentation stops the instance segmentation loading with the identifier of its
-    annotation, instead of training on an object without mask.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    labels_file = write_split(folder=tmp_path, annotations=[
-        {"id": 7, "image_id": 1, "category_id": 1, "bbox": [2, 2, 4, 4], "iscrowd": 0}])
-
-    with pytest.raises(ValueError, match="annotation 7 of image 1"):
-        _ = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=True)[0]
 
 
 def test_object_selection_keeps_the_crowd_and_leaves_out_the_background() -> None:

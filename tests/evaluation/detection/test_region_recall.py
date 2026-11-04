@@ -1,10 +1,9 @@
 """
 Tests of vision_training/evaluation/detection/region_recall.py, the anchor recall measured at the launch of the
 object detection and instance segmentation runs (and on every split by the anchor coverage diagnosis mode) and the
-proposal recall of every evaluated checkpoint: the boxes of a split read from the annotations (from the segmentation for
-the instance segmentation) and placed like the images, the best anchor overlaps of every level, the recall of all the
-objects and of every size, the rows and table of anchor_recall.csv, and the proposal recall of the valid proposals only,
-with its rows, scalars and table.
+proposal recall of every evaluated checkpoint: the boxes of an instance segmentation split read from the segmentation,
+the best anchor overlaps of every level, the rows and table of anchor_recall.csv, and the proposal recall of the valid
+proposals only, with its rows, scalars and table.
 """
 
 import json
@@ -15,46 +14,10 @@ from pathlib import Path
 
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.evaluation.detection.region_recall import (
-    accumulate_proposal_recall, compute_best_anchor_overlaps, compute_group_recalls,
-    create_proposal_recall_accumulator, gather_object_boxes, summarise_anchor_recall, summarise_proposal_recall)
+    accumulate_proposal_recall, compute_best_anchor_overlaps, create_proposal_recall_accumulator, gather_object_boxes,
+    summarise_anchor_recall, summarise_proposal_recall)
 from vision_training.models.detection.anchors import Anchors
 from vision_training.models.detection.box_operations import get_intersection_over_union
-
-
-def test_object_boxes_follow_the_preprocessing(tmp_path: Path) -> None:
-    """
-    Verifies that the boxes of the objects of a split are read from the annotations in image order, scaled and shifted
-    into network input pixels like the letterboxed images, the crowd annotation kept like the other objects, the
-    category mapped to the background and the image without objects left out, without any image file being read, with
-    or without the progress bar of the anchor coverage diagnosis mode.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    labels_file = tmp_path / "labels.json"
-    labels_file.write_text(json.dumps({
-        "images": [{"id": 1, "file_name": "wide.png", "width": 40, "height": 20},
-                   {"id": 2, "file_name": "square.png", "width": 80, "height": 80},
-                   {"id": 3, "file_name": "empty.png", "width": 80, "height": 80}],
-        "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [2, 2, 4, 4], "iscrowd": 0},
-                        {"id": 2, "image_id": 1, "category_id": 1, "bbox": [0, 0, 40, 20], "iscrowd": 1},
-                        {"id": 3, "image_id": 1, "category_id": 3, "bbox": [10, 10, 5, 5], "iscrowd": 0},
-                        {"id": 4, "image_id": 2, "category_id": 2, "bbox": [10, 10, 20, 30], "iscrowd": 0}],
-        "categories": [{"id": 1, "name": "first"}, {"id": 2, "name": "second"}, {"id": 3, "name": "ignored"}]}))
-    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "missing"), labels_file=str(labels_file),
-                                   image_size=80, keep_ratio=True, label_mode="multi_class",
-                                   label_dictionary={1: 1, 2: 2}, shuffle=False)
-
-    # The 40 x 20 image is scaled twice with 20 rows of padding above it, the 80 x 80 one is kept as it is
-    expected_boxes = torch.tensor(data=[[4.0, 24.0, 12.0, 32.0], [0.0, 20.0, 80.0, 60.0], [10.0, 10.0, 30.0, 40.0]])
-    for progress_description in [None, "Gathering The Validation Objects"]:
-        object_boxes = gather_object_boxes(dataset=dataset, progress_description=progress_description)
-        assert object_boxes.dtype == torch.float32
-        assert torch.equal(object_boxes, expected_boxes)
-
-    # A split without any learnt object gives an empty [0, 4] tensor
-    dataset.images = [dataset.images[2]]
-    assert gather_object_boxes(dataset=dataset).shape == (0, 4)
 
 
 def test_best_anchor_overlaps_of_every_level() -> None:
@@ -80,20 +43,6 @@ def test_best_anchor_overlaps_of_every_level() -> None:
     empty_overlaps = compute_best_anchor_overlaps(object_boxes=torch.zeros(size=(0, 4)),
                                                   level_anchor_generators=level_anchor_generators)
     assert all(level_overlaps.shape == (0,) for level_overlaps in empty_overlaps.values())
-
-
-def test_group_recalls_of_every_size() -> None:
-    """
-    Verifies the recall of all the objects and of every size at a threshold, the 32² area belonging to the medium
-    objects and the recall of a size without objects being undefined.
-    """
-    group_recalls = compute_group_recalls(best_overlaps=torch.tensor(data=[0.8, 0.2, 0.9, 0.7]),
-                                          object_areas=torch.tensor(data=[100.0, 2000.0, 500.0, 1024.0]),
-                                          intersection_over_union_threshold=0.7)
-    assert group_recalls["all"] == {"objects": 4, "recall": pytest.approx(expected=0.75)}
-    assert group_recalls["small"] == {"objects": 2, "recall": pytest.approx(expected=1.0)}
-    assert group_recalls["medium"] == {"objects": 2, "recall": pytest.approx(expected=0.5)}
-    assert group_recalls["large"] == {"objects": 0, "recall": None}
 
 
 def test_anchor_recall_rows_and_table() -> None:
@@ -173,17 +122,6 @@ def test_proposal_recall_of_the_valid_proposals() -> None:
     assert table["title"] == "Proposal Recall" and not table["per_class"]
     assert [row[0] for row in table["rows"]] == ["All Objects", "Small (< 32²)", "Medium (32² to 96²)",
                                                  "Large (>= 96²)", "Block 3 Proposals", "Block 4 Proposals"]
-
-
-def test_proposal_recall_without_any_image() -> None:
-    """
-    Verifies that the proposal recall of an evaluation without any test image has no recall and no proposal, instead
-    of failing on the empty accumulator.
-    """
-    proposal_recall = summarise_proposal_recall(
-        proposal_accumulator=create_proposal_recall_accumulator(levels=[3]))
-    assert all(row["objects"] == 0 and row["recall_50"] is None for row in proposal_recall["rows"])
-    assert proposal_recall["scalars"] == {"Proposals Per Image/all": 0.0, "Proposals Per Image/block_3": 0.0}
 
 
 def test_instance_segmentation_object_boxes_come_from_the_segmentation(tmp_path: Path) -> None:

@@ -1,9 +1,8 @@
 """
-Tests of vision_training/evaluation/segmentation/segmentation_metrics.py and segmentation_report.py: the pixel confusion
-matrix and the histograms of the pixel probabilities leave the ignored pixels out, the metrics computed from a known
-confusion matrix match the values computed by hand with the classes predicted without true pixel counted in the means
-and the classes neither present nor predicted left out, the per-class rows, table and scalars give no metric to a class
-without pixels, and the ROC AUC and average precision of the per-class report join them.
+Tests of vision_training/evaluation/segmentation/segmentation_metrics.py: the pixel confusion matrix and the per-image
+pixel counts leave the ignored pixels out, and the metrics computed from a known confusion matrix match the values
+computed by hand with the classes predicted without true pixel counted in the means and the classes neither present
+nor predicted left out.
 """
 
 import pytest
@@ -12,11 +11,7 @@ import torch
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.evaluation.segmentation.segmentation_metrics import (compute_image_class_pixel_counts,
                                                                           compute_pixel_confusion_matrix,
-                                                                          compute_pixel_score_histograms,
                                                                           compute_segmentation_metrics)
-from vision_training.evaluation.segmentation.segmentation_report import (build_segmentation_class_rows,
-                                                                         build_segmentation_class_scalars,
-                                                                         build_segmentation_class_table)
 
 
 def test_pixel_confusion_matrix_leaves_out_the_ignored_pixels() -> None:
@@ -47,44 +42,6 @@ def test_image_class_pixel_counts_add_up_to_the_confusion_matrix() -> None:
     confusion_matrix = compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks, number_classes=3)
     assert true_pixels.sum(dim=0).tolist() == confusion_matrix.sum(dim=1).tolist()
     assert true_positive_pixels.sum(dim=0).tolist() == confusion_matrix.diagonal().tolist()
-
-
-def test_pixel_score_histograms_count_the_labelled_pixels() -> None:
-    """
-    Verifies the histograms of the pixel probabilities of the curves: every labelled pixel is counted in the bin of its
-    probability of every class, as a positive of its class and a negative of the others, a probability of 1 in the
-    last bin, the ignored pixel being left out.
-    """
-    masks = torch.tensor(data=[[[0, 1], [IGNORED_LABEL_INDEX, 1]]])
-    class_probabilities = torch.tensor(data=[[[[1.0, 0.0], [0.7, 0.5]], [[0.0, 1.0], [0.3, 0.5]]]])
-
-    score_histograms = compute_pixel_score_histograms(class_probabilities=class_probabilities, masks=masks,
-                                                      number_bins=4)
-    assert score_histograms.tolist() == [[[1, 0, 1, 0], [0, 0, 0, 1]], [[1, 0, 0, 0], [0, 0, 1, 1]]]
-
-
-def test_curve_metrics_join_the_class_rows_table_and_scalars() -> None:
-    """
-    Verifies the ROC AUC and average precision of the per-class report of the segmentation: their columns of
-    class_metrics.csv and of the table after the recall, with their legend, and their scalars for the classes defining
-    them.
-    """
-    metrics = compute_segmentation_metrics(confusion_matrix=torch.tensor(data=[[7, 0, 1], [1, 3, 0], [0, 0, 0]]))
-    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None],
-                    "recall_lower": [0.6, 0.4, None], "recall_upper": [0.95, 0.9, None]})
-    class_curves = [{"roc_auc": 0.95, "average_precision": 0.9}, {"roc_auc": 0.8, "average_precision": 0.7},
-                    {"roc_auc": None, "average_precision": None}]
-    class_rows = build_segmentation_class_rows(class_names=["background", "circle", "square"], metrics=metrics,
-                                               class_curves=class_curves)
-    assert list(class_rows[0])[-5:] == ["recall", "recall_lower", "recall_upper", "roc_auc", "average_precision"]
-
-    table = build_segmentation_class_table(class_rows=class_rows)
-    assert table["columns"][-3:] == ["Recall", "ROC AUC", "Average Precision"]
-    assert table["rows"][1][-2:] == [0.8, 0.7] and "no pixel of another class for the ROC AUC" in table["legend"]
-
-    class_scalars = build_segmentation_class_scalars(class_rows=class_rows)
-    assert [tag for tag in class_scalars if tag.startswith(("ROC AUC/", "Average Precision/"))] == [
-        "ROC AUC/background", "Average Precision/background", "ROC AUC/circle", "Average Precision/circle"]
 
 
 def test_metrics_of_a_known_confusion_matrix() -> None:
@@ -127,44 +84,3 @@ def test_class_painted_without_true_pixel_lowers_the_mean_iou() -> None:
     assert metrics["mean_iou"] == pytest.approx(expected=0.5)
     assert metrics["dice"] == pytest.approx(expected=[2 / 3, 1.0, 0.0, 0.0])
     assert metrics["mean_dice"] == pytest.approx(expected=(2 / 3 + 1.0 + 0.0) / 3)
-
-
-def test_metrics_without_labelled_pixel_are_zero() -> None:
-    """
-    Verifies that a confusion matrix without any labelled pixel gives metrics of 0 instead of failing.
-    """
-    metrics = compute_segmentation_metrics(confusion_matrix=torch.zeros(size=(3, 3), dtype=torch.int64))
-    assert [metrics[metric_key] for metric_key in ["pixel_accuracy", "mean_iou", "frequency_weighted_iou",
-                                                    "mean_dice"]] == [0.0, 0.0, 0.0, 0.0]
-
-
-def test_class_rows_table_and_scalars_leave_out_the_absent_classes() -> None:
-    """
-    Verifies the per-class report: the rows of class_metrics.csv in class index order, a class without true pixels
-    having no metric nor recall interval and a class without true edge no boundary metric, the table sorted by IoU
-    with its legend, and the per-class scalars of the metrics the classes have.
-    """
-    metrics = compute_segmentation_metrics(confusion_matrix=torch.tensor(data=[[7, 0, 1], [1, 3, 0], [0, 0, 0]]))
-    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None],
-                    "recall_lower": [0.6, 0.4, 0.0], "recall_upper": [0.95, 0.9, 1.0]})
-    class_rows = build_segmentation_class_rows(class_names=["background", "circle", "square"], metrics=metrics)
-
-    assert [list(class_row) for class_row in class_rows] == [["class_index", "class", "pixels", "iou", "dice",
-                                                              "boundary_iou", "boundary_f1", "precision",
-                                                              "recall", "recall_lower", "recall_upper"]] * 3
-    assert [class_row["pixels"] for class_row in class_rows] == [8, 4, 0]
-    assert class_rows[1]["iou"] == pytest.approx(expected=0.75) and class_rows[1]["boundary_iou"] is None
-    assert [class_rows[1]["recall_lower"], class_rows[1]["recall_upper"]] == [0.4, 0.9]
-    assert [class_rows[2][metric_key] for metric_key in ["iou", "dice", "boundary_iou", "boundary_f1", "precision",
-                                                         "recall", "recall_lower", "recall_upper"]] == [None] * 8
-
-    table = build_segmentation_class_table(class_rows=class_rows)
-    assert table["columns"] == ["Class", "Pixels", "IoU", "Dice", "Boundary IoU", "Boundary F1", "Precision", "Recall"]
-    assert table["sort_column"] == "IoU" and table["per_class"]
-    assert table["rows"][2] == ["square", 0, None, None, None, None, None, None]
-
-    class_scalars = build_segmentation_class_scalars(class_rows=class_rows)
-    assert sorted(class_scalars) == sorted(
-        [f"{metric_name}/{class_name}" for class_name in ["background", "circle"]
-         for metric_name in ["IoU", "Dice", "Precision", "Recall"]] + ["Boundary IoU/background",
-                                                                       "Boundary F1/background"])

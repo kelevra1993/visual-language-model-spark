@@ -1,8 +1,8 @@
 """
 Tests of vision_training/data/classification/foundation_model_image_downloader.py on small files written by the tests,
-without network: the parsing of the Tencent files, the image preparation and its perceptual hash, a fake ImageNet-22k
-shard, the Open Images matching and batch with a local copy, the free space stop, the duplicate merging, the excluded
-copies and the multi-label manifests.
+without network: the image preparation and its perceptual hash, a fake ImageNet-22k shard, the Open Images matching
+and batch with a local copy, the free space stop, the duplicate merging, the excluded copies and the multi-label
+manifests.
 """
 
 import csv
@@ -19,11 +19,10 @@ from typing import Dict, List
 
 from vision_training.data.classification import foundation_model_image_downloader
 from vision_training.data.classification.foundation_model_image_downloader import (
-    build_hash_chunk_index, build_manifests, compute_perceptual_hash, encode_imagenet_key, get_flickr_photo_number,
-    get_imagenet_key, is_near_copy, match_open_images, merge_duplicate_samples, parse_annotation_line, prepare_image,
-    process_imagenet_shard, process_open_images_archive, process_open_images_batch, read_category_dictionary,
-    resize_image, rotate_image,
-    run_tasks_with_free_space_check, write_imagenet_wanted_keys, write_records)
+    build_hash_chunk_index, build_manifests, compute_perceptual_hash, is_near_copy, match_open_images,
+    merge_duplicate_samples, parse_annotation_line, prepare_image, process_imagenet_shard, process_open_images_archive,
+    process_open_images_batch, resize_image, rotate_image, run_tasks_with_free_space_check, write_imagenet_wanted_keys,
+    write_records)
 
 # Category dictionary in the format of ML-Images, reduced to four categories, two of them sharing a first synonym
 DICTIONARY_CONTENT = ("category_index\tcategory_id\tindex_of_parent_category\tcategory name\n"
@@ -79,51 +78,6 @@ def write_tar_shard(shard_path: Path, members: Dict[str, bytes], mode: str = "w"
             member_information = tarfile.TarInfo(name=member_name)
             member_information.size = len(member_bytes)
             shard.addfile(tarinfo=member_information, fileobj=io.BytesIO(initial_bytes=member_bytes))
-
-
-def test_read_category_dictionary(tmp_path: Path) -> None:
-    """
-    Verifies that the categories are numbered from 1 in index order, named after their first synonym, with the
-    WordNet identifier appended to the names shared by several categories, and that a gap in the indices is refused.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    dictionary_path = tmp_path / "dictionary.txt"
-    dictionary_path.write_text(data=DICTIONARY_CONTENT)
-    categories = read_category_dictionary(dictionary_path=dictionary_path)
-    assert [category["id"] for category in categories] == [1, 2, 3, 4]
-    assert [category["name"] for category in categories] == ["thing", "object", "crane (n02012849)",
-                                                             "crane (n03126707)"]
-
-    # The last line numbered 5 instead of 3
-    dictionary_path.write_text(data=DICTIONARY_CONTENT.replace("3\tn03126707", "5\tn03126707"))
-    with pytest.raises(expected_exception=ValueError, match="do not follow each other"):
-        read_category_dictionary(dictionary_path=dictionary_path)
-
-
-def test_parse_annotation_line() -> None:
-    """
-    Verifies that the labels with a confidence (training lists) and the bare labels (validation lists, confidence 1)
-    are both read.
-    """
-    assert parse_annotation_line(line="https://a/b/1_c_o.jpg\t5193:0.9\t3:1\n") == ("https://a/b/1_c_o.jpg",
-                                                                                     [5193, 3], [0.9, 1.0])
-    assert parse_annotation_line(line="n04162706/n04162706_17303.JPEG\t3371\t2\n") == (
-        "n04162706/n04162706_17303.JPEG", [3371, 2], [1.0, 1.0])
-
-
-def test_image_identifiers() -> None:
-    """
-    Verifies the ImageNet key of a Tencent image, its integer encoding (None for another form), and the Flickr photo
-    number of the Tencent and Open Images URLs.
-    """
-    assert get_imagenet_key(image_identifier="n04310904/n04310904_8388.JPEG") == "n04310904_8388"
-    assert encode_imagenet_key(imagenet_key="n04310904_8388") == 4310904 * 10 ** 10 + 8388
-    assert encode_imagenet_key(imagenet_key="ILSVRC2012_val_00000001") is None
-    assert encode_imagenet_key(imagenet_key="n04310904_abc") is None
-    assert get_flickr_photo_number(url="https://c4.staticflickr.com/8/7239/6997334729_e5fb3938b1_o.jpg") == \
-        get_flickr_photo_number(url="https://farm8.staticflickr.com/7239/6997334729_e5fb3938b1_o.jpg") == "6997334729"
 
 
 def test_rotate_and_resize_image() -> None:

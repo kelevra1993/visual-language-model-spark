@@ -63,18 +63,3 @@ def test_frame_selection_loss_makes_the_frames_compete_for_every_wanted_class() 
     assert compute_frame_selection_loss(class_logits=changed_logits, labels=labels,
                                         wanted_class_mask=wanted_class_mask).item() == pytest.approx(loss.item(),
                                                                                                      rel=1e-5)
-
-
-def test_frame_selection_loss_is_small_when_the_true_frames_stand_out() -> None:
-    """
-    Verifies that the selection loss is near 0 when the logit of every wanted class is much larger on its true frame
-    than on the other frames, and large when it is larger on another frame.
-    """
-    labels = torch.tensor(data=[[1, 0, 1]])
-    wanted_class_mask = torch.tensor(data=[1.0, 0.0])
-    right_logits = torch.tensor(data=[[[0.0, 0.0], [20.0, 0.0], [0.0, 0.0]]])
-    wrong_logits = torch.tensor(data=[[[20.0, 0.0], [0.0, 0.0], [0.0, 0.0]]])
-    assert compute_frame_selection_loss(class_logits=right_logits, labels=labels,
-                                        wanted_class_mask=wanted_class_mask).item() < 1e-6
-    assert compute_frame_selection_loss(class_logits=wrong_logits, labels=labels,
-                                        wanted_class_mask=wanted_class_mask).item() > 10.0

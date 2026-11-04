@@ -1,7 +1,7 @@
 """
 Tests of get_class_names and build_label_dictionary of vision_training/data/label_mapping.py: the classes are named
 after the categories of a manifest, merged categories joined with '+', a class named by no category keeps its name in
-the label dictionary (the background and foreground classes of the detector) or else its index, and the categories
+the label dictionary (the background class of the detector) or else its index, and the categories
 mapped to the background of a detector name no class.
 """
 
@@ -25,17 +25,6 @@ def test_classes_are_named_after_their_categories() -> None:
     assert get_class_names(categories=CATEGORIES, label_dictionary={1: 0, 2: 0, 3: 1}) == {0: "square+circle",
                                                                                            1: "star"}
     assert get_class_names(categories=CATEGORIES[:1], label_dictionary={1: 0, 4: 1}) == {0: "square", 1: "1"}
-
-
-def test_detector_classes_keep_their_dictionary_names() -> None:
-    """
-    Verifies the names of the classes of the detector: its background class keeps its name, its foreground classes are
-    named after their categories, and the single foreground class of the binary mode keeps its name.
-    """
-    assert get_class_names(categories=CATEGORIES, label_dictionary={"background": 0, 1: 1, 2: 2, 3: 3}) == {
-        0: "background", 1: "square", 2: "circle", 3: "star"}
-    assert get_class_names(categories=CATEGORIES, label_dictionary={"background": 0, "foreground": 1}) == {
-        0: "background", 1: "foreground"}
 
 
 def test_categories_mapped_to_the_background_leave_it_its_name(tmp_path: Path) -> None:

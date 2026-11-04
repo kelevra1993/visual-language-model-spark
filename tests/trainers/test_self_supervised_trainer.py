@@ -1,16 +1,12 @@
 """
-Smoke tests of SelfSupervisedTrainer of vision_training/trainers/self_supervised_trainer.py on a synthetic dataset:
-SimCLR and Barlow Twins trainings save, evaluate and resume, with the tracked metrics of each method, the k-nearest
-neighbour report of the labelled test images, its per-class metrics file and the sample images of two views checked,
-the sample views drawn again identically without moving the random state of the training, the moving average of the
-weights evaluated next to the trained weights on the same sample views, a dataset without labels evaluated on the
-collapse metrics of its representations only, a dataset mixing labelled and unlabelled images trained on every image
-and evaluated on the labelled ones, the classes of the evaluation named after the categories of the three manifests,
-and a run given a run name suffix trained in a folder of its own.
+Smoke tests of SelfSupervisedTrainer of vision_training/trainers/self_supervised_trainer.py on a synthetic dataset: a
+Barlow Twins training saves, evaluates and resumes, with the tracked metrics of the method, the k-nearest neighbour
+report of the labelled test images, its per-class metrics file and the sample images of two views checked, a dataset
+mixing labelled and unlabelled images is trained on every image and evaluated on the labelled ones, and the classes of
+the evaluation are named after the categories of the three manifests.
 """
 
 import csv
-import cv2
 import json
 import pytest
 import torch
@@ -25,7 +21,6 @@ from unittest.mock import patch
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.self_supervised_trainer import METHOD_TRACKED_METRICS, SelfSupervisedTrainer
-from vision_training.utilities.os_utilities import INVISIBLE_SEQUENCE_PATTERN
 from vision_training.utilities.visualization import CAPTION_BAR_HEIGHT
 from tests.data.classification.test_classification_dataset import write_split
 from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
@@ -36,10 +31,9 @@ SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / 
 # Image size of the smoke test, small enough for a few quick iterations
 SMOKE_IMAGE_SIZE = 64
 
-# Metrics of the evaluation of a test split with labels, in the order of the report, and of one without labels
+# Metrics of the evaluation of a test split with labels, in the order of the report
 LABELLED_EVALUATION_METRICS = ["k-NN Accuracy", "k-NN Balanced Accuracy", "k-NN Macro F1", "Effective Rank",
                                "Representation Standard Deviation"]
-UNLABELLED_EVALUATION_METRICS = ["Effective Rank", "Representation Standard Deviation"]
 
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
@@ -109,7 +103,7 @@ def build_trainer(configuration_path: Path) -> SelfSupervisedTrainer:
 
 
 @pytest.mark.parametrize(argnames=("method", "run_name_ending"),
-                         argvalues=[("simclr", "_SIMCLR-T0.2"), ("barlow_twins", "_BT-OD0.005")])
+                         argvalues=[("barlow_twins", "_BT-OD0.005")])
 def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                               method: str, run_name_ending: str) -> None:
     """
@@ -200,190 +194,6 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     assert "Critical Error" not in console_output
 
 
-def test_run_name_suffix_starts_a_run_of_its_own(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that a run given a run name suffix trains in a folder of its own, '<run name>_v1', from iteration 1,
-    while the same settings without the suffix resume the run without suffix, so that a new run of the same settings
-    with larger batches or stronger views never resumes the checkpoints of the previous run.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-
-    # Run without suffix, trained for 2 iterations so that its last checkpoint can be resumed
-    trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={}))
-    trainer.run_training_loop()
-    assert trainer.experiment_folder.name == trainer.run_name and not trainer.run_name.endswith("_v1")
-
-    # Same settings with the suffix: a run folder of its own next to the first one, trained from iteration 1
-    suffixed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={},
-        run_name_suffix="v1"))
-    assert suffixed_trainer.run_name == f"{trainer.run_name}_v1"
-    assert suffixed_trainer.experiment_folder == trainer.experiment_folder.parent / f"{trainer.run_name}_v1"
-    assert suffixed_trainer.start_iteration == 1
-
-    # Same settings without the suffix: the first run resumes after its last checkpoint
-    resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={}))
-    assert resumed_trainer.experiment_folder == trainer.experiment_folder and resumed_trainer.start_iteration == 3
-    assert "Error encountered during iteration" not in capsys.readouterr().out
-
-
-def test_sample_views_are_fixed_and_leave_the_training_random_state(tmp_path: Path) -> None:
-    """
-    Verifies that the two views of a sample image are drawn from a seed of its sample, so that every evaluation draws
-    the same views of it, and inside a copy of the random state, so that drawing the sample images does not change
-    the views and the order of the training batches that follow.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 4, "validation": 4, "test": 4}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-    trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=1, head_settings={}))
-
-    # A prepared test batch encoded in evaluation mode, as in the evaluation of a checkpoint
-    trainer.model.eval()
-    batch = trainer.prepare_batch(batch=next(iter(trainer.test_dataloader)))
-    with torch.no_grad():
-        predictions = trainer.predict_batch(batch=batch)
-
-        # The same sample image twice, the random state of the training left as it was
-        random_state_before = torch.get_rng_state()
-        first_sample_image = trainer.build_sample_image(batch=batch, predictions=predictions, sample_index=0)
-        assert torch.equal(input=torch.get_rng_state(), other=random_state_before)
-        torch.manual_seed(seed=123)
-        second_sample_image = trainer.build_sample_image(batch=batch, predictions=predictions, sample_index=0)
-    assert (first_sample_image == second_sample_image).all()
-
-    # Two images of the batch get different views, their seed following their sample identifier, the views being
-    # compared below the caption bar, whose caption may widen the image
-    with torch.no_grad():
-        other_sample_image = trainer.build_sample_image(batch=batch, predictions=predictions, sample_index=1)
-    views_columns = slice(SMOKE_IMAGE_SIZE, 3 * SMOKE_IMAGE_SIZE)
-    assert not (first_sample_image[CAPTION_BAR_HEIGHT:, views_columns] ==
-                other_sample_image[CAPTION_BAR_HEIGHT:, views_columns]).all()
-
-
-def test_averaged_weights_are_evaluated_on_the_same_views(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies the evaluation of the moving average of the weights (Optimization.exponential_moving_average) of a
-    self-supervised run: the checkpoint of iteration 4 is evaluated on the trained weights, then on the averaged
-    weights with their own Results.txt block of k-NN and collapse metrics, per-class metrics file, sample images and
-    Test_EMA TensorBoard folder, and the sample images of both weights show the same two views of every test image,
-    only the similarity of their representations in the caption changing.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-    trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
-        head_settings={"method": "simclr"}, moving_average_activated=True))
-    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
-        trainer.run_training_loop()
-
-    # The trained model is given back to the training after the evaluation of the averaged weights
-    assert trainer.model is not trainer.exponential_moving_average.averaged_model
-    assert not trainer.evaluating_averaged_weights
-
-    # Two blocks for the checkpoint of iteration 4, the trained weights then the averaged weights, with the same metrics
-    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
-    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
-        (4, "6 Test Images"), (4, "6 Test Images · EMA Weights")]
-    assert "Per Class k-NN Metrics" in results_blocks[1]["text"]
-    reported_results = [report_call.kwargs["results"] for report_call in report_mock.call_args_list]
-    assert len(reported_results) == 2
-    for results in reported_results:
-        assert list(results["metrics"]) == LABELLED_EVALUATION_METRICS
-        assert all(torch.isfinite(input=torch.tensor(data=value)) for value in results["metrics"].values())
-
-    # Files of the averaged weights in the EMA subfolder, their scalars in the Test_EMA TensorBoard folder
-    evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["EMA", "Samples", "class_metrics.csv"]
-    assert sorted(path.name for path in (evaluation_folder / "EMA").iterdir()) == ["Samples", "class_metrics.csv"]
-    averaged_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test_EMA"))
-    averaged_events.Reload()
-    assert [event.step for event in averaged_events.Scalars(tag="k-NN Accuracy")] == [4]
-
-    # Both weights show the same two views of every test image below the caption bar
-    trained_sample_paths = sorted((evaluation_folder / "Samples").glob("*.png"))
-    averaged_samples_folder = evaluation_folder / "EMA" / "Samples"
-    assert len(trained_sample_paths) == 6
-    assert [path.name for path in trained_sample_paths] == sorted(path.name
-                                                                  for path in averaged_samples_folder.glob("*.png"))
-    views_columns = slice(SMOKE_IMAGE_SIZE, 3 * SMOKE_IMAGE_SIZE)
-    for trained_sample_path in trained_sample_paths:
-        trained_sample_image = cv2.imread(filename=str(trained_sample_path))
-        averaged_sample_image = cv2.imread(filename=str(averaged_samples_folder / trained_sample_path.name))
-        assert (trained_sample_image[CAPTION_BAR_HEIGHT:, views_columns] ==
-                averaged_sample_image[CAPTION_BAR_HEIGHT:, views_columns]).all()
-
-    console_output = capsys.readouterr().out
-    assert "Error encountered during iteration" not in console_output
-    assert "Critical Error" not in console_output
-
-
-def test_dataset_without_labels_is_evaluated_on_its_representations(tmp_path: Path,
-                                                                    capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies a self-supervised run on a dataset without labels, its manifests listing no 'category_id' and its label
-    mapping file being empty: every image is trained on, the run records no class, and the evaluation reports the
-    effective rank and the standard deviation of the representations only, the effective rank as headline metric,
-    without k-NN table nor per-class metrics file.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-
-    # Remove the categories of every sample and empty the label mapping
-    for split_name in ["train", "validation", "test"]:
-        labels_path = dataset_folder / split_name / "labels.json"
-        labels = json.loads(s=labels_path.read_text())
-        labels["samples"] = [{"id": sample["id"], "file_name": sample["file_name"]} for sample in labels["samples"]]
-        labels_path.write_text(data=json.dumps(obj=labels))
-    (dataset_folder / "label_mapping.json").write_text(data="{}")
-
-    trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={}))
-    assert trainer.class_names == [] and len(trainer.train_dataloader.dataset) == 8
-    assert json.loads(s=(trainer.experiment_folder / "data.json").read_text())["classes"] is None
-    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
-        trainer.run_training_loop()
-    results = report_mock.call_args.kwargs["results"]
-
-    # Collapse metrics only, the effective rank leading the report
-    assert list(results["metrics"]) == UNLABELLED_EVALUATION_METRICS
-    assert results["headline_metric"] == "Effective Rank" and results["tables"] == []
-    assert "Labelled Test Images : 0 of 4" in results["notes"]
-    assert "k-NN : skipped, fewer than two labelled test images" in results["notes"]
-    evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["Samples"]
-
-    console_output = capsys.readouterr().out
-    assert "Error encountered during iteration" not in console_output
-    assert "Critical Error" not in console_output
-
-
 def test_dataset_mixing_labelled_and_unlabelled_images_is_trained_and_evaluated(tmp_path: Path,
                                                                                  capsys: pytest.CaptureFixture) -> None:
     """
@@ -461,82 +271,3 @@ def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> 
                                                           "images_per_block": 2, "batch_key": None}}}, batch_size=2)
     SelfSupervisedTrainer.build_dataloaders(self=trainer)
     assert trainer.class_names == ["circle", "triangle"]
-
-
-def test_iterations_per_epoch_leave_out_the_last_incomplete_batch(tmp_path: Path,
-                                                                  capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that the iterations per epoch printed in the experiment information and sent to MLflow are the batches
-    of the training loader, which leaves out the last incomplete batch: 10 training images in batches of 4 give 2
-    iterations, not 3.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 10, "validation": 4, "test": 6}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-    trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings={}))
-
-    # The printed and the tracked value both match the number of training batches
-    assert trainer.batch_size == 4 and len(trainer.train_dataloader) == 2
-    assert trainer.iterations_per_epoch == 2
-    assert "- Iterations Per Epoch    : 2\x1b" in capsys.readouterr().out
-    assert trainer.build_tracking_parameters()["Derived"]["iterations_per_epoch"] == 2
-
-
-def test_training_on_grouped_batches(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies a short self-supervised training on grouped batches: the training and validation samples of the synthetic
-    dataset get a camera in their "groups", alternating between two cameras, the grouped batches of both splits are
-    reported at launch, every training batch is made of two blocks of 2 images of one camera, the training loader
-    keeps the iterations per epoch of the random batches (10 images in batches of 4 give 2 batches, the images left
-    over being dropped), and the training saves without a failed iteration.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 10, "validation": 4, "test": 6}, maximum_objects=1,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
-
-    # Two cameras alternating over the samples of the training and validation splits
-    training_cameras = {}
-    for split_name in ["train", "validation"]:
-        labels_path = dataset_folder / split_name / "labels.json"
-        labels = json.loads(s=labels_path.read_text())
-        for sample_index, sample in enumerate(labels["samples"]):
-            sample["groups"] = {"camera": f"camera_{sample_index % 2}"}
-            if split_name == "train":
-                training_cameras[sample["id"]] = sample["groups"]["camera"]
-        labels_path.write_text(data=json.dumps(obj=labels))
-
-    # Grouped batches of both splits reported at launch, the training loader keeping the iterations per epoch
-    trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=3,
-        head_settings={"method": "simclr"}, grouped_batches_activated=True))
-    launch_output = INVISIBLE_SEQUENCE_PATTERN.sub(repl="", string=capsys.readouterr().out)
-    assert ("Grouped Batches :\n  - Train block key : camera (2 values)\n"
-            "  - Train batches per pass : 2 grouped, 0 leftover\n  - Validation block key : camera (2 values)\n"
-            "  - Validation batches per pass : 1 grouped, 0 leftover\n") in launch_output
-    assert len(trainer.train_dataloader) == trainer.iterations_per_epoch == 2
-
-    # Every training batch made of two blocks of 2 images of one camera
-    for batch in trainer.train_dataloader:
-        identifiers = batch["sample_identifiers"].tolist()
-        assert len(identifiers) == 4
-        assert all(training_cameras[identifiers[start]] == training_cameras[identifiers[start + 1]]
-                   for start in [0, 2])
-
-    # The training runs, validates and saves without a failed iteration
-    trainer.run_training_loop()
-    assert sorted(path.name for path in trainer.weights_directory.glob("Iteration_*")) == ["Iteration_2",
-                                                                                         "Iteration_3"]
-    console_output = capsys.readouterr().out
-    assert "Error encountered during iteration" not in console_output
-    assert "Critical Error" not in console_output

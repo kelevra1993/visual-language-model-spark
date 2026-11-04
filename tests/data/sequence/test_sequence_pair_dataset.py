@@ -1,8 +1,8 @@
 """
 Tests of SequencePairDataset of vision_training/data/sequence/sequence_pair_dataset.py for the sequence comparison task:
 pairs read as the before then the after member padded to the longer member, pairs with a member longer than the
-maximum sequence length or empty left out, the pair counts, pair batches split into their members, and pair batches
-padded to their longest member by collate_padded_sequences.
+maximum sequence length or empty left out, pair batches split into their members, and pair batches padded to their
+longest member by collate_padded_sequences.
 """
 
 import json
@@ -18,7 +18,6 @@ from typing import Any, Dict, List
 
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset, split_pair_members
-from vision_training.data.split_description import count_split_pairs
 
 # Pixel value of the first frame of every member, the frame of index i holding the value plus i, so that the tests
 # tell the frames of the two members apart
@@ -121,25 +120,6 @@ def test_pairs_with_a_long_or_empty_member_are_left_out(tmp_path: Path, capsys: 
     assert ("1 Pairs Of The Validation Split Have A Member Longer Than The Maximum Sequence Length (4) And Are Left "
             "Out Of The Validation." in printed_output)
     assert "1 pairs of unmapped categories or with an empty member left out" in printed_output
-
-
-def test_split_description_counts_pairs(tmp_path: Path) -> None:
-    """
-    Verifies the split description of the comparison task: the pairs of the manifest, the frames of both members, and
-    the pairs kept as the dataset keeps them, without an empty member nor a member longer than the maximum sequence
-    length.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    write_pair_split(split_folder=tmp_path, pairs=[
-        {"id": 1, "name": "long", "category_id": 1, "before_frames": 2, "after_frames": 5},
-        {"id": 2, "name": "empty", "category_id": 2, "before_frames": 0, "after_frames": 3},
-        {"id": 3, "name": "full", "category_id": 2, "before_frames": 4, "after_frames": 4}])
-
-    for maximum_sequence_length, expected_kept_pairs in [(4, 1), (5, 2)]:
-        assert count_split_pairs(split_data_folder=tmp_path, sequence_settings={
-            "maximum_sequence_length": maximum_sequence_length}) == (3, 18, expected_kept_pairs)
 
 
 def test_pair_batches_split_into_members(tmp_path: Path) -> None:

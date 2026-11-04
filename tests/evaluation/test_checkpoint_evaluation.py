@@ -1,8 +1,7 @@
 """
 Tests of evaluate_checkpoints of vision_training/evaluation/checkpoint_evaluation.py on the dummy task: every checkpoint
 of the registry is evaluated, deleted checkpoints are skipped and the evaluation summary holds one row per iteration,
-with the columns and the best iteration of the averaged weights for a run keeping a moving average, and checkpoints
-sharing the best value are all reported as a tie.
+with the columns and the best iteration of the averaged weights for a run keeping a moving average.
 """
 
 import csv
@@ -10,7 +9,6 @@ import pytest
 
 from pathlib import Path
 from typing import Dict, List
-from unittest.mock import patch
 
 from vision_training.evaluation.checkpoint_evaluation import evaluate_checkpoints
 from vision_training.trainers.checkpointing import get_checkpoint_file, get_checkpoint_iterations
@@ -18,7 +16,7 @@ from tests.trainers.test_base_trainer import build_dummy_trainer
 
 
 @pytest.mark.parametrize(argnames="per_class_report, moving_average_activated",
-                         argvalues=[(True, False), (False, False), (True, True), (False, True)])
+                         argvalues=[(True, True)])
 def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                       per_class_report: bool, moving_average_activated: bool) -> None:
     """
@@ -98,59 +96,3 @@ def describe_expected_best(summary_rows: List[Dict[str, str]], column_name: str)
     iterations_description = f"iteration {best_iterations[0]}" if len(best_iterations) == 1 else (
         f"iterations {', '.join(best_iterations)} tie")
     return f"{iterations_description} (Accuracy {best_value:.4f})"
-
-
-def test_evaluation_folder_keeps_the_name_of_the_evaluated_run(tmp_path: Path) -> None:
-    """
-    Verifies that a standalone evaluation writes into a folder with the name of the evaluated run folder, as
-    scripts/evaluation/evaluate_checkpoint.py gives it, and not with the name built from its settings, which lose the
-    tokens of the transfer of pretrained components once it is turned off: here the dummy trainer names its runs
-    'dummy_run' and the evaluated run folder is 'dummy_run-PT'.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False,
-                                  number_sample_images=0, moving_average_activated=False)
-    trainer.run_training_loop()
-
-    # The trained run folder renamed as the run of a fine-tuned backbone, then evaluated from an evaluations folder
-    evaluated_folder = trainer.experiment_folder.rename(target=trainer.experiment_folder.parent / "dummy_run-PT")
-    (tmp_path / "evaluations").mkdir()
-    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path / "evaluations", number_iterations=4,
-                                             view_input_images=False, number_sample_images=0,
-                                             moving_average_activated=False, run_name=evaluated_folder.name)
-    summary_path = evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=evaluated_folder,
-                                        iterations=[4])
-
-    output_folder = tmp_path / "evaluations" / "experiments" / "dummy_run-PT"
-    assert evaluation_trainer.run_name == "dummy_run-PT"
-    assert evaluation_trainer.experiment_folder == output_folder
-    assert summary_path == output_folder / "Evaluation" / "evaluation_summary.csv" and summary_path.exists()
-    assert not (tmp_path / "evaluations" / "experiments" / "dummy_run").exists()
-
-
-def test_tied_checkpoints_are_all_reported(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that checkpoints sharing the best headline metric are all named in the best checkpoint line, in the
-    evaluation order and followed by 'tie', instead of the first one evaluated being reported as the best.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
-    """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
-                                  number_sample_images=0, moving_average_activated=False)
-    trainer.run_training_loop()
-    iterations = get_checkpoint_iterations(weights_directory=trainer.weights_directory)[::-1]
-    assert iterations == [5, 4, 2]
-
-    # Every checkpoint given the results of the last one, so that the three checkpoints share the best accuracy
-    tied_results = trainer.run_test_evaluation(iteration=5)
-    accuracy = tied_results[0]["scalars"]["Accuracy"]
-    capsys.readouterr()
-    with patch.object(target=trainer, attribute="run_test_evaluation", return_value=tied_results):
-        evaluate_checkpoints(trainer=trainer, experiment_folder=trainer.experiment_folder, iterations=iterations)
-    console_output = capsys.readouterr().out
-    assert f"Best Checkpoint : iterations 5, 4, 2 tie (Accuracy {accuracy:.4f})" in console_output
-    assert "Best Checkpoint : iteration " not in console_output

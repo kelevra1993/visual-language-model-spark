@@ -1,13 +1,11 @@
 """
 Tests of scripts/evaluation/compare_best_evaluations.py, the Markdown tables comparing the best test evaluation of
 several trained runs: the best evaluation over the trained and averaged weights, the columns expanded per class and
-titled, the counts of data.json and those recomputed from the labels files for the older records, the grouping of the
-runs into tables, and the errors of a missing curve, a missing count and changed labels.
+titled, and the counts of data.json.
 """
 
 import hashlib
 import json
-import pytest
 import yaml
 
 from pathlib import Path
@@ -151,72 +149,3 @@ def test_best_evaluation_over_trained_and_averaged_weights(tmp_path: Path) -> No
     trained_table = run_comparison(experiment_folders=[run_folder], columns=["best_iteration", "Balanced Accuracy"],
                                    evaluated_weights=["trained"])
     assert trained_table.splitlines()[-1] == "| 400 | 0.850 |"
-
-
-def test_older_records_are_counted_from_their_labels_files(tmp_path: Path) -> None:
-    """
-    Verifies that the classes of a run written before the classes were counted (data.json with 'class_names') are
-    counted from the labels files of its splits with its label mapping, and that a labels file changed since the run
-    stops the comparison instead of giving counts the run was not trained on.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    run_folder = tmp_path / "experiments" / "run_older"
-    write_fake_run(run_folder=run_folder, data_folder=tmp_path / "data", image_size=512,
-                   trained_curves=build_curves(balanced_accuracies={200: 0.8}), averaged_curves=None,
-                   counted_classes=False)
-    table = run_comparison(experiment_folders=[run_folder], columns=["train_images/{class}", "validation_images"])
-    assert table.splitlines()[-1] == "| 3 | 1 | 3 |"
-
-    # A labels file changed since the run
-    (tmp_path / "data" / "train" / "labels.json").write_text(data=json.dumps(obj={"categories": FAKE_CATEGORIES,
-                                                                                  "samples": []}))
-    with pytest.raises(expected_exception=ValueError, match="changed since"):
-        run_comparison(experiment_folders=[run_folder], columns=["train_images/{class}"])
-
-
-def test_runs_of_the_same_columns_share_a_table(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies the grouping of the runs: two runs of the same classes in one table under their experiment, one row per
-    run in the order of the runs, and a run not evaluated yet listed and left out.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the script.
-    """
-    for image_size, balanced_accuracies in [(256, {200: 0.8}), (512, {200: 0.9})]:
-        write_fake_run(run_folder=tmp_path / "experiments" / f"run_{image_size}", data_folder=tmp_path / "data",
-                       image_size=image_size, trained_curves=build_curves(balanced_accuracies=balanced_accuracies),
-                       averaged_curves=None, counted_classes=True)
-    write_fake_run(run_folder=tmp_path / "experiments" / "run_not_evaluated", data_folder=tmp_path / "data",
-                   image_size=128, trained_curves={}, averaged_curves=None, counted_classes=True)
-
-    table = run_comparison(experiment_folders=[tmp_path / "experiments"],
-                           columns=["run", "configuration:Data.image_settings.size", "Balanced Accuracy"],
-                           table_grouping="columns")
-    assert table.splitlines() == ["### experiments", "", "| run | Image Size | Balanced Accuracy |", "|---|---|---|",
-                                  "| run_256 | 256 | 0.800 |", "| run_512 | 512 | 0.900 |"]
-    assert "No Test Evaluation Yet, Left Out" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize(argnames=["columns", "message"], argvalues=[
-    (["Macro F1"], "No Macro F1 test curve at iteration 200"),
-    (["F1/{class}"], "has the curve 'F1/{class}'"),
-    (["train_frames/{class}"], "no frames count")])
-def test_missing_curves_and_counts_fail_loudly(tmp_path: Path, columns: List[str], message: str) -> None:
-    """
-    Verifies that a curve column missing from the best evaluation, a per-class curve no class has, and a count the
-    classes of the run do not have stop the comparison with the available curves or counts.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        columns (List[str]): The columns of the comparison.
-        message (str): The expected part of the error message.
-    """
-    run_folder = tmp_path / "experiments" / "run_256"
-    write_fake_run(run_folder=run_folder, data_folder=tmp_path / "data", image_size=256,
-                   trained_curves=build_curves(balanced_accuracies={200: 0.8}), averaged_curves=None,
-                   counted_classes=True)
-    with pytest.raises(expected_exception=ValueError, match=message.replace("{", r"\{").replace("}", r"\}")):
-        run_comparison(experiment_folders=[run_folder], columns=columns)

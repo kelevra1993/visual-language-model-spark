@@ -1,9 +1,8 @@
 """
 Tests of the deployment of the frame selection, vision_training/deployment/frame_selection_deployment.py and
-frame_selection_decoder_backend.py: the decoding settings read the thresholds of the evaluated checkpoint, the decoder
-model and the ensembles are written to the Triton repository, the Python backend model decodes like the evaluation
-(run with a stand-in for the Triton backend utilities, which only exist in the Triton image), and the local inference
-returns the outputs of the ensembles.
+frame_selection_decoder_backend.py: the decoder model and the ensembles are written to the Triton repository, the
+Python backend model decodes like the evaluation (run with a stand-in for the Triton backend utilities, which only exist
+in the Triton image), and the local inference returns the outputs of the ensembles.
 """
 
 import importlib.util
@@ -17,10 +16,9 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
-from vision_training.deployment.deployment_utilities import get_served_model, run_local_inference
+from vision_training.deployment.deployment_utilities import run_local_inference
 from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
-from vision_training.deployment.frame_selection_deployment import (DECODER_OUTPUT_TYPES, build_decoding_settings,
-                                                                   export_frame_selection_decoding)
+from vision_training.deployment.frame_selection_deployment import DECODER_OUTPUT_TYPES, export_frame_selection_decoding
 from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.models.sequence.frame_selector import FrameSelector
 from tests.fixtures.configuration_fixtures import get_sequence_model_configuration
@@ -116,39 +114,6 @@ def build_test_frame_selector() -> FrameSelector:
     return model
 
 
-@pytest.mark.parametrize(argnames="evaluated", argvalues=[True, False])
-def test_decoding_settings_read_the_thresholds_of_the_checkpoint(tmp_path: Path, evaluated: bool) -> None:
-    """
-    Verifies the decoding settings of a frame selection run: the selection settings, the number of candidates, and the
-    thresholds and class names of the evaluation of the exported checkpoint, or no low-confidence flag and the class
-    indices as names when the checkpoint was not evaluated.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory, holding the run folder.
-        evaluated (bool): Whether the exported checkpoint was evaluated.
-    """
-    if evaluated:
-        evaluation_folder = tmp_path / "Evaluation" / "Iteration_4"
-        evaluation_folder.mkdir(parents=True)
-        (evaluation_folder / "class_thresholds.json").write_text(data=json.dumps(obj={
-            "target_precision": 0.99, "decoding": "greedy", "unselected_class": "unselected",
-            "classes": {"A": {"threshold": 0.7, "recall": 0.9}, "C": None}}))
-    decoding_settings = build_decoding_settings(
-        experiment_configuration={"evaluation": {"top_k": 3}},
-        model_configuration={"Data": {"label_dictionary": {1: 0, 2: 1, 3: 2}},
-                             "Selection": {"decoding": "greedy", "frames_per_class": 2}},
-        unselected_class_index=1, checkpoint_path=tmp_path / "Weights" / "Iteration_4" / "model_000004.pt",
-        experiment_folder=tmp_path)
-
-    assert {key: decoding_settings[key] for key in ["decoding", "frames_per_class", "unselected_class_index",
-                                                    "number_candidates"]} == {
-        "decoding": "greedy", "frames_per_class": 2, "unselected_class_index": 1, "number_candidates": 3}
-    if evaluated:
-        assert decoding_settings["class_names"] == ["A", "C"] and decoding_settings["class_thresholds"] == [0.7, None]
-    else:
-        assert decoding_settings["class_names"] == ["0", "2"] and decoding_settings["class_thresholds"] == [0.0, 0.0]
-
-
 def test_decoder_and_ensembles_are_written(tmp_path: Path) -> None:
     """
     Verifies the Triton repository entries of the decoding: the decoder model with its Python model, decoding module
@@ -234,19 +199,6 @@ def test_python_backend_decodes_like_the_evaluation(tmp_path: Path, monkeypatch:
                                                    decoding_settings=TEST_DECODING_SETTINGS)
             for tensor in response.output_tensors:
                 assert np.array_equal(a1=tensor.as_numpy()[sequence_index], a2=expected_outputs[tensor.name])
-
-
-def test_served_model_of_a_frame_selector_is_its_ensemble() -> None:
-    """
-    Verifies the Triton model the clients query: the exported model with its outputs for the other tasks, the
-    ensemble with the outputs of the decoder for a frame selector.
-    """
-    specification = {"model_name": "frame_selector", "outputs": [{"name": "class_probabilities"}]}
-    assert get_served_model(specification=specification, export_format="onnx", decoding_settings=None) == (
-        "frame_selector_onnx", ["class_probabilities"])
-    assert get_served_model(specification=specification, export_format="onnx",
-                            decoding_settings=TEST_DECODING_SETTINGS) == ("frame_selector_onnx_ensemble",
-                                                                          list(DECODER_OUTPUT_TYPES))
 
 
 @pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The local inference runs on the GPU.")

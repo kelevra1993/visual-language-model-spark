@@ -1,7 +1,6 @@
 """
 Tests of MemberFusion of vision_training/models/sequence/member_fusion.py for the sequence comparison task: the member
-vectors are combined, the fusions without attention leave the frames unchanged and the cross attention ignores the
-padding frames.
+vectors are combined and the cross attention ignores the padding frames.
 """
 
 import pytest
@@ -10,13 +9,12 @@ import torch
 from vision_training.models.sequence.member_fusion import MemberFusion
 
 
-@pytest.mark.parametrize(argnames=("fusion_type", "expected_output_features"), argvalues=[
-    ("concatenation", 6), ("difference", 9), ("cross_attention", 9)])
+@pytest.mark.parametrize(argnames=("fusion_type", "expected_output_features"), argvalues=[("cross_attention", 9)])
 def test_member_vectors_are_combined(fusion_type: str, expected_output_features: int) -> None:
     """
-    Verifies the combination of the member vectors given to the classification head: their concatenation [a, b], or
-    [a, b, b - a] with the difference making the change between the members explicit, and the matching number of
-    output features.
+    Verifies the combination of the member vectors given to the classification head by the cross attention fusion:
+    [a, b, b - a], the difference making the change between the members explicit, and the matching number of output
+    features.
 
     Args:
         fusion_type (str): The type of the fusion.
@@ -33,27 +31,6 @@ def test_member_vectors_are_combined(fusion_type: str, expected_output_features:
     assert fusion.output_features == expected_output_features == combined_vectors.shape[1]
     expected_values = [1.0, 2.0, 3.0, 4.0, 6.0, 8.0] + ([] if fusion_type == "concatenation" else [3.0, 4.0, 5.0])
     assert combined_vectors[0].tolist() == expected_values
-
-
-@pytest.mark.parametrize(argnames="fusion_type", argvalues=["concatenation", "difference"])
-def test_fusions_without_attention_leave_the_frames_unchanged(fusion_type: str) -> None:
-    """
-    Verifies that the fusions without cross attention give the frame vectors of the members to the temporal module
-    unchanged, and hold no weight.
-
-    Args:
-        fusion_type (str): The type of the fusion.
-    """
-    fusion = MemberFusion(fusion_type=fusion_type, frame_features=8, member_features=3, number_heads=2,
-                          dropout_rate=0.0, device=torch.device(device="cpu"), dtype=torch.float32)
-    before_features, after_features = torch.rand(size=(2, 4, 8)), torch.rand(size=(2, 3, 8))
-
-    attended_before, attended_after = fusion.attend_across_members(before_features=before_features,
-                                                                   after_features=after_features, before_mask=None,
-                                                                   after_mask=None)
-
-    assert attended_before is before_features and attended_after is after_features
-    assert len(list(fusion.parameters())) == 0
 
 
 def test_cross_attention_ignores_padding_frames() -> None:

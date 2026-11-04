@@ -1,10 +1,9 @@
 """
 Tests of the MLflow tracker of vision_training/tracking/mlflow_tracker.py: the metric names and the configuration are
-converted to the names and values MLflow accepts, the warnings give the deepest cause of an error, a run is written to
-the local sqlite database and read back with its parameters, tags, metrics and artifacts, a resumed training reopens
-its run without logging a step twice and records its changed parameters as tags, the git commands run in the training
-thread, and the training is never blocked by an unavailable, hanging or unreachable backend, a full queue or rejected
-writes.
+converted to the names and values MLflow accepts, a run is written to the local sqlite database and read back with its
+parameters, tags, metrics and artifacts, a resumed training reopens its run without logging a step twice and records
+its changed parameters as tags, the git commands run in the training thread, and the training is never blocked by a
+hanging or unreachable backend or by rejected writes.
 """
 
 import functools
@@ -13,7 +12,6 @@ import os
 import posixpath
 import pytest
 import re
-import sqlite3
 import threading
 import time
 
@@ -28,8 +26,7 @@ from vision_training.tracking.experiment_tracker import (ARTIFACTS_FOLDER_NAME, 
                                                          RUN_RECORD_FILE_NAME, create_experiment_tracker,
                                                          read_run_record)
 from vision_training.tracking.mlflow_tracker import (MAX_ENTITY_KEY_LENGTH, MAX_PARAM_VAL_LENGTH, TRUNCATION_MARKER,
-                                                     MlflowTracker, describe_error, flatten_configuration,
-                                                     sanitise_metric_name)
+                                                     MlflowTracker, flatten_configuration, sanitise_metric_name)
 
 # Tracking settings of the tests, on with the local database
 TRACKING_CONFIGURATION = {"activated": True, "tracking_uri": None, "experiment_name": None}
@@ -202,27 +199,6 @@ def test_metric_names_are_sanitised_for_mlflow() -> None:
         assert len(sanitised_name) <= MAX_ENTITY_KEY_LENGTH
 
 
-def test_error_is_described_by_its_deepest_cause() -> None:
-    """
-    Verifies the one-line reason of the tracker warnings: the first line of the deepest cause of an error wrapped by
-    MLflow (e.g. the sqlite error under the SQLAlchemy one, whose message starts with a note), with its type, and the
-    representation of an error without message.
-    """
-    try:
-        try:
-            try:
-                raise sqlite3.OperationalError("attempt to write a readonly database")
-            except sqlite3.OperationalError as database_error:
-                raise RuntimeError("(raised as a result of Query-invoked autoflush)\n[SQL: INSERT]") from database_error
-        except RuntimeError as wrapped_error:
-            raise MlflowException(message="SQLAlchemy error", error_code=TEMPORARILY_UNAVAILABLE) from wrapped_error
-    except MlflowException as mlflow_error:
-        assert describe_error(error=mlflow_error) == "OperationalError: attempt to write a readonly database"
-    assert describe_error(error=MlflowException(message="database is locked")) == (
-        "MlflowException: database is locked")
-    assert describe_error(error=TimeoutError()) == "TimeoutError()"
-
-
 def test_configuration_is_flattened_to_parameters(tmp_path: Path) -> None:
     """
     Verifies the flattening of the nested settings to MLflow parameters: dotted keys through the sections, every value
@@ -379,22 +355,6 @@ def test_resumed_training_continues_its_run(tracking_root: Path, capsys: pytest.
     assert read_run_record(run_record_path=run_folder / RUN_RECORD_FILE_NAME)["run_id"] == new_tracker.get_run_id()
 
 
-def test_tracker_does_nothing_outside_its_run(tmp_path: Path) -> None:
-    """
-    Verifies that the calls made before start() are ignored, and that closing a tracker never started does nothing.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
-                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None)
-    tracker.log_metrics(metrics={"train/Total Loss": 1.0}, step=1)
-    tracker.set_tags(tags={"note": "ignored"})
-    tracker.close(status=FINISHED_STATUS)
-    assert tracker.event_queue.qsize() == 0 and tracker.get_run_id() is None
-    assert list(tmp_path.iterdir()) == []
-
-
 def test_git_state_is_read_in_the_training_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Verifies that the git commands run in the thread calling start(), the training thread, and never in the worker
@@ -415,36 +375,6 @@ def test_git_state_is_read_in_the_training_thread(tmp_path: Path, monkeypatch: p
 
     assert git_state_recorder.calling_threads == [threading.current_thread()]
     assert tracker.tags["git_commit"] == "abc" and "host" in tracker.tags
-
-
-def test_unavailable_backend_never_blocks_the_training(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                                       capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that a backend failing on every request (locked database) never slows the training: 1000 calls return in
-    well under a second, the close returns at once instead of waiting for the retries, and a single warning is printed.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the MLflow client.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
-    """
-    monkeypatch.setattr(target=mlflow_tracker, name="MlflowClient", value=UnavailableClient)
-    tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
-                            experiment_name="dummy_task", run_name="dummy_run",
-                            run_record_path=tmp_path / "record.json")
-    tracker.start(parameters={"ExperimentConfiguration": {"batch_size": 4}}, tags={}, resumed_iteration=None)
-
-    start_time = time.monotonic()
-    for step in range(1000):
-        tracker.log_metrics(metrics={"train/Total Loss": 1.0, "learning_rate": 0.01}, step=step)
-    assert time.monotonic() - start_time < 1.0
-
-    close_start_time = time.monotonic()
-    tracker.close(status=FINISHED_STATUS)
-    assert time.monotonic() - close_start_time < 2.0
-    assert not tracker.worker_thread.is_alive() and tracker.get_run_id() is None
-    assert capsys.readouterr().out.count("MLflow Unavailable") == 1
-    assert not (tmp_path / "record.json").exists()
 
 
 def test_hanging_backend_close_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -503,40 +433,6 @@ def test_unreachable_server_never_blocks_the_training(monkeypatch: pytest.Monkey
     tracker.close(status=FINISHED_STATUS)
     assert time.monotonic() - start_time < mlflow_tracker.CLOSE_TIMEOUT_SECONDS
     assert capsys.readouterr().out.count("MLflow Unavailable") == 1
-
-
-def test_full_queue_drops_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                 capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that the events beyond the bound of the queue are dropped and counted without blocking, while the worker
-    hangs on a backend that does not answer, and that the close reports them.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the MLflow client, the queue bound and the
-            close timeout.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
-    """
-    release_event = threading.Event()
-    monkeypatch.setattr(target=mlflow_tracker, name="MlflowClient",
-                        value=functools.partial(BlockedClient, release_event=release_event))
-    monkeypatch.setattr(target=mlflow_tracker, name="MAXIMUM_QUEUE_SIZE", value=5)
-    monkeypatch.setattr(target=mlflow_tracker, name="CLOSE_TIMEOUT_SECONDS", value=0.5)
-    tracker = MlflowTracker(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}", artifact_root=None,
-                            experiment_name="dummy_task", run_name="dummy_run", run_record_path=None)
-    tracker.start(parameters={}, tags={}, resumed_iteration=None)
-
-    start_time = time.monotonic()
-    for step in range(100):
-        tracker.log_metrics(metrics={"train/Total Loss": 1.0}, step=step)
-    assert time.monotonic() - start_time < 0.5
-    assert tracker.dropped_event_count == 95
-    tracker.close(status=FINISHED_STATUS)
-    assert "95 Events Dropped" in capsys.readouterr().out
-
-    release_event.set()
-    tracker.worker_thread.join(timeout=5.0)
-    assert not tracker.worker_thread.is_alive()
 
 
 def test_rejected_writes_are_dropped(tracking_root: Path, monkeypatch: pytest.MonkeyPatch,

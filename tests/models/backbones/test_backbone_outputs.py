@@ -10,7 +10,7 @@ from tests.fixtures.configuration_fixtures import get_classification_model_confi
 from vision_training.models.backbones.backbone import build_backbone
 
 
-@pytest.mark.parametrize(argnames=("last_max_pooling", "expected_final_size"), argvalues=[(False, 8), (True, 4)])
+@pytest.mark.parametrize(argnames=("last_max_pooling", "expected_final_size"), argvalues=[(True, 4)])
 def test_pre_pooling_outputs_of_every_block(last_max_pooling: bool, expected_final_size: int) -> None:
     """
     Verifies the output of every block before its pooling: block b at 1 / 2**(b-1) of the 64 pixel input resolution

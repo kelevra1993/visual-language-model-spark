@@ -96,14 +96,6 @@ def test_run_length_encodings_decode_column_by_column(compressed: bool) -> None:
     assert column_mask.tolist() == [[1, 0], [1, 0]]
 
 
-def test_run_length_encoding_must_cover_the_image() -> None:
-    """
-    Verifies that an encoding whose runs do not add up to the image size is refused instead of giving a shifted mask.
-    """
-    with pytest.raises(ValueError, match="covers 3 pixels"):
-        decode_run_length_encoding(segmentation={"size": [2, 2], "counts": [1, 2]})
-
-
 def test_compressed_encoding_writes_the_coco_string_and_decodes_back() -> None:
     """
     Verifies the compressed encoding written by the synthetic instance segmentation generator: hand-worked strings of

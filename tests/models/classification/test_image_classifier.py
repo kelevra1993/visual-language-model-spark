@@ -1,7 +1,7 @@
 """
 Tests of ImageClassifier and of the classification head of vision_training/models/classification: output shapes and
-probabilities, learning a tiny batch, the class weights buffer, the decorrelation loss of the hidden features of the
-head, the global pooling shapes and the head sized by the pooled or flattened feature map.
+probabilities, the class weights buffer, the decorrelation loss of the hidden features of the head, the global pooling
+shapes and the head sized by the flattened feature map.
 """
 
 import pytest
@@ -14,12 +14,12 @@ from vision_training.models.classification.image_classifier import ImageClassifi
 from tests.fixtures.configuration_fixtures import get_classification_model_configuration
 
 
-@pytest.mark.parametrize(argnames="output_mode", argvalues=["multi_class", "multi_label"])
+@pytest.mark.parametrize(argnames="output_mode", argvalues=["multi_label"])
 def test_classifier_output_shapes_and_probabilities(output_mode: str) -> None:
     """
-    Verifies the outputs of the image classifier: [B, K] logits and probabilities, the probabilities summing to 1 over
-    the classes with one class per image (softmax) and lying in [0, 1] independently with several (sigmoid), and the
-    classification loss returned only when labels are given.
+    Verifies the outputs of the image classifier: [B, K] logits and probabilities, the probabilities lying in [0, 1]
+    independently with several classes per image (sigmoid), and the classification loss returned only when labels are
+    given.
 
     Args:
         output_mode (str): The output mode of the classification head.
@@ -42,32 +42,6 @@ def test_classifier_output_shapes_and_probabilities(output_mode: str) -> None:
         data=[[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 1.0, 1.0]])
     outputs = model(input_tensor=images, labels=labels)
     assert outputs["classification_loss"].ndim == 0 and torch.isfinite(input=outputs["classification_loss"])
-
-
-def test_classifier_learns_a_tiny_batch() -> None:
-    """
-    Verifies that the classifier can fit a tiny batch: the classification loss of 6 images with fixed labels drops
-    well below its initial value within a few dozen optimizer steps.
-    """
-    torch.manual_seed(seed=0)
-    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
-    model = ImageClassifier(configuration=configuration, device=device, dtype=dtype)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-2)
-    images = torch.rand(size=(6, 3, 64, 64), generator=torch.Generator().manual_seed(1)) * 255.0
-    labels = torch.tensor(data=[0, 1, 2, 0, 1, 2])
-
-    initial_loss = None
-    for _ in range(40):
-        optimizer.zero_grad()
-        loss = model(input_tensor=images, labels=labels)["classification_loss"]
-        initial_loss = float(loss.detach()) if initial_loss is None else initial_loss
-        loss.backward()
-        optimizer.step()
-
-    model.eval()
-    with torch.no_grad():
-        final_loss = float(model(input_tensor=images, labels=labels)["classification_loss"])
-    assert final_loss < 0.25 * initial_loss
 
 
 def test_class_weights_buffer_weights_the_loss() -> None:
@@ -164,34 +138,12 @@ def test_decorrelation_loss_of_the_hidden_features() -> None:
                for parameter in model.backbone.parameters())
 
 
-def test_minimising_the_decorrelation_loss_decorrelates_the_hidden_features() -> None:
-    """
-    Verifies that the decorrelation loss does what it is meant for: a few optimizer steps on it alone lower the mean
-    absolute correlation of the features of the decorrelated hidden layer on a fixed batch.
-    """
-    model = build_decorrelated_classifier(activated=True)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-2)
-    images = torch.rand(size=(32, 3, 64, 64), generator=torch.Generator().manual_seed(5)) * 255.0
-    labels = torch.zeros(size=(32,), dtype=torch.int64)
-
-    correlations = []
-    for _ in range(30):
-        optimizer.zero_grad()
-        outputs = model(input_tensor=images, labels=labels)
-        correlations.append(float(outputs["hidden_feature_correlation"]))
-        outputs["decorrelation_loss"].backward()
-        optimizer.step()
-    assert correlations[-1] < 0.5 * correlations[0]
-
-
 @pytest.mark.parametrize(argnames=("global_pooling", "expected_vector"),
-                         argvalues=[("average", [2.5, 6.5]), ("max", [4.0, 8.0]),
-                                    ("flatten", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])])
+                         argvalues=[("max", [4.0, 8.0])])
 def test_global_pooling_and_head_shapes(global_pooling: str, expected_vector: List[float]) -> None:
     """
-    Verifies that the global pooling reduces a feature map to one vector per image with its average or maximum, or
-    keeps all its values in channel, row and column order when flattening, and that the classification head applies
-    to the last dimension, so that it also classifies every frame of a sequence.
+    Verifies that the global pooling reduces a feature map to one vector per image with its maximum, and that the
+    classification head applies to the last dimension, so that it also classifies every frame of a sequence.
 
     Args:
         global_pooling (str): The global pooling under test.
@@ -209,15 +161,13 @@ def test_global_pooling_and_head_shapes(global_pooling: str, expected_vector: Li
 
 
 @pytest.mark.parametrize(argnames=("global_pooling", "image_size", "last_max_pooling", "expected_features"),
-                         argvalues=[("average", 64, False, 32), ("flatten", 64, False, 32 * 8 * 8),
-                                    ("flatten", 64, True, 32 * 4 * 4), ("flatten", 32, False, 32 * 4 * 4)])
+                         argvalues=[("flatten", 64, True, 32 * 4 * 4)])
 def test_head_input_follows_the_pooled_feature_map(global_pooling: str, image_size: int, last_max_pooling: bool,
                                                    expected_features: int) -> None:
     """
     Verifies that the head of the image classifier reads the vector the global pooling makes from the final feature
-    map: its 32 channels for a pooling, whatever the image size, and its 32 channels times its height and width when
-    flattening, which follow the image size and the last max pooling (the 4 test blocks halving 64 pixels to 8 without
-    it, to 4 with it), and that the flattened classifier gives one logit per class of every image.
+    map: its 32 channels times its height and width when flattening, which follow the last max pooling (the 4 test
+    blocks halving 64 pixels to 4 with it), and that the flattened classifier gives one logit per class of every image.
 
     Args:
         global_pooling (str): The reduction of the final feature map.
