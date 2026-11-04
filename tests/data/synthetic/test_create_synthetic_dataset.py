@@ -633,11 +633,14 @@ def test_covered_objects_are_left_out_of_the_labels() -> None:
                                                                       keep_visible_parts=False)
     assert detection_objects == [(2, [0, 20, 20, 40]), (3, [0, 0, 30, 40])] and detection_segmentations == []
 
-    # The instance segmentation keeps the box and the encoding of the visible part of every visible object
-    instance_objects, instance_segmentations = keep_visible_objects(objects=objects, instance_map=instance_map,
-                                                                    keep_visible_parts=True)
+    # The instance segmentation keeps the box, the compressed encoding and the pixel count of the visible part of every
+    # visible object
+    instance_objects, instance_parts = keep_visible_objects(objects=objects, instance_map=instance_map,
+                                                            keep_visible_parts=True)
     assert instance_objects == [(2, [0, 20, 10, 40]), (3, [0, 0, 30, 40])]
-    assert np.array_equal(decode_run_length_encoding(segmentation=instance_segmentations[0]), instance_map == 2)
+    assert isinstance(instance_parts[0]["segmentation"]["counts"], str)
+    assert np.array_equal(decode_run_length_encoding(segmentation=instance_parts[0]["segmentation"]), instance_map == 2)
+    assert [instance_part["area"] for instance_part in instance_parts] == [200, int(np.sum(instance_map == 3))]
 
 
 def test_hard_images_draw_log_uniform_sizes_from_the_largest(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -771,15 +774,66 @@ def test_created_hard_detection_dataset_holds_small_large_and_cut_objects(tmp_pa
 
 def test_hard_objects_are_refused_for_another_task(tmp_path: Path) -> None:
     """
-    Verifies that the hard images are only drawn for the object detection, whose labels keep the box of every object.
+    Verifies that the hard images are only drawn for the object detection and the instance segmentation, whose labels
+    keep the box or the visible part of every object, and not for the keypoint detection, whose keypoints they do not
+    draw.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    with pytest.raises(expected_exception=ValueError, match="hard_objects only draws object detection images"):
+    with pytest.raises(expected_exception=ValueError,
+                       match="hard_objects only draws object detection and instance segmentation images"):
         create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE, split_sizes={"train": 2},
                                  maximum_objects=6, minimum_frames=1, maximum_frames=1, number_workers=1,
-                                 task="instance_segmentation", hard_objects=True)
+                                 task="keypoint_detection", hard_objects=True)
+
+
+def test_created_hard_instance_segmentation_dataset_encodes_small_and_large_visible_parts(tmp_path: Path) -> None:
+    """
+    Verifies the hard instance segmentation mode of the generator: the COCO labels hold 5 to 12 objects per image on
+    average, every one with the compressed encoding of its visible part, whose pixel count is its area and whose tight
+    box is its box, the parts of an image never overlapping, down to small shapes and up to large ones, some cut by the
+    image border, and the instance segmentation dataset of the framework loads the same masks.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE, split_sizes={"train": 12},
+                             maximum_objects=12, minimum_frames=1, maximum_frames=1, number_workers=2,
+                             task="instance_segmentation", hard_objects=True)
+
+    # Objects per image, and the compressed encoding, area and box of every visible part
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    objects_per_image = np.bincount([annotation["image_id"] for annotation in labels["annotations"]],
+                                    minlength=13)[1:]
+    assert objects_per_image.max() <= 12 and objects_per_image.mean() >= HARD_OBJECTS_MINIMUM_OBJECTS
+    image_masks = {image["id"]: [] for image in labels["images"]}
+    for annotation in labels["annotations"]:
+        assert isinstance(annotation["segmentation"]["counts"], str)
+        mask = decode_run_length_encoding(segmentation=annotation["segmentation"])
+        x, y, width, height = annotation["bbox"]
+        assert int(mask.sum()) == annotation["area"] > 0
+        assert get_mask_bounding_box(mask=mask) == [x, y, x + width, y + height]
+        image_masks[annotation["image_id"]].append(mask)
+
+    # Small and large visible parts, some reaching the image border, never overlapping within an image
+    long_sides = [max(annotation["bbox"][2:]) for annotation in labels["annotations"]]
+    assert min(long_sides) < 32 and max(long_sides) > IMAGE_SIZE // 3
+    assert any(x == 0 or y == 0 or x + width == IMAGE_SIZE or y + height == IMAGE_SIZE
+               for x, y, width, height in (annotation["bbox"] for annotation in labels["annotations"]))
+    for image in labels["images"]:
+        assert int(np.stack(arrays=image_masks[image["id"]]).sum(axis=0).max()) == 1
+
+    # The instance segmentation dataset loads the same masks at the image size, in the order of the annotations
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "train" / "data"),
+                                   labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                   keep_ratio=True, label_mode="multi_class",
+                                   label_dictionary={int(category): class_index for category, class_index in
+                                                     label_mapping.items()}, load_instance_masks=True, shuffle=False)
+    for sample in (dataset[index] for index in range(len(dataset))):
+        assert np.array_equal(sample["instance_masks"].numpy(),
+                              np.stack(arrays=image_masks[sample["sample_identifiers"]]))
 
 
 def test_created_instance_segmentation_dataset_encodes_the_visible_parts(tmp_path: Path) -> None:

@@ -10,38 +10,10 @@ import numpy as np
 import pytest
 import torch
 
-from typing import List
-
-from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
-                                                        compute_segmentation_bounding_box,
+from vision_training.data.detection.coco_masks import (build_instance_mask, compress_counts,
+                                                        compute_mask_bounding_boxes, compute_segmentation_bounding_box,
                                                         decode_run_length_encoding, encode_run_length_encoding,
                                                         rasterize_polygons)
-
-
-def compress_counts(counts: List[int]) -> str:
-    """
-    Writes run lengths as the string of a compressed COCO run length encoding, the reference encoding of COCO, so that
-    the tests feed decode_run_length_encoding with the compressed form of hand-made masks.
-
-    Args:
-        counts (List[int]): The run lengths, alternating background and object pixels.
-
-    Returns:
-        str: The compressed 'counts' string.
-    """
-    characters = []
-    for count_index, count in enumerate(counts):
-        # From the third run on, the difference with the run two places before is written
-        value = count - counts[count_index - 2] if count_index > 2 else count
-
-        # Groups of 5 bits, the sixth bit flagging another group, the fifth bit of the last group the sign
-        has_more_groups = True
-        while has_more_groups:
-            group = value & 0x1F
-            value >>= 5
-            has_more_groups = value != -1 if group & 0x10 else value != 0
-            characters.append(chr((group | 0x20 if has_more_groups else group) + 48))
-    return "".join(characters)
 
 
 def build_square_mask(size: int, first_pixel: int, end_pixel: int) -> np.ndarray:
@@ -130,6 +102,35 @@ def test_run_length_encoding_must_cover_the_image() -> None:
     """
     with pytest.raises(ValueError, match="covers 3 pixels"):
         decode_run_length_encoding(segmentation={"size": [2, 2], "counts": [1, 2]})
+
+
+def test_compressed_encoding_writes_the_coco_string_and_decodes_back() -> None:
+    """
+    Verifies the compressed encoding written by the synthetic instance segmentation generator: hand-worked strings of
+    COCO (a run as one character, a negative difference with the run two places before, a long run over two
+    characters), and small masks, an empty mask and a 1024 pixel mask with a hole, the size of the hard images,
+    decoded back exactly from their compressed string.
+    """
+    # Runs 3 and 2 are the characters '3' and '2'; the fourth run 2 is written as 2 - 5 = -3, the character 'M'
+    # (29 + 48, the sign bit set); a run of 40 takes two groups, 8 with the continuation bit ('X') then 1 ('1')
+    assert compress_counts(counts=[3, 2]) == "32"
+    assert compress_counts(counts=[0, 5, 1, 2]) == "051M"
+    assert compress_counts(counts=[40]) == "X1"
+
+    # Masks of several shapes decode back to themselves through the compressed string
+    random_generator = np.random.default_rng(seed=0)
+    first_pixel_mask = np.zeros(shape=(3, 4), dtype=np.uint8)
+    first_pixel_mask[0, 0] = 1
+    large_mask = np.zeros(shape=(1024, 1024), dtype=np.uint8)
+    large_mask[100:900, 50:1000] = 1
+    large_mask[400:420, 300:700] = 0
+    masks = [(random_generator.random(size=(7, 5)) > 0.5).astype(np.uint8), first_pixel_mask, large_mask,
+             np.zeros(shape=(4, 4), dtype=np.uint8)]
+    for mask in masks:
+        compressed_encoding = encode_run_length_encoding(mask=mask, compressed=True)
+        assert isinstance(compressed_encoding["counts"], str)
+        assert compressed_encoding["size"] == encode_run_length_encoding(mask=mask)["size"]
+        assert np.array_equal(decode_run_length_encoding(segmentation=compressed_encoding), mask)
 
 
 def test_polygon_and_encoding_of_one_object_give_the_same_mask() -> None:
