@@ -44,12 +44,12 @@
 
 - **No new high bug.** The most serious problems found open at this commit were items of the audit of 2026-10-10, each
   checked again in the code (see [Items Of suggestions.md Still Open](#items-of-suggestionsmd-still-open)), all fixed
-  on 2026-10-21 except H4 and M9:
+  on 2026-10-21 except H4:
   - **C3:** DET and INS count their classes as label dictionary keys and nothing checks their mapping, so merged
     categories crash the first evaluation (found again by three reviewers).
   - **C4 and M17:** run names collide for settings that change the weights (`last_max_pooling`, the anchors, the
     pretrained source, the content of the label mapping), so a different configuration resumes another run.
-  - **H4, H6, M6 to M9 and M20:** missing shortcuts in channel-changing blocks, swallowed data errors,
+  - **H4, H6, M6 to M8 and M20:** missing shortcuts in channel-changing blocks, swallowed data errors,
     iterations counted from the resume point, fresh starts mixing two runs, and an empty split looping forever.
 - **34 new bugs:** 6 medium and 28 low, listed by area below. Two come from the commits of
   2026-10-20: [B7](#b7-motion-blur-of-the-views-the-largest-kernel-size-is-never-drawn-and-the-viewer-describes-kernels-kornia-does-not-apply) (the motion blur kernel sizes of the views) and the solarize bound of [B20](#b20-the-view-augmentation-checks-accept-values-kornia-rejects).
@@ -549,7 +549,6 @@ Statuses come from reading the code at this commit. The items re-found by the re
 
 | Item | Severity there | Status | Note |
 |---|---|---|---|
-| C2. Label smoothing with class weights favours the rarest class | critical | **open** (latent) | see below |
 | C3. DET and INS count their classes as dictionary keys | critical | fixed | on 2026-10-21: classes counted as distinct values, detection mapping checked |
 | C4. Run names collide for settings that change the weights | critical | fixed | on 2026-10-21: the anchors (`A<counts>.<smallest>-<largest>.<hash>`) and `last_max_pooling` (`LMP`) give tokens, and M17 keeps the classes of a run; its `dtype` and `input_channels` points are moot |
 | H1. The RPN never trains on plain background | high | fixed | `background_iou_threshold.min: 0.0` in the four DET and INS files, warning above 0 (`detection_checks.py:226-234`) |
@@ -565,16 +564,12 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | M6. `number_iterations` counts from the resume point | medium | fixed | on 2026-10-21: `number_iterations` is the total of the run |
 | M7. `resume_training: false` reuses the run folder | medium | fixed | on 2026-10-21: the previous training is moved to `v<n>_<run name>`; since 2026-10-29 `resume_training` no longer exists, a run always resuming from its folder |
 | M8. An empty split loops forever | medium | fixed | on 2026-10-21: refused at launch, two empty passes raise |
-| M9. Training step errors swallowed, stale final save | medium | **open** | |
-| M10. Weight decay on every parameter | medium | **open** (latent) | one `weight_decay` for every group (`base_trainer.py:606-613`); 0.0 in the files read |
 | M13. Decoded image size never compared with the annotations | medium | **partly fixed** | see below; `coco_dataset.py:249` still never compares the decoded shape with the JSON size |
 | M14. Objectness ranked in bfloat16 | medium | fixed | on 2026-10-29, when mixed precision became always on (DET and INS included): `select_best_proposals` computes the probabilities in the precision of the boxes, float32 under mixed precision |
 | M15. A failed export check leaves the new model served | medium | **open** | |
 | M16. The DET and INS export comparison compares padding | medium | **open** | |
 | M17. The label mapping file is not part of the run | medium | fixed | on 2026-10-21: `label_dictionary.json` and checkpoint metadata |
-| M18. CMP member frames ordered as text | medium | **open** | `os_utilities.py:237`; the frames of sequence inference requests too (`deployment_utilities.py:67`) |
 | M20. `Iteration_k` holds k-1 steps | medium | fixed | on 2026-10-21, with [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) |
-| M21. TensorRT FP16 never validated, engine cache | medium | **open** | |
 | L1. Anchors centred on the cell corners | low | **open** | `anchors.py:76` |
 | L2. Export crashes for some valid configurations | low | fixed | top-k clamped to the anchors (`region_proposer.py:103`, `inference_detector.py:135`), `dtype` removed, 3 channels enforced (`common_checks.py:273-277`) |
 | L3. The threshold finder returns the lowest valid threshold | low | **open** | `threshold_finder.py:46-48`, which also sets the DET, INS, KPT and SEL class thresholds |
@@ -586,14 +581,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | L10. Nothing checks one label per frame | low | **open** | a count mismatch now raises in `collate_padded_sequences` (`sequence_dataset.py:138`), and `get_next_batch` drops that batch silently (read, not reproduced) |
 | L11. M2M batches without labelled frame | low | **open** | see below |
 | L13. The checkpoint registry is rewritten in place | low | fixed | on 2026-10-21: written to a temporary file, synced and replaced |
-| L14. `run_benchmarking_loop` crashes at its first step | low | **open** | |
-| L15. Loader workers forked from a multi-threaded process | low | **open** | `base_trainer.py:1353` (writers), 1361 (MLflow thread), 1799 (test workers) |
-| L16. A host-GPU synchronisation per step | low | **open** | `metric_tracking.py:133, 165` |
 | L17. Ragged last batch and averages over batches | low | **open** | see below |
-| L18. Extreme inputs | low | **open** | `preprocessing.py:33` without `max(1, ...)` |
-| L19. INS sends full-resolution masks through shared memory | low | **open** | `coco_dataset.py:384-389` |
-| L20. GPU memory peaks in the original-resolution SEG evaluation | low | **open** | `segmentation_trainer.py:366-376` |
-| L22. The README recipe squeezes INS masks at the border | low | **partly fixed** | the INS evaluation pastes into unclipped boxes; README line 1043 still restores the boxes without `clip=False` |
 
 | Statement contradicting the code | Status | Note |
 |---|---|---|
@@ -610,16 +598,12 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | README CLS run name `..._HAVG.128_MC4` | **open** | see [B24](#b24-stale-run-name-and-checker-documentation) |
 | `Backbone.input_channels` comment | fixed (`a10bb7a`) | |
 | `sequence_classification_trainer.py:66-72` frame shuffle warning | **open** | still warns for every transformer, whatever `positional_embedding` and `causal` |
-| `base_trainer.py:984-986` MLflow after the workers | **open** | now lines 1359-1360, true for the training and validation workers only (L15) |
 | Loader: `dtype: "float16"` bare `KeyError` | fixed | the key is gone, and an old `dtype` key is now ignored silently |
 | Loader: `int(float(...))` truncation | **open** | `configuration_loader.py:126, 150` |
 | Loader: unknown or misspelled keys ignored | **open** | only the augmentation types are checked for unknown names (`common_checks.py:189-195`) |
 
 ### What This Audit Adds
 
-- **C2:** unchanged in `classification_losses.py:34-35`, `segmentation_losses.py:38-40` and `sequence_losses.py:29-31`.
-  No shipped configuration smooths the labels, but `tests/trainers/test_segmentation_trainer.py:129` trains with
-  "balanced" weights and a smoothing of 0.1.
 - **C3:** found again by three reviewers.
   - The class count is now at `detection_trainer.py:454`, `instance_segmentation_trainer.py:305, 310`,
     `two_stage_detector.py:60` and `detection_checks.py:308-309`. `keypoint_trainer.py:305` already counts
@@ -784,7 +768,10 @@ the README screenshots, was done on 2026-10-23.
   - The 8 in `experiment_tracker.py:301` and `mlflow_tracker.py:314, 329, 347, 364, 376, 415, 476` are deliberate:
     tracking never stops a training, and each prints its error.
   - `os_utilities.py:199` falls back to an empty namespace in the debugging helper of `print_tensor_shape`.
-  - The other two, `base_trainer.py:1222` and `1447`, are items H6 and M9 and bug [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved).
+  - The other two, `base_trainer.py:1316` and `1591`, are deliberate since 2026-10-21: a batch that fails to load is
+    dropped and counted, a `RuntimeError` following 10 failed fetches in a row (H6 and
+    [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved)), and a
+    failing training iteration is printed and skipped, the training stopping after 5 in a row.
 - **The 4 tests without `assert`:** they assert through `check_nn_module_method` (`torch.allclose` against the `.pt`
   references) or through the `SystemExit` of the checker.
 - **`imagenet_download.py:289`:** prints a count, not a path.
@@ -795,7 +782,7 @@ the README screenshots, was done on 2026-10-23.
    - C3 (the class count of DET and INS), with [B30](#b30-a-category-mapped-to-0-to-exclude-it-names-the-background-class-and-is-counted-under-it-in-datajson);
    - C4 and M17 (run names and the label mapping);
    - M7 (a fresh start reusing a run folder);
-   - then H6, M6, M8, M9, M20 and L13 of suggestions.md, with [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved),
+   - then H6, M6, M8, M20 and L13 of suggestions.md, with [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved),
      [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) and [B9](#b9-a-batch-normalized-classification-head-crashes-on-a-training-batch-of-a-single-vector).
 
    A run name token added to every run would stop the running ImageNet runs from resuming in their folders, so the
