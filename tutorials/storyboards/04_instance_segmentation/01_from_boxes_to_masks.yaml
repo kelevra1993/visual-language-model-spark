@@ -221,7 +221,7 @@ scenes:
       - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
-      - "The task trains on the data set of the detection, every object segmented by an uncompressed run length encoding of its visible pixels."
+      - "The task trains on the data set of the detection, every object segmented by a compressed run length encoding of its visible pixels."
       - "Its synthetic configuration also stops at two thousand iterations; the run shown was resumed to five thousand, and the evaluation script evaluates any checkpoint again."
 
   - kind: summary
