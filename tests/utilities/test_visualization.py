@@ -4,8 +4,8 @@ grays the ignored pixels only, the detection sample grid lays out its two panels
 with the boxes in the colour of their class, the frame selection image draws the borders of the selection over its grid
 of thumbnails above the probability heat map, the keypoint drawings colour every keypoint by its side, join the drawn
 keypoints by the skeleton in the colour of their class, leave the unlabelled keypoints, the predicted ones not found and
-the padding positions out, draw the occluded ones as rings and caption the objects, and the input viewer is skipped
-without a display.
+the padding positions out, draw the occluded ones as rings and caption the objects, the input viewer is skipped
+without a display, and its information panel draws a table of the objects per class in row pairs fitting its width.
 """
 
 import numpy as np
@@ -14,12 +14,15 @@ import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, GRID_GAP, HEAT_MAP_ROW_HEIGHT,
-                                                     IGNORED_PIXEL_COLOUR, KEYPOINT_SIDE_COLOURS, LEGEND_BAR_HEIGHT,
-                                                     SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
-                                                     UNSELECTED_FRAME_BRIGHTNESS, WRONG_PREDICTION_COLOUR,
+                                                     IGNORED_PIXEL_COLOUR, INFORMATION_PANEL_WIDTH,
+                                                     KEYPOINT_SIDE_COLOURS, LEGEND_BAR_HEIGHT, PANEL_LINE_HEIGHT,
+                                                     PANEL_MARGIN, PANEL_TABLE_GAP, PANEL_TABLE_ROW_HEIGHT,
+                                                     PANEL_TITLE_HEIGHT, SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
+                                                     UNSELECTED_FRAME_BRIGHTNESS, WRONG_PREDICTION_COLOUR, PanelTable,
                                                      build_class_colours, build_detection_sample_grid,
-                                                     build_frame_selection_image, draw_keypoint_objects,
-                                                     overlay_segmentation_mask, view_input_data)
+                                                     build_frame_selection_image, build_information_panel,
+                                                     draw_keypoint_objects, overlay_segmentation_mask,
+                                                     split_panel_table, view_input_data)
 
 # Classes of the keypoint drawing tests on a 96 x 96 image: a figure of 4 keypoints and a marker of a single centre
 # keypoint, padded to the 4 keypoints of the figure
@@ -194,3 +197,32 @@ def test_viewer_is_skipped_without_a_display(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv(name="WAYLAND_DISPLAY", raising=False)
     assert view_input_data(images=[torch.zeros(size=(3, 8, 8))], bounding_boxes=None, labels=None,
                            window_titles=["Training"], display_input_size=8, panel_lines=[["Class : cat"]])
+
+
+def test_information_panel_draws_its_tables_in_row_pairs() -> None:
+    """
+    Verifies that a table of the input viewer panel (the objects of a detection sample per class) keeps its columns in
+    one row pair when they fit, starts a new pair below when the next column does not fit the panel, and makes the
+    panel taller by the height of its pairs, the text lines keeping their place.
+    """
+    short_table = PanelTable(row_titles=("Class", "Count"), columns=[("square", "1"), ("circle", "2")])
+    long_table = PanelTable(row_titles=("Class", "Count"), columns=[(f"hollow_parallelogram_{index}", "1")
+                                                                    for index in range(6)])
+    maximum_width = INFORMATION_PANEL_WIDTH - 2 * PANEL_MARGIN
+
+    # The short table holds one pair, the long one wraps into pairs that each fit the width
+    _, short_pairs = split_panel_table(table=short_table, maximum_width=maximum_width)
+    title_width, long_pairs = split_panel_table(table=long_table, maximum_width=maximum_width)
+    assert [[column[:2] for column in pair] for pair in short_pairs] == [[("square", "1"), ("circle", "2")]]
+    assert len(long_pairs) > 1 and sum(len(pair) for pair in long_pairs) == 6
+    assert all(title_width + sum(column[2] for column in pair) <= maximum_width for pair in long_pairs)
+
+    # Every pair adds its two rows and its gap to the height of the panel, the title and the line above the table
+    # drawn where they are without it
+    text_panel = build_information_panel(title="Training", lines=["Objects : 6"], minimum_height=0)
+    table_panel = build_information_panel(title="Training", lines=["Objects : 6", long_table], minimum_height=0)
+    assert table_panel.shape[0] - text_panel.shape[0] == len(long_pairs) * (2 * PANEL_TABLE_ROW_HEIGHT +
+                                                                              PANEL_TABLE_GAP)
+    line_area_bottom = PANEL_MARGIN + PANEL_TITLE_HEIGHT + PANEL_LINE_HEIGHT + 5
+    assert np.array_equal(table_panel[:line_area_bottom], text_panel[:line_area_bottom])
+    assert table_panel[line_area_bottom:].any()

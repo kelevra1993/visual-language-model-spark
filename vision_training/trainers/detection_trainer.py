@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 import torch
 
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
@@ -39,7 +40,7 @@ from vision_training.evaluation.report_formatting import build_table_renderables
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.coco_split_trainer import CocoSplitTrainer
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.visualization import (build_detection_sample_grid, convert_image_to_array,
+from vision_training.utilities.visualization import (PanelTable, build_detection_sample_grid, convert_image_to_array,
                                                      view_input_data)
 
 # Files of the recalls of the anchors, in the run folder, and of the proposals, in the evaluation folder of every
@@ -680,8 +681,8 @@ class DetectionTrainer(CocoSplitTrainer):
                            sample_index: int) -> bool:
         """
         Displays an augmented training image next to a validation image, each with its ground truth boxes captioned
-        with their class names and an information panel holding its number of objects per class, its augmentations
-        and the objects they removed.
+        with their class names and an information panel holding its number of objects, a table of its classes (Class
+        row) over their numbers of objects (Count row), its augmentations and the objects they removed.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -691,18 +692,23 @@ class DetectionTrainer(CocoSplitTrainer):
         Returns:
             bool: True if the user asked to stop viewing.
         """
-        # Invert the label dictionary so that each box is captioned with its class name instead of its index
-        label_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
+        # The class names of the test manifest, so that the boxes, the table and the removed objects read "square"
+        # instead of the category identifier of the label dictionary
+        label_names = self.class_names
 
-        # The objects of every image counted per class, in the order of the label dictionary, then its augmentations
+        # The objects of every image: their number, then a table of their classes in class order over their counts,
+        # then its augmentations
         panel_lines = []
         for batch in [training_batch, validation_batch]:
-            sample_labels = batch["labels"][sample_index].tolist()
-            class_counts = [f"{class_name} {sample_labels.count(class_index)}"
-                            for class_index, class_name in label_names.items() if class_index in sample_labels]
-            object_line = f"Objects : {len(sample_labels)} ({', '.join(class_counts)})" if sample_labels \
-                else "Objects : none"
-            panel_lines.append([object_line] + self.describe_input_augmentations(
+            class_counts = Counter(batch["labels"][sample_index].tolist())
+            if class_counts:
+                object_lines = [f"Objects : {sum(class_counts.values())}",
+                                PanelTable(row_titles=("Class", "Count"),
+                                           columns=[(label_names[class_index], str(class_counts[class_index]))
+                                                    for class_index in sorted(class_counts)])]
+            else:
+                object_lines = ["Objects : none"]
+            panel_lines.append(object_lines + self.describe_input_augmentations(
                 batch=batch, sample_index=sample_index, label_names=label_names))
         return view_input_data(
             images=[self.get_input_sample_image(batch=training_batch, sample_index=sample_index),
