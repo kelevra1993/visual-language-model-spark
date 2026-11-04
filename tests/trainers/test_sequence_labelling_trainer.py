@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.data.loaders import NUMBER_LOADER_WORKERS
 from vision_training.data.split_description import count_split_sequences
 from vision_training.data.synthetic.create_synthetic_dataset import CHANGE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
@@ -92,8 +93,9 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     Verifies the sequence labelling training pipeline on a generated synthetic changing shapes dataset: 5 iterations
     save the intermediate, evaluated and final checkpoints, the evaluation of every frame of the 3 test sequences of
     4 to 6 frames is reported in Results.txt with the sequence exact match, the segment metrics and the labelled
-    frames of every class, its per-class metrics, confusion matrix and class thresholds files, and a second run with
-    the same settings resumes from the last checkpoint with exactly its weights. No training step may fail silently.
+    frames of every class, its per-class metrics, confusion matrix and class thresholds files, the worker processes
+    of the loaders are stopped once the training ends, and a second run with the same settings resumes from the last
+    checkpoint with exactly its weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -115,9 +117,16 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
     assert trainer.run_name.startswith("M2M_") and "_T6_TRF1x128.4-CAU_" in trainer.run_name
     assert trainer.class_names == list(CHANGE_CATEGORIES)
+
+    # The workers of the training loader, started here and reused by the training, are stopped once it ends, and the
+    # three loaders keep no iterator, so that a later pass starts new workers
+    training_workers = iter(trainer.train_dataloader)._workers
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]
+    assert len(training_workers) == NUMBER_LOADER_WORKERS and not any(worker.is_alive() for worker in training_workers)
+    assert [loader._iterator for loader in [trainer.train_dataloader, trainer.validation_dataloader,
+                                            trainer.test_dataloader]] == [None, None, None]
 
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",

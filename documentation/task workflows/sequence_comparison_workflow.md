@@ -213,7 +213,8 @@ main()
         │   ├── average_trackers() + log_interval_metrics() + print_interval_summary()   (pairs and Frames Per Second)
         │   │   + report_dropped_batches()
         │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
-        └── save_model() of the steps taken since the last checkpoint, if any, finish_experiment_tracking()
+        └── save_model() of the steps taken since the last checkpoint, if any, then shutdown_loader_workers() and
+                finish_experiment_tracking()
 
 run_test_evaluation(iteration)  [STAGE 4]
 └── the evaluation of the classification on pairs: the error and sample images show the before grid above the after

@@ -231,7 +231,7 @@ main()
         │   │   + report_dropped_batches()
         │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
         ├── save_model() of the steps taken since the last checkpoint, if any (nothing evaluated after the loop)
-        └── close the writers, finish_experiment_tracking()
+        └── close the writers, shutdown_loader_workers(), finish_experiment_tracking()
 
 run_test_evaluation(iteration)  [STAGE 4]
 └── the evaluation of the classification (see classification_workflow.md, Stage 4), on whole sequences:

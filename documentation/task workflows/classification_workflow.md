@@ -484,9 +484,9 @@ main()
         │       iteration when its checkpoint is not saved yet, then prints "Last Checkpoint Saved At Iteration <n>.
         │       Exiting Training." Nothing is evaluated after the loop: a weight_saving_iterations checkpoint saved by
         │       this launch and left unevaluated is named in yellow, for scripts/evaluation/evaluate_checkpoint.py.
-        └── close TensorBoard writers, then finish_experiment_tracking()
-                Closes the Train and Validation writers; run_training_loop then sends Results.txt to MLflow and closes
-                the MLflow run with its status.
+        └── close TensorBoard writers, then shutdown_loader_workers() and finish_experiment_tracking()
+                Closes the Train and Validation writers; run_training_loop then stops the worker processes of the three
+                loaders, sends Results.txt to MLflow and closes the MLflow run with its status.
 
 run_test_evaluation(iteration)  [STAGE 4]
 │   Scores the current weights on the whole test split, exactly once per image, then reports. It is called by the
