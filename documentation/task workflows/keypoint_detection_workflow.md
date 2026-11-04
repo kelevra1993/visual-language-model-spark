@@ -273,7 +273,7 @@ Data keys:       ['image_settings', 'label_mapping', 'data_augmentation', 'label
 image_settings:  {'size': 512, 'keep_ratio': True}
 HRNet:        {"base_width": 16, "modules_per_stage": [1, 2, 2], "blocks_per_branch": 2,
                "modules": {"squeeze_and_excite": true, "residual_nets": true},
-               "normalization": {"feature_map_normalization": "batch", "batch_normalization_momentum": 0.1},
+               "normalization": {"feature_map_normalization": "batch"},
                "pretrained": {"experiment_folder": null, "iteration": null, "freeze": false, "learning_rate_multiplier": 1.0}}
 KeypointHead: {"higher_resolution": true, "hidden_width": 256, "heatmap_sigma": 2.0, "ignore_unlabelled_objects": false,
                "tag_pull_weight": 0.1, "tag_push_weight": 0.1,

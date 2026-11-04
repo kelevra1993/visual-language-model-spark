@@ -43,6 +43,17 @@ VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 # settings 'independent_frames' and 'shuffle_frames'
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
 
+# Batch normalization momentums removed from the configuration files, every component using BATCH_NORMALIZATION_MOMENTUM,
+# by the path of the setting with the name of its component in the messages
+FIXED_MOMENTUM_COMPONENTS = {"Backbone.normalization.batch_normalization_momentum": "backbone",
+                             "ClassificationHead.batch_normalization_momentum": "classification head",
+                             "RegionProposal.normalization.batch_normalization_momentum": "region proposal heads",
+                             "Detector.normalization.batch_normalization_momentum": "detection heads",
+                             "MaskHead.normalization.batch_normalization_momentum": "mask heads",
+                             "SegmentationDecoder.batch_normalization_momentum": "segmentation decoder",
+                             "HRNet.normalization.batch_normalization_momentum": "high resolution network",
+                             "ProjectionHead.batch_normalization_momentum": "projection head"}
+
 # Settings and sections removed from the configuration files, refused with what replaced them so that the settings of
 # a file written before are never silently ignored, as (replacement, tasks still holding the setting): the random views
 # of the self-supervised task, now drawn by the types of 'Data.data_augmentation', the view losses of the image
@@ -73,14 +84,17 @@ REMOVED_SETTINGS = {
     "Backbone.modules.inception_starting_block": (f"inception modules start at block {INCEPTION_STARTING_BLOCK} "
                                                   f"(INCEPTION_STARTING_BLOCK of "
                                                   f"vision_training/models/backbones/backbone.py)", []),
-    "Backbone.normalization.batch_normalization_momentum": (f"the batch normalization of the backbone follows its "
-                                                            f"batch statistics with a momentum of "
-                                                            f"{BATCH_NORMALIZATION_MOMENTUM} "
-                                                            f"(BATCH_NORMALIZATION_MOMENTUM)", []),
-    "ClassificationHead.batch_normalization_momentum": (f"the batch normalization of the classification head "
-                                                        f"follows its batch statistics with a momentum of "
-                                                        f"{BATCH_NORMALIZATION_MOMENTUM} "
-                                                        f"(BATCH_NORMALIZATION_MOMENTUM)", []),
+    **{key_path: (f"the batch normalization of the {component_name} follows its batch statistics with a momentum of "
+                  f"{BATCH_NORMALIZATION_MOMENTUM} (BATCH_NORMALIZATION_MOMENTUM)", [])
+       for key_path, component_name in FIXED_MOMENTUM_COMPONENTS.items()},
+    "RegionProposal.strict_fallback_assignment": ("the anchor made foreground for an object it does not overlap the "
+                                                  "most always targets the object it overlaps the most, as the region "
+                                                  "proposal network of torchvision", []),
+    **{f"{section_name}.localisation_loss_beta": (f"the smooth L1 localisation losses of the region proposal network "
+                                                  f"and of the detection heads have a beta of 1/9 "
+                                                  f"(LOCALISATION_LOSS_BETA of "
+                                                  f"vision_training/losses/detection_losses.py)", [])
+       for section_name in ["RegionProposal", "Detector"]},
     "Data.data_augmentation.independent_frames": ("only the sequence tasks draw the photometric augmentation types "
                                                   "frame by frame, the other tasks having no frames", SEQUENCE_TASKS),
     "Data.data_augmentation.shuffle_frames": ("only the sequence tasks shuffle the frames of their samples, the other "

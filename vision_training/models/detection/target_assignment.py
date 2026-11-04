@@ -115,8 +115,7 @@ def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], b
 
 def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor], batched_anchors: torch.Tensor,
                                     background_iou_threshold: Dict[str, float],
-                                    foreground_iou_threshold: Dict[str, float],
-                                    strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+                                    foreground_iou_threshold: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Assigns ground truth boxes to the anchors of every image of a batch to prepare the binary classification and
     regression targets for the Region Proposal Network.
@@ -134,9 +133,6 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
         batched_anchors (torch.Tensor): A tensor of shape [batch_size, number_of_anchors, 4].
         background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
         foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
-        strict_fallback_assignment (bool): If True, assigns resurrected anchors strictly to the ground truth box
-            that triggered their resurrection (the last one when several did). If False, follows default PyTorch RPN
-            behavior of assigning them to the ground truth box they overlap with most. Defaults to False.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
@@ -191,23 +187,15 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
                       & (best_match_anchor_iou.unsqueeze(dim=-1) > 0.0))
     resurrected_anchors = is_best_anchor.any(dim=1)
 
-    if strict_fallback_assignment:
-        # Every resurrected anchor goes to the ground truth box that resurrected it, the last one when several did
-        ground_truth_indices = torch.arange(end=is_best_anchor.shape[1], device=is_best_anchor.device).view(1, -1, 1)
-        resurrecting_ground_truths = torch.where(condition=is_best_anchor, input=ground_truth_indices,
-                                                 other=-1).max(dim=1).values
-        best_match_ground_truth_index = torch.where(condition=resurrected_anchors, input=resurrecting_ground_truths,
-                                                    other=best_match_ground_truth_index)
-    else:
-        # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
-        # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall
-        # (using best_match_ground_truth_index_before_thresholding) rather than strictly forcing it to
-        # match the specific ground truth box that selected it. For example, if an anchor is forced
-        # positive to cover Ground Truth A, but it actually overlaps more with Ground Truth B, it will
-        # be assigned to predict Ground Truth B. This perfectly mirrors the official PyTorch RPN logic!
-        best_match_ground_truth_index = torch.where(condition=resurrected_anchors,
-                                                    input=best_match_ground_truth_index_before_thresholding,
-                                                    other=best_match_ground_truth_index)
+    # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
+    # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall
+    # (using best_match_ground_truth_index_before_thresholding) rather than strictly forcing it to
+    # match the specific ground truth box that selected it. For example, if an anchor is forced
+    # positive to cover Ground Truth A, but it actually overlaps more with Ground Truth B, it will
+    # be assigned to predict Ground Truth B. This perfectly mirrors the official PyTorch RPN logic!
+    best_match_ground_truth_index = torch.where(condition=resurrected_anchors,
+                                                input=best_match_ground_truth_index_before_thresholding,
+                                                other=best_match_ground_truth_index)
 
     # Get coordinates of best matching ground truth target boxes (so each anchor will have at least one target)
     # But we will not necessarily train on all the assigned targets because the -1 and -2 will be bogus targets.

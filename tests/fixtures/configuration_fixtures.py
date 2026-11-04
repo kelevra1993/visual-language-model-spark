@@ -58,24 +58,21 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          for level in ['5', '6', '7']},
                      # Proposal filter and anchor target assignment of the region proposal network
                      'RegionProposal': {
-                         'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
+                         'normalization': {'feature_map_normalization': 'batch'},
                          'nms_iou_threshold': 0.7,
                          'training': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
                          'inference': {'pre_nms_proposals': 100, 'post_nms_proposals': 50},
                          'foreground_iou_threshold': {"min": 0.35, "max": 1.0},
                          'background_iou_threshold': {"min": 0.2, "max": 0.3},
-                         'strict_fallback_assignment': False,
                          'number_training_positives': 128,
-                         'total_training_samples': 256,
-                         'localisation_loss_beta': 1 / 9
+                         'total_training_samples': 256
                      },
                      # Proposal sampling, losses and postprocessing of the detection heads
                      'Detector': {
-                         'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
+                         'normalization': {'feature_map_normalization': 'batch'},
                          'foreground_iou_threshold': 0.3,
                          'number_training_positives': 128,
                          'total_training_samples': 256,
-                         'localisation_loss_beta': 1 / 9,
                          'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False},
                          'nms_iou_threshold': 0.5,
                          'inference': {'score_threshold': 0.5, 'maximum_detections': 100},
@@ -86,8 +83,7 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
         for level_configuration in configuration['DetectionLevels'].values():
             level_configuration['mask_head'] = {'roi_align_pool_size': 7, 'convolutions': [2, 32]}
         configuration['MaskHead'] = {'mask_resolution': 14, 'upsampling': 'transposed',
-                                     'normalization': {'feature_map_normalization': 'batch',
-                                                       'batch_normalization_momentum': 0.1},
+                                     'normalization': {'feature_map_normalization': 'batch'},
                                      'modules': {'squeeze_and_excite': False, 'residual_nets': True,
                                                  'inception': False},
                                      'inference': {'mask_threshold': 0.5}}
@@ -147,8 +143,7 @@ def get_segmentation_model_configuration(upsampling: str) -> Tuple[Dict[str, Any
     configuration['SegmentationDecoder'] = {'upsampling': upsampling,
                                             'convolutions': {'3': [1, 16], '2': [1, 16], '1': [1, 8]},
                                             'modules': {'squeeze_and_excite': False, 'residual_nets': False},
-                                            'feature_map_normalization': 'batch',
-                                            'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
+                                            'feature_map_normalization': 'batch', 'dropout_rate': 0.0,
                                             'deep_supervision_weights': {}}
     configuration['SegmentationLoss'] = {'cross_entropy_weight': 1.0, 'focal_gamma': 0.0, 'label_smoothing': 0.0,
                                          'class_weighting': 'none', 'dice_weight': 1.0, 'lovasz_weight': 0.0,
@@ -216,7 +211,7 @@ def get_self_supervised_model_configuration(method: str, global_pooling: str) ->
     configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
     del configuration['ClassificationHead']
     configuration['ProjectionHead'] = {'global_pooling': global_pooling, 'fully_connected': [16, 8],
-                                       'fully_connected_normalization': 'batch', 'batch_normalization_momentum': 0.1,
+                                       'fully_connected_normalization': 'batch',
                                        'method': method, 'simclr': {'temperature': 0.2},
                                        'barlow_twins': {'off_diagonal_weight': 0.005}}
 
@@ -252,8 +247,7 @@ def get_keypoint_model_configuration(higher_resolution: bool = False,
     configuration['Backbone']['convolutions'] = {'1': [1, 8], '2': [1, 16], '3': [1, 16]}
     configuration['HRNet'] = {'base_width': 8, 'modules_per_stage': [1, 1], 'blocks_per_branch': 1,
                               'modules': {'squeeze_and_excite': True, 'residual_nets': True},
-                              'normalization': {'feature_map_normalization': 'batch',
-                                                'batch_normalization_momentum': 0.1}}
+                              'normalization': {'feature_map_normalization': 'batch'}}
     configuration['KeypointHead'] = {'higher_resolution': higher_resolution, 'hidden_width': hidden_width,
                                      'heatmap_sigma': 2.0, 'ignore_unlabelled_objects': False,
                                      'tag_pull_weight': 0.001, 'tag_push_weight': 0.001,

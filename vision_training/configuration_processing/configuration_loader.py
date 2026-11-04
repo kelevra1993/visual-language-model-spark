@@ -128,16 +128,6 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     if "learning_rate" in experiment_configuration:
         experiment_configuration["learning_rate"] = float(experiment_configuration["learning_rate"])
 
-    # Convert beta values from fractions to floats
-    for section_key in ["RegionProposal", "Detector"]:
-        if section_key in model_configuration:
-            beta_value = model_configuration[section_key]["localisation_loss_beta"]
-            if isinstance(beta_value, str) and "/" in beta_value:
-                numerator, denominator = beta_value.split("/")
-                model_configuration[section_key]["localisation_loss_beta"] = float(numerator) / float(denominator)
-            elif beta_value is not None:
-                model_configuration[section_key]["localisation_loss_beta"] = float(beta_value)
-
     # Convert the optimization numbers that YAML reads as text when written without a dot (e.g. 1e-4 or 1e5), the
     # values of other types being left for the configuration checker to report
     if "Optimization" in model_configuration:

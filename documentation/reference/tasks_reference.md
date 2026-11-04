@@ -237,7 +237,7 @@ HRNet:
   modules_per_stage: [1, 4, 3]
   blocks_per_branch: 4
   modules: { squeeze_and_excite: True, residual_nets: True }
-  normalization: { feature_map_normalization: "batch", batch_normalization_momentum: 0.1 }
+  normalization: { feature_map_normalization: "batch" }
 KeypointHead:
   higher_resolution: True
   hidden_width: 0

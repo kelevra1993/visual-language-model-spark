@@ -256,9 +256,6 @@ HRNet:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
-    # No run name token, can change on resume.
-    batch_normalization_momentum: 0.1
   # High resolution network of another KPT run initialising this one; base_width, modules_per_stage, blocks_per_branch,
   # modules, normalization and the channels of the last stem block must match.
   pretrained:

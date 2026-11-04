@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from typing import Dict, Any, Tuple, Optional, List
 from vision_training.models.backbones.backbone import build_backbone
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.task_model import TaskModel
 from vision_training.models.detection.anchors import Anchors
 from vision_training.models.detection.region_proposer import RegionProposal, RegionProposalFilter
@@ -112,7 +113,6 @@ class TwoStageDetector(TaskModel):
         """
         region_proposer_dictionary = nn.ModuleDict()
         feature_map_normalization = region_proposal_configuration["normalization"]["feature_map_normalization"]
-        batch_normalization_momentum = region_proposal_configuration["normalization"]["batch_normalization_momentum"]
 
         # Iterate over the sequentially ordered detection blocks computed by the backbone
         for index_string in self.detection_input_information.keys():
@@ -131,7 +131,7 @@ class TwoStageDetector(TaskModel):
                 input_channels=input_channels, scales=scales, aspect_ratios=aspect_ratios,
                 input_image_size=self.input_image_size, feature_map_size=feature_map_size,
                 feature_map_normalization=feature_map_normalization,
-                batch_normalization_momentum=batch_normalization_momentum, dtype=self.dtype, device=self.device)
+                batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, dtype=self.dtype, device=self.device)
 
         return region_proposer_dictionary
 
@@ -158,7 +158,6 @@ class TwoStageDetector(TaskModel):
         detector_heads_dictionary = nn.ModuleDict()
 
         feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
-        batch_normalization_momentum = detector_configuration["normalization"]["batch_normalization_momentum"]
 
         # Iterate over the sequentially ordered detection blocks computed by the backbone
         for index_string in self.detection_input_information.keys():
@@ -173,7 +172,7 @@ class TwoStageDetector(TaskModel):
             detector_heads_dictionary[index_string] = DetectionHead(
                 detector_configuration=specific_configuration, number_classes=self.number_classes,
                 input_channels=input_channels, feature_map_normalization=feature_map_normalization,
-                batch_normalization_momentum=batch_normalization_momentum, input_image_size=self.input_image_size,
+                batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, input_image_size=self.input_image_size,
                 feature_map_size=feature_map_size, dtype=self.dtype, device=self.device,
                 modules=detector_configuration["modules"])
 
@@ -734,8 +733,7 @@ class TwoStageDetector(TaskModel):
 
             # Detection Losses
             (detection_classification_loss, detection_regression_loss) = compute_detection_losses(
-                aggregated_detections_dictionary=aggregated_detections_dictionary,
-                localisation_loss_beta=self.detector_configuration["localisation_loss_beta"])
+                aggregated_detections_dictionary=aggregated_detections_dictionary)
 
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss

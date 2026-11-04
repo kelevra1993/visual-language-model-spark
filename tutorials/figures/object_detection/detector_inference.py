@@ -226,8 +226,7 @@ def compute_anchor_labels(model: TwoStageDetector, aggregated_proposals: Dict[st
     _, anchor_labels = batch_assign_targets_to_anchors(
         batched_ground_truth_boxes=[object_boxes], batched_anchors=aggregated_proposals["anchors"],
         background_iou_threshold=configuration["background_iou_threshold"],
-        foreground_iou_threshold=configuration["foreground_iou_threshold"],
-        strict_fallback_assignment=configuration["strict_fallback_assignment"])
+        foreground_iou_threshold=configuration["foreground_iou_threshold"])
 
     # Sampled anchors of the loss, drawn with a fixed seed so that the counts do not change between builds
     torch.manual_seed(seed=SAMPLING_SEED)

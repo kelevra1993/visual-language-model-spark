@@ -121,8 +121,8 @@ main()
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
-│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector, MaskHead), converts the types (localisation_loss_beta
-│   │   '1/9' -> 0.111...), adds tracking_root, run_name (None), label_mode and label_dictionary.
+│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector, MaskHead), converts the types, adds tracking_root,
+│   │   run_name (None), label_mode and label_dictionary.
 │   │
 │   ├── load_configuration(configuration_path)
 │   ├── build_label_dictionary(label_mapping_configuration, task)
@@ -259,7 +259,7 @@ scripts/evaluation/evaluate_checkpoint.py   [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1).
 
 ### Step 1.2 — `load_experiment_configuration()`
-The model sections are those of the object detection (see `object_detection_workflow.md`, Step 1.2) plus `MaskHead`, the settings shared by the mask heads of every level: `mask_resolution` (the side of the predicted masks, 28), `upsampling` (`transposed` or `bilinear`, how the pooled features are doubled up to the mask resolution), `normalization`, `modules`, `inference.mask_threshold` (the probability from which a pixel of a predicted mask belongs to its object) and `pretrained`. Every level of `DetectionLevels` holds, next to its anchors, region proposal and detector settings, a `mask_head` with its own `roi_align_pool_size` and `convolutions` (`[number of layers, number of filters]`). The `localisation_loss_beta` fractions of `RegionProposal` and `Detector` are converted to floats.
+The model sections are those of the object detection (see `object_detection_workflow.md`, Step 1.2) plus `MaskHead`, the settings shared by the mask heads of every level: `mask_resolution` (the side of the predicted masks, 28), `upsampling` (`transposed` or `bilinear`, how the pooled features are doubled up to the mask resolution), `normalization`, `modules`, `inference.mask_threshold` (the probability from which a pixel of a predicted mask belongs to its object) and `pretrained`. Every level of `DetectionLevels` holds, next to its anchors, region proposal and detector settings, a `mask_head` with its own `roi_align_pool_size` and `convolutions` (`[number of layers, number of filters]`).
 
 **Example: the sections and the mask settings**
 ```text
@@ -276,11 +276,10 @@ DetectionLevels 5: {"anchors": {"scales": [32, 64, 128], "aspect_ratios": [0.5, 
                     "detector": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]},
                     "mask_head": {"roi_align_pool_size": 14, "convolutions": [4, 64]}}
 MaskHead: {"mask_resolution": 28, "upsampling": "transposed",
-           "normalization": {"feature_map_normalization": "batch", "batch_normalization_momentum": 0.1},
+           "normalization": {"feature_map_normalization": "batch"},
            "modules": {"residual_nets": true, "inception": false, "squeeze_and_excite": false},
            "inference": {"mask_threshold": 0.5},
            "pretrained": {"experiment_folder": null, "iteration": null, "freeze": false, "learning_rate_multiplier": 1.0}}
-RPN beta: 0.1111111111111111   Detector beta: 0.1111111111111111
 ```
 The current file also has `'original_resolution': False` in its `evaluation` section, between `target_precision` and `error_dumps` (the scoring at the original resolution of Step 4.7), and `mask_loss: 1.0` in `Optimization.loss_weights`.
 
@@ -290,7 +289,6 @@ The current file also has `'original_resolution': False` in its `evaluation` sec
 top-level keys:             ['ExperimentConfiguration', 'Optimization', 'Data', 'Backbone', 'DetectionLevels', 'RegionProposal', 'Detector', 'MaskHead']
 number_iterations:          '1e10'      <- still a string
 learning_rate:              0.0002
-localisation_loss_beta raw: '1/9'       <- still a string
 ```
 
 ### Step 1.4 — `build_label_dictionary()`

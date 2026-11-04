@@ -287,9 +287,6 @@ RegionProposal:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
-    # No run name token, can change on resume.
-    batch_normalization_momentum: 0.1
   training:
     # Top raw proposals kept per image before non-maximum suppression in training.
     pre_nms_proposals: 1000
@@ -313,14 +310,10 @@ RegionProposal:
     max: 0.3
   # IoU threshold of the non-maximum suppression of overlapping proposals.
   nms_iou_threshold: 0.7
-  # Assigns the best-overlapping anchors as foreground even below the minimum threshold.
-  strict_fallback_assignment: False
   # Positive foreground anchors sampled per image for the loss.
   number_training_positives: 128
   # Positive and negative anchors sampled per image.
   total_training_samples: 256
-  # Smooth L1 beta of the box regression loss.
-  localisation_loss_beta: 1/9
   # Region proposal heads of another DET or INS run initialising this one; levels, per-level region_proposal, anchors
   # per position, normalization and backbone channels must match (other scales or ratios only reported).
   pretrained:
@@ -337,9 +330,6 @@ Detector:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
-    # No run name token, can change on resume.
-    batch_normalization_momentum: 0.1
 
   modules:
     # Residual nets (https://arxiv.org/abs/1512.03385)
@@ -366,8 +356,6 @@ Detector:
   number_training_positives: 64
   # Positive and negative proposals sampled per image.
   total_training_samples: 128
-  # Smooth L1 beta of the box regression loss.
-  localisation_loss_beta: 1/9
   # Detection heads of another DET or INS run initialising this one; levels, per-level detectors, normalization, modules
   # and backbone channels must match; source classes (its data.json) first, in order, appended ones random.
   pretrained:
@@ -391,9 +379,6 @@ MaskHead:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
-    # No run name token, can change on resume.
-    batch_normalization_momentum: 0.1
   modules:
     # Residual nets (https://arxiv.org/abs/1512.03385)
     residual_nets: True

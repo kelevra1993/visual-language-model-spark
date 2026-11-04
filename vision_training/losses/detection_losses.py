@@ -11,6 +11,10 @@ from vision_training.models.detection.target_assignment import (batch_assign_tar
                                                                 sample_positive_and_negative_training_targets,
                                                                 turn_boxes_to_transformation_targets)
 
+# Transition point of the smooth L1 localisation losses of the region proposal network and of the detection heads,
+# between their quadratic and linear parts, that of the Faster R-CNN implementations of Detectron and torchvision
+LOCALISATION_LOSS_BETA = 1 / 9
+
 
 def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tensor],
                                    aggregated_proposals_dictionary: Dict[str, torch.Tensor],
@@ -26,7 +30,7 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
         ground_truth_bounding_boxes (List[torch.Tensor]): The batched ground truth boxes.
         aggregated_proposals_dictionary (Dict[str, torch.Tensor]): The aggregated anchor and prediction tensor.
         region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' configuration section, giving the
-            anchor IoU thresholds, the sampling counts and the localisation loss beta.
+            anchor IoU thresholds and the sampling counts.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
@@ -38,8 +42,7 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
         batched_ground_truth_boxes=ground_truth_bounding_boxes,
         batched_anchors=aggregated_proposals_dictionary["anchors"],
         background_iou_threshold=region_proposal_configuration['background_iou_threshold'],
-        foreground_iou_threshold=region_proposal_configuration['foreground_iou_threshold'],
-        strict_fallback_assignment=region_proposal_configuration['strict_fallback_assignment'])
+        foreground_iou_threshold=region_proposal_configuration['foreground_iou_threshold'])
 
     # Compute region proposal regression targets
     region_proposal_regression_targets = turn_boxes_to_transformation_targets(
@@ -70,14 +73,13 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
     region_proposal_localisation_loss = torch.nn.functional.smooth_l1_loss(
         input=aggregated_proposals_dictionary["bounding_box_regressions"][sampled_positive_mask],
         target=region_proposal_regression_targets[sampled_positive_mask],
-        beta=region_proposal_configuration['localisation_loss_beta'],
-        reduction="sum") / torch.sum(input=sampled_positive_mask).clamp(min=1)
+        beta=LOCALISATION_LOSS_BETA, reduction="sum") / torch.sum(input=sampled_positive_mask).clamp(min=1)
 
     return region_proposal_classification_loss, region_proposal_localisation_loss
 
 
-def compute_detection_losses(aggregated_detections_dictionary: Dict[str, Optional[torch.Tensor]],
-                             localisation_loss_beta: float) -> Tuple[torch.Tensor, torch.Tensor]:
+def compute_detection_losses(aggregated_detections_dictionary: Dict[str, Optional[torch.Tensor]]
+                             ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Computes the final Detection Head classification and localisation losses of the two-stage detector.
 
@@ -89,8 +91,6 @@ def compute_detection_losses(aggregated_detections_dictionary: Dict[str, Optiona
             - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
             - "sliced_labels" (torch.Tensor): Shape [total_proposals]
             - "sliced_regression_targets" (torch.Tensor): Shape [total_proposals, 4]
-        localisation_loss_beta (float): The beta of the smooth L1 localisation loss
-            ('Detector.localisation_loss_beta').
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: The classification loss and the bounding box regression loss (scalar
@@ -114,6 +114,6 @@ def compute_detection_losses(aggregated_detections_dictionary: Dict[str, Optiona
     detection_localisation_loss = torch.nn.functional.smooth_l1_loss(
         input=aggregated_detections_dictionary["box_regressions"][sampled_positive_indices, foreground_classes],
         target=aggregated_detections_dictionary["sliced_regression_targets"][sampled_positive_indices],
-        beta=localisation_loss_beta, reduction="sum") / max(1, sampled_positive_indices.numel())
+        beta=LOCALISATION_LOSS_BETA, reduction="sum") / max(1, sampled_positive_indices.numel())
 
     return detection_classification_loss, detection_localisation_loss

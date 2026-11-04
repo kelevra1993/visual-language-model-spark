@@ -63,7 +63,7 @@ BATCH_STATISTICS_NORMALIZATIONS = ["batch", "sequence"]
 
 # Normalization settings that change how the batch statistics follow the training batches but no tensor, so that a
 # component moves between runs of different momentums, a source run written before the setting existed included, and
-# a backbone from a run written before its momentum was fixed
+# a component from a run written before its momentum was fixed (BATCH_NORMALIZATION_MOMENTUM)
 NON_WEIGHT_NORMALIZATION_KEYS = ["batch_normalization_momentum"]
 
 # Temporal module settings defining its weights, for every type that has weights. The dropout only acts in training

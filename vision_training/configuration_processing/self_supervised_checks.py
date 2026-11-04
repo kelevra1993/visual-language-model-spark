@@ -11,8 +11,8 @@ from typing import Any, Dict, List
 from vision_training.configuration_processing.classification_checks import (VALID_GLOBAL_POOLINGS,
                                                                             VALID_HEAD_NORMALIZATIONS)
 from vision_training.configuration_processing.common_checks import check_image_task_sequence_settings
-from vision_training.configuration_processing.configuration_values import (check_batch_normalization_momentum,
-                                                                           check_boolean_flags, check_positive_integers,
+from vision_training.configuration_processing.configuration_values import (check_boolean_flags,
+                                                                           check_positive_integers,
                                                                            get_configuration_value, is_number)
 from vision_training.losses.self_supervised_losses import SELF_SUPERVISED_METHODS
 
@@ -99,8 +99,6 @@ def check_projection_head_configuration(model_configuration: Dict[str, Any]) -> 
         errors.append("'ProjectionHead.fully_connected_normalization' must be 'none' when "
                       "'ProjectionHead.fully_connected' holds the embedding layer only: the head has no hidden layer "
                       "to normalize.")
-    errors += check_batch_normalization_momentum(configuration=model_configuration,
-                                                 key_path="ProjectionHead.batch_normalization_momentum")
 
     # Method of the run, and the strictly positive setting of each method
     method = get_configuration_value(configuration=model_configuration, key_path="ProjectionHead.method")

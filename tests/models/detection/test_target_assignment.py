@@ -40,8 +40,8 @@ def test_anchor_labels_of_every_image() -> None:
 def test_best_anchor_of_every_object_is_foreground() -> None:
     """
     Verifies that the anchor overlapping an object the most is foreground even below the foreground threshold, and
-    the two fallback rules when that anchor overlaps another object more: by default it targets the object it
-    overlaps the most, and with the strict rule the object that made it foreground.
+    that it targets the object it overlaps the most when that is another object than the one that made it foreground,
+    as the region proposal network of torchvision.
     """
     # The first object's best anchor (overlap 0.4) overlaps the second object more (0.75)
     ground_truth = torch.tensor(data=[[0.0, 0.0, 100.0, 100.0], [0.0, 0.0, 100.0, 30.0]])
@@ -51,13 +51,6 @@ def test_best_anchor_of_every_object_is_foreground() -> None:
         background_iou_threshold=BACKGROUND_THRESHOLD, foreground_iou_threshold=FOREGROUND_THRESHOLD)
     assert labels.tolist() == [[1.0, 1.0, -1.0]]
     assert target_boxes[0, 0].tolist() == [0.0, 0.0, 100.0, 30.0]
-
-    strict_target_boxes, strict_labels = batch_assign_targets_to_anchors(
-        batched_ground_truth_boxes=[ground_truth], batched_anchors=anchors.unsqueeze(dim=0),
-        background_iou_threshold=BACKGROUND_THRESHOLD, foreground_iou_threshold=FOREGROUND_THRESHOLD,
-        strict_fallback_assignment=True)
-    assert torch.equal(input=strict_labels, other=labels)
-    assert strict_target_boxes[0, 0].tolist() == [0.0, 0.0, 100.0, 100.0]
 
 
 def test_proposal_targets_of_images_with_different_object_counts() -> None:

@@ -267,9 +267,6 @@ SegmentationDecoder:
     residual_nets: False
   # Decoder feature map normalization: "batch", "layer" or "none".
   feature_map_normalization: "batch"
-  # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100. No
-  # run name token, can change on resume.
-  batch_normalization_momentum: 0.1
   # Whole channel dropout before the final 1x1 class convolution, within [0, 1), 0 to disable.
   dropout_rate: 0.0
   # Deep supervision: 1x1 heads on listed intermediate decoder levels (keyed like convolutions), same losses x level

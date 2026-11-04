@@ -69,7 +69,9 @@ These settings were removed from the configuration files, the code always using 
 | `Optimization.mixed_precision` | Mixed precision is always on: the training and validation forward passes run in bfloat16, the weights and the test evaluation in float32. |
 | `Data.loading` (`number_workers`, `prefetch_batches`) | Every loader (training, validation and test) uses 2 worker processes (`NUMBER_LOADER_WORKERS` of `vision_training/data/loaders.py`), each preparing 2 batches in advance (`PREFETCH_BATCHES`). 2 keeps the memory down: 4 was the fastest of 2, 4, 6 and 8 workers on the small ImageNet model (455, 471, 471 and 456 images per second), but the 12 workers of the three loaders of a 1024 pixel detection training held about 26 GB with 4, about 5 GB per training loader worker. |
 | `Backbone.modules.inception_starting_block` | The inception modules start at block 3 (`INCEPTION_STARTING_BLOCK`). |
-| `Backbone.normalization.batch_normalization_momentum`, `ClassificationHead.batch_normalization_momentum` | 0.1 (`BATCH_NORMALIZATION_MOMENTUM`). The momentum of the other sections stays configurable. |
+| `batch_normalization_momentum` of `Backbone.normalization`, `ClassificationHead`, `RegionProposal.normalization`, `Detector.normalization`, `MaskHead.normalization`, `SegmentationDecoder`, `HRNet.normalization` and `ProjectionHead` | 0.1 (`BATCH_NORMALIZATION_MOMENTUM`) for every batch normalization. |
+| `RegionProposal.strict_fallback_assignment` | The anchor made foreground for an object it does not overlap the most targets the object it overlaps the most, as the region proposal network of torchvision. |
+| `RegionProposal.localisation_loss_beta`, `Detector.localisation_loss_beta` | The smooth L1 box losses of the region proposal network and of the detection heads use a beta of 1/9 (`LOCALISATION_LOSS_BETA` of `vision_training/losses/detection_losses.py`). |
 | `Data.data_augmentation.independent_frames`, `shuffle_frames` | Kept in M2O, M2M, CMP and SEL only, off for the other tasks. |
 
 The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, removed earlier, are refused the same way.
