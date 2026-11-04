@@ -3,8 +3,8 @@
 > Audit of the whole repository carried out on 2026-10-20 at commit `165339b`, to go through together. The coding
 > standards S1 to S10 and the bugs B7, B20, B34, B47 and B50 were fixed on 2026-10-20 (not committed yet). On
 > 2026-10-21, C3, C4 (the anchors and `last_max_pooling`), H6, M6, M7, M8, M17, M20, L13, B9, B11, B30 and B44
-> were fixed, with the host waits of `random_black_out`. On 2026-10-25, B45, B51, B53 and B56 were fixed. The items
-> dropped by the user are deleted from this file, the other items are still open.
+> were fixed, with the host waits of `random_black_out`. On 2026-10-25, B45, B51, B53 and B56 were fixed, and on
+> 2026-11-04 B48. The items dropped by the user are deleted from this file, the other items are still open.
 > Nine reviewers each read one area end to end (configuration, data generation, data loading, core
 > models, detection and keypoint models, training loop, task trainers and losses, evaluation and tracking, deployment
 > and scripts) and reproduced their findings with small scripts on the synthetic datasets, the dummy task or hand-made
@@ -409,8 +409,8 @@
   table, scalars and class_metrics.csv are the same as before on fixed representations.
 
 #### B48. The DET and INS input viewer captions the boxes with raw category ids instead of class names
-- **Area:** task trainers and losses · **Severity:** low · **Status:** confirmed (reproduced by the reviewer on the
-  synthetic shapes mapping) · **Category:** bug
+- **Area:** task trainers and losses · **Severity:** low · **Status:** fixed on 2026-11-04 (found confirmed, reproduced
+  by the reviewer on the synthetic shapes mapping) · **Category:** bug
 - **Where:** `vision_training/trainers/detection_trainer.py:685-686` (used at 688-704, inherited by
   `InstanceSegmentationTrainer`); `tests/trainers/test_input_viewer_panels.py:93` (file removed on 2026-11-04 with the
   test suite reduction).
@@ -421,6 +421,10 @@
 - **Failure scenario:** the input viewer of a DET run on the synthetic shapes captions "1", "2", "3" instead of
   "square", "circle", "triangle"; with `{"1": 1, "2": 1}`, class 1 is captioned "2".
 - **Fix:** `label_names = self.class_names`, as `KeypointTrainer` does, and an id-keyed dictionary in the test.
+- **Done:** `DetectionTrainer.show_input_samples()` names the classes with `self.class_names` (the boxes, the panel and
+  the removed objects), and the panel shows "Objects : n" above a table of the classes over their counts (`PanelTable`
+  of `visualization.py`, wrapped into row pairs fitting the panel), as the user asked on 2026-11-04. Checked on the
+  hard shapes benchmark configuration: the viewer reads "rhombus", "hollow_capsule", ... with their counts.
 
 #### B49. An evaluation score threshold above the deployment threshold silently removes detections from the confusion matrix and the images
 - **Area:** task trainers and losses · **Severity:** low · **Status:** confirmed (code path read by the reviewer;

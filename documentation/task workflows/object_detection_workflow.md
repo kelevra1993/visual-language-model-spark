@@ -102,7 +102,6 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 - The proposals are selected over all the levels at once (`select_best_proposals()`, audit M3): at iteration 5000, 178.7 of the 250 proposals per image come from block 5 (`proposal_recall.csv`).
 - The mAP matches the detections with the PASCAL VOC rule at every IoU, so `mAP@[0.5:0.95]` and the 101-point values are not those of pycocotools (`match_detections_to_ground_truth()`, audit L6).
 - A head or backbone block whose first convolution changes the channel count adds no residual shortcut with 2 layers (`ConvolutionBlock.count_residual_additions()`, `suggestions.md` H4): the detection heads of blocks 6 and 7 of `configuration_example.yaml` (128 to 64 channels) compute without shortcut, the summary listing only their squeeze-and-excitation (Step 2.19).
-- The input viewer captions the boxes with the category identifiers of the mapping file instead of the class names (`DetectionTrainer.show_input_samples()`, `bug_standards.md` B48).
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -585,7 +584,7 @@ The summary of the detector adds a region proposal panel (the anchors of every l
 ```
 
 ### Step 2.20 — `view_input_batches()` / `restore_last_model()`
-With `view_input_images`, `show_input_samples()` shows an augmented training image next to a validation image, every box captioned with its class, each image followed by an information panel counting its objects per class (`Objects : 2 (cat 1, dog 1)`) and, for the training image, giving the augmentations drawn with their values and the objects they removed (`Removed objects : 1 (dog)`). The classes are named by inverting the label dictionary, whose keys are the category identifiers of the mapping file: with the synthetic shapes mapping, the boxes and the panel read `1`, `2`, ... instead of `square`, `circle`, ... (`bug_standards.md` B48, the names above coming from a mapping keyed by names). A new run starts from scratch.
+With `view_input_images`, `show_input_samples()` shows an augmented training image next to a validation image, every box captioned with its class, each image followed by an information panel giving its number of objects (`Objects : 3`) above a table of its classes (row `Class`) over their numbers of objects (row `Count`), the table continuing on a new pair of rows when the next class does not fit the panel (`PanelTable` of `visualization.py`), and, for the training image, the augmentations drawn with their values and the objects they removed (`Removed objects : 1 (dog)`). The classes are named after the categories of the test manifest (`self.class_names`), `square`, `circle`, ... with the synthetic shapes mapping. A new run starts from scratch.
 
 **Example output: a new run**
 ```text

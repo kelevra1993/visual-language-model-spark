@@ -1,7 +1,8 @@
 """
 OpenCV drawing helpers: the conversion of the network inputs into the arrays every drawing starts from, bounding boxes
 of the detection sample and error images and anchors, the input viewer of the trainers (every image next to a black
-information panel listing its target and its augmentations, the windows centred on the screen), the frame grids of the
+information panel listing its target, with tables such as the objects per class, and its augmentations, the windows
+centred on the screen), the frame grids of the
 sequence tasks, the caption bars of the evaluation error images, the class colours,
 mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
 segmentation, the keypoints of the objects of an image with their skeleton and the keypoint sample grids of the
@@ -17,7 +18,7 @@ import numpy as np
 import torch
 
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.models.sequence.frame_selection_decoding import NO_FRAME
@@ -41,6 +42,24 @@ PANEL_GROUP_COLOUR = (0, 255, 0)
 PANEL_LINE_COLOUR = (220, 220, 220)
 PANEL_HINT_COLOUR = (150, 150, 150)
 NAVIGATION_HINT = "Press SPACE For Next Image, Or ENTER To Quit"
+
+# Two-row tables of the information panel (the objects of a detection sample per class): the height of a row, the
+# padding around the text of a cell, the gap above a table and between two row pairs of a wrapped table, the grid colour
+PANEL_TABLE_ROW_HEIGHT = 44
+PANEL_TABLE_CELL_PADDING = 12
+PANEL_TABLE_GAP = 10
+PANEL_TABLE_GRID_COLOUR = (110, 110, 110)
+
+
+class PanelTable(NamedTuple):
+    """
+    A two-row table written in the information panel of the input viewer among its lines, e.g. the objects of a
+    detection sample: the titles of its two rows, written in a left column ("Class", "Count"), and its columns, each
+    holding the text of both rows (a class name over its number of objects).
+    """
+    row_titles: Tuple[str, str]
+    columns: List[Tuple[str, str]]
+
 
 # Placement of the input viewer windows: the space in pixels between two windows, the height kept for the title bar of
 # the window manager and the toolbar of the OpenCV window above every window, and the share of the screen the windows
@@ -304,18 +323,120 @@ def wrap_panel_line(line: str, maximum_width: int) -> List[str]:
     return wrapped_lines
 
 
-def build_information_panel(title: str, lines: List[str], minimum_height: int,
+def measure_panel_text_width(text: str) -> int:
+    """
+    Gives the width of a text written in the font of the information panel lines, to size the cells of its tables.
+
+    Args:
+        text (str): The text.
+
+    Returns:
+        int: Its width in pixels.
+    """
+    (text_width, _), _ = cv2.getTextSize(text=text, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_LINE_FONT_SCALE,
+                                         thickness=PANEL_LINE_THICKNESS)
+    return text_width
+
+
+def split_panel_table(table: PanelTable, maximum_width: int) -> Tuple[int, List[List[Tuple[str, str, int]]]]:
+    """
+    Lays out a table of the information panel of the input viewer: the width of its row title column, and its columns
+    grouped into the row pairs fitting the panel, a new pair starting below when the next column does not fit (e.g.
+    an image holding a dozen classes with long names). A column wider than the panel alone keeps a pair of its own.
+
+    Args:
+        table (PanelTable): The table.
+        maximum_width (int): The width in pixels the table must fit in.
+
+    Returns:
+        Tuple[int, List[List[Tuple[str, str, int]]]]: The width of the row title column, and the row pairs, each a list
+            of columns (top text, bottom text, column width), none for a table without columns.
+    """
+    title_width = max(measure_panel_text_width(text=row_title) for row_title in table.row_titles) + \
+        2 * PANEL_TABLE_CELL_PADDING
+    row_pairs, current_pair, current_width = [], [], title_width
+
+    # Add the columns one by one, sized on their longer text, starting a new pair when a column does not fit
+    for top_text, bottom_text in table.columns:
+        column_width = max(measure_panel_text_width(text=top_text), measure_panel_text_width(text=bottom_text)) + \
+            2 * PANEL_TABLE_CELL_PADDING
+        if current_pair and current_width + column_width > maximum_width:
+            row_pairs.append(current_pair)
+            current_pair, current_width = [], title_width
+        current_pair.append((top_text, bottom_text, column_width))
+        current_width += column_width
+    if current_pair:
+        row_pairs.append(current_pair)
+    return title_width, row_pairs
+
+
+def draw_panel_table_cell(panel: np.ndarray, box: Tuple[int, int, int, int], text: str,
+                          colour: Tuple[int, int, int]) -> None:
+    """
+    Draws one cell of a table of the information panel: its gray grid rectangle and its text centred in it.
+
+    Args:
+        panel (np.ndarray): The [H, W, 3] uint8 BGR panel, drawn on in place.
+        box (Tuple[int, int, int, int]): The left, top, right and bottom of the cell in pixels.
+        text (str): The text of the cell.
+        colour (Tuple[int, int, int]): The BGR colour of the text.
+    """
+    left, top, right, bottom = box
+    cv2.rectangle(img=panel, pt1=(left, top), pt2=(right, bottom), color=PANEL_TABLE_GRID_COLOUR, thickness=1)
+    (text_width, text_height), _ = cv2.getTextSize(text=text, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                                                   fontScale=PANEL_LINE_FONT_SCALE, thickness=PANEL_LINE_THICKNESS)
+    text_origin = (left + (right - left - text_width) // 2, top + (bottom - top + text_height) // 2)
+    cv2.putText(img=panel, text=text, org=text_origin, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=PANEL_LINE_FONT_SCALE, color=colour, thickness=PANEL_LINE_THICKNESS)
+
+
+def draw_panel_table(panel: np.ndarray, row_titles: Tuple[str, str], title_width: int,
+                     row_pairs: List[List[Tuple[str, str, int]]], top: int) -> int:
+    """
+    Draws a table of the information panel laid out by split_panel_table: every row pair under the previous one, its
+    row titles in the left column in the colour of the group lines and its columns in the colour of the other lines.
+
+    Args:
+        panel (np.ndarray): The [H, W, 3] uint8 BGR panel, drawn on in place.
+        row_titles (Tuple[str, str]): The titles of the two rows.
+        title_width (int): The width of the row title column in pixels.
+        row_pairs (List[List[Tuple[str, str, int]]]): The columns of every row pair (top text, bottom text, width).
+        top (int): The top of the table in pixels.
+
+    Returns:
+        int: The bottom of the table in pixels, its top for a table without columns.
+    """
+    for row_pair in row_pairs:
+        # Both rows of the pair: the row title, then the text of every column on that row
+        for row_index, row_title in enumerate(row_titles):
+            row_top = top + row_index * PANEL_TABLE_ROW_HEIGHT
+            row_bottom = row_top + PANEL_TABLE_ROW_HEIGHT
+            draw_panel_table_cell(panel=panel, box=(PANEL_MARGIN, row_top, PANEL_MARGIN + title_width, row_bottom),
+                                  text=row_title, colour=PANEL_GROUP_COLOUR)
+            column_left = PANEL_MARGIN + title_width
+            for column in row_pair:
+                column_width = column[2]
+                draw_panel_table_cell(panel=panel, box=(column_left, row_top, column_left + column_width, row_bottom),
+                                      text=column[row_index], colour=PANEL_LINE_COLOUR)
+                column_left += column_width
+        top += 2 * PANEL_TABLE_ROW_HEIGHT + PANEL_TABLE_GAP
+    return top - PANEL_TABLE_GAP
+
+
+def build_information_panel(title: str, lines: List[Union[str, PanelTable]], minimum_height: int,
                             width: int = INFORMATION_PANEL_WIDTH, hint: str = NAVIGATION_HINT) -> np.ndarray:
     """
     Draws the black information panel the input viewer ('view_input_images') shows next to an image: its title
     (Training, Validation, View 1...), the lines written by the trainer (the target of the sample, the augmentations
-    drawn for it with their values, the objects they removed...) and the navigation hint at the bottom, so that no text
-    covers the image. The panel grows downwards when its lines need more room than the image height. The batch mosaic
-    of the self-supervised viewer uses it as its header, as wide as the mosaic.
+    drawn for it with their values, the objects they removed...) with the tables among them (the objects of a detection
+    sample per class), and the navigation hint at the bottom, so that no text covers the image. The panel grows
+    downwards when its lines need more room than the image height. The batch mosaic of the self-supervised viewer uses
+    it as its header, as wide as the mosaic.
 
     Args:
         title (str): The title written at the top of the panel.
-        lines (List[str]): The lines of the panel, the indented ones written in a lighter colour under their group.
+        lines (List[Union[str, PanelTable]]): The lines of the panel, the indented ones written in a lighter colour
+            under their group, and the tables drawn in their place (PanelTable).
         minimum_height (int): The height of the displayed image, which the panel matches at least.
         width (int): The width of the panel in pixels. Defaults to INFORMATION_PANEL_WIDTH.
         hint (str): The navigation hint written at the bottom of the panel. Defaults to NAVIGATION_HINT.
@@ -323,23 +444,39 @@ def build_information_panel(title: str, lines: List[str], minimum_height: int,
     Returns:
         np.ndarray: The [H, width, 3] uint8 BGR panel.
     """
-    wrapped_lines = [wrapped_line for line in lines
-                     for wrapped_line in wrap_panel_line(line=line, maximum_width=width - 2 * PANEL_MARGIN)]
+    # Lay out the entries first: every line wrapped to the panel width, every table split into the row pairs fitting it
+    laid_out_entries: List[Union[str, Tuple[PanelTable, int, List[List[Tuple[str, str, int]]]]]] = []
+    content_height = 0
+    for line in lines:
+        if isinstance(line, PanelTable):
+            title_width, row_pairs = split_panel_table(table=line, maximum_width=width - 2 * PANEL_MARGIN)
+            laid_out_entries.append((line, title_width, row_pairs))
+            content_height += len(row_pairs) * (2 * PANEL_TABLE_ROW_HEIGHT + PANEL_TABLE_GAP)
+        else:
+            wrapped_lines = wrap_panel_line(line=line, maximum_width=width - 2 * PANEL_MARGIN)
+            laid_out_entries.extend(wrapped_lines)
+            content_height += len(wrapped_lines) * PANEL_LINE_HEIGHT
 
-    # Room for the title, the lines, an empty line and the navigation hint, at least the height of the image
-    panel_height = max(minimum_height, 2 * PANEL_MARGIN + PANEL_TITLE_HEIGHT + (len(wrapped_lines) + 2) *
-                       PANEL_LINE_HEIGHT)
+    # Room for the title, the lines and tables, an empty line and the navigation hint, at least the height of the image
+    panel_height = max(minimum_height, 2 * PANEL_MARGIN + PANEL_TITLE_HEIGHT + content_height + 2 * PANEL_LINE_HEIGHT)
     panel = np.zeros(shape=(panel_height, width, 3), dtype=np.uint8)
     cv2.putText(img=panel, text=title, org=(PANEL_MARGIN, PANEL_MARGIN + PANEL_TITLE_HEIGHT - 14),
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_TITLE_FONT_SCALE, color=PANEL_TITLE_COLOUR,
                 thickness=2)
 
-    # Write the lines under the title, the group lines in green and the indented ones in light gray
-    for line_index, line in enumerate(wrapped_lines):
-        line_colour = PANEL_LINE_COLOUR if line.startswith(" ") else PANEL_GROUP_COLOUR
-        line_bottom = PANEL_MARGIN + PANEL_TITLE_HEIGHT + (line_index + 1) * PANEL_LINE_HEIGHT
-        cv2.putText(img=panel, text=line, org=(PANEL_MARGIN, line_bottom), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=PANEL_LINE_FONT_SCALE, color=line_colour, thickness=PANEL_LINE_THICKNESS)
+    # Write the lines under the title, the group lines in green and the indented ones in light gray, and draw every
+    # table below the line before it
+    line_bottom = PANEL_MARGIN + PANEL_TITLE_HEIGHT
+    for entry in laid_out_entries:
+        if isinstance(entry, str):
+            line_colour = PANEL_LINE_COLOUR if entry.startswith(" ") else PANEL_GROUP_COLOUR
+            line_bottom += PANEL_LINE_HEIGHT
+            cv2.putText(img=panel, text=entry, org=(PANEL_MARGIN, line_bottom), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=PANEL_LINE_FONT_SCALE, color=line_colour, thickness=PANEL_LINE_THICKNESS)
+        else:
+            table, title_width, row_pairs = entry
+            line_bottom = draw_panel_table(panel=panel, row_titles=table.row_titles, title_width=title_width,
+                                           row_pairs=row_pairs, top=line_bottom + PANEL_TABLE_GAP)
 
     # Write the navigation hint at the bottom of the panel
     cv2.putText(img=panel, text=hint, org=(PANEL_MARGIN, panel_height - PANEL_MARGIN),
@@ -349,7 +486,7 @@ def build_information_panel(title: str, lines: List[str], minimum_height: int,
 
 
 def build_viewer_window(image: torch.Tensor, bounding_boxes: Optional[torch.Tensor], labels: Optional[torch.Tensor],
-                        label_names: Optional[Dict[int, str]], title: str, lines: List[str],
+                        label_names: Optional[Dict[int, str]], title: str, lines: List[Union[str, PanelTable]],
                         display_input_size: int) -> np.ndarray:
     """
     Builds the content of one window of the input viewer ('view_input_images'): the image fed to the network with its
@@ -363,7 +500,7 @@ def build_viewer_window(image: torch.Tensor, bounding_boxes: Optional[torch.Tens
         label_names (Optional[Dict[int, str]]): The class name of every label index for the box captions, or None to
             write the indices.
         title (str): The title of the window, written at the top of the panel.
-        lines (List[str]): The lines of the information panel.
+        lines (List[Union[str, PanelTable]]): The lines and tables of the information panel.
         display_input_size (int): The size in pixels of the longest side of the displayed image.
 
     Returns:
@@ -461,7 +598,7 @@ def compute_window_positions(window_sizes: List[Tuple[int, int]],
 def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[torch.Tensor]],
                     labels: Optional[List[torch.Tensor]], window_titles: List[str], display_input_size: int,
                     label_names: Optional[Dict[int, str]] = None,
-                    panel_lines: Optional[List[List[str]]] = None) -> bool:
+                    panel_lines: Optional[List[List[Union[str, PanelTable]]]] = None) -> bool:
     """
     Displays preprocessed input images with their ground truth boxes, one window per image, each next to a black
     information panel, so the user can check exactly what is fed to the neural network and how it was augmented.
@@ -483,8 +620,8 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
             network input image size so that images are shown exactly as the network receives them.
         label_names (Optional[Dict[int, str]]): Mapping from class index to class name used for the box captions.
             Defaults to None, in which case the numeric class index is written.
-        panel_lines (Optional[List[List[str]]]): The lines of the information panel of each image. Defaults to None,
-            in which case the panels only hold their title and the navigation hint.
+        panel_lines (Optional[List[List[Union[str, PanelTable]]]]): The lines and tables of the panel of each image.
+            Defaults to None, in which case the panels only hold their title and the navigation hint.
 
     Returns:
         bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
