@@ -114,69 +114,69 @@ Data:
     types:
       # Geometric augmentations : outside keypoints unlabelled, objects under 25% of box with none inside dropped; flips
       # and 90° rotations off (names never swap). Random Crop : 75% to 100% of each side (same ratio), resized back
-      random_crop: { activated: True, probability: 0.3 }
+      random_crop: { activated: True, probability: 0.25 }
       # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
       # stretch; other camera proportions, for keep_ratio False)
-      random_aspect_crop: { activated: False, probability: 0.3 }
+      random_aspect_crop: { activated: False, probability: 0.25 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side on a black canvas, objects appearing smaller
-      random_zoom_out: { activated: True, probability: 0.3 }
+      random_zoom_out: { activated: True, probability: 0.25 }
       # Random Translation : shift of up to 25% along x, y or both, border filled black
-      random_translation: { activated: True, probability: 0.5 }
+      random_translation: { activated: True, probability: 0.25 }
       # Random Left-Right Flip
       random_left_right_flip: { activated: False, probability: 0.5 }
       # Random Up-Down Flip
       random_up_down_flip: { activated: False, probability: 0.5 }
       # Random Rotation of -5° to 5°
-      random_rotation: { activated: True, probability: 0.3 }
+      random_rotation: { activated: True, probability: 0.25 }
       # Random +-90° rotation (square images only)
-      random_90_rotation: { activated: False, probability: 0.3 }
+      random_90_rotation: { activated: False, probability: 0.25 }
       # Random Perspective : corners moved inwards by up to 5% of half the width and height, border filled black;
       # refused for tasks with boxes, masks or keypoints
-      random_perspective: { activated: False, probability: 0.3 }
+      random_perspective: { activated: False, probability: 0.25 }
       # Random Jigsaw : 2x2 pieces shuffled, breaking the global layout; refused for tasks with boxes, masks or
       # keypoints
-      random_jigsaw: { activated: False, probability: 0.3 }
+      random_jigsaw: { activated: False, probability: 0.25 }
 
       # Photometric augmentations: keypoints unchanged.
       # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
-      brightness_contrast_saturation: { activated: True, probability: 0.3 }
+      brightness_contrast_saturation: { activated: True, probability: 0.25 }
       # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
-      random_hue: { activated: False, probability: 0.5 }
+      random_hue: { activated: False, probability: 0.25 }
       # CLAHE, clip limit 2.0 on a 4x4 tile grid
-      clahe_augment: { activated: False, probability: 0.3 }
+      clahe_augment: { activated: False, probability: 0.25 }
       # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
-      sharp_augment: { activated: False, probability: 0.3 }
+      sharp_augment: { activated: False, probability: 0.25 }
       # Histogram equalization of the luminance (Y of YUV)
-      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      equalize_histogram_augment: { activated: False, probability: 0.25 }
       # Histogram equalization of one random channel (B, G or R) or all three
-      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.25 }
       # Random Noise : Gaussian noise, standard deviation 20 levels
-      random_noise: { activated: True, probability: 0.3 }
+      random_noise: { activated: True, probability: 0.25 }
       # Grayscale, kept on three channels
-      gray_scale_augment: { activated: True, probability: 0.3 }
+      gray_scale_augment: { activated: True, probability: 0.25 }
       # Random Colour augmentation : BGR to RGB channel swap
-      random_colour_augmentation: { activated: True, probability: 0.3 }
+      random_colour_augmentation: { activated: True, probability: 0.25 }
       # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
-      random_gamma: { activated: False, probability: 0.3 }
+      random_gamma: { activated: False, probability: 0.25 }
       # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
-      random_linear_illumination: { activated: False, probability: 0.3 }
+      random_linear_illumination: { activated: False, probability: 0.25 }
       # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
-      random_plasma_shadow: { activated: False, probability: 0.3 }
+      random_plasma_shadow: { activated: False, probability: 0.25 }
       # Random Blur : 9x9 Gaussian kernel, sigma 2.5
-      random_blur: { activated: True, probability: 0.3 }
+      random_blur: { activated: True, probability: 0.25 }
       # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
-      random_motion_blur: { activated: False, probability: 0.3 }
+      random_motion_blur: { activated: False, probability: 0.25 }
       # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
       # the blurs, before solarization, black-out and erasing)
-      random_haze: { activated: True, probability: 0.3 }
+      random_haze: { activated: True, probability: 0.25 }
       # Random Solarize : pixels at or above 128 levels inverted
-      random_solarize: { activated: False, probability: 0.2 }
+      random_solarize: { activated: False, probability: 0.25 }
       # Random Black Out : grid_size x grid_size cells, each blacked out with probability 0.2 (after the other
       # photometric types but the erasing); labels unchanged, so a hidden object keeps its label
-      random_black_out: { activated: False, probability: 0.3, grid_size: 8 }
+      random_black_out: { activated: False, probability: 0.25, grid_size: 8 }
       # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3, applied last; labels
       # unchanged
-      random_erasing: { activated: False, probability: 0.3 }
+      random_erasing: { activated: False, probability: 0.25 }
 
 # Keypoint stem: the first backbone blocks, bringing the image to a quarter of its resolution (highest HRNet branch,
 # heatmaps). A 2x2 max pooling follows every block but the last: 3 blocks with last_max_pooling False, 2 with True.
