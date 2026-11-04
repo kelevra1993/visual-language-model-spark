@@ -568,8 +568,7 @@ def get_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[st
                                                   "convolutions": {"5": [2, 64], "4": [2, 64], "3": [2, 32],
                                                                    "2": [2, 32], "1": [1, 16]},
                                                   "modules": {"squeeze_and_excite": False, "residual_nets": False},
-                                                  "feature_map_normalization": "batch",
-                                                  "batch_normalization_momentum": 0.1, "dropout_rate": 0.0,
+                                                  "feature_map_normalization": "batch", "dropout_rate": 0.0,
                                                   "deep_supervision_weights": {},
                                                   "pretrained": {**NO_TRANSFER_SETTINGS, "load_class_layers": False}}
     model_configuration["SegmentationLoss"] = {"cross_entropy_weight": 1.0, "focal_gamma": 0.0,
@@ -653,8 +652,7 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
     for level_configuration in model_configuration["DetectionLevels"].values():
         level_configuration["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
     model_configuration["MaskHead"] = {"mask_resolution": 28, "upsampling": "transposed",
-                                       "normalization": {"feature_map_normalization": "batch",
-                                                         "batch_normalization_momentum": 0.1},
+                                       "normalization": {"feature_map_normalization": "batch"},
                                        "modules": {"squeeze_and_excite": False, "residual_nets": True,
                                                    "inception": False},
                                        "inference": {"mask_threshold": 0.5}, "pretrained": dict(NO_TRANSFER_SETTINGS)}

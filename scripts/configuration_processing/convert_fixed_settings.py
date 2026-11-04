@@ -1,7 +1,9 @@
 """
 When run, removes from configuration files written before the fixed settings the settings whose value is now fixed in
 the code (FIXED_SETTINGS, refused by check_removed_settings of
-vision_training/configuration_processing/common_checks.py), so that the training_configuration.yaml of the saved runs,
+vision_training/configuration_processing/common_checks.py: the settings of the first conversion, then the batch
+normalization momentums of the task heads, the strict fallback assignment and the localisation loss beta of the
+detection tasks), so that the training_configuration.yaml of the saved runs,
 reloaded to resume a run, by scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of
 vision_training/main.py load again.
 The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
@@ -19,7 +21,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS
+from vision_training.configuration_processing.common_checks import FIXED_MOMENTUM_COMPONENTS, REMOVED_SETTINGS
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS, PREFETCH_BATCHES
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
@@ -34,26 +36,28 @@ FIXED_SETTINGS = ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfigu
                   "ExperimentConfiguration.resume_training",
                   "ExperimentConfiguration.diagnosis_modes.compute_model_size",
                   "ExperimentConfiguration.diagnosis_modes.verbose", "Optimization.mixed_precision", "Data.loading",
-                  "Backbone.modules.inception_starting_block", "Backbone.normalization.batch_normalization_momentum",
-                  "ClassificationHead.batch_normalization_momentum", "Data.data_augmentation.independent_frames",
-                  "Data.data_augmentation.shuffle_frames"]
+                  "Backbone.modules.inception_starting_block", *FIXED_MOMENTUM_COMPONENTS,
+                  "Data.data_augmentation.independent_frames", "Data.data_augmentation.shuffle_frames",
+                  "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
+                  "Detector.localisation_loss_beta"]
 
 # Value the code always uses for every fixed setting, by the path of the setting in a file: a file holding another
-# value changes the behaviour of its runs once converted
+# value changes the behaviour of its runs once converted. The localisation loss beta is compared as the files write it,
+# the fraction '1/9' of LOCALISATION_LOSS_BETA (vision_training/losses/detection_losses.py) read by YAML as a text
 FIXED_VALUES = {"ExperimentConfiguration.evaluation.top_k": TOP_K_ACCURACY_CLASSES,
                 "ExperimentConfiguration.tracking.log_artifacts": True, "ExperimentConfiguration.resume_training": True,
                 "ExperimentConfiguration.diagnosis_modes.compute_model_size": True,
                 "ExperimentConfiguration.diagnosis_modes.verbose": False, "Optimization.mixed_precision": True,
                 "Data.loading.number_workers": NUMBER_LOADER_WORKERS, "Data.loading.prefetch_batches": PREFETCH_BATCHES,
                 "Backbone.modules.inception_starting_block": INCEPTION_STARTING_BLOCK,
-                "Backbone.normalization.batch_normalization_momentum": BATCH_NORMALIZATION_MOMENTUM,
-                "ClassificationHead.batch_normalization_momentum": BATCH_NORMALIZATION_MOMENTUM,
+                **{key_path: BATCH_NORMALIZATION_MOMENTUM for key_path in FIXED_MOMENTUM_COMPONENTS},
                 "Data.data_augmentation.independent_frames": False,
-                "Data.data_augmentation.shuffle_frames.activated": False}
+                "Data.data_augmentation.shuffle_frames.activated": False,
+                "RegionProposal.strict_fallback_assignment": False, "RegionProposal.localisation_loss_beta": "1/9",
+                "Detector.localisation_loss_beta": "1/9"}
 
-# Name of the configuration saved in every run folder, and the suffix of the backups of the converted files
+# Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
-BACKUP_SUFFIX = "_before_fixed_settings"
 
 # Folder of a configuration folder keeping the backups of its launch files, mirroring their subfolders
 PREVIOUS_CONFIGURATIONS_FOLDER_NAME = "previous_configurations"
@@ -292,7 +296,7 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
             original_settings[key_path] != fixed_value]
 
 
-def get_backup_path(configuration_path: Path, configuration_folder: Optional[Path]) -> Path:
+def get_backup_path(configuration_path: Path, configuration_folder: Optional[Path], backup_suffix: str) -> Path:
     """
     Gives the backup of a converted file: next to it for the configuration of a run folder, as the backups of the
     earlier conversions, and in the 'previous_configurations' folder of its configuration folder, at the same place,
@@ -302,11 +306,12 @@ def get_backup_path(configuration_path: Path, configuration_folder: Optional[Pat
         configuration_path (Path): The converted file.
         configuration_folder (Optional[Path]): The configuration folder holding the launch file, None for the
             configuration of a run folder.
+        backup_suffix (str): The suffix added to the name of the file, one per conversion.
 
     Returns:
         Path: The backup file.
     """
-    backup_name = f"{configuration_path.stem}{BACKUP_SUFFIX}{configuration_path.suffix}"
+    backup_name = f"{configuration_path.stem}{backup_suffix}{configuration_path.suffix}"
     if configuration_folder is None:
         return configuration_path.with_name(backup_name)
     return (configuration_folder / PREVIOUS_CONFIGURATIONS_FOLDER_NAME /
@@ -343,7 +348,8 @@ def list_configuration_files(run_roots: List[Path], configuration_folders: List[
     return configuration_files
 
 
-def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Path], write_files: bool) -> List[Path]:
+def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Path], write_files: bool,
+                           backup_suffix: str) -> List[Path]:
     """
     Converts the configuration files of the saved runs and of the launch folders to the fixed settings, each checked
     by check_conversion and copied to its backup before being written, or only lists them without writing anything.
@@ -352,6 +358,8 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
         run_roots (List[Path]): The folders searched for the training_configuration.yaml of run folders.
         configuration_folders (List[Path]): The folders of launch files.
         write_files (bool): True to write the converted files and their backups, False to only list them.
+        backup_suffix (str): The suffix of the backups, different for every conversion so that the backups of an
+            earlier one are never overwritten.
 
     Returns:
         List[Path]: The files holding fixed settings, converted when write_files is True.
@@ -389,7 +397,7 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
             continue
 
         # Backup of the original, never overwritten, then the converted file
-        backup_path = get_backup_path(configuration_path=configuration_path,
+        backup_path = get_backup_path(configuration_path=configuration_path, backup_suffix=backup_suffix,
                                       configuration_folder=configuration_file["configuration_folder"])
         if backup_path.exists():
             raise FileExistsError(f"The backup {format_path_link(path=backup_path)} of "
@@ -412,7 +420,10 @@ if __name__ == "__main__":
     configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files"]
     # False to only list the files holding fixed settings, True to convert them
     write_files = False
+    # Suffix of the backups of this conversion: '_before_fixed_settings' was taken by the first one (2026-10-29), the
+    # head settings fixed on 2026-11-05 taking '_before_fixed_head_settings'
+    backup_suffix = "_before_fixed_head_settings"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
-                                              write_files=write_files)
+                                              write_files=write_files, backup_suffix=backup_suffix)
     print_color(color="green", output=f"{len(files_to_convert)} Files {'Converted' if write_files else 'To Convert'}")

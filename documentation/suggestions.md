@@ -1158,7 +1158,7 @@ committed): every image can be taken again from them without training, except wh
 | README "Stopping And Resuming", `build_run_name` docstring | "Changing any other setting gives another run name" | See C4 |
 | Every YAML with `residual_nets` | "Shortcuts are added every two convolution layers" | See H4 |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum IoU limit for matching" | Never read by the model, only by the checker |
-| `RegionProposal.strict_fallback_assignment` (YAML) | "Force assign best-overlapping anchors as foreground" | They are always forced; the flag only chooses which ground truth they regress to |
+| `RegionProposal.strict_fallback_assignment` (YAML) | "Force assign best-overlapping anchors as foreground" | Removed (2026-11-05): they are always forced and regress to the ground truth they overlap the most |
 | `losses/detection_losses.py:65-76` | "aligns perfectly with standard RPN normalization" | See L5 |
 | `mean_average_precision.py:16` | "COCO" averages | See L6 |
 | `region_proposer.py:34` | aspect ratio = width / height | `anchors.py` and the YAMLs use height / width |

@@ -14,7 +14,6 @@ from vision_training.configuration_processing.common_checks import (check_image_
                                                                     check_image_task_sequence_settings,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                           check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            get_configuration_value, is_number)
 from vision_training.evaluation.keypoints.object_keypoint_similarity import build_keypoint_sigma_table
@@ -127,8 +126,6 @@ def check_high_resolution_network_configuration(model_configuration: Dict[str, A
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'HRNet.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
-    errors += check_batch_normalization_momentum(configuration=model_configuration,
-                                                 key_path="HRNet.normalization.batch_normalization_momentum")
     errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="HRNet")
     return errors
 

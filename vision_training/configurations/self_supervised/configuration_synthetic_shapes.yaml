@@ -253,9 +253,6 @@ ProjectionHead:
   # Normalization of every hidden layer output before its ReLU: "batch" (as SimCLR and Barlow Twins), "layer" or "none"
   # (needed when fully_connected holds the embedding layer only); PBN or PLN token.
   fully_connected_normalization: "batch"
-  # Momentum of the batch normalization running statistics ("batch" only): 0.1 follows about the last 10 batches, 0.01
-  # the last 100. No run name token, can change on resume.
-  batch_normalization_momentum: 0.1
   # "simclr" (InfoNCE, negatives from the batch) or "barlow_twins" (view cross-correlation to identity, no negatives);
   # SIMCLR or BT token.
   method: "simclr"

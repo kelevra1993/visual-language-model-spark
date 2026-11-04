@@ -16,6 +16,7 @@ from vision_training.losses.self_supervised_losses import (SELF_SUPERVISED_METHO
                                                            compute_info_nce_loss)
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import build_global_pooling, compute_pooled_features
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.self_supervised.projection_head import ProjectionHead, print_projection_head_summary
 from vision_training.models.task_model import TaskModel
 
@@ -68,8 +69,8 @@ class SelfSupervisedModel(TaskModel):
                                               fully_connected=self.head_configuration["fully_connected"],
                                               fully_connected_normalization=self.head_configuration[
                                                   "fully_connected_normalization"],
-                                              batch_normalization_momentum=self.head_configuration[
-                                                  "batch_normalization_momentum"], device=device, dtype=dtype)
+                                              batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
+                                              device=device, dtype=dtype)
 
     def represent(self, images: torch.Tensor) -> torch.Tensor:
         """

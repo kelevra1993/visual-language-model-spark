@@ -9,7 +9,6 @@ from typing import Any, Dict, List
 
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                            VALID_UPSAMPLINGS,
-                                                                           check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value)
@@ -65,15 +64,12 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
                                                  key_path=f"{key_prefix}.convolutions"),
             key_path=f"{key_prefix}.convolutions", inception=inception)
 
-    # Feature map normalization strategy, momentum of its batch statistics and module flags of the mask head
-    # convolution blocks
+    # Feature map normalization strategy and module flags of the mask head convolution blocks
     feature_map_normalization = get_configuration_value(configuration=model_configuration,
                                                         key_path="MaskHead.normalization.feature_map_normalization")
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'MaskHead.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
-    errors += check_batch_normalization_momentum(configuration=model_configuration,
-                                                 key_path="MaskHead.normalization.batch_normalization_momentum")
     errors += check_boolean_flags(configuration=model_configuration,
                                   key_paths=["MaskHead.modules.squeeze_and_excite", "MaskHead.modules.residual_nets",
                                              "MaskHead.modules.inception"])

@@ -205,7 +205,7 @@ The `pretrained` block of a section initialises its component from a trained run
 | `Detector` | detection heads of every detection level | DET, INS |
 | `MaskHead` | mask heads of every detection level | INS |
 
-The settings defining the layers must match, which is checked at launch. The image size and the `batch_normalization_momentum` of the sections holding one may differ.
+The settings defining the layers must match, which is checked at launch. The image size may differ, and so may the `batch_normalization_momentum` of a source run written before the momentum was fixed.
 
 | Component | Settings that must match |
 |---|---|

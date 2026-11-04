@@ -87,7 +87,7 @@ scenes:
       file: vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml
       keys: [ExperimentConfiguration.batch_size, ExperimentConfiguration.evaluation.number_neighbours,
              ProjectionHead.global_pooling, ProjectionHead.fully_connected, ProjectionHead.fully_connected_normalization,
-             ProjectionHead.batch_normalization_momentum, ProjectionHead.method, ProjectionHead.simclr,
+             ProjectionHead.method, ProjectionHead.simclr,
              ProjectionHead.barlow_twins]
       comments: false
     highlights:

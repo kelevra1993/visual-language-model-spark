@@ -19,7 +19,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS
+from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS, check_removed_settings
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
 from vision_training.data.augmentations import SELF_SUPERVISED_AUGMENTATION_STRENGTHS, SUPERVISED_AUGMENTATION_STRENGTHS
@@ -605,13 +605,47 @@ def keep_the_fixed_settings(configuration: Dict[str, Any]) -> None:
     configuration["ClassificationHead"]["global_pooling"] = "median"
 
 
+def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
+    """
+    Keeps the settings of the task heads removed from the configuration files for their fixed value, the batch
+    normalization momentum of every head the configuration holds, and for the detection tasks the strict fallback
+    assignment and the localisation loss betas, next to an unknown optimizer.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration of a task with heads, modified in place.
+    """
+    # Momentums written in a 'normalization' section or in the section of the head itself
+    for section_name in ["RegionProposal", "Detector", "MaskHead", "HRNet"]:
+        if section_name in configuration:
+            configuration[section_name]["normalization"]["batch_normalization_momentum"] = 0.1
+    for section_name in ["SegmentationDecoder", "ProjectionHead"]:
+        if section_name in configuration:
+            configuration[section_name]["batch_normalization_momentum"] = 0.1
+
+    # Settings of the anchor assignment and of the box losses of the detection tasks
+    if "RegionProposal" in configuration:
+        configuration["RegionProposal"]["strict_fallback_assignment"] = False
+        configuration["RegionProposal"]["localisation_loss_beta"] = "1/9"
+        configuration["Detector"]["localisation_loss_beta"] = "1/9"
+    configuration["Optimization"]["optimizer"] = "lion"
+
+
 @pytest.mark.parametrize(argnames=("task_folder", "modify_function", "removed_settings", "hidden_message"), argvalues=[
     ("classification", keep_the_fixed_settings,
      ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfiguration.tracking.log_artifacts",
       "ExperimentConfiguration.resume_training", "ExperimentConfiguration.diagnosis_modes.compute_model_size",
       "ExperimentConfiguration.diagnosis_modes.verbose", "Optimization.mixed_precision", "Data.loading",
       "Backbone.modules.inception_starting_block", "Backbone.normalization.batch_normalization_momentum",
-      "ClassificationHead.batch_normalization_momentum"], "'ClassificationHead.global_pooling' must be one of")])
+      "ClassificationHead.batch_normalization_momentum"], "'ClassificationHead.global_pooling' must be one of"),
+    ("instance_segmentation", keep_the_fixed_head_settings,
+     ["RegionProposal.normalization.batch_normalization_momentum",
+      "Detector.normalization.batch_normalization_momentum", "MaskHead.normalization.batch_normalization_momentum",
+      "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
+      "Detector.localisation_loss_beta"], "'Optimization.optimizer' must be one of"),
+    ("semantic_segmentation", keep_the_fixed_head_settings, ["SegmentationDecoder.batch_normalization_momentum"],
+     "'Optimization.optimizer' must be one of"),
+    ("self_supervised", keep_the_fixed_head_settings, ["ProjectionHead.batch_normalization_momentum"],
+     "'Optimization.optimizer' must be one of")])
 def test_removed_settings_are_refused_alone(tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str,
                                             modify_function: Callable[[Dict[str, Any]], None],
                                             removed_settings: List[str], hidden_message: str) -> None:
@@ -642,6 +676,20 @@ def test_removed_settings_are_refused_alone(tmp_path: Path, capsys: pytest.Captu
         assert (f"'{removed_setting}' was removed: {replacement}. Delete it from the configuration file."
                 in printed_output)
     assert hidden_message not in printed_output and "Traceback" not in printed_output
+
+
+def test_high_resolution_network_momentum_is_refused() -> None:
+    """
+    Verifies that the batch normalization momentum of the high resolution network of the keypoint detection, removed
+    from the configuration files, is refused with what replaced it, checked on the sections directly since the
+    synthetic keypoint configuration reads its labels before the checks.
+    """
+    errors = check_removed_settings(experiment_configuration={"task": "keypoint_detection"},
+                                    model_configuration={"HRNet": {"normalization": {
+                                        "feature_map_normalization": "batch", "batch_normalization_momentum": 0.1}}})
+    replacement, _ = REMOVED_SETTINGS["HRNet.normalization.batch_normalization_momentum"]
+    assert errors == [f"'HRNet.normalization.batch_normalization_momentum' was removed: {replacement}. Delete it from "
+                      f"the configuration file."]
 
 
 @pytest.mark.parametrize(argnames=("task_folder", "configuration_name"), argvalues=[
@@ -1194,14 +1242,14 @@ def remove_decoder_level(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_decoder(configuration: Dict[str, Any]) -> None:
     """
-    Sets an unknown upsampling and normalization, a batch normalization momentum of 2, a decoder level without layer,
-    a module flag written as a string and a dropout of 1.
+    Sets an unknown upsampling and normalization, a decoder level without layer, a module flag written as a string and
+    a dropout of 1.
 
     Args:
         configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
     """
     configuration["SegmentationDecoder"].update({"upsampling": "nearest", "feature_map_normalization": "group",
-                                                 "batch_normalization_momentum": 2, "dropout_rate": 1.0})
+                                                 "dropout_rate": 1.0})
     configuration["SegmentationDecoder"]["convolutions"]["3"] = [0, 32]
     configuration["SegmentationDecoder"]["modules"]["squeeze_and_excite"] = "yes"
 
@@ -1230,8 +1278,6 @@ def remove_both_losses(configuration: Dict[str, Any]) -> None:
                            "'SegmentationDecoder.modules.squeeze_and_excite' must be True or False, got 'yes'.",
                            "'SegmentationDecoder.feature_map_normalization' must be one of ['batch', 'layer', "
                            "'none'], got 'group'.",
-                           "'SegmentationDecoder.batch_normalization_momentum' must be a number within (0, 1], got "
-                           "2.",
                            "'SegmentationDecoder.dropout_rate' must be a number within [0, 1), got 1.0."]),
     (remove_both_losses, ["'SegmentationLoss.cross_entropy_weight', 'SegmentationLoss.dice_weight' and "
                           "'SegmentationLoss.lovasz_weight' cannot all be 0, the regions would have no loss.",
@@ -1425,8 +1471,8 @@ def remove_level_mask_head(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     """
-    Sets an invalid mask resolution, upsampling, pool size, convolutions, normalization, batch normalization momentum,
-    module flag and mask threshold, and inception modules with a channel count that is not a multiple of 8.
+    Sets an invalid mask resolution, upsampling, pool size, convolutions, normalization, module flag and mask
+    threshold, and inception modules with a channel count that is not a multiple of 8.
 
     Args:
         configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
@@ -1437,7 +1483,6 @@ def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     configuration["DetectionLevels"]["5"]["mask_head"] = {"roi_align_pool_size": 0, "convolutions": [4]}
     configuration["DetectionLevels"]["6"]["mask_head"]["convolutions"] = [4, 60]
     mask_head_configuration["normalization"]["feature_map_normalization"] = "group"
-    mask_head_configuration["normalization"]["batch_normalization_momentum"] = -0.1
     mask_head_configuration["modules"].update({"inception": True, "residual_nets": "yes"})
     mask_head_configuration["inference"]["mask_threshold"] = 1.5
 
@@ -1453,8 +1498,6 @@ def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
                              "'DetectionLevels.6.mask_head.convolutions' has 60 output channels, inception "
                              "modules require a multiple of 8.",
                              "'MaskHead.normalization.feature_map_normalization' must be one of",
-                             "'MaskHead.normalization.batch_normalization_momentum' must be a number within (0, 1], "
-                             "got -0.1.",
                              "'MaskHead.modules.residual_nets' must be True or False, got 'yes'.",
                              "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."])])
 def test_inconsistent_instance_segmentation_configuration_is_rejected(

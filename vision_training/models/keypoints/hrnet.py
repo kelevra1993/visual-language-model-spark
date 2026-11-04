@@ -13,7 +13,8 @@ import torch
 from torch import nn
 from typing import Any, Dict, List
 
-from vision_training.models.components.convolution_block import ChannelLayerNormalizer, ConvolutionBlock
+from vision_training.models.components.convolution_block import (BATCH_NORMALIZATION_MOMENTUM, ChannelLayerNormalizer,
+                                                               ConvolutionBlock)
 
 # Ratio between the resolutions, and between the widths, of two consecutive branches
 BRANCH_SCALE_FACTOR = 2
@@ -37,7 +38,7 @@ def build_exchange_convolution(input_channels: int, output_channels: int, kernel
         kernel_size (int): The size of the square kernel, 1 or 3.
         stride (int): The stride of the convolution, 2 to halve the resolution.
         activation (bool): Whether to apply a ReLU after the normalization.
-        normalization (Dict[str, Any]): The 'feature_map_normalization' and 'batch_normalization_momentum' settings.
+        normalization (Dict[str, Any]): The 'feature_map_normalization' setting.
         device (torch.device): The device of the parameters.
         dtype (torch.dtype): The precision of the parameters.
 
@@ -47,7 +48,7 @@ def build_exchange_convolution(input_channels: int, output_channels: int, kernel
     return ConvolutionBlock(input_channels=input_channels, output_channels=output_channels, bias=False, number_layers=1,
                             kernel_size=kernel_size, stride=stride, padding=kernel_size // 2,
                             feature_map_normalization=normalization["feature_map_normalization"],
-                            batch_normalization_momentum=normalization["batch_normalization_momentum"],
+                            batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
                             activation=activation, dropout_rate=0.0, add_pooling=False, device=device, dtype=dtype,
                             squeeze_and_excite=False, residual=False, pre_activation=False, inception=False)
 
@@ -60,7 +61,7 @@ def build_feature_normalization(channels: int, normalization: Dict[str, Any], de
 
     Args:
         channels (int): The number of channels of the normalized feature map.
-        normalization (Dict[str, Any]): The 'feature_map_normalization' and 'batch_normalization_momentum' settings.
+        normalization (Dict[str, Any]): The 'feature_map_normalization' setting.
         device (torch.device): The device of the parameters.
         dtype (torch.dtype): The precision of the parameters.
 
@@ -72,7 +73,7 @@ def build_feature_normalization(channels: int, normalization: Dict[str, Any], de
     """
     feature_map_normalization = normalization["feature_map_normalization"]
     if feature_map_normalization == "batch":
-        return nn.BatchNorm2d(num_features=channels, momentum=normalization["batch_normalization_momentum"],
+        return nn.BatchNorm2d(num_features=channels, momentum=BATCH_NORMALIZATION_MOMENTUM,
                               device=device, dtype=dtype)
     if feature_map_normalization == "layer":
         return ChannelLayerNormalizer(channels=channels, device=device, dtype=dtype)
@@ -221,7 +222,7 @@ class ExchangeModule(nn.Module):
                 input_channels=branch_width, output_channels=branch_width, bias=False,
                 number_layers=2 * blocks_per_branch, kernel_size=3, stride=1, padding=1,
                 feature_map_normalization=normalization["feature_map_normalization"],
-                batch_normalization_momentum=normalization["batch_normalization_momentum"], activation=True,
+                batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, activation=True,
                 dropout_rate=0.0, add_pooling=False, device=device, dtype=dtype,
                 squeeze_and_excite=bool(modules["squeeze_and_excite"]), residual=bool(modules["residual_nets"]),
                 pre_activation=False, inception=False))
@@ -304,7 +305,7 @@ class HighResolutionNetwork(nn.Module):
                 s + 2 branches, e.g. [1, 4, 3] for the stages of 2, 3 and 4 branches of HRNet-W32.
             blocks_per_branch (int): The number of pairs of 3x3 convolutions of every branch of every module.
             modules (Dict[str, Any]): The 'squeeze_and_excite' and 'residual_nets' flags of the branch convolutions.
-            normalization (Dict[str, Any]): The 'feature_map_normalization' and 'batch_normalization_momentum'.
+            normalization (Dict[str, Any]): The 'feature_map_normalization' setting.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
         """
@@ -417,7 +418,7 @@ class HigherResolutionBranch(nn.Module):
             input_channels=feature_channels, output_channels=feature_channels, bias=False,
             number_layers=2 * blocks_per_branch, kernel_size=3, stride=1, padding=1,
             feature_map_normalization=normalization["feature_map_normalization"],
-            batch_normalization_momentum=normalization["batch_normalization_momentum"], activation=True,
+            batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, activation=True,
             dropout_rate=0.0, add_pooling=False, device=device, dtype=dtype,
             squeeze_and_excite=bool(modules["squeeze_and_excite"]), residual=bool(modules["residual_nets"]),
             pre_activation=False, inception=False)

@@ -143,26 +143,6 @@ def check_probability_value(value: Any, key_path: str) -> List[str]:
     return []
 
 
-def check_batch_normalization_momentum(configuration: Dict[str, Any], key_path: str) -> List[str]:
-    """
-    Verifies that the momentum of the batch normalization layers of a component (task heads, decoder, high resolution
-    network, projection head) is a number within (0, 1]: the fraction by which every training batch moves their
-    running mean and variance (PyTorch convention), 0 leaving the statistics of an untrained network forever and 1
-    keeping the last batch only.
-
-    Args:
-        configuration (Dict[str, Any]): The configuration dictionary containing the momentum.
-        key_path (str): The dotted key path of the momentum.
-
-    Returns:
-        List[str]: A single error description if the momentum is invalid, otherwise an empty list.
-    """
-    value = get_configuration_value(configuration=configuration, key_path=key_path)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 < value <= 1.0:
-        return [f"'{key_path}' must be a number within (0, 1], got {value!r}."]
-    return []
-
-
 def check_intersection_over_union_value(value: Any, key_path: str) -> List[str]:
     """
     Verifies that an intersection over union threshold is a number within [0, 1], the only range an IoU can take

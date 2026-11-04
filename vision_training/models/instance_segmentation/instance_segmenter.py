@@ -14,6 +14,7 @@ from rich.panel import Panel
 from typing import Any, Dict, List, Optional
 
 from vision_training.losses.instance_segmentation_losses import compute_mask_loss
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.instance_segmentation.mask_head import MaskHead
 from vision_training.models.instance_segmentation.mask_operations import build_mask_targets
@@ -73,7 +74,7 @@ class InstanceSegmenter(TwoStageDetector):
                 upsampling=mask_head_configuration["upsampling"],
                 number_classes=self.number_classes, input_channels=level_information["number_channels"],
                 feature_map_normalization=mask_head_configuration["normalization"]["feature_map_normalization"],
-                batch_normalization_momentum=mask_head_configuration["normalization"]["batch_normalization_momentum"],
+                batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
                 input_image_size=self.input_image_size, feature_map_size=level_information["feature_map_size"],
                 modules=mask_head_configuration["modules"], dtype=self.dtype, device=self.device)
         return mask_heads_dictionary

@@ -308,7 +308,7 @@ evaluation:               {'per_class_report': True, 'number_sample_images': 8, 
                            'original_resolution': False, 'boundary_tolerance': 2}
 SegmentationDecoder:      {'upsampling': 'transposed', 'convolutions': {'5': [2, 64], '4': [2, 64], '3': [2, 32], '2': [2, 32],
                            '1': [1, 16]}, 'modules': {'squeeze_and_excite': False, 'residual_nets': False},
-                           'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
+                           'feature_map_normalization': 'batch', 'dropout_rate': 0.0,
                            'deep_supervision_weights': {}, 'pretrained': {...}}
 SegmentationLoss:         {'cross_entropy_weight': 1.0, 'focal_gamma': 0.0, 'label_smoothing': 0.0, 'class_weighting': 'none',
                            'dice_weight': 1.0, 'lovasz_weight': 0.0, 'boundary_weight': 0.0, 'boundary_distance': 3}

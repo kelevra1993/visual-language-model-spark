@@ -123,8 +123,8 @@ main()
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
-│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector), converts the types (localisation_loss_beta '1/9' ->
-│   │   0.111...), adds tracking_root, run_name (None), label_mode and label_dictionary.
+│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector), converts the types, adds tracking_root, run_name
+│   │   (None), label_mode and label_dictionary.
 │   │
 │   ├── load_configuration(configuration_path)
 │   ├── build_label_dictionary(label_mapping_configuration, task)
@@ -795,7 +795,7 @@ by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)
 ```
 
 ### Step 3.17 — `compute_region_proposal_losses()`
-`batch_assign_targets_to_anchors()` labels every anchor of every image of the batch at once (`pad_ground_truths()` completes the ground truths of every image with empty boxes up to the largest number of objects of the batch) from its best IoU with a ground truth box: foreground from `RegionProposal.foreground_iou_threshold.min` (0.5, the `.max` being unused), background between `background_iou_threshold.min` and `.max` (0.1 to 0.3 in this run), ignored otherwise (between 0.3 and 0.5, and below 0.1; the current configurations set the minimum to 0.0, so that every anchor below 0.3 can be sampled as background, audit H1); the anchors overlapping a ground truth box the most are foreground whatever their IoU (above 0), each assigned to the ground truth box it overlaps most, so that almost every box has an anchor (`bug_standards.md` B40: a small box sharing its best anchor with a larger one gets none). `sample_positive_and_negative_training_targets()` keeps at most `number_training_positives` (128) foreground anchors per image, filled to `total_training_samples` (256) with background ones, drawn at random for all the images with one sort of random keys. The classification loss is the binary cross entropy of the objectness of the sampled anchors; the regression loss is the smooth L1 (`localisation_loss_beta` 1/9) between the predicted and target offsets of the sampled foreground anchors, summed and divided by their number.
+`batch_assign_targets_to_anchors()` labels every anchor of every image of the batch at once (`pad_ground_truths()` completes the ground truths of every image with empty boxes up to the largest number of objects of the batch) from its best IoU with a ground truth box: foreground from `RegionProposal.foreground_iou_threshold.min` (0.5, the `.max` being unused), background between `background_iou_threshold.min` and `.max` (0.1 to 0.3 in this run), ignored otherwise (between 0.3 and 0.5, and below 0.1; the current configurations set the minimum to 0.0, so that every anchor below 0.3 can be sampled as background, audit H1); the anchors overlapping a ground truth box the most are foreground whatever their IoU (above 0), each assigned to the ground truth box it overlaps most, so that almost every box has an anchor (`bug_standards.md` B40: a small box sharing its best anchor with a larger one gets none). `sample_positive_and_negative_training_targets()` keeps at most `number_training_positives` (128) foreground anchors per image, filled to `total_training_samples` (256) with background ones, drawn at random for all the images with one sort of random keys. The classification loss is the binary cross entropy of the objectness of the sampled anchors; the regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) between the predicted and target offsets of the sampled foreground anchors, summed and divided by their number.
 
 **Example: the anchors of the first batch**
 ```text
@@ -808,7 +808,7 @@ losses: classification 0.6702   regression 0.4774
 ```
 
 ### Step 3.18 — `compute_detection_losses()`
-The classification loss is the cross entropy of the class logits of the sampled proposals, the background ones teaching the detector to reject false positives. The regression loss is the smooth L1 (`Detector.localisation_loss_beta` 1/9) between the target offsets and the offsets predicted for the true class of every foreground proposal, summed and divided by their number (0 when no sampled proposal is foreground).
+The classification loss is the cross entropy of the class logits of the sampled proposals, the background ones teaching the detector to reject false positives. The regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) between the target offsets and the offsets predicted for the true class of every foreground proposal, summed and divided by their number (0 when no sampled proposal is foreground).
 
 **Example output**
 ```text

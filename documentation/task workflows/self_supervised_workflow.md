@@ -102,7 +102,7 @@ A dataset generated now holds the 35 classes of `SHAPE_CATEGORIES` (a k-NN chanc
 
 ### Pitfalls
 
-- The first checkpoints look collapsed whatever the training: the test images and the validation batches are encoded in evaluation mode, whose batch normalization uses running statistics updated at momentum 0.1 (`BATCH_NORMALIZATION_MOMENTUM`, fixed for the backbone, and `ProjectionHead.batch_normalization_momentum`). After 12 iterations every test image got almost the same representation (mean pairwise cosine 1.0, against 0.774 in training mode), hence an effective rank of 1.05, a views similarity of 1.000 and a validation InfoNCE of exactly ln(2N - 1) (Step 4.9 and Step 3.20 of this document).
+- The first checkpoints look collapsed whatever the training: the test images and the validation batches are encoded in evaluation mode, whose batch normalization uses running statistics updated at momentum 0.1 (`BATCH_NORMALIZATION_MOMENTUM`, fixed for the backbone and the projection head). After 12 iterations every test image got almost the same representation (mean pairwise cosine 1.0, against 0.774 in training mode), hence an effective rank of 1.05, a views similarity of 1.000 and a validation InfoNCE of exactly ln(2N - 1) (Step 4.9 and Step 3.20 of this document).
 - A cue shared by both views lets the loss fall without learning the content: the colour of a shape when the colour types are off, or its position when the crops are too large. A `Positive Pair Accuracy` near 1 long before the k-NN accuracy rises shows it, and the input viewer shows the views with their drawn augmentations before a training ([tasks reference, Self-Supervised Learning](../reference/tasks_reference.md#self-supervised-learning-ssl), Views and Training metrics; `self_supervised.md`, Checks Left To Run).
 - The views, the batch size, the learning rate and the grouped batches give no run name token: a run of the same settings with stronger views or another batch size resumes the previous run folder, a run always resuming, unless `run_name_suffix` is set (`build_self_supervised_sections()` of `run_name.py`; the comment of `run_name_suffix` in the configuration).
 - Blocks 2, 4 and 6 of the synthetic configuration (16 to 32, 32 to 64 and 64 to 128 channels, 2 layers each) add no residual shortcut, so only blocks 3 and 5 list `Residual Shortcuts` in the backbone summary, and a backbone transferred to another task keeps this layout (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`; `suggestions.md` H4, open).
@@ -304,7 +304,7 @@ task:                   'self_supervised'
 experiment_folder:      PosixPath('.../visual-language-model-spark/experiments')
 learning_rate: 0.0005   batch_size: 128   information_dump: 10   weight_saving_iterations: 250
 ProjectionHead:         {'global_pooling': 'average', 'fully_connected': [512, 128], 'fully_connected_normalization': 'batch',
-                         'batch_normalization_momentum': 0.1, 'method': 'simclr', 'simclr': {'temperature': 0.2},
+                         'method': 'simclr', 'simclr': {'temperature': 0.2},
                          'barlow_twins': {'off_diagonal_weight': 0.005}}
 ```
 

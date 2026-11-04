@@ -593,7 +593,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | README "Stopping And Resuming", `build_run_name` docstring: "Changing any other setting gives another run name" | **open** | README line 249, `run_name.py:641-646` (see C4) |
 | Every YAML with `residual_nets`: "Shortcuts are added every two convolution layers" | **open** | see H4 |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | **open** | still read only by the checker |
-| `RegionProposal.strict_fallback_assignment` (YAML) | **open** | the YAML comments only; the function docstring is now correct |
+| `RegionProposal.strict_fallback_assignment` (YAML) | **fixed** | the setting and its strict rule were removed (2026-11-05) |
 | `detection_losses.py:65-76` "standard RPN normalization" | **open** | see L5 |
 | `mean_average_precision.py:16` "COCO" | **partly fixed** | still "COCO-style mAP@[0.5:0.95]" at line 22 and "(COCO)" in `average_precision_report.py:53` |
 | `region_proposer.py:34` aspect ratio = width / height | **open** | now line 126; `anchors.py` uses height / width |

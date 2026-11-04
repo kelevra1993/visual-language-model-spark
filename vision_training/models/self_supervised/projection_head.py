@@ -11,6 +11,7 @@ from rich.panel import Panel
 from torch import nn
 from typing import Any, Dict, List
 
+from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.components.fully_connected_block import build_fully_connected_block
 
 
@@ -27,7 +28,7 @@ def print_projection_head_summary(head_configuration: Dict[str, Any], input_feat
     # The momentum only applies to the batch normalization of the hidden layers
     normalization_text = head_configuration["fully_connected_normalization"]
     if normalization_text == "batch":
-        normalization_text += f" (momentum {head_configuration['batch_normalization_momentum']})"
+        normalization_text += f" (momentum {BATCH_NORMALIZATION_MOMENTUM})"
 
     # The setting of the method of the run
     method = head_configuration["method"]

@@ -89,3 +89,52 @@ def test_conversion_lists_the_changed_values_and_refuses_other_changes(tmp_path:
     assert "Backbone.modules.inception_starting_block 2 -> 3" in check_conversion(
         original_text=unused_block_text, task="classification", configuration_path=tmp_path / "configuration.yaml",
         converted_text=remove_fixed_settings(configuration_text=unused_block_text, task="classification"))
+
+
+# Detection sections written before the head settings were fixed, with a strict fallback assignment turned on
+DETECTION_CONFIGURATION_TEXT = """ExperimentConfiguration:
+  task: object_detection
+RegionProposal:
+  normalization:
+    feature_map_normalization: "batch"
+    # Momentum of the batch normalization running statistics
+    batch_normalization_momentum: 0.1
+  # Assigns the best-overlapping anchors as foreground even below the minimum threshold.
+  strict_fallback_assignment: True
+  number_training_positives: 128
+  # Smooth L1 beta of the box regression loss.
+  localisation_loss_beta: 1/9
+Detector:
+  normalization:
+    feature_map_normalization: "batch"
+    batch_normalization_momentum: 0.1
+  localisation_loss_beta: 1/9
+"""
+
+# The detection sections once converted
+CONVERTED_DETECTION_TEXT = """ExperimentConfiguration:
+  task: object_detection
+RegionProposal:
+  normalization:
+    feature_map_normalization: "batch"
+  number_training_positives: 128
+Detector:
+  normalization:
+    feature_map_normalization: "batch"
+"""
+
+
+def test_conversion_removes_the_fixed_head_settings(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion removes the batch normalization momentums of the detection heads, the strict fallback
+    assignment and the localisation loss betas with their comments, listing the strict assignment turned on as a value
+    its runs change to, the momentums of 0.1 and the betas of 1/9 being those of the code.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    converted_text = remove_fixed_settings(configuration_text=DETECTION_CONFIGURATION_TEXT, task="object_detection")
+    assert converted_text == CONVERTED_DETECTION_TEXT
+    changed_values = check_conversion(original_text=DETECTION_CONFIGURATION_TEXT, converted_text=converted_text,
+                                      task="object_detection", configuration_path=tmp_path / "configuration.yaml")
+    assert changed_values == ["RegionProposal.strict_fallback_assignment True -> False"]

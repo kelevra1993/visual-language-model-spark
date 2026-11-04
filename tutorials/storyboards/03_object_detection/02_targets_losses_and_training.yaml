@@ -69,16 +69,14 @@ scenes:
     code_reference: "vision_training/losses/detection_losses.py · compute_region_proposal_losses"
     source:
       file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
-      keys: [RegionProposal.foreground_iou_threshold, RegionProposal.background_iou_threshold, RegionProposal.strict_fallback_assignment, RegionProposal.number_training_positives, RegionProposal.total_training_samples, RegionProposal.localisation_loss_beta]
+      keys: [RegionProposal.foreground_iou_threshold, RegionProposal.background_iou_threshold, RegionProposal.number_training_positives, RegionProposal.total_training_samples]
       comments: false
     highlights:
       - {match: "foreground_iou_threshold:|background_iou_threshold:", sentences: [0]}
-      - {match: "strict_fallback_assignment", sentences: [1]}
-      - {match: "number_training_positives|total_training_samples|localisation_loss_beta", sentences: [2]}
+      - {match: "number_training_positives|total_training_samples", sentences: [1]}
     narration:
       - "The thresholds live in the Region Proposal section: foreground from 0.5, its maximum being unused, and background from 0 to 0.3, so that the anchors overlapping nothing are sampled too."
-      - "Strict fallback assignment, off here, would give a fallback anchor to the object that chose it rather than to the object it overlaps most."
-      - "Then the sampling counts, and the beta of the smooth L1 box loss, a ninth."
+      - "Then the sampling counts; the beta of the smooth L1 box loss is not a setting, the code fixing it at a ninth."
 
   - kind: html
     page: diagram
@@ -166,7 +164,7 @@ scenes:
     highlights:
       - {match: "detection_classification_loss = torch.nn.functional.cross_entropy", sentences: [0]}
       - {match: "box_regressions\"\\]\\[sampled_positive_indices, foreground_classes\\]", sentences: [1]}
-      - {match: "beta=localisation_loss_beta, reduction=\"sum\"\\)", sentences: [1]}
+      - {match: "beta=LOCALISATION_LOSS_BETA, reduction=\"sum\"\\)", sentences: [1]}
     narration:
       - "The classification loss is the cross entropy of the sampled proposals over the {{object_detection.inference.model.number_classes}} classes, the background ones teaching the head to reject false positives."
       - "The box loss takes, for every positive proposal, the four offsets of its true class only, a smooth L1 with beta of a ninth, summed and divided by the positives."
