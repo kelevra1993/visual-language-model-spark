@@ -88,7 +88,7 @@ A dataset described by one pair list file per split is converted to the `pairs` 
 | `TemporalModel.type` | `"mean_pooling"` | shared by both members (`MEAN`); any of the 7 types, never causal |
 | `ClassificationHead.global_pooling` | `"average"` | 64 features per frame; with it the README run reaches a test accuracy of 0.985 at iteration 500 |
 | `Data.image_settings.size` | `512` | the frames of the dataset on disk (128 pixels) are resized to 512 |
-| `Data.data_augmentation.shuffle_frames` | `activated: False, probability: 0.5` | when on, shuffles every member on its own, each with its own draw |
+| `Data.data_augmentation.shuffle_frames` | `activated: False, probability: 0.25` | when on, shuffles every member on its own, each with its own draw |
 
 ### What A Run Writes
 

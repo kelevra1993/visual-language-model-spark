@@ -118,7 +118,7 @@ Data:
     types:
       # Geometric augmentations : they keep the class of an image.
       # Random Crop : 75% to 100% of each side (same ratio), resized back
-      random_crop: { activated: True, probability: 0.5 }
+      random_crop: { activated: True, probability: 0.25 }
       # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
       # stretch; other camera proportions, for keep_ratio False)
       random_aspect_crop: { activated: True, probability: 0.25 }
@@ -129,7 +129,7 @@ Data:
       # Random Left-Right Flip
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up-Down Flip
-      random_up_down_flip: { activated: True, probability: 0.25 }
+      random_up_down_flip: { activated: True, probability: 0.5 }
       # Random Rotation of -5° to 5°
       random_rotation: { activated: True, probability: 0.25 }
       # Random +-90° rotation (square images only)
@@ -139,7 +139,7 @@ Data:
       random_perspective: { activated: True, probability: 0.25 }
       # Random Jigsaw : 2x2 pieces shuffled, breaking the global layout; refused for tasks with boxes, masks or
       # keypoints
-      random_jigsaw: { activated: False, probability: 0.3 }
+      random_jigsaw: { activated: False, probability: 0.25 }
 
       # Photometric augmentations.
       # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
@@ -165,7 +165,7 @@ Data:
       # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
       random_linear_illumination: { activated: True, probability: 0.25 }
       # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
-      random_plasma_shadow: { activated: False, probability: 0.3 }
+      random_plasma_shadow: { activated: False, probability: 0.25 }
       # Random Blur : 9x9 Gaussian kernel, sigma 2.5
       random_blur: { activated: True, probability: 0.25 }
       # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
