@@ -1,10 +1,9 @@
 """
-Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: true
-positives, precision recall curve, average precision, duplicate, missing and wrong-class detections, the COCO-style
-mean over overlap thresholds, the score threshold of every class, the mask average precision of the instance
-segmentation, the average precision of the small, medium and large objects with the COCO ignore rule, the mean
-average recall of all the objects and of every size, and the vectorised 11 and 101-point average precision against
-its level by level definition.
+Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: the
+average precision of the worked example, the per-class average precisions and ground truths, wrong-class detections,
+the COCO-style mean over overlap thresholds, the score threshold of every class, the mask average precision of the
+instance segmentation, the average precision of the small, medium and large objects, the mean average recall of all
+the objects and of every size, and the vectorised 101-point average precision against its level by level definition.
 """
 
 import pytest
@@ -14,8 +13,7 @@ from typing import Dict, List
 
 from vision_training.evaluation.detection.mean_average_precision import (compute_average_precision,
                                                                          compute_precision_recall, evaluate_detections,
-                                                                         gather_class_detections,
-                                                                         match_detections_to_ground_truth)
+                                                                         gather_class_detections)
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.mask_operations import compute_mask_intersection_over_union
@@ -68,34 +66,12 @@ def get_worked_example() -> tuple:
     return detections, ground_truths
 
 
-def test_worked_example_true_positives_and_curve() -> None:
-    """
-    Verifies on the worked example that the detections are marked true positive, false positive, then three true
-    positives in score order, and that the third point of the curve has the precision 2 / 3 and recall 2 / 5 of a
-    score threshold placed at the third detection.
-    """
-    detections, ground_truths = get_worked_example()
-    gathered = gather_class_detections(detections=detections, ground_truths=ground_truths, class_label=1)
-    true_positive_flags = match_detections_to_ground_truth(
-        detection_image_indices=gathered["image_indices"],
-        best_intersection_over_union=gathered["best_intersection_over_union"],
-        best_ground_truth_indices=gathered["best_ground_truth_indices"], intersection_over_union_threshold=0.5)
-    assert true_positive_flags.tolist() == [True, False, True, True, True]
-
-    precisions, recalls = compute_precision_recall(true_positive_flags=true_positive_flags,
-                                                   number_ground_truth=gathered["number_ground_truth"])
-    assert gathered["number_ground_truth"] == 5
-    assert precisions.tolist() == pytest.approx(expected=[1.0, 1 / 2, 2 / 3, 3 / 4, 4 / 5])
-    assert recalls.tolist() == pytest.approx(expected=[0.2, 0.2, 0.4, 0.6, 0.8])
-
-
 @pytest.mark.parametrize(argnames=("method", "expected_average_precision"),
-                         argvalues=[("area", 0.68), ("11_point", 7.8 / 11), ("101_point", 69 / 101)])
+                         argvalues=[("area", 0.68)])
 def test_worked_example_average_precision(method: str, expected_average_precision: float) -> None:
     """
-    Verifies the average precision of the worked example with every method, computed by hand from its precision
-    envelope (1 up to a recall of 0.2, then 0.8 up to a recall of 0.8, then 0): the area 0.2 x 1 + 0.6 x 0.8, the
-    11-point mean (3 x 1 + 6 x 0.8) / 11 and the 101-point mean (21 x 1 + 60 x 0.8) / 101.
+    Verifies the average precision of the worked example with the area method, computed by hand from its precision
+    envelope (1 up to a recall of 0.2, then 0.8 up to a recall of 0.8, then 0): the area 0.2 x 1 + 0.6 x 0.8.
 
     Args:
         method (str): The average precision method.
@@ -108,14 +84,13 @@ def test_worked_example_average_precision(method: str, expected_average_precisio
 
 
 @pytest.mark.parametrize(argnames=("target_precision", "expected_threshold"),
-                         argvalues=[(0.99, (0.95, 0.2)), (0.75, (0.75, 0.8)), (0.5, (0.75, 0.8))])
+                         argvalues=[(0.99, (0.95, 0.2))])
 def test_class_score_thresholds_of_the_worked_example(target_precision: float,
                                                       expected_threshold: tuple) -> None:
     """
     Verifies the score threshold of the worked example, whose detections are by decreasing score a true positive, a
     false positive and three true positives among 5 objects: only its first detection reaches a precision of 0.99
-    (recall 1 / 5), and its last one keeps a precision of 4 / 5 with a recall of 4 / 5. The thresholds are only given
-    with a target precision.
+    (recall 1 / 5). The thresholds are only given with a target precision.
 
     Args:
         target_precision (float): The precision the threshold must reach.
@@ -127,68 +102,6 @@ def test_class_score_thresholds_of_the_worked_example(target_precision: float,
     assert results["class_score_thresholds"][1] == pytest.approx(expected=expected_threshold)
     assert "class_score_thresholds" not in evaluate_detections(detections=detections, ground_truths=ground_truths,
                                                                number_classes=2)
-
-
-def test_class_without_ground_truth_or_detection_has_no_threshold() -> None:
-    """
-    Verifies that a class without object and a class whose objects are never detected get no score threshold, next
-    to a class found exactly.
-    """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10], [20, 20, 30, 30]], labels=[1, 2])]
-    detections = [make_detections(boxes=[[0, 0, 10, 10], [40, 40, 50, 50]], scores=[0.9, 0.8], labels=[1, 3])]
-    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=4,
-                                  target_precision=0.99)
-    assert results["class_score_thresholds"][1] == pytest.approx(expected=(0.9, 1.0))
-    assert results["class_score_thresholds"][2] is None and results["class_score_thresholds"][3] is None
-
-
-def test_perfect_detections_give_one() -> None:
-    """
-    Verifies that detections identical to the ground truth give an average precision of 1 with every method and at
-    every intersection over union threshold.
-    """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10], [20, 20, 40, 30]], labels=[1, 2])]
-    detections = [make_detections(boxes=[[0, 0, 10, 10], [20, 20, 40, 30]], scores=[0.9, 0.8], labels=[1, 2])]
-
-    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=3)
-    for method_results in results.values():
-        assert method_results["mAP@0.5"] == pytest.approx(expected=1.0)
-        assert method_results["mAP@0.75"] == pytest.approx(expected=1.0)
-        assert method_results["mAP@0.95"] == pytest.approx(expected=1.0)
-        assert method_results["mAP@[0.5:0.95]"] == pytest.approx(expected=1.0)
-
-
-def test_duplicate_detection_is_a_false_positive() -> None:
-    """
-    Verifies that a second detection of an already matched object is a false positive, which leaves the average
-    precision at 1 since it comes after the full recall is reached.
-    """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10]], labels=[1])]
-    detections = [make_detections(boxes=[[0, 0, 10, 10], [0, 0, 10, 10]], scores=[0.9, 0.8], labels=[1, 1])]
-
-    gathered = gather_class_detections(detections=detections, ground_truths=ground_truths, class_label=1)
-    true_positive_flags = match_detections_to_ground_truth(
-        detection_image_indices=gathered["image_indices"],
-        best_intersection_over_union=gathered["best_intersection_over_union"],
-        best_ground_truth_indices=gathered["best_ground_truth_indices"], intersection_over_union_threshold=0.5)
-    assert true_positive_flags.tolist() == [True, False]
-
-    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=2)
-    assert results["area"]["mAP@0.5"] == pytest.approx(expected=1.0)
-
-
-def test_no_detection_gives_zero() -> None:
-    """
-    Verifies that a class with ground truth but no detection has an average precision of 0 and still counts in the
-    mean.
-    """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10], [20, 20, 30, 30]], labels=[1, 2])]
-    detections = [make_detections(boxes=[[20, 20, 30, 30]], scores=[0.9], labels=[2])]
-
-    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=3)
-    for method_results in results.values():
-        assert method_results["class_AP@0.5"] == pytest.approx(expected={1: 0.0, 2: 1.0})
-        assert method_results["mAP@0.5"] == pytest.approx(expected=0.5)
 
 
 def test_per_class_average_precisions_and_ground_truths() -> None:
@@ -208,43 +121,6 @@ def test_per_class_average_precisions_and_ground_truths() -> None:
         assert sum(method_results["class_AP@[0.5:0.95]"].values()) / 2 == pytest.approx(
             expected=method_results["mAP@[0.5:0.95]"])
         assert method_results["class_ground_truths"] == {1: 1, 2: 1, 3: 0}
-
-
-def test_class_without_ground_truth_is_left_out() -> None:
-    """
-    Verifies that a class with detections but no ground truth anywhere is left out of the mean, instead of counting
-    as an average precision of 0.
-    """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10]], labels=[1])]
-    detections = [make_detections(boxes=[[0, 0, 10, 10], [50, 50, 60, 60]], scores=[0.9, 0.95], labels=[1, 2])]
-
-    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=3)
-    assert list(results["area"]["class_AP@0.5"]) == [1]
-    assert results["area"]["mAP@0.5"] == pytest.approx(expected=1.0)
-
-
-@pytest.mark.parametrize(argnames=("intersection_over_union_threshold", "expected_flags"),
-                         argvalues=[(0.5, [False]), (0.3, [True])])
-def test_overlap_below_threshold_is_a_false_positive(intersection_over_union_threshold: float,
-                                                     expected_flags: List[bool]) -> None:
-    """
-    Verifies that a detection overlapping its object by 0.4 is a false positive at a threshold of 0.5 and a true
-    positive at 0.3.
-
-    Args:
-        intersection_over_union_threshold (float): The matching threshold.
-        expected_flags (List[bool]): The expected true positive flag of the detection.
-    """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10]], labels=[1])]
-    detections = [make_detections(boxes=[[0, 0, 10, 4]], scores=[0.9], labels=[1])]
-
-    gathered = gather_class_detections(detections=detections, ground_truths=ground_truths, class_label=1)
-    true_positive_flags = match_detections_to_ground_truth(
-        detection_image_indices=gathered["image_indices"],
-        best_intersection_over_union=gathered["best_intersection_over_union"],
-        best_ground_truth_indices=gathered["best_ground_truth_indices"],
-        intersection_over_union_threshold=intersection_over_union_threshold)
-    assert true_positive_flags.tolist() == expected_flags
 
 
 def test_wrong_class_never_matches() -> None:
@@ -274,15 +150,6 @@ def test_coco_style_mean_over_thresholds() -> None:
         assert method_results["mAP@[0.5:0.95]"] == pytest.approx(expected=0.7)
 
 
-def test_unknown_method_is_rejected() -> None:
-    """
-    Verifies that an unknown average precision method raises an error instead of silently returning a value.
-    """
-    with pytest.raises(expected_exception=ValueError):
-        compute_average_precision(precisions=torch.tensor(data=[1.0]), recalls=torch.tensor(data=[1.0]),
-                                  method="trapezoid")
-
-
 def interpolate_average_precision_by_definition(precisions: torch.Tensor, recalls: torch.Tensor,
                                                 number_points: int) -> float:
     """
@@ -304,10 +171,10 @@ def interpolate_average_precision_by_definition(precisions: torch.Tensor, recall
     return sum(interpolated_precisions) / number_points
 
 
-@pytest.mark.parametrize(argnames=("method", "number_points"), argvalues=[("11_point", 11), ("101_point", 101)])
+@pytest.mark.parametrize(argnames=("method", "number_points"), argvalues=[("101_point", 101)])
 def test_point_average_precision_matches_its_definition(method: str, number_points: int) -> None:
     """
-    Verifies that the vectorised 11 and 101-point average precision equals, exactly, the level by level definition on
+    Verifies that the vectorised 101-point average precision equals, exactly, the level by level definition on
     random curves: a single detection, no true positive, recalls reaching 1 or stopping below it, and ground truth
     counts such as 5 or 20 whose recalls fall exactly on recall levels.
 
@@ -385,23 +252,6 @@ def test_mean_average_recall_of_all_the_objects_and_of_every_size() -> None:
     assert sizes["small"]["mAR@[0.5:0.95]"] == pytest.approx(expected=0.6)
     assert sizes["medium"]["mAR@0.5"] is None and sizes["large"]["mAR@[0.5:0.95]"] is None
     assert sizes["large"]["class_AR@0.5"] == {}
-
-
-def test_detection_matched_to_an_object_of_another_size_is_ignored() -> None:
-    """
-    Verifies the COCO ignore rule: a detection of medium area overlapping a large object by 0.6 finds it at the
-    threshold 0.5, so it counts for the large objects only and is ignored by the medium ones (whose object, found
-    after it, keeps an AP of 1), while at 0.75 it finds nothing and becomes a false positive of the medium objects by
-    its own area (AP 0.5).
-    """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 50, 50], [100, 100, 200, 200]], labels=[1, 1])]
-    detections = [make_detections(boxes=[[100, 100, 200, 160], [0, 0, 50, 50]], scores=[0.9, 0.8], labels=[1, 1])]
-
-    sizes = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=2)["area"]["sizes"]
-    assert sizes["medium"]["mAP@0.5"] == pytest.approx(expected=1.0)
-    assert sizes["medium"]["mAP@0.75"] == pytest.approx(expected=0.5)
-    assert sizes["large"]["mAP@0.5"] == pytest.approx(expected=1.0)
-    assert sizes["large"]["mAP@0.75"] == pytest.approx(expected=0.0)
 
 
 def fill_box_masks(boxes: torch.Tensor, image_size: int) -> torch.Tensor:

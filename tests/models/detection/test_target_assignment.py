@@ -1,41 +1,22 @@
 """
 Tests of the batched training target assignment of vision_training/models/detection/target_assignment.py: the
-padding of the ground truths of a batch, the foreground, background and ignored anchors of every image (an image
-without object included), the best anchor of every object made foreground with both fallback rules, the proposal
-targets of images with different object counts, the number, kind and uniformity of the sampled targets, and the
-ground truth boxes added to the proposals of the detection heads (slots, levels, positives).
+foreground, background and ignored anchors of every image (an image without object included), the best anchor of
+every object made foreground with both fallback rules, the proposal targets of images with different object counts,
+the number, kind and uniformity of the sampled targets, and the ground truth boxes added to the proposals of the
+detection heads giving a positive proposal per object.
 """
 
 import torch
 
 from vision_training.models.detection.target_assignment import (add_ground_truth_proposals,
                                                                 batch_assign_targets_to_anchors,
-                                                                batch_assign_targets_to_proposals, pad_ground_truths,
+                                                                batch_assign_targets_to_proposals,
                                                                 sample_positive_and_negative_training_targets,
                                                                 turn_boxes_to_transformation_targets)
 
 # Anchor thresholds of the tests: background from 0.1 to 0.3, foreground from 0.7
 BACKGROUND_THRESHOLD = {"min": 0.1, "max": 0.3}
 FOREGROUND_THRESHOLD = {"min": 0.7, "max": 1.0}
-
-
-def test_ground_truths_are_padded_to_the_largest_image() -> None:
-    """
-    Verifies that the ground truths of a batch are padded with empty boxes and the background label up to the largest
-    number of objects, with the mask of the real objects, and that a batch without any object keeps one padding row.
-    """
-    boxes = [torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [5.0, 5.0, 20.0, 20.0]]), torch.zeros(size=(0, 4)),
-             torch.tensor(data=[[1.0, 2.0, 3.0, 4.0]])]
-    labels = [torch.tensor(data=[3, 4]), torch.zeros(size=(0,), dtype=torch.int64), torch.tensor(data=[7])]
-    padded_boxes, padded_labels, valid_ground_truths = pad_ground_truths(batched_ground_truth_boxes=boxes,
-                                                                         batched_ground_truth_labels=labels)
-    assert padded_boxes.shape == (3, 2, 4) and padded_boxes[2].tolist() == [[1.0, 2.0, 3.0, 4.0], [0.0] * 4]
-    assert padded_labels.tolist() == [[3, 4], [0, 0], [7, 0]]
-    assert valid_ground_truths.tolist() == [[True, True], [False, False], [True, False]]
-
-    # A batch without any object keeps one empty row per image
-    padded_boxes, padded_labels, valid_ground_truths = pad_ground_truths(batched_ground_truth_boxes=[boxes[1]] * 2)
-    assert padded_boxes.shape == (2, 1, 4) and padded_labels is None and not bool(valid_ground_truths.any())
 
 
 def test_anchor_labels_of_every_image() -> None:
@@ -119,36 +100,6 @@ def test_sampling_counts_kinds_and_uniformity() -> None:
         assert not bool((sampled_positives & sampled_negatives).any())
         positive_frequencies += sampled_positives[0, :10].float()
     assert torch.allclose(input=positive_frequencies / 2000, other=torch.full(size=(10,), fill_value=0.3), atol=0.05)
-
-
-def test_ground_truth_boxes_overwrite_the_last_proposal_slots() -> None:
-    """
-    Verifies that the ground truth boxes of every image overwrite its last proposal slots in their order, at the level
-    of their best anchor (a small object at the fine level, a large one at the coarse level), that an image without
-    object keeps its proposals, that an image with more objects than slots keeps its last objects, and that the input
-    proposals are left unchanged.
-    """
-    level_anchors = {5: torch.tensor(data=[[0.0, 0.0, 16.0, 16.0], [16.0, 16.0, 32.0, 32.0]]),
-                     6: torch.tensor(data=[[0.0, 0.0, 64.0, 64.0]])}
-    proposals = torch.arange(end=2 * 4 * 4, dtype=torch.float32).reshape(2, 4, 4)
-    levels = torch.full(size=(2, 4), fill_value=5, dtype=torch.int64)
-    boxes = [torch.tensor(data=[[16.0, 16.0, 30.0, 30.0], [0.0, 0.0, 60.0, 60.0]]), torch.zeros(size=(0, 4))]
-    new_proposals, new_levels = add_ground_truth_proposals(batched_ground_truth_boxes=boxes,
-                                                           batched_proposals=proposals, batched_proposal_levels=levels,
-                                                           level_anchors=level_anchors)
-    assert torch.equal(input=new_proposals[0, :2], other=proposals[0, :2])
-    assert torch.equal(input=new_proposals[0, 2:], other=boxes[0])
-    assert new_levels.tolist() == [[5, 5, 5, 6], [5, 5, 5, 5]]
-    assert torch.equal(input=new_proposals[1], other=proposals[1])
-    assert torch.equal(input=proposals, other=torch.arange(end=2 * 4 * 4, dtype=torch.float32).reshape(2, 4, 4))
-
-    # An image with five objects for three slots keeps its last three objects
-    many_boxes = torch.tensor(data=[[float(index), 0.0, float(index) + 10.0, 10.0] for index in range(5)])
-    new_proposals, _ = add_ground_truth_proposals(batched_ground_truth_boxes=[many_boxes],
-                                                  batched_proposals=torch.zeros(size=(1, 3, 4)),
-                                                  batched_proposal_levels=torch.full(size=(1, 3), fill_value=5),
-                                                  level_anchors=level_anchors)
-    assert torch.equal(input=new_proposals[0], other=many_boxes[2:])
 
 
 def test_every_object_gives_a_positive_proposal_with_its_ground_truth_box() -> None:

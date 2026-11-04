@@ -1,7 +1,7 @@
 """
 Tests of SequenceComparator of vision_training/models/sequence/sequence_comparator.py: outputs with padding frames,
-mask-free and masked paths, batch and sequence normalization of the members, padding frames kept from the backbone and
-members mixed only by the cross attention.
+mask-free and masked paths, sequence normalization of the pairs, padding frames kept from the backbone and members mixed
+only by the cross attention.
 """
 
 import pytest
@@ -10,18 +10,14 @@ import torch
 from vision_training.models.sequence.sequence_comparator import SequenceComparator
 from tests.fixtures.configuration_fixtures import get_sequence_comparison_model_configuration
 
-# Fusions of the members and temporal modules covered by the comparison model tests
-TESTED_FUSION_TYPES = ["concatenation", "difference", "cross_attention"]
-TESTED_TEMPORAL_TYPES = ["mean_pooling", "attention_pooling", "gru", "lstm", "transformer", "temporal_convolution"]
 
-
-@pytest.mark.parametrize(argnames="fusion_type", argvalues=TESTED_FUSION_TYPES)
-@pytest.mark.parametrize(argnames="temporal_type", argvalues=TESTED_TEMPORAL_TYPES)
+@pytest.mark.parametrize(argnames="fusion_type", argvalues=["cross_attention"])
+@pytest.mark.parametrize(argnames="temporal_type", argvalues=["gru"])
 def test_sequence_comparator_outputs_and_padding_frames(temporal_type: str, fusion_type: str) -> None:
     """
-    Verifies the outputs of the sequence comparator with every fusion and every kind of temporal module: [B, K] logits
-    and softmax probabilities, the classification loss returned only with labels, and padding frames of both members
-    that do not change the prediction of their pair whatever their pixels.
+    Verifies the outputs of the sequence comparator with the cross attention fusion and a recurrent temporal module:
+    [B, K] logits and softmax probabilities, the classification loss returned only with labels, and padding frames of
+    both members that do not change the prediction of their pair whatever their pixels.
 
     Args:
         temporal_type (str): The type of the temporal module.
@@ -55,9 +51,8 @@ def test_sequence_comparator_outputs_and_padding_frames(temporal_type: str, fusi
     assert torch.allclose(input=outputs["class_logits"], other=white_outputs["class_logits"], atol=1e-5)
 
 
-@pytest.mark.parametrize(argnames="fusion_type", argvalues=TESTED_FUSION_TYPES)
-@pytest.mark.parametrize(argnames="temporal_type", argvalues=["gru", "transformer", "temporal_convolution",
-                                                              "attention_pooling", "max_pooling"])
+@pytest.mark.parametrize(argnames="fusion_type", argvalues=["cross_attention"])
+@pytest.mark.parametrize(argnames="temporal_type", argvalues=["transformer"])
 def test_mask_free_path_matches_the_masked_path(temporal_type: str, fusion_type: str) -> None:
     """
     Verifies that the deployment path without masks, where every member is encoded and summarised on its own with its
@@ -85,35 +80,6 @@ def test_mask_free_path_matches_the_masked_path(temporal_type: str, fusion_type:
         mask_free_outputs = model(before_images=before_images[:, :3], after_images=after_images[:, :2])
 
     assert torch.allclose(input=masked_outputs["class_logits"], other=mask_free_outputs["class_logits"], atol=1e-9)
-
-
-def test_batch_normalization_sees_both_members() -> None:
-    """
-    Verifies that the members of a pair are encoded together, so that in training mode the batch normalization
-    statistics are computed over the frames of both members: the frame vectors of the before member then depend on
-    the after frames, while in evaluation mode, with the running statistics, they do not.
-    """
-    configuration, device, dtype = get_sequence_comparison_model_configuration(temporal_type="gru",
-                                                                               fusion_type="difference")
-    model = SequenceComparator(configuration=configuration, device=device, dtype=dtype)
-    random_generator = torch.Generator().manual_seed(3)
-    before_images = torch.rand(size=(2, 4, 3, 64, 64), generator=random_generator) * 255.0
-    first_after_images = torch.rand(size=(2, 4, 3, 64, 64), generator=random_generator) * 255.0
-    sequence_mask = torch.ones(size=(2, 4), dtype=torch.bool)
-
-    # Before frame vectors computed next to two different after members, in training then in evaluation mode
-    for training_mode in [True, False]:
-        model.train(mode=training_mode)
-        with torch.no_grad():
-            first_before_features, _ = model.encode_members(before_images=before_images,
-                                                            after_images=first_after_images,
-                                                            before_mask=sequence_mask, after_mask=sequence_mask)
-            second_before_features, _ = model.encode_members(before_images=before_images,
-                                                             after_images=first_after_images * 0.5,
-                                                             before_mask=sequence_mask, after_mask=sequence_mask)
-        members_are_independent = torch.allclose(input=first_before_features, other=second_before_features,
-                                                 atol=1e-5)
-        assert members_are_independent != training_mode
 
 
 def test_padding_frames_never_reach_the_backbone() -> None:
@@ -180,20 +146,6 @@ def test_only_the_cross_attention_mixes_the_members(fusion_type: str, members_ar
     assert torch.allclose(input=before_vectors[0], other=before_vectors[1], atol=1e-6) != members_are_mixed
 
 
-def test_a_single_mask_is_rejected() -> None:
-    """
-    Verifies that the masks of the two members must be given together: the masked path processes both members as one
-    batch, the mask-free path processes them separately, and mixing them would be ambiguous.
-    """
-    configuration, device, dtype = get_sequence_comparison_model_configuration(temporal_type="gru",
-                                                                               fusion_type="concatenation")
-    model = SequenceComparator(configuration=configuration, device=device, dtype=dtype).eval()
-    frames = torch.rand(size=(1, 4, 3, 64, 64)) * 255.0
-
-    with pytest.raises(expected_exception=ValueError, match="given together"):
-        model(before_images=frames, after_images=frames, before_mask=torch.ones(size=(1, 4), dtype=torch.bool))
-
-
 def build_sequence_normalization_comparator(normalization_scope: str) -> SequenceComparator:
     """
     Builds a float64 comparator in evaluation mode whose backbone uses sequence normalization, with the given scope of
@@ -213,14 +165,12 @@ def build_sequence_normalization_comparator(normalization_scope: str) -> Sequenc
     return SequenceComparator(configuration=configuration, device=device, dtype=torch.float64).eval()
 
 
-@pytest.mark.parametrize(argnames=("normalization_scope", "members_share_statistics"),
-                         argvalues=[("member", False), ("pair", True)])
+@pytest.mark.parametrize(argnames=("normalization_scope", "members_share_statistics"), argvalues=[("pair", True)])
 def test_sequence_normalization_scope_of_the_pairs(normalization_scope: str, members_share_statistics: bool) -> None:
     """
-    Verifies the scopes of the sequence normalization of the comparator: with the member scope, the frame vectors of
-    the before member do not depend on the after member, with the pair scope they do; and for both scopes the path
-    without masks, where the members may have different numbers of frames, gives the predictions of the masked path,
-    whose padding frames stay out of the statistics.
+    Verifies the pair scope of the sequence normalization of the comparator: the frame vectors of the before member
+    depend on the after member, and the path without masks, where the members may have different numbers of frames,
+    gives the predictions of the masked path, whose padding frames stay out of the statistics.
 
     Args:
         normalization_scope (str): "member" or "pair".

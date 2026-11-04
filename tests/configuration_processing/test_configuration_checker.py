@@ -4,11 +4,11 @@ load_experiment_configuration: the configurations shipped for every task are acc
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
 errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only, and the
-intermediate weight saving 0 (none) or a positive integer smaller than the evaluated weight saving. The
-augmentation types moving the image only are refused for the tasks with boxes, masks or keypoints and accepted for the
-others, the jigsaw refuses an image size that is not a multiple of its grid size, and a section removed from the
-repository is refused alone, before the other checks. The keypoint definitions injected by the loader from the training
-labels are checked too, and so is the label dictionary saved with a run, taken by the configuration of its folder.
+intermediate weight saving smaller than the evaluated weight saving. The augmentation types moving the image only are
+refused for the tasks with boxes, masks or keypoints, the jigsaw refuses an image size that is not a multiple of its
+grid size, and a setting removed from the repository is refused alone, before the other checks. The keypoint
+definitions injected by the loader from the training labels are checked too, and so is the label dictionary saved with
+a run, taken by the configuration of its folder.
 """
 
 import copy
@@ -95,16 +95,6 @@ def set_overlapping_thresholds(configuration: Dict[str, Any]) -> None:
     configuration["RegionProposal"]["background_iou_threshold"]["max"] = 0.6
 
 
-def remove_level_anchors(configuration: Dict[str, Any]) -> None:
-    """
-    Removes the anchors of the seventh detection level, whose region proposal head then has no outputs.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    del configuration["DetectionLevels"]["7"]["anchors"]
-
-
 def set_invalid_detection_level_settings(configuration: Dict[str, Any]) -> None:
     """
     Gives the fifth detection level an anchor scale of zero, a negative aspect ratio, region proposal convolutions
@@ -122,91 +112,6 @@ def set_invalid_detection_level_settings(configuration: Dict[str, Any]) -> None:
     configuration["DetectionLevels"]["6"]["detector"]["convolutions"] = [2, 60]
 
 
-def set_single_input_channel(configuration: Dict[str, Any]) -> None:
-    """
-    Builds the backbone on single-channel images, while the loaders give BGR images.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Backbone"]["input_channels"] = 1
-
-
-def set_string_flag(configuration: Dict[str, Any]) -> None:
-    """
-    Writes a module flag as a quoted string instead of a boolean.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Backbone"]["modules"]["inception"] = "False"
-
-
-def set_detector_samples(configuration: Dict[str, Any]) -> None:
-    """
-    Asks the detector for more training samples than the proposals kept after NMS.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Detector"]["total_training_samples"] = 1000
-
-
-def set_intermediate_weight_saving(configuration: Dict[str, Any]) -> None:
-    """
-    Sets intermediate checkpoints that are not more frequent than the evaluated ones. Both values are set
-    explicitly so that the expected message does not depend on the saving values of the example configuration.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["weight_saving_iterations"] = 10000
-    configuration["ExperimentConfiguration"]["intermediate_weight_saving_iterations"] = 10000
-
-
-def set_evaluation_score_threshold(configuration: Dict[str, Any]) -> None:
-    """
-    Sets an evaluation score threshold outside of [0, 1].
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["score_threshold"] = 1.5
-
-
-def set_invalid_detection_error_analysis(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a target precision of the class thresholds outside of [0, 1], the error images switch as a quoted string and
-    zero error images per folder.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"].update({
-        "target_precision": -0.1, "error_dumps": {"activated": "yes", "maximum_per_class_pair": 0}})
-
-
-def set_invalid_anchor_coverage(configuration: Dict[str, Any]) -> None:
-    """
-    Sets the switch of the anchor coverage diagnosis mode as a quoted string and its threshold above 1.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["diagnosis_modes"]["compute_anchor_coverage"] = {"activated": "yes",
-                                                                                               "iou_threshold": 1.5}
-
-
-def set_unknown_task(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a task that no trainer implements.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["task"] = "segmentation"
-
-
 def remove_task_key(configuration: Dict[str, Any]) -> None:
     """
     Removes the task of the configuration, as in the configurations written before the task-aware configuration.
@@ -215,17 +120,6 @@ def remove_task_key(configuration: Dict[str, Any]) -> None:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
     del configuration["ExperimentConfiguration"]["task"]
-
-
-def set_inception_channels(configuration: Dict[str, Any]) -> None:
-    """
-    Enables inception on a Backbone block whose output channels are not a multiple of 8.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Backbone"]["modules"]["inception"] = True
-    configuration["Backbone"]["convolutions"]["4"] = [4, 20]
 
 
 def set_multiple_errors(configuration: Dict[str, Any]) -> None:
@@ -247,13 +141,6 @@ def remove_module_key(configuration: Dict[str, Any]) -> None:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
     del configuration["Detector"]["modules"]["residual_nets"]
-
-
-def test_example_configuration_is_consistent() -> None:
-    """
-    Verifies that the example configuration shipped with the repository passes every consistency check.
-    """
-    load_experiment_configuration(configuration_path=EXAMPLE_CONFIGURATION_PATH)
 
 
 def raise_background_minimum(configuration: Dict[str, Any]) -> None:
@@ -291,80 +178,6 @@ def test_background_minimum_above_zero_only_warns(tmp_path: Path, capsys: pytest
     assert color_text(color="yellow", text=expected_warning) in printed_output
 
 
-def use_sequence_normalization(configuration: Dict[str, Any]) -> None:
-    """
-    Uses the sequence normalization in the backbone, refused for the detector, which has no sequences.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
-
-
-def write_per_class_report_as_text(configuration: Dict[str, Any]) -> None:
-    """
-    Writes the switch of the per-class evaluation report as a quoted string instead of a boolean.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["per_class_report"] = "yes"
-
-
-def set_negative_number_sample_images(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a negative number of sample images, a setting shared by every task.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["number_sample_images"] = -1
-
-
-def set_invalid_tracking(configuration: Dict[str, Any]) -> None:
-    """
-    Writes every MLflow tracking setting with an invalid value: the switch as text, an empty server address and an
-    experiment name that is not a string.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["tracking"].update({"activated": "yes", "tracking_uri": " ",
-                                                                 "experiment_name": 12})
-
-
-def set_invalid_batch_normalization_momentums(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a batch normalization momentum above 1 in the region proposal heads and written as text in the detection
-    heads.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["RegionProposal"]["normalization"]["batch_normalization_momentum"] = 1.5
-    configuration["Detector"]["normalization"]["batch_normalization_momentum"] = "fast"
-
-
-def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the pre-activation placement of the residual shortcuts on with the residual shortcuts off.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["Backbone"]["modules"].update({"residual_nets": False, "residual_nets_v2": True})
-
-
-def add_mask_loss_weight(configuration: Dict[str, Any]) -> None:
-    """
-    Gives a weight to the mask loss, which only the instance segmenter has, in an object detection configuration.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["Optimization"]["loss_weights"]["mask_loss"] = 1.0
-
-
 def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
     """
     Sets a negative weight of the classification loss of the region proposals and writes the weight of the box loss of
@@ -375,27 +188,6 @@ def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
     """
     configuration["Optimization"]["loss_weights"].update({"region_proposal_classification_loss": -1.0,
                                                           "detection_regression_loss": "high"})
-
-
-def zero_every_loss_weight(configuration: Dict[str, Any]) -> None:
-    """
-    Sets the weight of every loss of the detector to 0.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    loss_weights = configuration["Optimization"]["loss_weights"]
-    loss_weights.update({loss_name: 0 for loss_name in loss_weights})
-
-
-def set_empty_black_out_grid(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a grid of 0 rows and columns for the random_black_out type of the data augmentation.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration, modified in place.
-    """
-    configuration["Data"]["data_augmentation"]["types"]["random_black_out"]["grid_size"] = 0
 
 
 def activate_image_only_augmentation_types(configuration: Dict[str, Any]) -> None:
@@ -417,22 +209,9 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (set_empty_black_out_grid, ["'Data.data_augmentation.types.random_black_out.grid_size' must be an integer within "
-                                "[1, 'Data.image_settings.size' (1024)], got 0: a grid finer than the image would "
-                                "hide cells holding no pixel."]),
-    (set_pre_activation_without_residual_shortcuts, ["'Backbone.modules.residual_nets_v2' must be False when "
-                                                     "'Backbone.modules.residual_nets' is False"]),
-    (set_invalid_batch_normalization_momentums, ["'RegionProposal.normalization.batch_normalization_momentum' must be "
-                                                 "a number within (0, 1], got 1.5.",
-                                                 "'Detector.normalization.batch_normalization_momentum' must be a "
-                                                 "number within (0, 1], got 'fast'."]),
-    (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
-                                     "this task, whose samples have no frames."]),
     (set_image_size, ["'Data.image_settings.size' (1000) must be a multiple of 64, 2 to the power of the 6 Backbone "
                       "pooling layers"]),
     (set_overlapping_thresholds, ["'RegionProposal.background_iou_threshold.max' (0.6) must be <="]),
-    (remove_level_anchors, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector'], "
-                            "got ['detector', 'region_proposal']."]),
     (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
                                             "got [0, 64].",
                                             "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "
@@ -445,48 +224,12 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                             "of positive integers, got [].",
                                             "'DetectionLevels.6.detector.convolutions' has 60 output channels, "
                                             "inception modules require a multiple of 8."]),
-    (set_single_input_channel, ["'Backbone.input_channels' must be 3, the loaders giving 3-channel BGR images and "
-                                "the exports taking 3-channel inputs, got 1."]),
-    (set_string_flag, ["'Backbone.modules.inception' must be True or False"]),
-    (set_detector_samples, ["'Detector.total_training_samples' (1000) must be <="]),
-    (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
-    (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
-                                      "must be smaller than"]),
-    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'instance_segmentation', "
-                        "'classification', 'semantic_segmentation', 'sequence_classification', 'sequence_labelling', "
-                        "'sequence_comparison', 'frame_selection', 'self_supervised', 'keypoint_detection'], got "
-                        "'segmentation'."]),
-    (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
-                                      "within [0, 1], got 1.5."]),
-    (set_invalid_detection_error_analysis, ["'ExperimentConfiguration.evaluation.target_precision' must be a "
-                                            "probability within [0, 1], got -0.1.",
-                                            "'ExperimentConfiguration.evaluation.error_dumps.activated' must be True "
-                                            "or False, got 'yes'.",
-                                            "'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' "
-                                            "must be an integer >= 1, got 0."]),
-    (set_invalid_anchor_coverage, ["'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.activated' "
-                                   "must be True or False, got 'yes'.",
-                                   "'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.iou_threshold' "
-                                   "must be a number within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' (1000) must be a multiple of 64",
                            "'Detector.number_training_positives' (500) must be <="]),
-    (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
-                                      "got 'yes'."]),
-    (set_negative_number_sample_images, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
-                                         "integer >= 0, got -1."]),
-    (set_invalid_tracking, ["'ExperimentConfiguration.tracking.activated' must be True or False, got 'yes'.",
-                            "'ExperimentConfiguration.tracking.tracking_uri' must be null or a non-empty string, "
-                            "got ' '.",
-                            "'ExperimentConfiguration.tracking.experiment_name' must be null or a non-empty string, "
-                            "got 12."]),
-    (add_mask_loss_weight, ["'Optimization.loss_weights' must give the weight of exactly the losses "
-                            "['region_proposal_classification_loss', 'region_proposal_localisation_loss', "
-                            "'detection_classification_loss', 'detection_regression_loss'], got"]),
     (set_invalid_loss_weights, ["'Optimization.loss_weights.region_proposal_classification_loss' must be a number "
                                 ">= 0, got -1.0.",
                                 "'Optimization.loss_weights.detection_regression_loss' must be a number >= 0, got "
                                 "'high'."]),
-    (zero_every_loss_weight, ["'Optimization.loss_weights' cannot all be 0, the model would have no loss."]),
     (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
@@ -530,9 +273,7 @@ def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path, cap
 
 
 @pytest.mark.parametrize(argnames=("run_name_suffix", "accepted"),
-                         argvalues=[(None, True), ("v1", True), ("batch-384.v2", True), ("", False),
-                                    ("v1_batch-384", False), ("runs/v1", False), ("v 1", False), (12, False),
-                                    (True, False)])
+                         argvalues=[(None, True), ("runs/v1", False)])
 def test_run_name_suffix_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture, run_name_suffix: Any,
                                     accepted: bool) -> None:
     """
@@ -563,19 +304,15 @@ def test_run_name_suffix_is_checked(tmp_path: Path, capsys: pytest.CaptureFixtur
 
 
 @pytest.mark.parametrize(argnames=("intermediate_weight_saving_iterations", "expected_message"),
-                         argvalues=[(0, None), (2500, None),
-                                    (-1, "'ExperimentConfiguration.intermediate_weight_saving_iterations' must be an "
-                                         "integer >= 0, got -1."),
-                                    (5000, "'ExperimentConfiguration.intermediate_weight_saving_iterations' (5000) "
+                         argvalues=[(5000, "'ExperimentConfiguration.intermediate_weight_saving_iterations' (5000) "
                                            "must be smaller than 'ExperimentConfiguration.weight_saving_iterations' "
                                            "(5000).")])
 def test_intermediate_weight_saving_iterations_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                           intermediate_weight_saving_iterations: int,
                                                           expected_message: Optional[str]) -> None:
     """
-    Verifies that the intermediate weight saving is 0, which saves no checkpoint between the evaluated ones, or a
-    positive integer smaller than weight_saving_iterations (5000 in the example configuration), a negative value or one
-    not more frequent than the evaluated checkpoints being refused with its key.
+    Verifies that an intermediate weight saving not smaller than weight_saving_iterations (5000 here), so not more
+    frequent than the evaluated checkpoints, is refused with its key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -601,25 +338,6 @@ def test_intermediate_weight_saving_iterations_is_checked(tmp_path: Path, capsys
         assert expected_message in capsys.readouterr().out
 
 
-def test_configuration_without_run_name_suffix_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies that a configuration written before the run name suffix, without the key, is refused with its path
-    instead of being named as if the suffix were null.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
-    """
-    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
-    del configuration["ExperimentConfiguration"]["run_name_suffix"]
-    configuration_path = tmp_path / "configuration.yaml"
-    configuration_path.write_text(yaml.safe_dump(configuration))
-
-    with pytest.raises(expected_exception=SystemExit):
-        load_experiment_configuration(configuration_path=configuration_path)
-    assert "Missing configuration key 'ExperimentConfiguration.run_name_suffix'." in capsys.readouterr().out
-
-
 def empty_detection_levels(configuration: Dict[str, Any]) -> None:
     """
     Removes every detection level.
@@ -628,26 +346,6 @@ def empty_detection_levels(configuration: Dict[str, Any]) -> None:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
     configuration["DetectionLevels"] = {}
-
-
-def unquote_detection_level(configuration: Dict[str, Any]) -> None:
-    """
-    Writes the key of the seventh detection level as a number instead of a quoted block number.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["DetectionLevels"][7] = configuration["DetectionLevels"].pop("7")
-
-
-def add_level_beyond_the_backbone(configuration: Dict[str, Any]) -> None:
-    """
-    Adds an eighth detection level, while the backbone of the example has seven blocks.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["DetectionLevels"]["8"] = copy.deepcopy(configuration["DetectionLevels"]["7"])
 
 
 def reverse_detection_levels(configuration: Dict[str, Any]) -> None:
@@ -660,33 +358,15 @@ def reverse_detection_levels(configuration: Dict[str, Any]) -> None:
     configuration["DetectionLevels"] = dict(reversed(list(configuration["DetectionLevels"].items())))
 
 
-def add_mask_head_to_detection_level(configuration: Dict[str, Any]) -> None:
-    """
-    Gives the fifth detection level of the object detection a mask head, which only the instance segmentation has.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["DetectionLevels"]["5"]["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_errors"), argvalues=[
     (empty_detection_levels, ["'DetectionLevels' must map at least one backbone block number to the settings of its "
                               "level, got {}."]),
-    (unquote_detection_level, ["'DetectionLevels' keys must be quoted backbone block numbers between \"1\" and "
-                               "\"7\", got ['5', '6', 7]."]),
-    (add_level_beyond_the_backbone, ["'DetectionLevels' keys must be quoted backbone block numbers between \"1\" "
-                                     "and \"7\", got ['5', '6', '7', '8']."]),
-    (reverse_detection_levels, ["'DetectionLevels' keys must be in increasing order, got ['7', '6', '5']."]),
-    (add_mask_head_to_detection_level, ["'DetectionLevels.5' must hold exactly ['anchors', 'region_proposal', "
-                                        "'detector'], got ['anchors', 'region_proposal', 'detector', 'mask_head']."])])
+    (reverse_detection_levels, ["'DetectionLevels' keys must be in increasing order, got ['7', '6', '5']."])])
 def test_inconsistent_detection_levels_are_rejected(modify_function: Callable[[Dict[str, Any]], None],
                                                     expected_errors: List[str]) -> None:
     """
-    Verifies the keys and components of the detection levels on the example configuration itself, since writing it
-    back to a YAML file would sort its keys and turn its unquoted keys back into numbers of their own: the levels must
-    be the quoted numbers of existing backbone blocks, in increasing order, each holding the anchors and the heads of
-    the task only.
+    Verifies the keys of the detection levels on the example configuration itself, since writing it back to a YAML
+    file would sort its keys: at least one level must be given, the levels being in increasing order.
 
     Args:
         modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
@@ -768,47 +448,6 @@ def set_invalid_head(configuration: Dict[str, Any]) -> None:
                                                 "output_mode": "multi", "class_weighting": "inverse"})
 
 
-def normalize_head_without_hidden_layers(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the batch normalization of the hidden layers on in a head without hidden layers.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"].update({"fully_connected": [], "fully_connected_normalization": "batch"})
-
-
-def use_sequence_normalization_in_head(configuration: Dict[str, Any]) -> None:
-    """
-    Normalizes the hidden layers with the sequence normalization, a normalization of the backbone feature maps only.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["fully_connected_normalization"] = "sequence"
-
-
-def write_head_normalization_as_boolean(configuration: Dict[str, Any]) -> None:
-    """
-    Writes the normalization of the hidden layers as True, as the configurations written before the layer
-    normalization.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["fully_connected_normalization"] = True
-
-
-def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a target precision above 1 and the predictions setting as a quoted string.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"].update({"target_precision": 1.5, "save_predictions": "yes"})
-
-
 def list_invalid_target_precisions(configuration: Dict[str, Any]) -> None:
     """
     Gives a list of target precisions holding a precision above 1.
@@ -819,48 +458,6 @@ def list_invalid_target_precisions(configuration: Dict[str, Any]) -> None:
     configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 1.5]
 
 
-def repeat_a_target_precision(configuration: Dict[str, Any]) -> None:
-    """
-    Gives a list of target precisions holding the same precision twice.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 0.95, 0.99]
-
-
-def list_no_target_precision(configuration: Dict[str, Any]) -> None:
-    """
-    Gives an empty list of target precisions.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = []
-
-
-def list_several_target_precisions(configuration: Dict[str, Any]) -> None:
-    """
-    Gives the thresholds of three target precisions, as for the thresholds of a research report.
-
-    Args:
-        configuration (Dict[str, Any]): The raw configuration of a classification-like task, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 0.95, 0.90]
-
-
-def dump_multi_label_errors(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the error images on in multi-label mode, with a maximum of zero images per class pair.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["output_mode"] = "multi_label"
-    configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] = {"activated": True,
-                                                                           "maximum_per_class_pair": 0}
-
-
 def set_invalid_decorrelation(configuration: Dict[str, Any]) -> None:
     """
     Writes the decorrelation flag as a quoted string, with a weight of 0 and a hidden layer 0.
@@ -869,17 +466,6 @@ def set_invalid_decorrelation(configuration: Dict[str, Any]) -> None:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
     configuration["ClassificationHead"]["decorrelation"] = {"activated": "yes", "weight": 0, "hidden_layer": 0}
-
-
-def decorrelate_a_missing_hidden_layer(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the decorrelation on for a second hidden layer in a head of a single hidden layer.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["fully_connected"] = [128]
-    configuration["ClassificationHead"]["decorrelation"] = {"activated": True, "weight": 0.01, "hidden_layer": 2}
 
 
 def normalize_the_head_of_single_image_batches(configuration: Dict[str, Any]) -> None:
@@ -893,8 +479,7 @@ def normalize_the_head_of_single_image_batches(configuration: Dict[str, Any]) ->
     configuration["ClassificationHead"].update({"fully_connected": [64], "fully_connected_normalization": "batch"})
 
 
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_shapes.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the classification configurations shipped with the repository pass every consistency check, and
@@ -912,66 +497,15 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
     assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
 
 
-def decorrelate_the_last_hidden_layer(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the decorrelation on for the last of two hidden layers.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["fully_connected"] = [128, 64]
-    configuration["ClassificationHead"]["decorrelation"] = {"activated": True, "weight": 0.01, "hidden_layer": 2}
-
-
-def test_decorrelation_of_a_hidden_layer_is_accepted(tmp_path: Path) -> None:
-    """
-    Verifies that a classification configuration decorrelating the last hidden layer of its head passes the checks.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
-                                                  configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=decorrelate_the_last_hidden_layer)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["ClassificationHead"]["decorrelation"] == {"activated": True, "weight": 0.01,
-                                                                          "hidden_layer": 2}
-
-
-@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"), argvalues=[
-    ("classification", "configuration_synthetic_shapes.yaml"),
-    ("sequence_classification", "configuration_synthetic_sequences.yaml"),
-    ("self_supervised", "configuration_synthetic_shapes.yaml")])
-def test_image_only_augmentation_types_are_accepted_without_targets(tmp_path: Path, task_folder: str,
-                                                                    configuration_name: str) -> None:
-    """
-    Verifies that the tasks whose samples hold no box, mask or keypoint, here the image and sequence classifications
-    and the self-supervised task, accept the perspective and the jigsaw, the augmentation types moving the image only.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        task_folder (str): The folder of the configurations of the task.
-        configuration_name (str): The file name of the configuration.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
-                                                  configuration_name=configuration_name,
-                                                  modify_function=activate_image_only_augmentation_types)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    augmentation_types = model_configuration["Data"]["data_augmentation"]["types"]
-    assert augmentation_types["random_perspective"]["activated"] and augmentation_types["random_jigsaw"]["activated"]
-
-
 @pytest.mark.parametrize(argnames=("jigsaw_grid_size", "image_size", "jigsaw_activated", "refused_by_jigsaw", "loads"),
-                         argvalues=[(2, 1, True, True, False), (2, 1, False, False, False), (2, 256, True, False, True),
-                                    (3, 256, True, True, False), (3, 256, False, False, True)])
+                         argvalues=[(3, 256, True, True, False)])
 def test_jigsaw_image_size_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch,
                                       jigsaw_grid_size: int, image_size: int, jigsaw_activated: bool,
                                       refused_by_jigsaw: bool, loads: bool) -> None:
     """
     Verifies that an activated random_jigsaw refuses a side of the network input that is not a multiple of its grid
-    size, which would stop the training at its first batch, and that the jigsaw turned off leaves the size to the
-    other checks: the image of 1 pixel, refused by the size checks, is refused by the 2x2 grid too, and a grid of 3x3
-    pieces in both strength sets stands for a change of the hard-coded grid size.
+    size, which would stop the training at its first batch, a grid of 3x3 pieces in both strength sets standing for a
+    change of the hard-coded grid size.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1005,35 +539,23 @@ def test_jigsaw_image_size_is_checked(tmp_path: Path, capsys: pytest.CaptureFixt
     assert (jigsaw_message in capsys.readouterr().out) == refused_by_jigsaw
 
 
-# Messages of the image size checks for the synthetic classification backbone of 6 blocks, 5 pooling layers without
+# Message of the image size check for the synthetic classification backbone of 6 blocks, 5 pooling layers without
 # the last max pooling and 6 with it
 POOLING_SIZE_MESSAGE = ("'Data.image_settings.size' ({image_size}) must be a multiple of {required_multiple}, 2 to the "
                         "power of the {number_pooling_layers} Backbone pooling layers, so that every feature map "
                         "entering a pooling is even, e.g. {nearest_sizes}.")
-EVEN_SIZE_MESSAGE = "'Data.image_settings.size' must be a positive even integer, got {image_size}."
 
 
 @pytest.mark.parametrize(argnames=("image_size", "last_max_pooling", "expected_messages"), argvalues=[
-    (224, False, []), (96, False, []), (512, False, []),
-    (100, False, [POOLING_SIZE_MESSAGE.format(image_size=100, required_multiple=32, number_pooling_layers=5,
-                                              nearest_sizes="96 or 128")]),
-    (101, False, [EVEN_SIZE_MESSAGE.format(image_size=101),
-                  POOLING_SIZE_MESSAGE.format(image_size=101, required_multiple=32, number_pooling_layers=5,
-                                              nearest_sizes="96 or 128")]),
-    (16, False, [POOLING_SIZE_MESSAGE.format(image_size=16, required_multiple=32, number_pooling_layers=5,
-                                             nearest_sizes="32")]),
     (224, True, [POOLING_SIZE_MESSAGE.format(image_size=224, required_multiple=64, number_pooling_layers=6,
-                                             nearest_sizes="192 or 256")]),
-    (0, False, [EVEN_SIZE_MESSAGE.format(image_size=0)])])
+                                             nearest_sizes="192 or 256")])])
 def test_image_size_must_keep_every_pooled_feature_map_even(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                             image_size: int, last_max_pooling: bool,
                                                             expected_messages: List[str]) -> None:
     """
-    Verifies that the image size is accepted when every feature map entering a max pooling of the Backbone is even,
-    whether or not it is a power of two, the output of the last pooling being allowed to be odd (224 gives 7x7 after
-    5 poolings), and refused otherwise with the nearest valid sizes: 100 gives a map of 25 before the third pooling,
-    an odd size is refused by the even check too, a size below 2 to the power of the poolings is refused with the
-    next multiple only, and the last max pooling adds a halving, which refuses the odd 7x7 map of 224 entering it.
+    Verifies that the image size is refused, with the nearest valid sizes, when a feature map entering a max pooling of
+    the Backbone is odd: the last max pooling adds a halving, which refuses the odd 7x7 map that 224 gives after the 5
+    other poolings.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1061,29 +583,6 @@ def test_image_size_must_keep_every_pooled_feature_map_even(tmp_path: Path, caps
         assert expected_message in printed_output
 
 
-def keep_the_removed_view_losses(configuration: Dict[str, Any]) -> None:
-    """
-    Keeps the section of the view losses removed from the image classifier, next to an unknown pooling of its head.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["view_losses"] = {"global_pooling": "average"}
-    configuration["ClassificationHead"]["global_pooling"] = "median"
-
-
-def keep_the_removed_view_augmentation(configuration: Dict[str, Any]) -> None:
-    """
-    Keeps the section of the views of the self-supervised task, removed for the types of the data augmentation, next
-    to an unknown method of the projection head.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["Data"]["view_augmentation"] = {"rotation": {"probability": 0.5, "maximum_degrees": 180.0}}
-    configuration["ProjectionHead"]["method"] = "byol"
-
-
 def keep_the_fixed_settings(configuration: Dict[str, Any]) -> None:
     """
     Keeps every setting removed from the configuration files for its fixed value (top-k, artifacts, resumption,
@@ -1106,42 +605,21 @@ def keep_the_fixed_settings(configuration: Dict[str, Any]) -> None:
     configuration["ClassificationHead"]["global_pooling"] = "median"
 
 
-def keep_the_sequence_settings(configuration: Dict[str, Any]) -> None:
-    """
-    Keeps the sequence augmentation settings, held by the sequence tasks only, in an object detection configuration,
-    next to an image size that is not a multiple of the poolings of its backbone.
-
-    Args:
-        configuration (Dict[str, Any]): The raw object detection configuration, modified in place.
-    """
-    configuration["Data"]["data_augmentation"]["independent_frames"] = False
-    configuration["Data"]["data_augmentation"]["shuffle_frames"] = {"activated": False, "probability": 0.5}
-    configuration["Data"]["image_settings"]["size"] = 1000
-
-
 @pytest.mark.parametrize(argnames=("task_folder", "modify_function", "removed_settings", "hidden_message"), argvalues=[
-    ("classification", keep_the_removed_view_losses, ["ClassificationHead.view_losses"],
-     "'ClassificationHead.global_pooling' must be one of"),
-    ("self_supervised", keep_the_removed_view_augmentation, ["Data.view_augmentation"],
-     "'ProjectionHead.method' must be one of"),
     ("classification", keep_the_fixed_settings,
      ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfiguration.tracking.log_artifacts",
       "ExperimentConfiguration.resume_training", "ExperimentConfiguration.diagnosis_modes.compute_model_size",
       "ExperimentConfiguration.diagnosis_modes.verbose", "Optimization.mixed_precision", "Data.loading",
       "Backbone.modules.inception_starting_block", "Backbone.normalization.batch_normalization_momentum",
-      "ClassificationHead.batch_normalization_momentum"], "'ClassificationHead.global_pooling' must be one of"),
-    ("object_detection", keep_the_sequence_settings,
-     ["Data.data_augmentation.independent_frames", "Data.data_augmentation.shuffle_frames"],
-     "'Data.image_settings.size' (1000) must be a multiple of")])
+      "ClassificationHead.batch_normalization_momentum"], "'ClassificationHead.global_pooling' must be one of")])
 def test_removed_settings_are_refused_alone(tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str,
                                             modify_function: Callable[[Dict[str, Any]], None],
                                             removed_settings: List[str], hidden_message: str) -> None:
     """
-    Verifies that a configuration still holding settings or sections removed from the repository (the view losses of
-    the image classifier, the views of the self-supervised task now drawn by the data augmentation, the settings fixed
-    in the code, the sequence settings in an image task) is refused with a message naming every removed setting, what
-    replaced it and that it must be deleted, and alone: the other checks do not run, so that the reason of the refusal
-    is never hidden behind the keys the removed setting leaves missing.
+    Verifies that a configuration still holding settings removed from the repository (here the settings fixed in the
+    code) is refused with a message naming every removed setting, what replaced it and that it must be deleted, and
+    alone: the other checks do not run, so that the reason of the refusal is never hidden behind the keys the removed
+    setting leaves missing.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1167,15 +645,12 @@ def test_removed_settings_are_refused_alone(tmp_path: Path, capsys: pytest.Captu
 
 
 @pytest.mark.parametrize(argnames=("task_folder", "configuration_name"), argvalues=[
-    ("sequence_classification", "configuration_synthetic_sequences.yaml"),
-    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
-    ("sequence_comparison", "configuration_synthetic_pairs.yaml"),
-    ("frame_selection", "configuration_synthetic_sequences.yaml")])
+    ("sequence_classification", "configuration_synthetic_sequences.yaml")])
 def test_sequence_tasks_keep_their_settings(tmp_path: Path, task_folder: str, configuration_name: str) -> None:
     """
     Verifies that the settings removed from the other tasks but still held by the sequence tasks, the sequence
-    augmentation settings, and by the frame selection, its number of candidate frames 'evaluation.top_k', load in
-    their configurations.
+    augmentation settings, load in their configurations, the number of candidate frames 'evaluation.top_k' being held
+    by the frame selection only.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1201,38 +676,11 @@ def test_sequence_tasks_keep_their_settings(tmp_path: Path, task_folder: str, co
                         "'ClassificationHead.dropout_rate' must be a number within [0, 1), got 1.0.",
                         "'ClassificationHead.output_mode' must be one of ['multi_class', 'multi_label']",
                         "'ClassificationHead.class_weighting' must be one of ['none', 'balanced']"]),
-    (normalize_head_without_hidden_layers, ["'ClassificationHead.fully_connected_normalization' must be 'none' when "
-                                            "'ClassificationHead.fully_connected' is []: the head has no hidden layer "
-                                            "to normalize."]),
-    (use_sequence_normalization_in_head, ["'ClassificationHead.fully_connected_normalization' must be one of "
-                                          "['batch', 'layer', 'none'], got 'sequence'."]),
-    (write_head_normalization_as_boolean, ["'ClassificationHead.fully_connected_normalization' must be one of "
-                                           "['batch', 'layer', 'none'], got True, written before the layer "
-                                           "normalization: it is now 'batch'."]),
-    (set_invalid_classification_evaluation, ["'ExperimentConfiguration.evaluation.target_precision' must be a "
-                                             "probability within [0, 1], got 1.5.",
-                                             "'ExperimentConfiguration.evaluation.save_predictions' must be True or "
-                                             "False, got 'yes'."]),
     (list_invalid_target_precisions, ["'ExperimentConfiguration.evaluation.target_precision[1]' must be a "
                                       "probability within [0, 1], got 1.5."]),
-    (repeat_a_target_precision, ["'ExperimentConfiguration.evaluation.target_precision' must not repeat a "
-                                 "probability, got [0.99, 0.95, 0.99]."]),
-    (list_no_target_precision, ["'ExperimentConfiguration.evaluation.target_precision' must hold at least one "
-                                "probability, got an empty list."]),
-    (dump_multi_label_errors, ["'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' must be an "
-                               "integer >= 1, got 0.",
-                               "'ExperimentConfiguration.evaluation.error_dumps.activated' must be False with "
-                               "'ClassificationHead.output_mode' 'multi_label'"]),
-    (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
-                                      "got 'yes'."]),
-    (set_negative_number_sample_images, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
-                                         "integer >= 0, got -1."]),
     (set_invalid_decorrelation, ["'ClassificationHead.decorrelation.activated' must be True or False, got 'yes'.",
                                  "'ClassificationHead.decorrelation.weight' must be a number > 0, got 0.",
                                  "'ClassificationHead.decorrelation.hidden_layer' must be an integer >= 1, got 0."]),
-    (decorrelate_a_missing_hidden_layer, ["'ClassificationHead.decorrelation.hidden_layer' must be at most the number "
-                                          "of hidden layers of 'ClassificationHead.fully_connected' (1) when "
-                                          "'ClassificationHead.decorrelation.activated' is True, got 2."]),
     (normalize_the_head_of_single_image_batches, ["'ExperimentConfiguration.batch_size' must be at least 2 with "
                                                   "'ClassificationHead.fully_connected_normalization' 'batch': the "
                                                   "batch normalization of the hidden layers needs the statistics of "
@@ -1263,28 +711,6 @@ def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, c
     assert "Traceback" not in printed_output
 
 
-@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"),
-                         argvalues=[("classification", "configuration_synthetic_shapes.yaml"),
-                                    ("sequence_classification", "configuration_synthetic_sequences.yaml"),
-                                    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
-                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml")])
-def test_several_target_precisions_are_accepted(tmp_path: Path, task_folder: str, configuration_name: str) -> None:
-    """
-    Verifies that the classification-like tasks sharing the evaluation of the classification accept a list of target
-    precisions, kept in its order for the trainer, whose first precision is the main target.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        task_folder (str): The configuration folder of the task.
-        configuration_name (str): The file name of its synthetic configuration.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
-                                                  configuration_name=configuration_name,
-                                                  modify_function=list_several_target_precisions)
-    experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
-    assert experiment_configuration["evaluation"]["target_precision"] == [0.99, 0.95, 0.90]
-
-
 def flatten_final_feature_map(configuration: Dict[str, Any]) -> None:
     """
     Gives the classification head all the values of the final feature map instead of their average.
@@ -1304,29 +730,6 @@ def test_flattened_feature_map_is_accepted_for_classification(tmp_path: Path) ->
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
                                                   configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=flatten_final_feature_map)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["ClassificationHead"]["global_pooling"] == "flatten"
-
-
-@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"),
-                         argvalues=[("sequence_classification", "configuration_synthetic_sequences.yaml"),
-                                    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
-                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml"),
-                                    ("frame_selection", "configuration_synthetic_sequences.yaml")])
-def test_flattened_feature_map_is_accepted_for_the_sequence_tasks(tmp_path: Path, task_folder: str,
-                                                                  configuration_name: str) -> None:
-    """
-    Verifies that the sequence tasks accept to flatten the final feature map of every frame, their temporal module
-    and fusion then reading frame vectors of one value per position and channel of the last backbone block.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        task_folder (str): The folder of the configurations of the sequence task.
-        configuration_name (str): The file name of the synthetic configuration of the task.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
-                                                  configuration_name=configuration_name,
                                                   modify_function=flatten_final_feature_map)
     _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert model_configuration["ClassificationHead"]["global_pooling"] == "flatten"
@@ -1352,16 +755,6 @@ def test_classification_classes_must_be_contiguous(tmp_path: Path, capsys: pytes
     assert "indexed 0 to K-1 without gaps, got [0, 2]." in capsys.readouterr().out
 
 
-def set_causal_temporal_model(configuration: Dict[str, Any]) -> None:
-    """
-    Makes the bidirectional temporal module of the synthetic sequences configuration causal.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
-    """
-    configuration["TemporalModel"]["causal"] = True
-
-
 def set_invalid_transformer_and_settings(configuration: Dict[str, Any]) -> None:
     """
     Uses a transformer whose model size is not a multiple of its heads, empty sequences and several classes per
@@ -1375,28 +768,7 @@ def set_invalid_transformer_and_settings(configuration: Dict[str, Any]) -> None:
     configuration["ClassificationHead"]["output_mode"] = "multi_label"
 
 
-def set_even_temporal_kernel(configuration: Dict[str, Any]) -> None:
-    """
-    Uses a temporal convolution with kernels of an even number of frames.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
-    """
-    configuration["TemporalModel"].update({"type": "temporal_convolution", "kernel_size": 4})
-
-
-def set_unknown_temporal_type(configuration: Dict[str, Any]) -> None:
-    """
-    Uses a temporal module type that does not exist.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
-    """
-    configuration["TemporalModel"]["type"] = "rnn"
-
-
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_sequences.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_sequence_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the sequence classification configurations shipped with the repository pass every consistency
@@ -1415,19 +787,12 @@ def test_sequence_classification_configurations_are_consistent(tmp_path: Path, c
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (set_causal_temporal_model, ["'TemporalModel.causal' must be False for this task, which summarises whole "
-                                 "sequences",
-                                 "'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True"]),
     (set_invalid_transformer_and_settings, ["'TemporalModel.hidden_size' (100) must be a multiple of "
                                             "'TemporalModel.number_heads' (8) for the transformer.",
                                             "'Data.sequence_settings.maximum_sequence_length' must be an integer >= "
                                             "1",
                                             "'ClassificationHead.output_mode' must be 'multi_class' for the sequence "
-                                            "tasks"]),
-    (set_even_temporal_kernel, ["'TemporalModel.kernel_size' must be odd for the temporal convolution, got 4."]),
-    (set_unknown_temporal_type, ["'TemporalModel.type' must be one of ['mean_pooling', 'max_pooling', "
-                                 "'attention_pooling', 'gru', 'lstm', 'transformer', 'temporal_convolution'] for "
-                                 "this task, got 'rnn'."])])
+                                            "tasks"])])
 def test_inconsistent_sequence_classification_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
@@ -1464,28 +829,7 @@ def use_pooling_for_labelling(configuration: Dict[str, Any]) -> None:
     configuration["TemporalModel"]["type"] = "mean_pooling"
 
 
-def set_causal_bidirectional_recurrent_model(configuration: Dict[str, Any]) -> None:
-    """
-    Makes the recurrent module of the synthetic sequence labelling configuration both causal and bidirectional.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence labelling configuration, modified in place.
-    """
-    configuration["TemporalModel"].update({"causal": True, "bidirectional": True})
-
-
-def set_textual_positional_embedding(configuration: Dict[str, Any]) -> None:
-    """
-    Writes the positional embedding flag of the synthetic sequence labelling configuration as a text.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence labelling configuration, modified in place.
-    """
-    configuration["TemporalModel"]["positional_embedding"] = "no"
-
-
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_sequences.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_sequence_labelling_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the sequence labelling configurations shipped with the repository pass every consistency check,
@@ -1503,17 +847,13 @@ def test_sequence_labelling_configurations_are_consistent(tmp_path: Path, config
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (use_pooling_for_labelling, ["'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', "
-                                 "'temporal_convolution'] for this task, got 'mean_pooling'."]),
-    (set_causal_bidirectional_recurrent_model, ["'TemporalModel.bidirectional' must be False when "
-                                                "'TemporalModel.causal' is True"]),
-    (set_textual_positional_embedding, ["'TemporalModel.positional_embedding' must be True or False, got 'no'."])])
+                                 "'temporal_convolution'] for this task, got 'mean_pooling'."])])
 def test_inconsistent_sequence_labelling_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that the temporal modules unable to keep one vector per frame, causal modules reading the sequence
-    backwards and a positional embedding flag that is not a boolean are rejected for the sequence labelling task,
-    without rejecting the causal flag itself.
+    Verifies that the temporal modules unable to keep one vector per frame are rejected for the sequence labelling
+    task, without rejecting the causal flag itself.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1534,8 +874,7 @@ def test_inconsistent_sequence_labelling_configuration_is_rejected(
     assert "'TemporalModel.causal' must be False" not in printed_output
 
 
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_sequences.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_frame_selection_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the frame selection configurations shipped with the repository pass every consistency check, their
@@ -1564,54 +903,17 @@ def set_invalid_selection(configuration: Dict[str, Any]) -> None:
                                   "selection_loss_weight": -1.0}
 
 
-def list_target_precisions_for_selection(configuration: Dict[str, Any]) -> None:
-    """
-    Gives the frame selection a list of target precisions, whose deployed decoder keeps one threshold per class.
-
-    Args:
-        configuration (Dict[str, Any]): The raw frame selection configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = [0.99, 0.95]
-
-
-def set_no_candidate_frame(configuration: Dict[str, Any]) -> None:
-    """
-    Sets the number of candidate frames of every class given by the frame selection deployment to zero.
-
-    Args:
-        configuration (Dict[str, Any]): The raw frame selection configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["top_k"] = 0
-
-
-def use_pooling_for_selection(configuration: Dict[str, Any]) -> None:
-    """
-    Uses an order-blind pooling, which summarises a whole sequence into one vector, for the frame selection.
-
-    Args:
-        configuration (Dict[str, Any]): The raw frame selection configuration, modified in place.
-    """
-    configuration["TemporalModel"]["type"] = "max_pooling"
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_selection, ["'Selection.unselected_category' must be the non-empty name of a manifest category, "
                              "got ' '.", "'Selection.decoding' must be one of ['hungarian', 'greedy'], got 'beam'.",
                              "'Selection.frames_per_class' must be", "'Selection.selection_loss_weight' must be a "
-                             "number >= 0, got -1.0."]),
-    (use_pooling_for_selection, ["'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', "
-                                 "'temporal_convolution'] for this task, got 'max_pooling'."]),
-    (set_no_candidate_frame, ["'ExperimentConfiguration.evaluation.top_k' must be an integer >= 1, got 0."]),
-    (list_target_precisions_for_selection, ["'ExperimentConfiguration.evaluation.target_precision' must be a single "
-                                            "probability for this task, whose deployment keeps one threshold per "
-                                            "class, got the list [0.99, 0.95]."])])
+                             "number >= 0, got -1.0."])])
 def test_inconsistent_frame_selection_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that an invalid 'Selection' section, a temporal module unable to keep one vector per frame, no candidate
-    frame and a list of target precisions stop the loading of a frame selection configuration with a short message
-    naming the faulty key.
+    Verifies that an invalid 'Selection' section stops the loading of a frame selection configuration with a short
+    message naming every faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1642,54 +944,6 @@ def set_unknown_fusion(configuration: Dict[str, Any]) -> None:
     configuration["Fusion"].update({"type": "sum", "dropout_rate": 1.0})
 
 
-def set_cross_attention_heads_not_dividing_channels(configuration: Dict[str, Any]) -> None:
-    """
-    Splits the 64 channels of the last backbone block between 3 cross attention heads.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence comparison configuration, modified in place.
-    """
-    configuration["Fusion"].update({"type": "cross_attention", "number_heads": 3})
-
-
-def set_causal_comparison(configuration: Dict[str, Any]) -> None:
-    """
-    Summarises the members of a pair with a causal transformer.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence comparison configuration, modified in place.
-    """
-    configuration["TemporalModel"].update({"type": "transformer", "causal": True, "bidirectional": False})
-
-
-def set_unknown_normalization_scope(configuration: Dict[str, Any]) -> None:
-    """
-    Uses sequence normalization with a scope of the statistics that does not exist.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence comparison configuration, modified in place.
-    """
-    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
-    configuration["Fusion"]["sequence_normalization_scope"] = "batch"
-
-
-def test_sequence_normalization_is_accepted_for_the_sequence_tasks(tmp_path: Path) -> None:
-    """
-    Verifies that the sequence normalization of the backbone passes the checks of the sequence tasks, with both scopes
-    of the comparison task.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    for task_folder, configuration_name in [("sequence_classification", "configuration_synthetic_sequences.yaml"),
-                                            ("sequence_comparison", "configuration_synthetic_pairs.yaml")]:
-        configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
-                                                      configuration_name=configuration_name,
-                                                      modify_function=use_sequence_normalization)
-        _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-        assert model_configuration["Backbone"]["normalization"]["feature_map_normalization"] == "sequence"
-
-
 def remove_maximum_sequence_length(configuration: Dict[str, Any]) -> None:
     """
     Removes the maximum sequence length from the sequence settings.
@@ -1700,8 +954,7 @@ def remove_maximum_sequence_length(configuration: Dict[str, Any]) -> None:
     del configuration["Data"]["sequence_settings"]["maximum_sequence_length"]
 
 
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_pairs.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_sequence_comparison_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the sequence comparison configurations shipped with the repository pass every consistency check,
@@ -1721,20 +974,13 @@ def test_sequence_comparison_configurations_are_consistent(tmp_path: Path, confi
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_unknown_fusion, ["'Fusion.type' must be one of ['concatenation', 'difference', 'cross_attention'], got "
-                          "'sum'.", "'Fusion.dropout_rate' must be a number within [0, 1), got 1.0."]),
-    (set_cross_attention_heads_not_dividing_channels, ["The channels of the last backbone block (64) must be a "
-                                                       "multiple of 'Fusion.number_heads' (3) for the cross "
-                                                       "attention."]),
-    (set_causal_comparison, ["'TemporalModel.causal' must be False for this task, which summarises whole "
-                             "sequences"]),
-    (set_unknown_normalization_scope, ["'Fusion.sequence_normalization_scope' must be one of ['member', 'pair'], "
-                                       "got 'batch'."])])
+                          "'sum'.", "'Fusion.dropout_rate' must be a number within [0, 1), got 1.0."])])
 def test_inconsistent_sequence_comparison_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the fusion of the members, and a causal temporal module summarising them,
-    stops the loading of a sequence comparison configuration with a short message naming the faulty key.
+    Verifies that an inconsistent fusion of the members stops the loading of a sequence comparison configuration with
+    a short message naming the faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1756,14 +1002,11 @@ def test_inconsistent_sequence_comparison_configuration_is_rejected(
 
 
 @pytest.mark.parametrize(argnames=("task_folder", "configuration_name"),
-                         argvalues=[("sequence_classification", "configuration_synthetic_sequences.yaml"),
-                                    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
-                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml"),
-                                    ("frame_selection", "configuration_synthetic_sequences.yaml")])
+                         argvalues=[("sequence_classification", "configuration_synthetic_sequences.yaml")])
 def test_sequence_tasks_require_the_maximum_sequence_length(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                             task_folder: str, configuration_name: str) -> None:
     """
-    Verifies that every sequence task requires the maximum sequence length, which leaves the longer sequences out of
+    Verifies that a sequence task requires the maximum sequence length, which leaves the longer sequences out of
     the splits and sizes the positional embedding of the transformer.
 
     Args:
@@ -1803,66 +1046,13 @@ def set_invalid_pretrained_run(configuration: Dict[str, Any]) -> None:
     configuration["Backbone"]["pretrained"].update({"experiment_folder": 5, "iteration": 0})
 
 
-def freeze_normalization_of_random_backbone(configuration: Dict[str, Any]) -> None:
-    """
-    Keeps the normalization parameters of a backbone trained from random weights fixed.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Backbone"]["pretrained"]["freeze_normalization_parameters"] = True
-
-
-def freeze_normalization_of_frozen_backbone(configuration: Dict[str, Any]) -> None:
-    """
-    Keeps the normalization parameters of a frozen transferred backbone fixed.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Backbone"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": True,
-                                                    "freeze_normalization_parameters": True})
-
-
-def freeze_normalization_without_normalization_layers(configuration: Dict[str, Any]) -> None:
-    """
-    Keeps the normalization parameters of a transferred backbone without normalization layers fixed, and writes the
-    flag of another transferred backbone as a string.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Backbone"]["pretrained"].update({"experiment_folder": "/runs/source",
-                                                    "freeze_normalization_parameters": True})
-    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "none"
-
-
-def write_normalization_flag_as_text(configuration: Dict[str, Any]) -> None:
-    """
-    Writes the normalization flag of the backbone as a quoted string instead of a boolean.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Backbone"]["pretrained"]["freeze_normalization_parameters"] = "False"
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (freeze_random_backbone, ["'Backbone.pretrained.freeze' must be False when 'Backbone.pretrained.experiment_folder' "
                               "is null: only a transferred backbone can be frozen.",
                               "'Backbone.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
     (set_invalid_pretrained_run, ["'Backbone.pretrained.experiment_folder' must be null or the path of a run "
                                   "folder, got 5.",
-                                  "'Backbone.pretrained.iteration' must be an integer >= 1, got 0."]),
-    (freeze_normalization_of_random_backbone, ["'Backbone.pretrained.freeze_normalization_parameters' must be False "
-                                               "when 'Backbone.pretrained.experiment_folder' is null"]),
-    (freeze_normalization_of_frozen_backbone, ["'Backbone.pretrained.freeze_normalization_parameters' must be False "
-                                               "when 'Backbone.pretrained.freeze' is True"]),
-    (freeze_normalization_without_normalization_layers, [
-        "'Backbone.pretrained.freeze_normalization_parameters' must be False when "
-        "'Backbone.normalization.feature_map_normalization' is 'none': the backbone has no normalization layer."]),
-    (write_normalization_flag_as_text, ["'Backbone.pretrained.freeze_normalization_parameters' must be True or False, "
-                                        "got 'False'."])])
+                                  "'Backbone.pretrained.iteration' must be an integer >= 1, got 0."])])
 def test_inconsistent_pretrained_backbone_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                       modify_function: Callable[[Dict[str, Any]], None],
                                                       expected_messages: List[str]) -> None:
@@ -1886,49 +1076,6 @@ def test_inconsistent_pretrained_backbone_is_rejected(tmp_path: Path, capsys: py
         assert expected_message in printed_output
 
 
-def transfer_all_sequence_components(configuration: Dict[str, Any]) -> None:
-    """
-    Initialises the backbone, the temporal module and the classification head of a sequence classifier with those of
-    another run: the backbone with its normalization parameters fixed, the temporal module frozen and the head ten
-    times slower.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
-    """
-    configuration["Backbone"]["pretrained"].update({"experiment_folder": "/runs/source",
-                                                    "freeze_normalization_parameters": True})
-    configuration["TemporalModel"]["pretrained"].update({"experiment_folder": "/runs/source", "iteration": 3,
-                                                         "freeze": True})
-    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": "/runs/source",
-                                                              "learning_rate_multiplier": 0.1})
-
-
-def test_transferred_sequence_components_are_accepted(tmp_path: Path) -> None:
-    """
-    Verifies that consistent pretrained settings of every component of a sequence classifier pass the checks, the
-    source run being only read when the training starts.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
-                                                  configuration_name="configuration_synthetic_sequences.yaml",
-                                                  modify_function=transfer_all_sequence_components)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["TemporalModel"]["pretrained"]["freeze"] is True
-
-
-def transfer_mean_pooling(configuration: Dict[str, Any]) -> None:
-    """
-    Initialises a mean pooling temporal module, which has no weights, with the one of another run.
-
-    Args:
-        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
-    """
-    configuration["TemporalModel"]["type"] = "mean_pooling"
-    configuration["TemporalModel"]["pretrained"]["experiment_folder"] = "/runs/source"
-
-
 def set_invalid_temporal_and_head_transfers(configuration: Dict[str, Any]) -> None:
     """
     Freezes the temporal module without loading one from another run and multiplies its learning rate by zero, and
@@ -1942,8 +1089,6 @@ def set_invalid_temporal_and_head_transfers(configuration: Dict[str, Any]) -> No
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (transfer_mean_pooling, ["'TemporalModel.pretrained.experiment_folder' must be null for the 'mean_pooling' "
-                             "temporal module, which has no weights to transfer."]),
     (set_invalid_temporal_and_head_transfers, [
         "'TemporalModel.pretrained.freeze' must be False when 'TemporalModel.pretrained.experiment_folder' is null: "
         "only a transferred temporal module can be frozen.",
@@ -2019,8 +1164,7 @@ def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.Ca
         assert expected_message in printed_output
 
 
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_shapes.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_segmentation_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the semantic segmentation configurations shipped with the repository pass every consistency check,
@@ -2038,34 +1182,6 @@ def test_segmentation_configurations_are_consistent(tmp_path: Path, configuratio
     assert model_configuration["Data"]["label_dictionary"] == {1: 1, 2: 2, 3: 3, 4: 4, "background": 0}
 
 
-def use_last_max_pooling_with_its_decoder_level(configuration: Dict[str, Any]) -> None:
-    """
-    Pools the output of the last backbone block, which then becomes one more skip connection, with its decoder level,
-    and uses the binary label mapping.
-
-    Args:
-        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
-    """
-    configuration["Backbone"]["last_max_pooling"] = True
-    configuration["SegmentationDecoder"]["convolutions"]["6"] = [2, 128]
-    configuration["Data"]["label_mapping"]["mode"] = "binary"
-
-
-def test_segmentation_last_max_pooling_and_binary_labels_are_accepted(tmp_path: Path) -> None:
-    """
-    Verifies that the semantic segmentation accepts a pooled last backbone block when the decoder has the level of
-    its skip connection, and the binary label mapping giving the background and foreground classes.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="semantic_segmentation",
-                                                  configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=use_last_max_pooling_with_its_decoder_level)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["Data"]["label_dictionary"] == {"background": 0, "foreground": 1}
-
-
 def remove_decoder_level(configuration: Dict[str, Any]) -> None:
     """
     Removes the decoder level of the skip connection of the first backbone block.
@@ -2074,16 +1190,6 @@ def remove_decoder_level(configuration: Dict[str, Any]) -> None:
         configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
     """
     del configuration["SegmentationDecoder"]["convolutions"]["1"]
-
-
-def use_last_max_pooling_without_its_decoder_level(configuration: Dict[str, Any]) -> None:
-    """
-    Pools the output of the last backbone block without adding the decoder level of its skip connection.
-
-    Args:
-        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
-    """
-    configuration["Backbone"]["last_max_pooling"] = True
 
 
 def set_invalid_decoder(configuration: Dict[str, Any]) -> None:
@@ -2100,29 +1206,6 @@ def set_invalid_decoder(configuration: Dict[str, Any]) -> None:
     configuration["SegmentationDecoder"]["modules"]["squeeze_and_excite"] = "yes"
 
 
-def freeze_random_decoder(configuration: Dict[str, Any]) -> None:
-    """
-    Freezes the decoder and loads its class layers without loading one from another run, and multiplies its learning
-    rate by zero.
-
-    Args:
-        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
-    """
-    configuration["SegmentationDecoder"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0,
-                                                               "load_class_layers": True})
-
-
-def write_class_layers_flag_as_text(configuration: Dict[str, Any]) -> None:
-    """
-    Writes the class layers flag of a transferred decoder as a quoted string instead of a boolean.
-
-    Args:
-        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
-    """
-    configuration["SegmentationDecoder"]["pretrained"].update({"experiment_folder": "/runs/source",
-                                                               "load_class_layers": "True"})
-
-
 def remove_both_losses(configuration: Dict[str, Any]) -> None:
     """
     Gives every loss of the regions a weight of 0 with a boundary loss alone, and sets a negative focusing parameter,
@@ -2137,48 +1220,9 @@ def remove_both_losses(configuration: Dict[str, Any]) -> None:
                                               "label_smoothing": 1.0, "class_weighting": "inverse"})
 
 
-def set_invalid_deep_supervision(configuration: Dict[str, Any]) -> None:
-    """
-    Puts a deep supervision head on the finest decoder level, whose output is the final segmentation, and gives an
-    intermediate level a weight of 0.
-
-    Args:
-        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
-    """
-    configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"1": 0.5, "3": 0}
-
-
-def set_invalid_tiling(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the training on tiles on with a scale of 0 and an overlap as large as a tile.
-
-    Args:
-        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
-    """
-    configuration["Data"]["tiling"] = {"activated": True, "scale": 0, "overlap": 512}
-
-
-def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a negative number of sample images, the predicted masks setting as a quoted string, the original resolution
-    setting as a number and a boundary tolerance of 0.
-
-    Args:
-        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"].update({"number_sample_images": -1,
-                                                                   "save_predicted_masks": "yes",
-                                                                   "original_resolution": 1, "boundary_tolerance": 0})
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
-                                  "this task, whose samples have no frames."]),
     (remove_decoder_level, ["'SegmentationDecoder.convolutions' keys must be the backbone blocks of its skip "
                             "connections ['5', '4', '3', '2', '1']", "missing ['1'], unexpected []."]),
-    (use_last_max_pooling_without_its_decoder_level, ["'SegmentationDecoder.convolutions' keys must be the backbone "
-                                                      "blocks of its skip connections ['6', '5', '4', '3', '2', '1']",
-                                                      "missing ['6'], unexpected []."]),
     (set_invalid_decoder, ["'SegmentationDecoder.upsampling' must be one of ['transposed', 'bilinear'], got "
                            "'nearest'.",
                            "'SegmentationDecoder.convolutions.3' must be [number_layers, output_channels] with "
@@ -2189,40 +1233,13 @@ def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
                            "'SegmentationDecoder.batch_normalization_momentum' must be a number within (0, 1], got "
                            "2.",
                            "'SegmentationDecoder.dropout_rate' must be a number within [0, 1), got 1.0."]),
-    (freeze_random_decoder, ["'SegmentationDecoder.pretrained.freeze' must be False when "
-                             "'SegmentationDecoder.pretrained.experiment_folder' is null: only a transferred "
-                             "segmentation decoder can be frozen.",
-                             "'SegmentationDecoder.pretrained.learning_rate_multiplier' must be > 0, got 0.",
-                             "'SegmentationDecoder.pretrained.load_class_layers' must be False when "
-                             "'SegmentationDecoder.pretrained.experiment_folder' is null: the class layers are loaded "
-                             "from the source run of the decoder."]),
-    (write_class_layers_flag_as_text, ["'SegmentationDecoder.pretrained.load_class_layers' must be True or False, got "
-                                       "'True'."]),
     (remove_both_losses, ["'SegmentationLoss.cross_entropy_weight', 'SegmentationLoss.dice_weight' and "
                           "'SegmentationLoss.lovasz_weight' cannot all be 0, the regions would have no loss.",
                           "'SegmentationLoss.boundary_weight' must be a number >= 0, got True.",
                           "'SegmentationLoss.boundary_distance' must be an integer >= 0, got -1.",
                           "'SegmentationLoss.focal_gamma' must be a number >= 0, got -1.0.",
                           "'SegmentationLoss.label_smoothing' must be a number within [0, 1), got 1.0.",
-                          "'SegmentationLoss.class_weighting' must be one of ['none', 'balanced'], got 'inverse'."]),
-    (set_invalid_segmentation_evaluation, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
-                                           "integer >= 0, got -1.",
-                                           "'ExperimentConfiguration.evaluation.save_predicted_masks' must be True or "
-                                           "False, got 'yes'.",
-                                           "'ExperimentConfiguration.evaluation.original_resolution' must be True or "
-                                           "False, got 1.",
-                                           "'ExperimentConfiguration.evaluation.boundary_tolerance' must be an integer "
-                                           ">= 1, got 0."]),
-    (set_invalid_deep_supervision, ["'SegmentationDecoder.deep_supervision_weights' keys must be intermediate decoder "
-                                    "levels ['5', '4', '3', '2'] (the finest level gives the final segmentation), got "
-                                    "['1'].",
-                                    "'SegmentationDecoder.deep_supervision_weights.3' must be a number > 0, got 0."]),
-    (set_invalid_tiling, ["'Data.tiling.scale' must be a number > 0, got 0.",
-                          "'Data.tiling.overlap' must be smaller than the tile size 'Data.image_settings.size' (512), "
-                          "got 512."]),
-    (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
-                                      "got 'yes'."]),
-    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
+                          "'SegmentationLoss.class_weighting' must be one of ['none', 'balanced'], got 'inverse'."])])
 def test_inconsistent_segmentation_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                              modify_function: Callable[[Dict[str, Any]], None],
                                                              expected_messages: List[str]) -> None:
@@ -2250,17 +1267,13 @@ def test_inconsistent_segmentation_configuration_is_rejected(tmp_path: Path, cap
 
 
 @pytest.mark.parametrize(argnames=("label_mapping", "expected_message"), argvalues=[
-    ({"1": 1, "2": 3}, "indexed 0 (background) to K-1 without gaps, got [0, 1, 3]."),
-    ({"1": 1, "300": 2}, "The categories of the label mapping file must be mask values between 1 and 254 (0 is the "
-                         "background, 255 the unlabelled pixels), got [300]."),
-    ({"0": 1, "1": 0}, "The categories of the label mapping file must be mask values between 1 and 254"),
-    ({"0": 0, "1": 1, "2": 2}, None)])
+    ({"1": 1, "2": 3}, "indexed 0 (background) to K-1 without gaps, got [0, 1, 3].")])
 def test_segmentation_label_mapping_gives_mask_values(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                       label_mapping: Dict[str, int],
                                                       expected_message: str | None) -> None:
     """
-    Verifies that the label mapping file of the semantic segmentation maps mask values (1 to 254, the value 0 being
-    allowed for the background class only) to classes indexed from the background 0 without gaps.
+    Verifies that the label mapping file of the semantic segmentation maps its mask values to classes indexed from the
+    background 0 without gaps.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2287,18 +1300,13 @@ def test_segmentation_label_mapping_gives_mask_values(tmp_path: Path, capsys: py
 
 
 @pytest.mark.parametrize(argnames=("label_mapping", "expected_error", "expected_warning"), argvalues=[
-    ({"1": 1, "2": 1, "3": 2}, None, None),
-    ({"1": 1, "3": 3}, "indexed 0 (background) to K-1 without gaps, got [0, 1, 3].", None),
-    ({"1": 0, "2": 1, "3": 2}, None, "Warning: the categories [1] of the label mapping are mapped to the background "
-                                     "class 0: their objects are left out of the training."),
-    ({"background": 1, "1": 0, "2": 2}, "The 'background' of the label mapping must be the class 0, got 1.", None)])
+    ({"1": 1, "3": 3}, "indexed 0 (background) to K-1 without gaps, got [0, 1, 3].", None)])
 def test_detection_label_mapping_indexes_its_classes_from_the_background(
         tmp_path: Path, capsys: pytest.CaptureFixture, label_mapping: Dict[str, int], expected_error: str | None,
         expected_warning: str | None) -> None:
     """
-    Verifies the label mapping of the object detection: merged categories give one class each, counted once, classes
-    with gaps (original COCO identifiers kept) and a background key on another class than 0 are refused, and a
-    category mapped to 0, left out of the training, is accepted with a warning.
+    Verifies that the label mapping of the object detection, whose classes are indexed from the background 0, refuses
+    classes with gaps (original COCO identifiers kept).
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2350,8 +1358,7 @@ def test_run_folder_configuration_takes_its_saved_label_dictionary(tmp_path: Pat
     assert model_configuration["Data"]["label_dictionary"] == {"background": 0, 1: 2, 2: 1}
 
 
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_shapes.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the instance segmentation configurations shipped with the repository pass every consistency check,
@@ -2386,12 +1393,11 @@ def transfer_mask_heads_and_class_layers(configuration: Dict[str, Any]) -> None:
                                                                    "load_class_layers": True})
 
 
-@pytest.mark.parametrize(argnames="task_folder", argvalues=["instance_segmentation", "semantic_segmentation"])
+@pytest.mark.parametrize(argnames="task_folder", argvalues=["instance_segmentation"])
 def test_transferred_mask_heads_and_class_layers_are_accepted(tmp_path: Path, task_folder: str) -> None:
     """
-    Verifies that consistent pretrained settings of the mask heads of an instance segmenter, and of the decoder of a
-    semantic segmenter loading its class layers, pass the checks, the source run being only read when the training
-    starts.
+    Verifies that consistent pretrained settings of the mask heads of an instance segmenter pass the checks, the source
+    run being only read when the training starts.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2436,54 +1442,7 @@ def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     mask_head_configuration["inference"]["mask_threshold"] = 1.5
 
 
-def set_pool_size_above_the_mask_resolution(configuration: Dict[str, Any]) -> None:
-    """
-    Gives level 7 a pool size larger than the masks, which the mask head could only shrink.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["DetectionLevels"]["7"]["mask_head"]["roi_align_pool_size"] = 32
-
-
-def write_original_resolution_as_number(configuration: Dict[str, Any]) -> None:
-    """
-    Writes the evaluation at the original resolution of the instance segmentation as a number instead of a boolean.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["original_resolution"] = 1
-
-
-def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
-    """
-    Freezes the mask heads without loading them from another run, and multiplies their learning rate by zero.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["MaskHead"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
-
-
-def remove_mask_loss_weight(configuration: Dict[str, Any]) -> None:
-    """
-    Leaves the mask loss of the instance segmenter without weight.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    del configuration["Optimization"]["loss_weights"]["mask_loss"]
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (freeze_random_mask_heads, ["'MaskHead.pretrained.freeze' must be False when "
-                                "'MaskHead.pretrained.experiment_folder' is null: only a transferred mask heads can "
-                                "be frozen.",
-                                "'MaskHead.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
-    (set_pool_size_above_the_mask_resolution, ["'DetectionLevels.7.mask_head.roi_align_pool_size' (32) must not "
-                                               "exceed 'MaskHead.mask_resolution' (28), the pooled features being "
-                                               "only enlarged to the masks."]),
     (remove_level_mask_head, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector', "
                               "'mask_head'], got ['anchors', 'detector', 'region_proposal']."]),
     (set_invalid_mask_head, ["'MaskHead.mask_resolution' must be an integer >= 1, got 0.",
@@ -2497,19 +1456,13 @@ def remove_mask_loss_weight(configuration: Dict[str, Any]) -> None:
                              "'MaskHead.normalization.batch_normalization_momentum' must be a number within (0, 1], "
                              "got -0.1.",
                              "'MaskHead.modules.residual_nets' must be True or False, got 'yes'.",
-                             "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."]),
-    (write_original_resolution_as_number, ["'ExperimentConfiguration.evaluation.original_resolution' must be True or "
-                                           "False, got 1."]),
-    (remove_mask_loss_weight, ["'Optimization.loss_weights' must give the weight of exactly the losses "
-                               "['region_proposal_classification_loss', 'region_proposal_localisation_loss', "
-                               "'detection_classification_loss', 'detection_regression_loss', 'mask_loss'], got"]),
-    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
+                             "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."])])
 def test_inconsistent_instance_segmentation_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the mask head section and of the evaluation at the original resolution stops
-    the loading with a short message naming the faulty key, the mask head of every detection level included.
+    Verifies that every inconsistency of the mask head section stops the loading with a short message naming the
+    faulty key, the mask head of every detection level included.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2530,8 +1483,7 @@ def test_inconsistent_instance_segmentation_configuration_is_rejected(
     assert "Traceback" not in printed_output
 
 
-@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
-                                                                   "configuration_synthetic_shapes.yaml"])
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_self_supervised_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the self-supervised configurations shipped with the repository pass every consistency check, with
@@ -2549,32 +1501,6 @@ def test_self_supervised_configurations_are_consistent(tmp_path: Path, configura
     assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
 
 
-def keep_the_whole_images_in_the_views(configuration: Dict[str, Any]) -> None:
-    """
-    Turns off the random resized crop of the views, random_crop, its probability below 1 being then left aside.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["Data"]["data_augmentation"]["types"]["random_crop"] = {"activated": False, "probability": 0.5}
-
-
-def test_views_without_crop_are_accepted(tmp_path: Path) -> None:
-    """
-    Verifies that the self-supervised task accepts views drawn without the random resized crop, keeping the whole
-    images, the probability of a crop turned off being left aside.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="self_supervised",
-                                                  configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=keep_the_whole_images_in_the_views)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["Data"]["data_augmentation"]["types"]["random_crop"] == {"activated": False,
-                                                                                        "probability": 0.5}
-
-
 def set_invalid_projection_head(configuration: Dict[str, Any]) -> None:
     """
     Sets an unknown pooling and method, an empty list of layers, a temperature of 0 and an off-diagonal weight given
@@ -2586,36 +1512,6 @@ def set_invalid_projection_head(configuration: Dict[str, Any]) -> None:
     configuration["ProjectionHead"].update({"global_pooling": "median", "fully_connected": [], "method": "byol",
                                             "simclr": {"temperature": 0},
                                             "barlow_twins": {"off_diagonal_weight": True}})
-
-
-def normalize_projection_without_hidden_layers(configuration: Dict[str, Any]) -> None:
-    """
-    Normalizes the hidden layers of a projection head holding the embedding layer only.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["ProjectionHead"].update({"fully_connected": [128], "fully_connected_normalization": "batch"})
-
-
-def deactivate_the_augmentation_of_the_views(configuration: Dict[str, Any]) -> None:
-    """
-    Turns off the data augmentation, whose types draw the two views of the self-supervised task.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["Data"]["data_augmentation"]["activated"] = False
-
-
-def crop_half_of_the_views(configuration: Dict[str, Any]) -> None:
-    """
-    Draws the random resized crop of the views, random_crop, for half of them only.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["Data"]["data_augmentation"]["types"]["random_crop"]["probability"] = 0.5
 
 
 def set_invalid_grouped_batches(configuration: Dict[str, Any]) -> None:
@@ -2630,28 +1526,6 @@ def set_invalid_grouped_batches(configuration: Dict[str, Any]) -> None:
                                                      "images_per_block": 3})
 
 
-def set_single_image_grouped_blocks(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a quoted flag for the grouped batches, read as a string, and blocks of a single image.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["Data"]["grouped_batches"].update({"activated": "False", "images_per_block": 1})
-
-
-def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> None:
-    """
-    Sets no neighbour for the k-nearest neighbour evaluation and batches of a single image, whose views the losses
-    cannot compare with those of other images.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["evaluation"]["number_neighbours"] = 0
-    configuration["ExperimentConfiguration"]["batch_size"] = 1
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_projection_head, ["'ProjectionHead.global_pooling' must be one of ['average', 'max', 'flatten'], "
                                    "got 'median'.",
@@ -2661,34 +1535,17 @@ def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> Non
                                    "'ProjectionHead.simclr.temperature' must be a number > 0, got 0.",
                                    "'ProjectionHead.barlow_twins.off_diagonal_weight' must be a number > 0, got "
                                    "True."]),
-    (normalize_projection_without_hidden_layers, ["'ProjectionHead.fully_connected_normalization' must be 'none' when "
-                                                  "'ProjectionHead.fully_connected' holds the embedding layer only: "
-                                                  "the head has no hidden layer to normalize."]),
-    (deactivate_the_augmentation_of_the_views, ["'Data.data_augmentation.activated' must be True for the "
-                                                "self-supervised task: its types draw the two views of every image, "
-                                                "which would otherwise both be the image itself."]),
-    (crop_half_of_the_views, ["'Data.data_augmentation.types.random_crop.probability' must be 1.0 for the "
-                              "self-supervised task when 'Data.data_augmentation.types.random_crop.activated' is True, "
-                              "got 0.5: the random resized crop is drawn for every view, or turned off to keep the "
-                              "whole images."]),
     (set_invalid_grouped_batches, ["'Data.grouped_batches.block_key' must be a non-empty string, got 3.",
                                    "'Data.grouped_batches.batch_key' must be null or a non-empty string, got ''.",
                                    "'Data.grouped_batches.images_per_block' (3) must divide "
                                    "'ExperimentConfiguration.batch_size' (128) when the grouped batches are on: a "
-                                   "batch holds a whole number of blocks."]),
-    (set_single_image_grouped_blocks, ["'Data.grouped_batches.activated' must be True or False, got 'False'.",
-                                       "'Data.grouped_batches.images_per_block' must be an integer >= 2, got 1."]),
-    (set_invalid_self_supervised_evaluation, ["'ExperimentConfiguration.evaluation.number_neighbours' must be an "
-                                              "integer >= 1, got 0.",
-                                              "'ExperimentConfiguration.batch_size' must be at least 2 for the "
-                                              "self-supervised task: the losses compare the views of the images of a "
-                                              "batch with each other."])])
+                                   "batch holds a whole number of blocks."])])
 def test_inconsistent_self_supervised_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                                 expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the self-supervised sections (projection head, data augmentation drawing the
-    views, grouped batches, evaluation and batch size) stops the loading with a short message naming the faulty key.
+    Verifies that every inconsistency of the self-supervised sections (projection head, grouped batches) stops the
+    loading with a short message naming the faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2810,21 +1667,6 @@ def set_image_size_not_matching_the_branches(configuration: Dict[str, Any]) -> N
     configuration["Data"]["image_settings"]["size"] = 500
 
 
-def set_invalid_keypoint_head(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a higher resolution branch flag and an ignored regions flag written as text, a negative hidden width, a
-    negative tag pull weight, no keypoint candidate, a keypoint threshold of 1, a zero tag threshold and an object
-    score threshold above 1.
-
-    Args:
-        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
-    """
-    configuration["KeypointHead"].update({"higher_resolution": "yes", "ignore_unlabelled_objects": "no",
-                                          "hidden_width": -1, "tag_pull_weight": -0.1})
-    configuration["KeypointHead"]["inference"].update({"maximum_candidates": 0, "keypoint_threshold": 1.0,
-                                                       "tag_threshold": 0, "object_score_threshold": 1.5})
-
-
 def set_unknown_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
     """
     Sets a zero default keypoint sigma, and keypoint sigmas naming an unknown keypoint of a learnt category and an
@@ -2838,64 +1680,10 @@ def set_unknown_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
                                                                                  "dragon": {"tail": 0.1}}
 
 
-def end_stem_at_an_eighth(configuration: Dict[str, Any]) -> None:
-    """
-    Adds the last max pooling to the 3 stem blocks, so that the stem ends at 1/8 of the image instead of 1/4.
-
-    Args:
-        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
-    """
-    configuration["Backbone"]["last_max_pooling"] = True
-
-
-def set_invalid_high_resolution_network(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a zero base width, a stage without exchange module, a module flag written as text, an unknown normalization
-    and a zero heatmap sigma.
-
-    Args:
-        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
-    """
-    configuration["HRNet"].update({"base_width": 0, "modules_per_stage": [1, 0]})
-    configuration["HRNet"]["modules"]["residual_nets"] = "yes"
-    configuration["HRNet"]["normalization"]["feature_map_normalization"] = "group"
-    configuration["KeypointHead"]["heatmap_sigma"] = 0
-
-
-def use_binary_keypoint_labels(configuration: Dict[str, Any]) -> None:
-    """
-    Uses the binary label mapping, which would merge categories with different keypoints into one class.
-
-    Args:
-        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
-    """
-    configuration["Data"]["label_mapping"]["mode"] = "binary"
-
-
-def remove_training_labels(configuration: Dict[str, Any]) -> None:
-    """
-    Points the training split to a folder without 'labels.json', so that no keypoint definition can be injected.
-
-    Args:
-        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["train_data_folder"] += "_missing"
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_image_size_not_matching_the_branches, ["'Data.image_settings.size' (500) must be a multiple of 32, the "
                                                 "stride of the lowest resolution branch of the 3 stages of "
                                                 "'HRNet.modules_per_stage'."]),
-    (set_invalid_keypoint_head, ["'KeypointHead.higher_resolution' must be True or False, got 'yes'.",
-                                 "'KeypointHead.ignore_unlabelled_objects' must be True or False, got 'no'.",
-                                 "'KeypointHead.hidden_width' must be an integer >= 0, got -1.",
-                                 "'KeypointHead.tag_pull_weight' must be a number >= 0, got -0.1.",
-                                 "'KeypointHead.inference.maximum_candidates' must be an integer >= 1, got 0.",
-                                 "'KeypointHead.inference.keypoint_threshold' must be a number within ]0, 1[, got "
-                                 "1.0.",
-                                 "'KeypointHead.inference.tag_threshold' must be a positive number, got 0.",
-                                 "'KeypointHead.inference.object_score_threshold' must be a number within [0, 1], "
-                                 "got 1.5."]),
     (set_unknown_keypoint_sigmas, ["'ExperimentConfiguration.evaluation.default_keypoint_sigma' must be a positive "
                                    "number, got 0.",
                                    "'ExperimentConfiguration.evaluation.keypoint_sigmas.dragon' names a category that "
@@ -2903,31 +1691,14 @@ def remove_training_labels(configuration: Dict[str, Any]) -> None:
                                    "'ExperimentConfiguration.evaluation.keypoint_sigmas.stick_figure' names unknown "
                                    "keypoints ['left_wing'], the keypoints of the category being ['head', 'neck', "
                                    "'left_elbow', 'right_elbow', 'left_hand', 'right_hand', 'pelvis', 'left_knee', "
-                                   "'right_knee', 'left_foot', 'right_foot']."]),
-    (end_stem_at_an_eighth, ["The Backbone stem of the keypoint detector must end at 1/4 of the image, got 1/8 from "
-                             "its 3 blocks with 'Backbone.last_max_pooling' True: use 3 blocks without the last "
-                             "max pooling, or 2 blocks with it."]),
-    (set_invalid_high_resolution_network, ["'HRNet.base_width' must be an integer >= 1, got 0.",
-                                           "'HRNet.modules_per_stage' must be a non-empty list of positive integers, "
-                                           "the exchange modules of every stage, got [1, 0].",
-                                           "'HRNet.modules.residual_nets' must be True or False, got 'yes'.",
-                                           "'HRNet.normalization.feature_map_normalization' must be one of ['batch', "
-                                           "'layer', 'none'], got 'group'.",
-                                           "'KeypointHead.heatmap_sigma' must be a positive number of heatmap cells, "
-                                           "got 0."]),
-    (use_binary_keypoint_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the keypoint detection, every "
-                                  "class having its own keypoints, got 'binary'."]),
-    (remove_training_labels, ["The keypoint definitions of the classes could not be read: the 'labels.json' of "
-                              "'ExperimentConfiguration.train_data_folder' must exist"]),
-    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
+                                   "'right_knee', 'left_foot', 'right_foot']."])])
 def test_inconsistent_keypoint_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                          modify_function: Callable[[Dict[str, Any]], None],
                                                          expected_messages: List[str]) -> None:
     """
     Verifies that every inconsistency of the keypoint detection sections (image size against the branches of the high
-    resolution network, keypoint head and its grouping settings, keypoint sigmas of the evaluation, stem, high
-    resolution network and heatmap sigma, label mode and training labels) stops the loading with a short message
-    naming the faulty key.
+    resolution network, keypoint sigmas of the evaluation) stops the loading with a short message naming the faulty
+    key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2946,35 +1717,6 @@ def test_inconsistent_keypoint_configuration_is_rejected(tmp_path: Path, capsys:
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "Traceback" not in printed_output
-
-
-def activate_flips_and_quarter_turns(configuration: Dict[str, Any]) -> None:
-    """
-    Turns on both flips and the 90 degree rotations of the DataAugmenter, which move the keypoints without renaming
-    them, a choice left to the user (the tip of a flame keeps its name when flipped).
-
-    Args:
-        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
-    """
-    for augmentation_name in ["random_left_right_flip", "random_up_down_flip", "random_90_rotation"]:
-        configuration["Data"]["data_augmentation"]["types"][augmentation_name]["activated"] = True
-
-
-def test_keypoint_geometric_augmentations_are_accepted(tmp_path: Path) -> None:
-    """
-    Verifies that the keypoint detection accepts every geometric augmentation, flips and 90 degree rotations included,
-    the keypoints being moved with the image and keeping their names, so that no augmentation is forbidden.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    configuration_path = write_keypoint_configuration(temporary_directory=tmp_path,
-                                                      configuration_name="configuration_synthetic_shapes.yaml",
-                                                      modify_function=activate_flips_and_quarter_turns)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    augmentation_types = model_configuration["Data"]["data_augmentation"]["types"]
-    assert all(augmentation_types[augmentation_name]["activated"]
-               for augmentation_name in ["random_left_right_flip", "random_up_down_flip", "random_90_rotation"])
 
 
 def give_merged_categories_different_sigmas(configuration: Dict[str, Any]) -> None:

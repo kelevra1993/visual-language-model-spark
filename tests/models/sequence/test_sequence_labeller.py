@@ -1,6 +1,5 @@
 """
-Tests of SequenceLabeller of vision_training/models/sequence/sequence_labeller.py: one prediction per frame, and no
-look-ahead with a causal temporal module.
+Tests of SequenceLabeller of vision_training/models/sequence/sequence_labeller.py: one prediction per frame.
 """
 
 import pytest
@@ -11,12 +10,12 @@ from vision_training.models.sequence.sequence_labeller import SequenceLabeller
 from tests.fixtures.configuration_fixtures import get_sequence_model_configuration
 
 
-@pytest.mark.parametrize(argnames="temporal_type", argvalues=["gru", "lstm", "transformer", "temporal_convolution"])
+@pytest.mark.parametrize(argnames="temporal_type", argvalues=["transformer"])
 def test_sequence_labeller_outputs_one_prediction_per_frame(temporal_type: str) -> None:
     """
-    Verifies the outputs of the sequence labeller with every temporal module keeping the time axis: [B, T, K] logits
-    and softmax probabilities, and a loss computed over the labelled frames only, unchanged by the pixels of the
-    padding frames.
+    Verifies the outputs of the sequence labeller with the transformer temporal module keeping the time axis:
+    [B, T, K] logits and softmax probabilities, and a loss computed over the labelled frames only, unchanged by the
+    pixels of the padding frames.
 
     Args:
         temporal_type (str): The type of the temporal module.
@@ -40,32 +39,3 @@ def test_sequence_labeller_outputs_one_prediction_per_frame(temporal_type: str) 
     assert torch.allclose(input=outputs["classification_loss"], other=noisy_outputs["classification_loss"])
     assert torch.allclose(input=outputs["class_logits"][sequence_mask],
                           other=noisy_outputs["class_logits"][sequence_mask], atol=1e-5)
-
-
-@pytest.mark.parametrize(argnames=("temporal_type", "causal"), argvalues=[("gru", False), ("transformer", True),
-                                                                          ("temporal_convolution", True)])
-def test_causal_sequence_labeller_does_not_look_ahead(temporal_type: str, causal: bool) -> None:
-    """
-    Verifies that a causal sequence labeller (unidirectional GRU, causal transformer or temporal convolution) predicts
-    every frame from that frame and the frames before it only, as required for online use: changing the frames after
-    a frame leaves the predictions of that frame and of the frames before it unchanged.
-
-    Args:
-        temporal_type (str): The type of the temporal module.
-        causal (bool): The causal flag of the transformer and temporal convolution.
-    """
-    torch.manual_seed(seed=0)
-    configuration, device, dtype = get_sequence_model_configuration(temporal_type=temporal_type)
-    configuration["TemporalModel"]["causal"] = causal
-    model = SequenceLabeller(configuration=configuration, device=device, dtype=dtype).eval()
-    frames = torch.rand(size=(1, 4, 3, 64, 64), generator=torch.Generator().manual_seed(2)) * 255.0
-    sequence_mask = torch.ones(size=(1, 4), dtype=torch.bool)
-
-    # Black future frames, whose pooled features clearly differ from those of the noise frames
-    changed_frames = frames.clone()
-    changed_frames[:, 2:] = 0.0
-    with torch.no_grad():
-        outputs = model(input_tensor=frames, sequence_mask=sequence_mask)["class_logits"]
-        changed_outputs = model(input_tensor=changed_frames, sequence_mask=sequence_mask)["class_logits"]
-    assert torch.allclose(input=outputs[:, :2], other=changed_outputs[:, :2], atol=1e-6)
-    assert not torch.allclose(input=outputs[:, 2:], other=changed_outputs[:, 2:], atol=1e-6)

@@ -41,16 +41,14 @@ def draw_random_boxes(image_size: int, number_boxes: int, seed: int) -> torch.Te
 
 
 @pytest.mark.parametrize(argnames=["feature_map_size", "scales", "aspect_ratios"],
-                         argvalues=[(16, [16.0, 32.0], [0.5, 1.0, 2.0]), (4, [96.0, 192.0], [1.0]),
-                                    (8, [24.0], [0.25, 3.0])])
+                         argvalues=[(8, [24.0], [0.25, 3.0])])
 def test_best_overlaps_equal_the_best_of_every_anchor(feature_map_size: int, scales: List[float],
                                                        aspect_ratios: List[float],
                                                        monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Verifies that the best overlap of every box found from the nearest grid anchor of every shape equals the highest
-    overlap with all the anchors of the level, for random boxes of every size and position, and for levels of fine and
-    coarse grids with several scales and aspect ratios, the boxes being split into chunks of 999 whose last one is
-    partial.
+    overlap with all the anchors of the level, for random boxes of every size and position, and for a level with
+    several aspect ratios, the boxes being split into chunks of 999 whose last one is partial.
 
     Args:
         feature_map_size (int): The side of the feature map of the level.

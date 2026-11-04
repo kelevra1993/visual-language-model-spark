@@ -4,8 +4,8 @@ task gathering blocks of images sharing an attribute of their "groups", the hard
 is full, the images of a block share their block value and a grouped batch its batch value, no image comes twice in a
 pass, the images left over form random batches, the sampler marks which batches of a pass are grouped, the length is
 the number of batches yielded, a seed reproduces the batches, which are rebuilt at every pass, the split stays random
-without groups and stops with groups in some samples only, ClassificationDataset keeps the groups of its samples, and
-the loaders of the self-supervised task give grouped batches of the batch size.
+without groups and stops with groups in some samples only, and ClassificationDataset keeps the groups of its
+samples.
 """
 
 import pytest
@@ -17,8 +17,6 @@ from typing import Any, Dict, List, Optional
 from tests.data.classification.test_classification_dataset import write_split
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.grouped_batch_sampler import GroupedBatchSampler, build_grouped_batch_sampler
-from vision_training.data.loaders import get_classification_dataloaders
-from vision_training.utilities.os_utilities import INVISIBLE_SEQUENCE_PATTERN
 
 # Images of every camera of every site of the tests. With blocks of 4 images and batches of 8, the site s0 gives 4
 # blocks (2 grouped batches) and 1 leftover image, the site s1 2 blocks (1 grouped batch) and 3 leftover images, and the
@@ -216,54 +214,3 @@ def test_dataset_keeps_the_groups_of_its_samples(tmp_path: Path) -> None:
         ClassificationDataset(data_directory=str(tmp_path / "wrong" / "data"),
                               labels_file=str(tmp_path / "wrong" / "labels.json"), image_size=32, keep_ratio=True,
                               label_dictionary={1: 0}, output_mode="multi_class", keep_unlabelled_samples=True)
-
-
-def test_self_supervised_loaders_give_grouped_batches(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies the loaders of the self-supervised task with the grouped batches on: the training split, whose 12 images
-    hold two cameras, gives 3 full batches of 4 images made of two blocks of 2 images of one camera, every pass; the
-    validation split without groups keeps its random full batches, with a warning naming it; and the test split keeps
-    every image.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
-    """
-    # A training split of 12 images alternating between two cameras, and validation and test splits without groups
-    categories = [{"id": 1, "name": "circle"}]
-    cameras = {sample_identifier: f"c{sample_identifier % 2}" for sample_identifier in range(1, 13)}
-    write_split(split_folder=tmp_path / "train", categories=categories,
-                samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1,
-                          "groups": {"camera": camera}} for sample_identifier, camera in cameras.items()])
-    for split_name, number_samples in [("validation", 6), ("test", 3)]:
-        write_split(split_folder=tmp_path / split_name, categories=categories,
-                    samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1}
-                             for sample_identifier in range(1, number_samples + 1)])
-    # Build the self-supervised loaders with blocks of 2 images of one camera, and check the printed summary
-    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
-                                for split_name in ["train", "validation", "test"]}
-    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
-                                    "grouped_batches": {"activated": True, "block_key": "camera",
-                                                        "images_per_block": 2, "batch_key": None}}}
-    training_loader, validation_loader, test_loader = get_classification_dataloaders(
-        experiment_configuration=experiment_configuration, model_configuration=model_configuration, batch_size=4,
-        self_supervised=True)
-    printed_output = INVISIBLE_SEQUENCE_PATTERN.sub(repl="", string=capsys.readouterr().out)
-    assert ("Grouped Batches :\n  - Train block key : camera (2 values)\n"
-            "  - Train batches per pass : 3 grouped, 0 leftover\n") in printed_output
-    assert "No sample of the 'validation_data_folder' split holds the keys ['camera']" in printed_output
-
-    # Full training batches of two blocks of one camera, every image once per pass
-    assert isinstance(training_loader.batch_sampler, GroupedBatchSampler) and len(training_loader) == 3
-    for _ in range(2):
-        identifiers = [batch["sample_identifiers"].tolist() for batch in training_loader]
-        assert [len(batch_identifiers) for batch_identifiers in identifiers] == [4, 4, 4]
-        assert sorted(identifier for batch_identifiers in identifiers for identifier in batch_identifiers) == list(
-            range(1, 13))
-        assert all(cameras[batch_identifiers[start]] == cameras[batch_identifiers[start + 1]]
-                   for batch_identifiers in identifiers for start in [0, 2])
-
-    # Random full validation batches, and every test image
-    assert not isinstance(validation_loader.batch_sampler, GroupedBatchSampler) and validation_loader.drop_last
-    assert [batch["images"].shape[0] for batch in validation_loader] == [4]
-    assert [batch["images"].shape[0] for batch in test_loader] == [3]

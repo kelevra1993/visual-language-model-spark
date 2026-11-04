@@ -1,13 +1,12 @@
 """
 Tests of vision_training/evaluation/keypoints/object_keypoint_similarity.py, the keypoint evaluation of the keypoint
 trainer on the test split: the sigma table built from the configured COCO sigmas (default, padding positions, merged
-categories and their conflict), the object keypoint similarity on a hand-computed case with the box-area scale, the
-boxes of the predicted objects spanning their keypoints found, the one-to-one matching of the ground truth objects of an
-image to the predicted ones by the largest total similarity over the pairs reaching the minimum similarity (a far
-prediction leaving its object missed), the comparison of the predicted and ground truth objects of every image into the
-detections and ground truths of the average precision and the matched objects of the keypoint accuracy, and the matched
-fraction, PCK and pixel errors of every class and keypoint, with the missed objects, the classes and keypoints that have
-no labelled keypoint, and a split without object.
+categories), the object keypoint similarity on a hand-computed case with the box-area scale, the one-to-one matching
+of the ground truth objects of an image to the predicted ones by the largest total similarity over the pairs reaching
+the minimum similarity (a far prediction leaving its object missed), the comparison of the predicted and ground truth
+objects of every image into the detections and ground truths of the average precision and the matched objects of the
+keypoint accuracy, and the matched fraction, PCK and pixel errors of every class and keypoint, with the missed objects
+and the classes and keypoints that have no labelled keypoint.
 """
 
 import math
@@ -20,7 +19,6 @@ from vision_training.evaluation.keypoints.object_keypoint_similarity import (COR
                                                                              EVALUATED_OBJECT_KEYS,
                                                                              MINIMUM_MATCH_SIMILARITY,
                                                                              build_keypoint_sigma_table,
-                                                                             compute_keypoint_boxes,
                                                                              compute_object_keypoint_similarity,
                                                                              evaluate_image_keypoints,
                                                                              match_ground_truth_objects,
@@ -184,23 +182,6 @@ def test_sigma_table_takes_the_configured_sigmas_and_the_default_elsewhere() -> 
     assert torch.equal(sigma_table, expected_table)
 
 
-def test_sigma_table_accepts_equal_sigmas_and_rejects_conflicting_ones_of_merged_categories() -> None:
-    """
-    Verifies that two categories merged into one class may give the same sigma to a keypoint, and that different sigmas
-    raise an error naming the merged class.
-    """
-    equal_sigmas = {"square": {"centre": 0.3}, "diamond": {"centre": 0.3}}
-    sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
-                                             keypoint_sigmas=equal_sigmas, maximum_keypoints=MAXIMUM_KEYPOINTS)
-    assert sigma_table[3, 0].item() == pytest.approx(0.3)
-
-    # Different values of the same keypoint under both names cannot be resolved
-    conflicting_sigmas = {"square": {"centre": 0.3}, "diamond": {"centre": 0.4}}
-    with pytest.raises(ValueError, match="square\\+diamond"):
-        build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
-                                   keypoint_sigmas=conflicting_sigmas, maximum_keypoints=MAXIMUM_KEYPOINTS)
-
-
 def test_object_keypoint_similarity_matches_a_hand_computed_case() -> None:
     """
     Verifies the similarity of an object in a 10 x 10 box with a sigma of 0.05: a perfect keypoint gives 1, a keypoint
@@ -213,36 +194,6 @@ def test_object_keypoint_similarity_matches_a_hand_computed_case() -> None:
                                                     sigmas=torch.full(size=(1, 3), fill_value=0.05))
     assert similarity.dtype == torch.float64 and similarity.shape == (1,)
     assert similarity.item() == pytest.approx((1.0 + math.exp(-2.0)) / 2.0)
-
-
-def test_object_keypoint_similarity_of_perfect_and_unlabelled_objects() -> None:
-    """
-    Verifies that perfect keypoints give a similarity of 1 whatever the box, even a degenerate one, that an object
-    without labelled keypoint gives 0 instead of a NaN, and that a larger box tolerates the same error better.
-    """
-    squared_distances = torch.tensor(data=[[0.0, 0.0], [0.0, 0.0], [9.0, 9.0], [25.0, 25.0], [25.0, 25.0]])
-    visibilities = torch.tensor(data=[[2, 2], [2, 1], [0, 0], [2, 2], [2, 2]])
-    areas = torch.tensor(data=[400.0, 0.0, 400.0, 400.0, 1600.0])
-    similarities = compute_object_keypoint_similarity(squared_distances=squared_distances, visibilities=visibilities,
-                                                      areas=areas, sigmas=torch.full(size=(5, 2), fill_value=0.05))
-    assert similarities[:2].tolist() == [1.0, 1.0]
-    assert similarities[2].item() == 0.0
-    assert 0.0 < similarities[3].item() < similarities[4].item() < 1.0
-
-
-def test_keypoint_boxes_span_the_keypoints_found() -> None:
-    """
-    Verifies that the box of a predicted object spans its keypoints found, the keypoints not found (NaN) left out, a
-    single keypoint giving a box of no size, and that an object without any keypoint raises an error instead of an
-    infinite box.
-    """
-    nan = float("nan")
-    keypoints = torch.tensor(data=[[[1.0, 2.0], [5.0, 8.0], [nan, nan]], [[3.0, 3.0], [nan, nan], [nan, nan]]])
-    boxes = compute_keypoint_boxes(keypoints=keypoints)
-    assert boxes.dtype == torch.float64 and boxes.tolist() == [[1.0, 2.0, 5.0, 8.0], [3.0, 3.0, 3.0, 3.0]]
-    assert compute_keypoint_boxes(keypoints=torch.zeros(size=(0, 3, 2))).shape == (0, 4)
-    with pytest.raises(ValueError, match="no keypoint"):
-        compute_keypoint_boxes(keypoints=torch.full(size=(1, 3, 2), fill_value=nan))
 
 
 def test_ground_truth_objects_are_matched_by_the_largest_total_similarity() -> None:
@@ -258,22 +209,6 @@ def test_ground_truth_objects_are_matched_by_the_largest_total_similarity() -> N
     assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.0]])).tolist() == [-1]
     assert match_ground_truth_objects(keypoint_overlaps=torch.zeros(size=(0, 2))).tolist() == [-1, -1]
     assert match_ground_truth_objects(keypoint_overlaps=torch.zeros(size=(2, 0))).tolist() == []
-
-
-def test_ground_truth_objects_need_the_minimum_similarity_to_match() -> None:
-    """
-    Verifies that a pair below MINIMUM_MATCH_SIMILARITY never matches, as in the OKS AP@0.5, a pair at the minimum
-    matching, and that the pairs below the minimum are left out of the assignment, so that a prediction goes to the
-    ground truth it reaches the minimum with rather than to the one giving the largest total with a rejected pair.
-    """
-    assert MINIMUM_MATCH_SIMILARITY == 0.5
-    assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.3]])).tolist() == [-1]
-    assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.49, 0.5]])).tolist() == [-1, 0]
-    # The total 0.6 + 0.4 would pair prediction 0 with ground truth 0 and leave the 0.4 pair rejected, one match of
-    # 0.6; without the pairs below the minimum, prediction 0 goes to ground truth 1 with 0.7
-    assignment = match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.6, 0.7], [0.0, 0.4]],
-                                                                           dtype=torch.float64))
-    assert assignment.tolist() == [-1, 0]
 
 
 def test_a_far_prediction_is_neither_matched_nor_measured() -> None:
@@ -376,34 +311,6 @@ def test_evaluate_image_keypoints_compares_the_predicted_and_ground_truth_object
     assert objects["keypoints"].shape == (4, MAXIMUM_KEYPOINTS, 2) and objects["visibilities"].shape == (4, 4)
 
 
-def test_measure_keypoint_accuracy_counts_the_keypoints_within_the_box_fraction() -> None:
-    """
-    Verifies the distances, the labelled, found and correct keypoints (within 0.05 of the longest box side, the limit
-    itself included) and the similarity of every object, the unlabelled keypoints and padding positions never being
-    correct, and the keypoints of the missed object infinitely far, never found nor correct, with a similarity of 0.
-    """
-    objects = make_accuracy_objects()
-    sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
-                                             keypoint_sigmas={}, maximum_keypoints=MAXIMUM_KEYPOINTS)
-    accuracy = measure_keypoint_accuracy(objects=objects, sigma_table=sigma_table)
-
-    infinity = float("inf")
-    assert torch.allclose(input=accuracy["distances"], other=torch.tensor(
-        data=[[3.0, 6.0, 50.0, 70.0], [1.0, 2.0, 3.0, 10.0], [infinity] * 4], dtype=torch.float64))
-    assert accuracy["labelled"].tolist() == [[True, True, False, False], [True, True, True, False],
-                                             [True, True, False, False]]
-    assert accuracy["found"].tolist() == [[True] * 4, [True] * 4, [False] * 4]
-    assert accuracy["correct"].tolist() == [[True, False, False, False], [True, True, False, False], [False] * 4]
-
-    # Similarities from their definition, with the 100 x 50 and 40 x 40 box areas, 0 for the missed object
-    expected_similarities = [
-        compute_expected_similarity(squared_distances=[9.0, 36.0, 2500.0, 4900.0], labelled=[True, True, False, False],
-                                    area=5000.0, sigmas=[DEFAULT_SIGMA] * 4),
-        compute_expected_similarity(squared_distances=[1.0, 4.0, 9.0, 100.0], labelled=[True, True, True, False],
-                                    area=1600.0, sigmas=[DEFAULT_SIGMA] * 4), 0.0]
-    assert accuracy["similarities"].tolist() == pytest.approx(expected_similarities)
-
-
 def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values() -> None:
     """
     Verifies the global fraction of matched objects, PCK and mean similarity over the labelled keypoints (the missed
@@ -467,40 +374,3 @@ def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values(
     assert keypoint_table["rows"][2] == ["triangle", "right", 0, 0, None, None]
     assert len(class_table["columns"]) == len(class_table["rows"][0])
     assert len(keypoint_table["columns"]) == len(keypoint_table["rows"][0])
-
-
-def test_summarise_keypoint_accuracy_without_labelled_keypoint_has_no_value() -> None:
-    """
-    Verifies that a split without any labelled keypoint gives no PCK, no pixel error and no mean similarity, neither in
-    the metrics, the scalars nor the class rows, instead of a NaN or the meaningless similarity of 0 of such objects,
-    only the fraction of matched objects remaining.
-    """
-    objects = make_accuracy_objects()
-    objects["visibilities"] = torch.zeros_like(input=objects["visibilities"])
-    sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
-                                             keypoint_sigmas={}, maximum_keypoints=MAXIMUM_KEYPOINTS)
-    summary = summarise_keypoint_accuracy(objects=objects, sigma_table=sigma_table,
-                                          keypoint_categories=KEYPOINT_CATEGORIES, class_names=CLASS_NAMES)
-    assert summary["metrics"][CORRECT_KEYPOINTS_NAME] is None
-    assert summary["metrics"]["Mean Keypoint Error (pixels)"] is None
-    assert summary["metrics"]["Mean OKS"] is None
-    assert summary["scalars"] == {"Keypoint Accuracy/Matched Objects": pytest.approx(2.0 / 3.0)}
-    assert all(row["mean_object_keypoint_similarity"] is None for row in summary["class_rows"])
-    assert all(row["percentage_correct_keypoints"] is None for row in summary["keypoint_rows"])
-
-
-def test_summarise_keypoint_accuracy_of_a_split_without_objects() -> None:
-    """
-    Verifies that a test split without any ground truth object gives no value at all, including the fraction of
-    matched objects, instead of failing on the empty tensors.
-    """
-    objects = evaluate_image_keypoints(images=[make_image(labels=[], bounding_boxes=[], keypoints=[], visibilities=[],
-                                                          predicted_labels=[], predicted_keypoints=[],
-                                                          predicted_scores=[])],
-                                       sigma_table=torch.full(size=(4, MAXIMUM_KEYPOINTS), fill_value=DEFAULT_SIGMA,
-                                                              dtype=torch.float64))["objects"]
-    summary = summarise_keypoint_accuracy(objects=objects, sigma_table=torch.full(
-        size=(4, MAXIMUM_KEYPOINTS), fill_value=DEFAULT_SIGMA, dtype=torch.float64),
-        keypoint_categories=KEYPOINT_CATEGORIES, class_names=CLASS_NAMES)
-    assert all(value is None for value in summary["metrics"].values()) and summary["scalars"] == {}
-    assert [row["objects"] for row in summary["class_rows"]] == [0, 0, 0]

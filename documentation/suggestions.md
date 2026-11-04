@@ -344,9 +344,9 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     in bfloat16, and the heatmap and tag losses and the candidates are computed from them in float32. On the CPU, the
     untrained detector of the tests gives a heatmap loss within 0.06 % of float32 (5 seeds, with and without the
     higher resolution branch) and a finite gradient for every parameter, at a cosine similarity of 0.9996 to the
-    float32 gradient (`test_detector_trains_under_the_bfloat16_autocast`). The tags are rounded to 8 significant bits,
-    within about 0.004 of a tag near 1, which bounds how close the pull loss brings the tags of an object, far below
-    the `tag_threshold` of 1.0 of the grouping.
+    float32 gradient (`test_detector_trains_under_the_bfloat16_autocast`, removed on 2026-11-04 with the test suite
+    reduction). The tags are rounded to 8 significant bits, within about 0.004 of a tag near 1, which bounds how
+    close the pull loss brings the tags of an object, far below the `tag_threshold` of 1.0 of the grouping.
     - **Left:** the OKS AP and the images per second of a short COCO run in each precision, on the GPU.
 16. **Ignored regions, implemented, experiment left to run** (`KeypointHead.ignore_unlabelled_objects`): the objects
     left out of the labels (the COCO crowds and the persons without any labelled keypoint) stayed in the images, where

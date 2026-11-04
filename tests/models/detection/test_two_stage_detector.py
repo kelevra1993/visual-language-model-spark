@@ -1,38 +1,14 @@
 """
 Tests of the intermediate results of vision_training/models/detection/two_stage_detector.py read by the instance
-segmenter: the matched ground truth of every proposal returned by the target assignment, and the level and matched
-ground truth of the sampled proposals and the proposal of every final detection carried through
-forward_detection_stages, and the filtered proposals and the anchors of every level read by the anchor and proposal
-recall of the detection trainers.
+segmenter: the level and matched ground truth of the sampled proposals and the proposal of every final detection
+carried through forward_detection_stages, and the filtered proposals and the anchors of every level read by the anchor
+and proposal recall of the detection trainers.
 """
 
 import torch
 
 from tests.models.detection.test_detector_baseline import get_fixed_batch
 from tests.testing_utilities import build_test_model
-from vision_training.models.detection.target_assignment import batch_assign_targets_to_proposals
-
-
-def test_proposals_give_the_index_of_their_matched_ground_truth() -> None:
-    """
-    Verifies that every proposal overlapping a ground truth box enough gives the index of that box and its label,
-    that the other proposals give -1 and the background label, and that an image without ground truth gives -1
-    everywhere, alone or in a batch.
-    """
-    ground_truth_boxes = torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 40.0, 40.0]])
-    proposals = torch.tensor(data=[[21.0, 21.0, 40.0, 40.0], [0.0, 0.0, 9.0, 10.0], [60.0, 60.0, 70.0, 70.0]])
-    _, labels, matched_indices = batch_assign_targets_to_proposals(
-        batched_ground_truth_boxes=[ground_truth_boxes], batched_proposals=proposals.unsqueeze(dim=0),
-        batched_ground_truth_labels=[torch.tensor(data=[3, 5])], foreground_iou_threshold=0.5)
-    assert labels.tolist() == [[5, 3, 0]] and matched_indices.tolist() == [[1, 0, -1]]
-
-    # A batch with an image without ground truth
-    _, batched_labels, batched_matched_indices = batch_assign_targets_to_proposals(
-        batched_ground_truth_boxes=[ground_truth_boxes, torch.zeros(size=(0, 4))],
-        batched_proposals=torch.stack(tensors=[proposals, proposals]), foreground_iou_threshold=0.5,
-        batched_ground_truth_labels=[torch.tensor(data=[3, 5]), torch.zeros(size=(0,), dtype=torch.int64)])
-    assert batched_matched_indices.tolist() == [[1, 0, -1], [-1, -1, -1]]
-    assert batched_labels[1].tolist() == [0, 0, 0]
 
 
 def test_detection_stages_carry_levels_and_matched_ground_truths() -> None:

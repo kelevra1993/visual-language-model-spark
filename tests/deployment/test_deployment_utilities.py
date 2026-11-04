@@ -1,8 +1,7 @@
 """
 Tests of the Triton deployment client of vision_training/deployment/deployment_utilities.py, with a recording stand-in
-for the gRPC client: the requests built for every task (the keypoint detection receiving the whole image like the
-classification, the sequence tasks the whole folder as one sequence and the comparison its two halves), the folders
-refused for the sequence tasks, and the inputs written in shared memory at their offsets.
+for the gRPC client: the request built for the comparison (the two halves of the folder), the folders longer than the
+sequences of the training refused, and the inputs written in shared memory at their offsets.
 """
 
 import json
@@ -138,18 +137,12 @@ def write_inference_folder(image_folder: Path, number_images: int) -> None:
 
 
 @pytest.mark.parametrize(argnames=("task", "expected_requests"), argvalues=[
-    ("classification", [{"images": [image_index]} for image_index in range(TEST_NUMBER_IMAGES)]),
-    ("semantic_segmentation", [{"images": [image_index]} for image_index in range(TEST_NUMBER_IMAGES)]),
-    ("keypoint_detection", [{"images": [image_index]} for image_index in range(TEST_NUMBER_IMAGES)]),
-    ("sequence_classification", [{"images": [0, 1, 2, 3, 4]}]), ("frame_selection", [{"images": [0, 1, 2, 3, 4]}]),
     ("sequence_comparison", [{"before_images": [0, 1, 2], "after_images": [3, 4]}])])
 def test_requests_hold_the_inputs_of_the_task(tmp_path: Path, task: str,
                                               expected_requests: List[Dict[str, List[int]]]) -> None:
     """
-    Verifies the requests built from the inference folder for every kind of task, keyed by the input names of the
-    task: one request per image for the image tasks, a single request of the whole folder as one sequence for the
-    sequence tasks, and for the comparison a single request whose before member is the first half of the folder and
-    whose after member is the rest.
+    Verifies the requests built from the inference folder for the comparison, keyed by the input names of the task: a
+    single request whose before member is the first half of the folder and whose after member is the rest.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -181,13 +174,12 @@ def test_requests_hold_the_inputs_of_the_task(tmp_path: Path, task: str,
 
 @pytest.mark.parametrize(argnames=("task", "number_images", "expected_message"), argvalues=[
     ("sequence_classification", 5, "gives sequences of up to 5 images, more than the maximum sequence length of the "
-                                   "training \\(4\\)"),
-    ("sequence_comparison", 1, "holds 1 images, the sequence_comparison task needing at least 2")])
+                                   "training \\(4\\)")])
 def test_sequence_folders_that_do_not_fit_are_refused(tmp_path: Path, task: str, number_images: int,
                                                       expected_message: str) -> None:
     """
     Verifies that the deployment client refuses an inference folder longer than the sequences of the training, which
-    the training leaves out, and a folder too small to give the two members of the comparison.
+    the training leaves out.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

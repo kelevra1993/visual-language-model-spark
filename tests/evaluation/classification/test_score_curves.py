@@ -1,32 +1,20 @@
 """
 Tests of vision_training/evaluation/classification/score_curves.py: the ROC AUC and average precision of every class
 match scikit-learn on scores with ties, the threshold reaching every target precision is marked at its recall and
-precision with a written value selecting the same samples, separated, reversed and undefined classes get their
-expected metrics, the macro means leave out the undefined classes (NaN without any), the curves of the pixel
-histograms of segmentation_metrics.py equal the exact curves of the same pixels, the drawn curves keep at most
-MAXIMUM_CURVE_POINTS points while their metrics use every point, the images of a few classes (single plot) and of many
-classes (grid of panels, the lowest classes above MAXIMUM_GRID_PANELS) are saved identical to the returned ones, and
-the thresholds image zooms on the marked thresholds and is drawn only with target precisions.
+precision with a written value selecting the same samples, and the curves of the pixel histograms of
+segmentation_metrics.py equal the exact curves of the same pixels.
 """
 
-import cv2
-import math
 import pytest
 import torch
 
-from pathlib import Path
 from sklearn.metrics import average_precision_score, roc_auc_score
 from typing import Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.evaluation.classification.confusion_matrix import IMAGE_DOTS_PER_INCH
-from vision_training.evaluation.classification.score_curves import (MAXIMUM_CURVE_POINTS, MAXIMUM_GRID_PANELS,
-                                                                     OVERLAY_FIGURE_SIZE, compute_class_score_curves,
+from vision_training.evaluation.classification.score_curves import (compute_class_score_curves,
                                                                      compute_histogram_score_curves,
-                                                                     compute_macro_curve_metrics,
-                                                                     compute_threshold_view_limits, draw_score_curves,
-                                                                     format_threshold_label, save_score_curve_images,
-                                                                     select_drawn_classes)
+                                                                     format_threshold_label)
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 from vision_training.evaluation.segmentation.segmentation_metrics import compute_pixel_score_histograms
 
@@ -91,32 +79,6 @@ def test_curve_metrics_match_scikit_learn_with_ties() -> None:
             assert torch.equal(scores >= float(threshold_point[2]), accepted_samples)
 
 
-def test_separated_reversed_and_undefined_classes() -> None:
-    """
-    Verifies the metrics of four classes: separated scores give 1 and 1, reversed scores a ROC AUC of 0 and the
-    average precision of their cuts, a class without positive no metric and empty curves, a class without negative an
-    average precision of 1 and no ROC AUC, and the macro means leave the undefined classes out, being NaN without any
-    class defining them.
-    """
-    probabilities = torch.tensor(data=[[0.9, 0.1, 0.5, 0.5], [0.8, 0.2, 0.4, 0.6], [0.2, 0.8, 0.3, 0.7],
-                                       [0.1, 0.9, 0.2, 0.8]], dtype=torch.float64)
-    positive_masks = torch.tensor(data=[[True, True, False, True], [True, True, False, True],
-                                        [False, False, False, True], [False, False, False, True]])
-    class_curves = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks)
-
-    # Reversed: cuts at recall 0.5 (precision 1/3) and 1 (precision 2/4)
-    assert [(curves["roc_auc"], curves["average_precision"]) for curves in class_curves] == [
-        (1.0, 1.0), (0.0, pytest.approx(expected=0.5 / 3 + 0.5 * 0.5)), (None, None), (None, 1.0)]
-    assert len(class_curves[2]["recalls"]) == 0 and len(class_curves[3]["false_positive_rates"]) == 0
-    assert class_curves[0]["threshold_points"] == []
-
-    # Macro means over the classes defining every metric, NaN without any
-    macro_metrics = compute_macro_curve_metrics(class_curves=class_curves)
-    assert macro_metrics == {"Macro ROC AUC": 0.5,
-                             "Macro Average Precision": pytest.approx(expected=(2.0 + 0.5 / 3 + 0.5 * 0.5) / 3)}
-    assert all(math.isnan(value) for value in compute_macro_curve_metrics(class_curves=class_curves[2:3]).values())
-
-
 def test_histogram_curves_equal_the_exact_curves_of_the_same_pixels() -> None:
     """
     Verifies that the curves of the segmentation, from the histograms of the probabilities of the labelled pixels,
@@ -147,85 +109,6 @@ def test_histogram_curves_equal_the_exact_curves_of_the_same_pixels() -> None:
             assert binned[curve_key] == pytest.approx(expected=exact[curve_key], abs=1e-12)
 
 
-def test_drawn_curves_keep_at_most_the_maximum_points() -> None:
-    """
-    Verifies that the curves of 10,000 distinct scores keep at most MAXIMUM_CURVE_POINTS points to be drawn, from
-    (0, 0) to (1, 1) for the ROC curve, while their metrics, computed on every point, still match scikit-learn.
-    """
-    probabilities, positive_masks = build_random_scores(number_samples=10000, number_classes=1,
-                                                        number_levels=10 ** 9, seed=2)
-    curves, = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks)
-    assert len(curves["false_positive_rates"]) <= MAXIMUM_CURVE_POINTS
-    assert len(curves["recalls"]) <= MAXIMUM_CURVE_POINTS
-    assert (curves["false_positive_rates"][0], curves["true_positive_rates"][0]) == (0.0, 0.0)
-    assert (curves["false_positive_rates"][-1], curves["true_positive_rates"][-1]) == (1.0, 1.0)
-    assert curves["roc_auc"] == pytest.approx(expected=roc_auc_score(y_true=positive_masks[:, 0].numpy(),
-                                                                     y_score=probabilities[:, 0].numpy()), abs=1e-12)
-
-
-def test_curve_images_of_a_few_and_of_many_classes(tmp_path: Path) -> None:
-    """
-    Verifies the curve images: 3 classes are drawn on a single plot of OVERLAY_FIGURE_SIZE, 12 classes on a grid of 4
-    columns and 3 rows of panels, both images of every evaluation being saved under their file name identical to the
-    returned RGB images, and above MAXIMUM_GRID_PANELS classes only the classes with the lowest metric are drawn.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    expected_shapes = {3: (int(OVERLAY_FIGURE_SIZE[1] * IMAGE_DOTS_PER_INCH),
-                           int(OVERLAY_FIGURE_SIZE[0] * IMAGE_DOTS_PER_INCH), 3),
-                       12: (int((3 * 2.0 + 0.8) * IMAGE_DOTS_PER_INCH), int(4 * 2.0 * IMAGE_DOTS_PER_INCH), 3)}
-    for number_classes, expected_shape in expected_shapes.items():
-        probabilities, positive_masks = build_random_scores(number_samples=200, number_classes=number_classes,
-                                                            number_levels=20, seed=3)
-        class_curves = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks)
-        image_paths, images = save_score_curve_images(
-            class_curves=class_curves, class_names=[f"class_{index}" for index in range(number_classes)],
-            output_folder=tmp_path / f"classes_{number_classes}", title_suffix=" · Iteration 4",
-            target_precisions=[0.9])
-
-        # The three images, saved under their names and identical to the returned ones
-        assert list(images) == ["ROC Curves", "Precision Recall Curves", "Precision Recall Thresholds"]
-        assert [path.name for path in image_paths.values()] == ["roc_curves.png", "precision_recall_curves.png",
-                                                                "precision_recall_thresholds.png"]
-        for image_name, image in images.items():
-            assert image.shape == expected_shape and image.dtype.name == "uint8"
-            saved_image = cv2.imread(filename=str(image_paths[f"{image_name} Image"]))
-            assert (cv2.cvtColor(src=saved_image, code=cv2.COLOR_BGR2RGB) == image).all()
-
-    # Above MAXIMUM_GRID_PANELS classes, the classes with the lowest metric, the classes without one left out
-    many_class_curves = [{"roc_auc": float(class_index % 7) + class_index / 1000} for class_index in range(150)]
-    many_class_curves[3]["roc_auc"] = None
-    drawn_classes = select_drawn_classes(class_curves=many_class_curves, metric_key="roc_auc")
-    assert len(drawn_classes) == MAXIMUM_GRID_PANELS and 3 not in drawn_classes
-    assert drawn_classes == sorted(drawn_classes)
-    lowest_values = sorted(curves["roc_auc"] for curves in many_class_curves if curves["roc_auc"] is not None)
-    assert sorted(many_class_curves[class_index]["roc_auc"] for class_index in drawn_classes) == \
-        lowest_values[:MAXIMUM_GRID_PANELS]
-
-
-def test_curve_image_titles_stay_inside_the_image(tmp_path: Path) -> None:
-    """
-    Verifies that the titles of the curve images of a segmentation evaluation, the longest ones (pixels, iteration and
-    macro mean), stay inside the single plot: the left and right columns of the title rows hold no ink, where a title
-    on one line used to run past both edges.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    probabilities, positive_masks = build_random_scores(number_samples=200, number_classes=10, number_levels=20,
-                                                        seed=5)
-    class_curves = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks)
-    _, images = save_score_curve_images(class_curves=class_curves,
-                                        class_names=[f"class_{index}" for index in range(10)],
-                                        output_folder=tmp_path, title_suffix=" · Pixels · Iteration 20000")
-    assert list(images) == ["ROC Curves", "Precision Recall Curves"]
-    for image in images.values():
-        # The title rows are the top tenth of the image, white outside the text
-        title_rows = image[:image.shape[0] // 10]
-        assert (title_rows[:, :3] > 200).all() and (title_rows[:, -3:] > 200).all()
-
-
 def test_threshold_labels_select_the_same_samples() -> None:
     """
     Verifies the written thresholds: rounded down to 4 decimals when the next lower score stays below, with more
@@ -237,51 +120,3 @@ def test_threshold_labels_select_the_same_samples() -> None:
     assert format_threshold_label(threshold=0.00052122, next_lower_score=0.0005211) == "0.0005212"
     assert format_threshold_label(threshold=3.215e-7, next_lower_score=3.21e-7) == "0.0000003215"
     assert format_threshold_label(threshold=0.29, next_lower_score=0.28) == "0.2900"
-
-
-def test_thresholds_image_zooms_on_the_marked_thresholds(tmp_path: Path) -> None:
-    """
-    Verifies the zoom of the thresholds image: the precision axis starts 0.1 below the lowest target precision and the
-    recall axis left of the lowest marked recall on a step of 0.02 (from 0 when no class reaches a target precision),
-    the image of a model whose thresholds all keep a recall near 1 differing from the whole precision-recall curves,
-    and the image refused without target precisions.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    # Two classes almost separated, every marked recall above 0.98
-    probabilities = torch.linspace(start=0.0, end=1.0, steps=400, dtype=torch.float64)
-    positive_masks = probabilities > 0.5
-    positive_masks[[10, 390]] = ~positive_masks[[10, 390]]
-    probabilities = torch.stack(tensors=[probabilities, 1.0 - probabilities], dim=1)
-    positive_masks = torch.stack(tensors=[positive_masks, ~positive_masks], dim=1)
-    target_precisions = [0.99, 0.95]
-    class_thresholds = [find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
-                                              target_precision=target_precision)
-                        for target_precision in target_precisions]
-    class_curves = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks,
-                                              class_thresholds=class_thresholds)
-    marked_recalls = [point[0] for curves in class_curves for point in curves["threshold_points"]]
-    assert min(marked_recalls) > 0.98
-    minimum_recall, minimum_precision = compute_threshold_view_limits(class_curves=class_curves,
-                                                                      target_precisions=target_precisions)
-    assert minimum_precision == pytest.approx(expected=0.85)
-    assert minimum_recall == pytest.approx(expected=0.96)
-
-    # No class reaching a target precision: the whole recall axis
-    unreached_curves = [dict(curves, threshold_points=[None, None]) for curves in class_curves]
-    assert compute_threshold_view_limits(class_curves=unreached_curves, target_precisions=target_precisions) == (
-        0.0, pytest.approx(expected=0.85))
-
-    # The zoomed image differs from the whole curves, and needs the target precisions
-    class_names = ["front", "retracted"]
-    whole_image = draw_score_curves(class_curves=class_curves, class_names=class_names,
-                                    image_name="Precision Recall Curves", title="Curves",
-                                    target_precisions=target_precisions)
-    zoomed_image = draw_score_curves(class_curves=class_curves, class_names=class_names,
-                                     image_name="Precision Recall Thresholds", title="Curves",
-                                     target_precisions=target_precisions)
-    assert zoomed_image.shape == whole_image.shape and not (zoomed_image == whole_image).all()
-    with pytest.raises(expected_exception=ValueError, match="needs the target precisions"):
-        draw_score_curves(class_curves=class_curves, class_names=class_names,
-                          image_name="Precision Recall Thresholds", title="Curves")

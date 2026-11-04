@@ -412,7 +412,8 @@
 - **Area:** task trainers and losses · **Severity:** low · **Status:** confirmed (reproduced by the reviewer on the
   synthetic shapes mapping) · **Category:** bug
 - **Where:** `vision_training/trainers/detection_trainer.py:685-686` (used at 688-704, inherited by
-  `InstanceSegmentationTrainer`); `tests/trainers/test_input_viewer_panels.py:93`.
+  `InstanceSegmentationTrainer`); `tests/trainers/test_input_viewer_panels.py:93` (file removed on 2026-11-04 with the
+  test suite reduction).
 - **Problem:** `label_names` inverts `self.label_dictionary`, whose keys are the raw category ids, so the box captions,
   the "Objects : n (...)" line and the removed-object lines show "1", "2", ... (with merged categories the inversion
   keeps only the last id), against the comment "so that each box is captioned with its class name"; `KeypointTrainer`
@@ -698,8 +699,9 @@ the README screenshots, was done on 2026-10-23.
   of `unsqueeze_tensor` `input_tensor` (its loop variable `_`), the `p` of `RandomHaze` `probability` (passed on to
   kornia as `p=probability`), the `min` and `max` of the threshold conditions of `target_assignment.py` `minimum` and
   `maximum`, and the box coordinates of `visualization.py` `x_minimum`, `y_minimum`, `x_maximum` and `y_maximum`.
-- `img_tensor` in `tests/evaluation/test_evaluation_report.py` stays: it is the keyword of the TensorBoard
-  `add_image` the fake writer replaces, which `evaluation_report.py` calls by name.
+- `img_tensor` in `tests/evaluation/test_evaluation_report.py` (file removed on 2026-11-04 with the test suite
+  reduction) stays: it is the keyword of the TensorBoard `add_image` the fake writer replaces, which
+  `evaluation_report.py` calls by name.
 
 #### S3. Missing, generic or foreign docstrings
 - **Fixed.** `ConvolutionBlock.__init__` holds the `Args:` section that was in the class docstring, and the generic or
@@ -758,8 +760,8 @@ the README screenshots, was done on 2026-10-23.
 - **`last_max_pooling`, `info_nce_loss` and `info_nce_outputs`:** "max pooling" and "InfoNCE" are the names of the
   methods.
 - **`x` and `y` for point coordinates:** `create_synthetic_dataset.py:1904`, `visualization.py:947` and three tests.
-- **`img_tensor`** (`tests/evaluation/test_evaluation_report.py:43`): the keyword of the TensorBoard `add_image`
-  that the fake writer of the test replaces.
+- **`img_tensor`** (`tests/evaluation/test_evaluation_report.py:43`, file removed on 2026-11-04 with the test suite
+  reduction): the keyword of the TensorBoard `add_image` that the fake writer of the test replaces.
 - **One argument or parameter per line where no two fit in 120 characters:** the 25 places listed in S5.
 - **`max_pool_connections`** (`foundation_model_image_downloader.py:650`): the botocore setting it is passed to.
 - **`previous_settings.get(setting_key, MISSING_SETTING)`** (`configuration_changes.py:73`): it compares a saved

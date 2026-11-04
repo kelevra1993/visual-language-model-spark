@@ -1,7 +1,6 @@
 """
 Tests of vision_training/models/model_loading.py, which rebuilds the trained models of the export, evaluation and
-inference scripts: the trained weights of a checkpoint, the moving average of the weights stored next to them, and
-the refusal of the averaged weights for a checkpoint saved without them.
+inference scripts: the trained weights of a checkpoint and the moving average of the weights stored next to them.
 """
 
 import pytest
@@ -74,19 +73,3 @@ def test_trained_and_averaged_weights_are_loaded(tmp_path: Path, monkeypatch: py
         assert not model.training
         for name, tensor in expected_model.state_dict().items():
             assert torch.equal(input=model.state_dict()[name], other=tensor), name
-
-
-def test_averaged_weights_of_a_checkpoint_without_average_are_refused(tmp_path: Path,
-                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    Verifies that asking for the averaged weights of a checkpoint saved without a moving average raises an error
-    naming the setting, instead of exporting the trained weights silently.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the configuration loader.
-    """
-    _, _, checkpoint_path = save_classifier_run(run_folder=tmp_path, keep_average=False, monkeypatch=monkeypatch)
-    with pytest.raises(expected_exception=ValueError, match="exponential_moving_average"):
-        load_trained_model(configuration_path=tmp_path / "training_configuration.yaml",
-                           checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=True)

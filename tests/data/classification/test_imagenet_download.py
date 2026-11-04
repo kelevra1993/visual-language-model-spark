@@ -1,7 +1,6 @@
 """
 Tests of vision_training/data/classification/imagenet_download.py on small parquet shards written by the tests: the
-class names, the extraction of the shards into class folders, the validation images held out by file name hash and the
-split size checks.
+extraction of the shards into class folders and the validation images held out by file name hash.
 """
 
 import pyarrow
@@ -11,15 +10,8 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict, List
 
-from vision_training.data.classification.imagenet_download import (check_split_sizes, compute_file_name_hash,
-                                                                   extract_imagenet_shards, extract_shard,
-                                                                   hold_out_validation_images,
-                                                                   read_imagenet_class_names)
-
-# Classes file in the format of the Hugging Face ImageNet-1k dataset, reduced to its first two classes
-CLASSES_FILE_CONTENT = ('from collections import OrderedDict\n\nIMAGENET2012_CLASSES = OrderedDict(\n    {\n'
-                        '        "n01440764": "tench, Tinca tinca",\n'
-                        '        "n01443537": "goldfish, Carassius auratus",\n    }\n)\n')
+from vision_training.data.classification.imagenet_download import (compute_file_name_hash, extract_imagenet_shards,
+                                                                   extract_shard, hold_out_validation_images)
 
 # WordNet identifiers of the two classes of the test shards, in class index order
 CLASS_IDENTIFIERS = ["n01440764", "n01443537"]
@@ -38,27 +30,6 @@ def write_shard(shard_path: Path, rows: List[Dict[str, Any]]) -> None:
     images = pyarrow.array([{"bytes": row["bytes"], "path": row["path"]} for row in rows], type=image_type)
     labels = pyarrow.array([row["label"] for row in rows], type=pyarrow.int64())
     parquet.write_table(table=pyarrow.table({"image": images, "label": labels}), where=shard_path)
-
-
-def test_read_imagenet_class_names(tmp_path: Path) -> None:
-    """
-    Verifies that the classes file is read in class index order, and that WordNet identifiers out of alphabetical
-    order, which would shift the class indices given by the manifests, are refused.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    # Classes file of the dataset, reduced to two classes
-    classes_file = tmp_path / "classes.py"
-    classes_file.write_text(data=CLASSES_FILE_CONTENT)
-    class_names = read_imagenet_class_names(classes_file=classes_file)
-    assert list(class_names.items()) == [("n01440764", "tench, Tinca tinca"),
-                                         ("n01443537", "goldfish, Carassius auratus")]
-
-    # The first identifier replaced by one coming after the second in alphabetical order
-    classes_file.write_text(data=CLASSES_FILE_CONTENT.replace("n01440764", "n09999999"))
-    with pytest.raises(expected_exception=ValueError, match="alphabetical order"):
-        read_imagenet_class_names(classes_file=classes_file)
 
 
 def test_extract_shard(tmp_path: Path) -> None:
@@ -187,23 +158,3 @@ def test_hold_out_validation_images(tmp_path: Path) -> None:
                                       images_per_class=2) == 0
     assert not (train_folder / first_class_identifier / duplicated_name).exists()
     assert (validation_folder / first_class_identifier / duplicated_name).exists()
-
-
-def test_check_split_sizes(tmp_path: Path) -> None:
-    """
-    Verifies that the images of a split are counted over its class folders, and that a split holding another number
-    of images than expected stops the preparation before the manifests are built.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    # A train split of three images and a test split of one image
-    for split_name, number_images in [("train", 3), ("test", 1)]:
-        class_folder = tmp_path / split_name / "n01440764"
-        class_folder.mkdir(parents=True)
-        for image_index in range(number_images):
-            (class_folder / f"n01440764_{image_index}.JPEG").write_bytes(data=b"image")
-
-    check_split_sizes(images_folder=tmp_path, expected_split_sizes={"train": 3, "test": 1})
-    with pytest.raises(expected_exception=RuntimeError, match="holds 3 images instead of 4"):
-        check_split_sizes(images_folder=tmp_path, expected_split_sizes={"train": 4, "test": 1})

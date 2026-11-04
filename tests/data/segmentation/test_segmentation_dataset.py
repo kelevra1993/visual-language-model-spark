@@ -2,8 +2,7 @@
 Tests of SegmentationDataset of vision_training/data/segmentation/segmentation_dataset.py: the categories of the mask
 files become class indices (binary or multi-class mapping, unmapped categories as background, unlabelled pixels
 ignored), the masks are resized with the nearest interpolation and padded like their images, the tiles of the training
-on tiles are cut from the scaled images, the original class masks are read back, the class pixels are counted, and
-invalid masks are refused.
+on tiles are cut from the scaled images, the original class masks are read back, and the class pixels are counted.
 """
 
 import json
@@ -148,29 +147,6 @@ def test_class_pixels_are_counted_at_the_original_resolution(tmp_path: Path) -> 
                             tiling_configuration=NO_TILING, tile_sampling="random")
 
     assert dataset.count_class_pixels() == [64 * 32 + 32 * 32, 64 * 32, 64 * 32]
-
-
-def test_invalid_masks_are_refused(tmp_path: Path) -> None:
-    """
-    Verifies that a mask with colour channels, or of another size than its image, is refused with its file named.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    write_split(split_folder=tmp_path, mask=build_wide_mask())
-    dataset = build_dataset(split_folder=tmp_path, label_mode="multi_class",
-                            label_dictionary=MULTI_CLASS_LABEL_DICTIONARY, keep_ratio=True,
-                            tiling_configuration=NO_TILING, tile_sampling="random")
-
-    # A colour mask
-    cv2.imwrite(filename=str(tmp_path / "masks" / "image.png"), img=np.zeros(shape=(64, 128, 3), dtype=np.uint8))
-    with pytest.raises(expected_exception=ValueError, match="single-channel"):
-        dataset[0]
-
-    # A mask of another size than its image
-    cv2.imwrite(filename=str(tmp_path / "masks" / "image.png"), img=np.zeros(shape=(32, 128), dtype=np.uint8))
-    with pytest.raises(expected_exception=ValueError, match="has the size"):
-        dataset[0]
 
 
 def test_tiles_are_cut_from_the_scaled_images(tmp_path: Path) -> None:

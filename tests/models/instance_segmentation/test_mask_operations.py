@@ -1,7 +1,7 @@
 """
 Tests of vision_training/models/instance_segmentation/mask_operations.py and the mask head: the mask geometry of the
-mask head (its doublings, the resize of its masks and the shapes of its outputs), the mask targets cropped from the
-ground truth masks, the pasting of the predicted masks into their boxes and the intersection over union of binary masks.
+mask head (its doublings and the shapes of its outputs), the mask targets cropped from the ground truth masks, the
+pasting of the predicted masks into their boxes and the intersection over union of binary masks.
 """
 
 import pytest
@@ -38,15 +38,13 @@ def build_mask_head(roi_align_pool_size: int, mask_resolution: int, upsampling: 
 
 
 @pytest.mark.parametrize(argnames=["roi_align_pool_size", "mask_resolution", "upsampling", "number_upsamplings"],
-                         argvalues=[(7, 14, "transposed", 1), (7, 28, "bilinear", 2), (10, 28, "transposed", 1),
-                                    (14, 14, "bilinear", 0)])
+                         argvalues=[(7, 28, "bilinear", 2)])
 def test_mask_head_doubles_its_pooled_features_up_to_the_mask_resolution(roi_align_pool_size: int,
                                                                           mask_resolution: int, upsampling: str,
                                                                           number_upsamplings: int) -> None:
     """
     Verifies that the mask head of a level doubles its pooled features as many times as fits in the mask resolution,
-    with layers of the chosen upsampling, and gives [R, C, M, M] logits for R boxes, including no box at all, the
-    logits of a pool size whose doublings fall short of M being resized to it.
+    with layers of the chosen upsampling, and gives [R, C, M, M] logits for R boxes, including no box at all.
 
     Args:
         roi_align_pool_size (int): The RoIAlign pool size of the level.

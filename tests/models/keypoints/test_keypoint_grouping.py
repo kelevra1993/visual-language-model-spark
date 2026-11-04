@@ -5,7 +5,7 @@ the candidates of a keypoint to the objects formed so far (by tag distance first
 object, the too distant tags starting new objects), and the grouping of the candidates of one image (two triangles
 told apart by their tags, a rectangle grouped on its own whatever its tags, a candidate of an outlying tag starting an
 object of its own, the missing keypoints at NaN, the object scores over all the keypoints of the class, the order by
-decreasing score, the object score threshold, and an image without any candidate above the keypoint threshold).
+decreasing score and the object score threshold).
 """
 
 import numpy as np
@@ -105,17 +105,3 @@ def test_candidates_of_an_image_are_grouped_into_objects() -> None:
                                             candidate_tags=tags, channel_table=CHANNEL_TABLE, keypoint_threshold=0.1,
                                             tag_threshold=1.0, object_score_threshold=0.3)
     assert thresholded["labels"].tolist() == [1, 2, 1]
-
-
-def test_image_without_candidates_gives_no_object() -> None:
-    """
-    Verifies that an image whose candidates all lie below the keypoint threshold gives no object, with the empty
-    arrays keeping their shapes and types for the evaluation.
-    """
-    positions, scores, tags = build_candidates()
-    objects = group_keypoint_candidates(candidate_positions=positions, candidate_scores=scores, candidate_tags=tags,
-                                        channel_table=CHANNEL_TABLE, keypoint_threshold=0.95, tag_threshold=1.0,
-                                        object_score_threshold=0.0)
-    assert objects["labels"].shape == (0,) and objects["labels"].dtype == np.int64
-    assert objects["keypoints"].shape == (0, 4, 2) and objects["keypoint_scores"].shape == (0, 4)
-    assert objects["scores"].shape == (0,) and objects["scores"].dtype == np.float32

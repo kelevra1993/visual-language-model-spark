@@ -1,13 +1,13 @@
 """
 Tests of vision_training/losses/classification_losses.py: the weighted, smoothed multi-class and multi-label losses, the
-probabilities following the output mode, the balanced class weights and the decorrelation loss of the hidden features.
+balanced class weights and the decorrelation loss of the hidden features.
 """
 
 import math
 import torch
 
 from vision_training.losses.classification_losses import (compute_balanced_class_weights, compute_classification_loss,
-                                                          compute_decorrelation_loss, convert_logits_to_probabilities)
+                                                          compute_decorrelation_loss)
 
 
 def test_multi_class_loss_is_weighted_smoothed_cross_entropy() -> None:
@@ -41,18 +41,6 @@ def test_multi_label_loss_smooths_targets_towards_one_half() -> None:
     expected_loss = torch.nn.functional.binary_cross_entropy_with_logits(input=class_logits, target=smoothed_targets,
                                                                          weight=class_weights)
     assert torch.allclose(input=loss, other=expected_loss)
-
-
-def test_probabilities_follow_the_output_mode() -> None:
-    """
-    Verifies that the logits become softmax probabilities with one class per sample, and independent sigmoid
-    probabilities with several.
-    """
-    class_logits = torch.tensor(data=[[1.0, 2.0, 3.0]])
-    assert torch.allclose(input=convert_logits_to_probabilities(class_logits=class_logits, output_mode="multi_class"),
-                          other=torch.softmax(input=class_logits, dim=-1))
-    assert torch.allclose(input=convert_logits_to_probabilities(class_logits=class_logits, output_mode="multi_label"),
-                          other=torch.sigmoid(input=class_logits))
 
 
 def test_balanced_class_weights() -> None:

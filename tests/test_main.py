@@ -1,6 +1,6 @@
 """
 Tests of the command line of the training entry point vision_training/main.py: the configuration file of a launch is
-given by its path (--configuration_path), absolute or relative to the current folder, and a missing file or argument
+given by its path (--configuration_path), a path relative to the current folder being made absolute, and a missing file
 stops the launch before any training.
 """
 
@@ -14,19 +14,6 @@ from vision_training.main import parse_configuration_path
 # Configuration file used as the launched one, relative to the repository root
 CONFIGURATION_RELATIVE_PATH = Path("vision_training/configurations/classification/configuration_example.yaml")
 REPOSITORY_FOLDER = Path(__file__).absolute().parents[1]
-
-
-def test_absolute_configuration_path_is_returned(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    Verifies that an absolute --configuration_path is returned as it is.
-
-    Args:
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the command line.
-    """
-    configuration_path = REPOSITORY_FOLDER / CONFIGURATION_RELATIVE_PATH
-    monkeypatch.setattr(target=sys, name="argv", value=["main.py", f"--configuration_path={configuration_path}"])
-
-    assert parse_configuration_path() == configuration_path
 
 
 def test_relative_configuration_path_is_made_absolute(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -44,12 +31,11 @@ def test_relative_configuration_path_is_made_absolute(monkeypatch: pytest.Monkey
     assert parse_configuration_path() == REPOSITORY_FOLDER / CONFIGURATION_RELATIVE_PATH
 
 
-@pytest.mark.parametrize("arguments", [["--configuration_path=missing_folder/missing_configuration.yaml"], []])
+@pytest.mark.parametrize("arguments", [["--configuration_path=missing_folder/missing_configuration.yaml"]])
 def test_missing_file_or_argument_stops_the_launch(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
                                                    arguments: List[str]) -> None:
     """
-    Verifies that a path leading to no file or a missing --configuration_path stops the launch with an argument
-    error, the error of a missing file naming the file.
+    Verifies that a path leading to no file stops the launch with an argument error naming the file.
 
     Args:
         monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the command line.

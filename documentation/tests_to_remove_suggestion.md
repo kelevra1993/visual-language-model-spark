@@ -1,6 +1,39 @@
 # Tests To Remove: Suggestion
 
-In order to make the test suite quick enough to launch often, this document proposes which tests to remove or to cut down, chosen both for their run time and for their low stake (a behaviour already covered by another test, trivial code, wording, formatting, PyTorch behaviour, or near-identical parameter cases). Nothing has been removed yet: every line is a proposal to review.
+In order to make the test suite quick enough to launch often, this document proposes which tests to remove or to cut down, chosen both for their run time and for their low stake (a behaviour already covered by another test, trivial code, wording, formatting, PyTorch behaviour, or near-identical parameter cases). The proposal was applied on 2026-11-04, as the section below records.
+
+## Applied On 2026-11-04
+
+Since the proposal was applied as written, this section records what changed and what the reduced suite no longer protects.
+
+- **Result**: 526 test cases left (505 kept and 21 cases of the 16 restored tests below), all passing in 325 seconds (1673 cases in 655 seconds before), 50% less time. The slowest tests left are the end-to-end trainings of the sequence labelling (105 to 135 seconds), the keypoint detection (67 seconds) and the restored self-supervised run on mixed labelled and unlabelled images (33 seconds, 2.5 seconds when the other self-supervised trainings ran before it).
+- **Files deleted**, every test of them removed: `tests/evaluation/detection/test_object_sizes.py`, `tests/evaluation/test_evaluation_report.py`, `tests/models/backbones/test_backbone_summary.py`, `tests/models/keypoints/test_hrnet.py`, `tests/trainers/test_input_viewer_panels.py`. `tests/evaluation/classification/test_class_metrics_report.py`, `tests/scripts/configuration_processing/test_convert_fixed_settings.py` and `tests/scripts/data/test_visualize_augmentation_strengths.py` lost every test too but each holds one restored test (below).
+- **Functions left without any test**: `build_keypoint_channel_table`, `compute_skip_block_numbers`, `compare_instance_segmentations`, and the headless (no pyplot) check of the confusion matrix image.
+- **Reference files no longer read**: 12 `region_proposal_*.pt` and 8 `convolution_block_modules_*.pt` files in `tests/models/components/reference_values/`, deleted with the user's approval.
+- **Kept cases chosen when the proposal named none**: `[frame]` for `test_collate_pads_the_batches_to_their_longest_sequence` (the only case checking the -100 label padding), the first case elsewhere; `test_inconsistent_configuration_is_rejected` keeps the 6 named cases although its reason listed 6 cases to drop.
+
+The two passes did not see each other's verdicts, so the 20 removals below relied on a test that the other pass removed too. So that every behaviour keeps one test, the user chose to restore the 16 tests they relied on (the second name of each line), back with their original cases:
+
+- `tests/trainers/test_self_supervised_trainer.py::test_dataset_without_labels_is_evaluated_on_its_representations`, relying on `test_dataset_mixing_labelled_and_unlabelled_images_is_trained_and_evaluated`
+- `tests/trainers/test_metric_tracking.py::test_metric_changes_and_best_marker`, relying on `test_correlations_improve_when_they_decrease`
+- `tests/configuration_processing/test_run_name.py::test_sequence_augmentation_keeps_run_name`, relying on `test_dropout_rates_keep_run_name`
+- `tests/data/test_augmentations.py::test_report_lines_of_sequences_and_of_unaugmented_samples`, relying on `test_reports_name_the_drawn_types_their_values_and_the_removed_objects`
+- `tests/data/classification/test_imagenet_download.py::test_read_imagenet_class_names`, relying on `test_extract_imagenet_shards`
+- `tests/data/test_self_supervised_views.py::test_views_without_any_type_are_the_images`, relying on `test_disabled_augmentation_is_identity`
+- `tests/evaluation/test_evaluation_report.py::test_class_metrics_file`, relying on `test_file_values_are_formatted`
+- `tests/evaluation/test_recall_intervals.py::test_bootstrap_interval_widens_with_correlated_samples`, relying on `test_bootstrap_interval_widens_for_few_groups`
+- `tests/evaluation/classification/test_class_metrics_report.py::test_class_metrics_table`, relying on `test_class_metrics_rows`
+- `tests/evaluation/classification/test_classification_metrics.py::test_class_absent_from_the_evaluation_is_left_out_of_the_averages`, relying on `test_class_predicted_but_absent_lowers_the_macro_f1`
+- `tests/evaluation/classification/test_classification_metrics.py::test_multi_label_class_predicted_but_absent_lowers_the_macro_f1`, relying on `test_class_predicted_but_absent_lowers_the_macro_f1`
+- `tests/evaluation/detection/test_mean_average_precision.py::test_perfect_detections_give_one`, relying on `test_per_class_average_precisions_and_ground_truths`
+- `tests/evaluation/detection/test_region_recall.py::test_group_recalls_of_every_size`, relying on `test_anchor_recall_rows_and_table`
+- `tests/evaluation/keypoints/test_keypoint_average_precision.py::test_keypoint_report_prefixes_its_tables_scalars_and_columns`, relying on `test_box_and_mask_tables_are_told_apart_by_their_prefixes`
+- `tests/scripts/data/test_visualize_augmentation_strengths.py::test_example_images_come_from_different_trucks_and_categories`, relying on `test_figures_are_written_for_every_type`
+- `tests/scripts/data/test_visualize_augmentation_strengths.py::test_type_figure_shows_the_image_then_both_strengths`, relying on `test_figures_are_written_for_every_type`
+- `tests/scripts/data/test_visualize_augmentation_strengths.py::test_crop_ratio_figure_frames_and_resizes_the_region_of_each_ratio`, relying on `test_figures_are_written_for_every_type`
+- `tests/scripts/data/test_visualize_augmentation_strengths.py::test_noise_figure_adds_the_noise_of_every_level`, relying on `test_figures_are_written_for_every_type`
+- `tests/scripts/configuration_processing/test_convert_fixed_settings.py::test_tasks_holding_a_setting_keep_it`, relying on `test_conversion_lists_the_changed_values_and_refuses_other_changes`
+- `tests/utilities/test_visualization.py::test_class_colours_are_distinct_with_a_black_background`, relying on `test_overlay_paints_the_classes_and_grays_the_ignored_pixels`
 
 ## How The Proposal Was Made
 

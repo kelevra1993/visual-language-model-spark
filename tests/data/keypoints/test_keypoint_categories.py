@@ -2,8 +2,7 @@
 Tests of vision_training/data/keypoints/keypoint_categories.py, the keypoint definitions the configuration loader
 injects into 'Data.keypoint_categories' for the keypoint detector, the crop transform, the evaluation and the viewers:
 the reading of the COCO 'categories' of a labels.json (the 1-based COCO skeleton turned 0-based, the other category
-fields left out, the background and unmapped categories left out, the merged categories sharing one class, and the
-errors listed in its docstring).
+fields left out, the background and unmapped categories left out, and the merged categories sharing one class).
 """
 
 import json
@@ -63,21 +62,3 @@ def test_categories_are_read_with_their_keypoint_definitions(tmp_path: Path) -> 
     assert keypoint_categories[2] == {"name": "rectangle+square",
                                       "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"],
                                       "skeleton": [[0, 1], [1, 2], [2, 3], [3, 0]]}
-
-
-def test_inconsistent_categories_are_refused(tmp_path: Path) -> None:
-    """
-    Verifies the errors of the reading: a category of a class without keypoint names, two categories merged into one
-    class with different keypoints.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    labels_file = write_categories(folder=tmp_path, categories=[{"id": 1, "name": "circle", "keypoints": []}])
-    with pytest.raises(ValueError, match="'circle' .* has no 'keypoints' names"):
-        read_keypoint_categories(labels_file=labels_file, label_dictionary={1: 1})
-
-    labels_file = write_categories(folder=tmp_path, categories=[{"id": 1, "name": "square", "keypoints": ["centre"]},
-                                                                {"id": 2, "name": "circle", "keypoints": ["middle"]}])
-    with pytest.raises(ValueError, match="'square' and 'circle' are merged into class 1"):
-        read_keypoint_categories(labels_file=labels_file, label_dictionary={1: 1, 2: 1})

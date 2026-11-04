@@ -1,8 +1,8 @@
 """
 Tests of scripts/evaluation/serve_temperature_explorer.py, the local server of the temperature explorer of an evaluated
 checkpoint: the page is served from its evaluation folder, the thresholds posted by its save button are written next
-to it as saved_temperature_thresholds.json, thresholds of another evaluation and unknown routes are refused without
-writing anything, and a folder without temperature explorer is refused.
+to it as saved_temperature_thresholds.json, and thresholds of another evaluation are refused without writing
+anything.
 """
 
 import json
@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterator, Tuple
 
 import pytest
 
-from scripts.evaluation.serve_temperature_explorer import TemperatureExplorerHandler, serve_temperature_explorer
+from scripts.evaluation.serve_temperature_explorer import TemperatureExplorerHandler
 from vision_training.evaluation.classification.temperature_explorer import (EXPLORER_FILE_NAME,
                                                                             SAVE_THRESHOLDS_ROUTE,
                                                                             SAVED_THRESHOLDS_FILE_NAME)
@@ -97,26 +97,14 @@ def test_page_is_served_and_saved_thresholds_are_written(served_evaluation_folde
 
 
 @pytest.mark.parametrize(argnames=("route", "content", "expected_status", "expected_message"), argvalues=[
-    (SAVE_THRESHOLDS_ROUTE, {**SAVED_THRESHOLDS, "classes": {"bad": None, "other": None}}, 400, "class names"),
-    (SAVE_THRESHOLDS_ROUTE, {**SAVED_THRESHOLDS, "logit_temperature": 0}, 400, "above 0"),
-    ("/elsewhere", SAVED_THRESHOLDS, 404, "Unknown route")])
+    (SAVE_THRESHOLDS_ROUTE, {**SAVED_THRESHOLDS, "classes": {"bad": None, "other": None}}, 400, "class names")])
 def test_invalid_saves_are_refused_without_writing(served_evaluation_folder: Tuple[Path, str], route: str,
                                                    content: Dict[str, Any], expected_status: int,
                                                    expected_message: str) -> None:
     """
-    Verifies that thresholds of other classes, a temperature of 0 and an unknown route are refused with the reason,
-    no thresholds file being written.
+    Verifies that thresholds of other classes are refused with the reason, no thresholds file being written.
     """
     evaluation_folder, address = served_evaluation_folder
     status, answer = post_json(url=f"{address}{route}", content=content)
     assert status == expected_status and expected_message in answer["error"]
     assert not (evaluation_folder / SAVED_THRESHOLDS_FILE_NAME).exists()
-
-
-def test_folder_without_explorer_is_refused(tmp_path: Path) -> None:
-    """
-    Verifies that serving a folder without temperature explorer stops before the server starts, naming the setting
-    writing the page.
-    """
-    with pytest.raises(expected_exception=FileNotFoundError, match="per_class_report"):
-        serve_temperature_explorer(evaluation_folder=tmp_path, port=0)

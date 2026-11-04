@@ -1,10 +1,9 @@
 """
 Tests of find_saved_thresholds_path and read_saved_temperature of vision_training/deployment/export_model.py, used by
 the export with use_saved_temperature: the thresholds saved from the temperature explorer of the exported checkpoint
-are found in its evaluation folder, in the run folder or in the evaluations folder of
-scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the averaged weights), the export stopping when
-neither or both hold them, and their temperature is read after checking them against the class_thresholds.json next to
-them and the classes of the exported model.
+are found in its evaluation folder in the evaluations folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA'
+subfolder for the averaged weights), the export stopping when the run folder holds them too, and their temperature is
+read after checking them against the classes of the exported model.
 """
 
 import json
@@ -73,15 +72,12 @@ def get_checkpoint_path(experiment_folder: Path) -> Path:
 
 
 @pytest.mark.parametrize(argnames=("evaluation_subfolder", "use_averaged_weights"),
-                         argvalues=[(f"{RUN_NAME}/Evaluation/Iteration_6", False),
-                                    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_6", False),
-                                    (f"{RUN_NAME}/Evaluation/Iteration_6/EMA", True),
-                                    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_6/EMA", True)])
+                         argvalues=[(f"evaluations/{RUN_NAME}/Evaluation/Iteration_6/EMA", True)])
 def test_saved_temperature_is_read_from_the_evaluation_of_the_checkpoint(
         tmp_path: Path, evaluation_subfolder: str, use_averaged_weights: bool) -> None:
     """
-    Verifies that the saved thresholds are found in the evaluation of the exported iteration and weights, in the run
-    folder or in the evaluations folder, and that their temperature is read.
+    Verifies that the saved thresholds are found in the evaluation of the exported iteration and averaged weights in
+    the evaluations folder, and that their temperature is read.
     """
     saved_path = write_evaluation(evaluation_folder=tmp_path / evaluation_subfolder,
                                   saved_thresholds=build_thresholds(logit_temperature=2.5, number_classes=3),
@@ -92,27 +88,6 @@ def test_saved_temperature_is_read_from_the_evaluation_of_the_checkpoint(
                                             use_averaged_weights=use_averaged_weights)
     assert found_path == saved_path
     assert read_saved_temperature(saved_thresholds_path=found_path, number_classes=3) == 2.5
-
-
-@pytest.mark.parametrize(argnames=("evaluation_subfolder", "use_averaged_weights"),
-                         argvalues=[(f"{RUN_NAME}/Evaluation/Iteration_4", False),
-                                    (f"{RUN_NAME}/Evaluation/Iteration_6/EMA", False),
-                                    (f"{RUN_NAME}/Evaluation/Iteration_6", True),
-                                    ("evaluations/CLS_OTHER_MC3/Evaluation/Iteration_6", False)])
-def test_thresholds_saved_for_another_checkpoint_are_not_found(tmp_path: Path, evaluation_subfolder: str,
-                                                               use_averaged_weights: bool) -> None:
-    """
-    Verifies that thresholds saved for another iteration, the other kind of weights or another run stop the export,
-    the error naming the searched paths.
-    """
-    write_evaluation(evaluation_folder=tmp_path / evaluation_subfolder,
-                     saved_thresholds=build_thresholds(logit_temperature=2.5, number_classes=3), number_classes=3)
-    experiment_folder = tmp_path / RUN_NAME
-    with pytest.raises(expected_exception=FileNotFoundError, match="Looked for") as error:
-        find_saved_thresholds_path(experiment_folder=experiment_folder,
-                                   checkpoint_path=get_checkpoint_path(experiment_folder=experiment_folder),
-                                   use_averaged_weights=use_averaged_weights)
-    assert str(tmp_path / "evaluations" / RUN_NAME / "Evaluation" / "Iteration_6") in str(error.value)
 
 
 def test_thresholds_saved_in_both_folders_are_refused(tmp_path: Path) -> None:
@@ -132,17 +107,14 @@ def test_thresholds_saved_in_both_folders_are_refused(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(argnames=("saved_thresholds", "evaluated_classes", "exported_classes", "expected_message"),
-                         argvalues=[(build_thresholds(logit_temperature=2.5, number_classes=2), 3, 3,
-                                     "Expected the class names"),
-                                    (build_thresholds(logit_temperature=-1.0, number_classes=3), 3, 3, "above 0"),
-                                    (build_thresholds(logit_temperature=2.5, number_classes=2), 2, 3,
+                         argvalues=[(build_thresholds(logit_temperature=2.5, number_classes=2), 2, 3,
                                      "the exported classifier predicts 3")])
 def test_saved_thresholds_of_another_evaluation_or_model_are_refused(
         tmp_path: Path, saved_thresholds: Dict[str, Any], evaluated_classes: int, exported_classes: int,
         expected_message: str) -> None:
     """
-    Verifies that saved thresholds holding other classes than the class_thresholds.json next to them, a temperature not
-    above 0, or another number of classes than the exported classifier stop the export, the error naming the mismatch.
+    Verifies that saved thresholds holding another number of classes than the exported classifier stop the export, the
+    error naming the mismatch.
     """
     saved_path = write_evaluation(evaluation_folder=tmp_path / RUN_NAME / "Evaluation" / "Iteration_6",
                                   saved_thresholds=saved_thresholds, number_classes=evaluated_classes)

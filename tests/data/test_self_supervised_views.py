@@ -2,13 +2,11 @@
 Tests of the two random views of the self-supervised task, drawn by DataAugmenter.create_views of
 vision_training/data/augmentations.py from the types of 'Data.data_augmentation' with the self-supervised strengths,
 right before the forward pass of the self-supervised trainer: the views keep the shape, the float32 type and the
-[0, 255] range of the images and differ, every type turned off gives the images back, the global probability is
-ignored, the types of SECOND_VIEW_ONLY_TYPES only reach the second view while the supervised tasks draw them for every
-image, the views follow the seeds and stay in float32 under the bfloat16 autocast, the supervised augmenter and inputs
-other than a batch are refused, the two strength sets hold every strength with one setting of each pair of the crop and
-of the brightness, the random resized crop of the views draws an area and an aspect ratio within their ranges and
-falls back on the whole image, and on the GPU the views never make the host wait for the device, every type of the
-data augmentation being drawn.
+[0, 255] range of the images and differ, the global probability is ignored, the types of SECOND_VIEW_ONLY_TYPES only
+reach the second view while the supervised tasks draw them for every image, the views follow the seeds and stay in
+float32 under the bfloat16 autocast, the random resized crop of the views draws an area and an aspect ratio within
+their ranges, and on the GPU the views never make the host wait for the device, every type of the data augmentation
+being drawn.
 """
 
 import random
@@ -22,8 +20,7 @@ from typing import List, Optional
 
 from vision_training.data.augmentations import (AUGMENTATION_TYPES, SECOND_VIEW_ONLY_TYPES,
                                                  SELF_SUPERVISED_AUGMENTATION_STRENGTHS,
-                                                 SUPERVISED_AUGMENTATION_STRENGTHS, AugmentationStrengths,
-                                                 DataAugmenter)
+                                                 SUPERVISED_AUGMENTATION_STRENGTHS, DataAugmenter)
 from tests.data.test_augmentations import build_configuration
 
 # Side of the square images of the tests
@@ -107,18 +104,6 @@ def test_views_keep_the_images_format_and_differ() -> None:
     assert not torch.allclose(input=first_views, other=second_views)
 
 
-def test_views_without_any_type_are_the_images() -> None:
-    """
-    Verifies that turning every type off gives both views equal to the images, their reports listing no type.
-    """
-    images = create_test_images(number_images=3)
-    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[]), self_supervised=True)
-    first_views, second_views, first_reports, second_reports = augmenter.create_views(images=images)
-    assert torch.equal(input=first_views, other=images) and torch.equal(input=second_views, other=images)
-    assert augmenter.describe_report(report=first_reports[0]) == ["Geometric :", "  none", "Photometric :", "  none"]
-    assert list_drawn_types(reports=first_reports + second_reports) == [[]] * 6
-
-
 def test_views_ignore_the_global_probability() -> None:
     """
     Verifies that the views ignore the global probability, the share of the training images of the supervised tasks
@@ -200,48 +185,6 @@ def test_views_stay_in_float32_under_mixed_precision() -> None:
     assert first_views.shape == images.shape and second_views.shape == images.shape
 
 
-def test_views_are_refused_to_a_supervised_augmenter_and_for_a_single_image() -> None:
-    """
-    Verifies that create_views refuses an augmenter built for a supervised task, whose strengths are not those of the
-    views, and an image given without its batch dimension.
-    """
-    with pytest.raises(expected_exception=ValueError, match="self_supervised=True"):
-        DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[])).create_views(
-            images=create_test_images(number_images=2))
-    with pytest.raises(expected_exception=ValueError, match=re.escape("[B, C, H, W]")):
-        DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[]), self_supervised=True
-                      ).create_views(images=create_test_images(number_images=1)[0])
-
-
-def test_strength_sets_hold_every_strength_and_the_augmenter_takes_the_set_of_its_task() -> None:
-    """
-    Verifies the two hard-coded strength sets: each holds exactly the strengths of AugmentationStrengths, the crop and
-    the brightness of each set using one setting of their pair and None for the other (a share of each side and a shift
-    of levels for the supervised tasks, a share of the area with an aspect ratio and a factor for the views, as the
-    random resized crop and the colour jitter of SimCLR), and an augmenter takes the set of its task.
-    """
-    for strengths in [SUPERVISED_AUGMENTATION_STRENGTHS, SELF_SUPERVISED_AUGMENTATION_STRENGTHS]:
-        assert set(strengths) == set(AugmentationStrengths.__annotations__)
-
-    # One setting of each pair, the other being None
-    assert SUPERVISED_AUGMENTATION_STRENGTHS["crop_side_range"] is not None
-    assert SUPERVISED_AUGMENTATION_STRENGTHS["crop_area_range"] is None
-    assert SUPERVISED_AUGMENTATION_STRENGTHS["crop_aspect_ratio_range"] is None
-    assert SUPERVISED_AUGMENTATION_STRENGTHS["brightness_maximum_delta"] is not None
-    assert SUPERVISED_AUGMENTATION_STRENGTHS["brightness_factor_range"] is None
-    assert SELF_SUPERVISED_AUGMENTATION_STRENGTHS["crop_side_range"] is None
-    assert SELF_SUPERVISED_AUGMENTATION_STRENGTHS["crop_area_range"] is not None
-    assert SELF_SUPERVISED_AUGMENTATION_STRENGTHS["crop_aspect_ratio_range"] is not None
-    assert SELF_SUPERVISED_AUGMENTATION_STRENGTHS["brightness_maximum_delta"] is None
-    assert SELF_SUPERVISED_AUGMENTATION_STRENGTHS["brightness_factor_range"] is not None
-
-    # The set of the task of the augmenter
-    assert DataAugmenter(augmentation_configuration=build_configuration(
-        enabled_types=[])).strengths is SUPERVISED_AUGMENTATION_STRENGTHS
-    assert DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[]),
-                         self_supervised=True).strengths is SELF_SUPERVISED_AUGMENTATION_STRENGTHS
-
-
 def test_crop_of_the_views_draws_an_area_and_an_aspect_ratio_within_their_ranges() -> None:
     """
     Verifies the random resized crop of the views, random_crop with the self-supervised strengths: every crop keeps a
@@ -277,24 +220,6 @@ def test_crop_of_the_views_draws_an_area_and_an_aspect_ratio_within_their_ranges
     assert all(re.fullmatch(pattern=r"\d+ % of each side, at top \d+ and left \d+ pixels",
                             string=dict(report["geometric_augmentations"])["random_crop"])
                for report in supervised_reports)
-
-
-def test_crop_of_the_views_falls_back_on_the_whole_image(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    Verifies the fallback of the random resized crop of the views, as in torchvision: when none of its attempts draws a
-    region fitting in the image (here the whole area at the widest aspect ratio), the crop takes the central region of
-    the nearest ratio of the range, the whole square image, whose ratio lies within the range.
-
-    Args:
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture drawing the upper bound of every range.
-    """
-    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: high)
-    images = create_test_images(number_images=1)
-    first_views, _, first_reports, _ = DataAugmenter(augmentation_configuration=build_configuration(
-        enabled_types=["random_crop"]), self_supervised=True).create_views(images=images)
-    assert first_reports[0]["geometric_augmentations"] == [
-        ("random_crop", f"{IMAGE_SIZE}x{IMAGE_SIZE} pixels (100 % of the area), at top 0 and left 0 pixels")]
-    assert torch.allclose(input=first_views, other=images, atol=1e-3)
 
 
 @pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The views of the training run on the GPU.")

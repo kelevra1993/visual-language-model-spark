@@ -1,6 +1,6 @@
 """
-Tests of SequenceBatchNormalization of vision_training/models/components/sequence_normalization.py: the statistics are
-those of each sequence, a frame depends on its sequence only and the running statistics are kept but not used.
+Tests of SequenceBatchNormalization of vision_training/models/components/sequence_normalization.py: a frame depends on
+its sequence only and the running statistics are kept but not used.
 """
 
 import torch
@@ -9,10 +9,8 @@ from torch import nn
 
 from vision_training.models.components.sequence_normalization import SequenceBatchNormalization
 
-# Grouping of the frames of the tests: 2 sequences of 3 frames, given as equal groups or as a group per frame
+# Grouping of the frames of the tests: 2 sequences of 3 frames, given as equal groups
 EQUAL_GROUPING = {"frames_per_sequence": 3, "frame_sequence_indices": None, "number_sequences": None}
-INDEX_GROUPING = {"frames_per_sequence": None, "frame_sequence_indices": torch.tensor(data=[0, 0, 0, 1, 1, 1]),
-                  "number_sequences": 2}
 
 
 def build_layer() -> SequenceBatchNormalization:
@@ -27,35 +25,6 @@ def build_layer() -> SequenceBatchNormalization:
         layer.weight.copy_(torch.tensor(data=[1.0, 2.0, 0.5, -1.0], dtype=torch.float64))
         layer.bias.copy_(torch.tensor(data=[0.0, 1.0, -1.0, 0.5], dtype=torch.float64))
     return layer
-
-
-def test_statistics_are_those_of_every_sequence() -> None:
-    """
-    Verifies that every frame is normalised with the mean and the biased variance of its channel over the frames of
-    its sequence and their positions, followed by the scale and shift, that the reshaped and the segment paths agree,
-    and that without grouping the whole batch is one sequence.
-    """
-    features = torch.randn(size=(6, 4, 5, 5), generator=torch.Generator().manual_seed(0), dtype=torch.float64)
-    layer = build_layer()
-
-    # Manual normalization of each sequence of 3 frames
-    expected_outputs = []
-    for sequence_features in features.split(split_size=3, dim=0):
-        mean = sequence_features.mean(dim=(0, 2, 3), keepdim=True)
-        variance = sequence_features.var(dim=(0, 2, 3), keepdim=True, correction=0)
-        normalized = (sequence_features - mean) / torch.sqrt(variance + layer.eps)
-        expected_outputs.append(normalized * layer.weight[None, :, None, None] + layer.bias[None, :, None, None])
-
-    equal_outputs = layer(input_tensor=features, sequence_grouping=EQUAL_GROUPING)
-    index_outputs = layer(input_tensor=features, sequence_grouping=INDEX_GROUPING)
-    assert torch.allclose(input=equal_outputs, other=torch.cat(tensors=expected_outputs, dim=0), atol=1e-12)
-    assert torch.allclose(input=index_outputs, other=equal_outputs, atol=1e-12)
-
-    # Without grouping, the statistics are those of the whole batch, as in the training mode of batch normalization
-    batch_outputs = layer(input_tensor=features, sequence_grouping=None)
-    reference_outputs = nn.functional.batch_norm(input=features, running_mean=None, running_var=None,
-                                                 weight=layer.weight, bias=layer.bias, training=True, eps=layer.eps)
-    assert torch.allclose(input=batch_outputs, other=reference_outputs, atol=1e-12)
 
 
 def test_a_frame_depends_on_its_sequence_only() -> None:

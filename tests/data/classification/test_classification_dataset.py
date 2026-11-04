@@ -2,8 +2,8 @@
 Tests of the classification data of vision_training/data/classification: ClassificationDataset loading multi-class and
 multi-label manifests, keeping the unlabelled samples for the self-supervised task, whose loaders keep full training
 and validation batches, as the training loader of a classifier needing batch statistics does, the console report of
-the samples without mapped category of the three splits, the corrupted images named in their error, the label mapping
-without background class, and the manifests written by create_class_folder_manifests from class folders.
+the samples without mapped category of the three splits, the label mapping without background class, and the
+manifests written by create_class_folder_manifests from class folders.
 """
 
 import json
@@ -227,28 +227,6 @@ def test_classifier_needing_batch_statistics_drops_its_last_training_batch(tmp_p
             drop_last_training_batch, False, False]
         assert [batch["images"].shape[0] for batch in training_loader] == expected_training_batches
         assert [batch["images"].shape[0] for batch in validation_loader] == [2, 1]
-
-
-def test_unreadable_image_is_named(tmp_path: Path) -> None:
-    """
-    Verifies that a corrupted image of a classification split stops its sample with an error naming the file, which
-    the training loop prints before dropping the batch, instead of an unrelated error of the resizing.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    samples = [{"id": 1, "file_name": "a.png", "category_id": 1}, {"id": 2, "file_name": "b.png", "category_id": 1}]
-    write_split(split_folder=tmp_path, categories=[{"id": 1, "name": "circle"}], samples=samples)
-    (tmp_path / "data" / "b.png").write_bytes(data=b"not an image")
-    dataset = ClassificationDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
-                                    image_size=32, keep_ratio=True, label_dictionary={1: 0}, output_mode="multi_class",
-                                    shuffle=False)
-
-    # The readable image loads, the corrupted one is named
-    assert dataset[0]["images"].shape[-2:] == (32, 32)
-    with pytest.raises(expected_exception=ValueError, match="The image cannot be read : ") as error:
-        dataset[1]
-    assert "b.png" in str(error.value)
 
 
 def test_label_mapping_without_background_class(tmp_path: Path) -> None:

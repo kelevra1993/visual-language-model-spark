@@ -1,11 +1,11 @@
 """
 Tests of the operations of torchvision and kornia ported to the device in
 vision_training/data/device_image_operations.py for the augmentation types of DataAugmenter: the rotation gives the
-values of torchvision's rotate for images, sequences and masks at every kind of angle, the CLAHE those of kornia's
-equalize_clahe for padded and unpadded images, sequences, several grids and clip limits, its tile indices those of
-kornia's _map_luts, and a grid that is not square, which kornia refuses, is equalized consistently with its
-transposition, the YUV conversions give the values of kornia's rgb_to_yuv and yuv_to_rgb, every comparison being exact
-on the CPU and on the GPU, and on the GPU (skipped without one) none of the operations makes the host wait for the
+values of torchvision's rotate for images and masks at every kind of angle, the CLAHE those of kornia's equalize_clahe
+for several grids and clip limits, its tile indices those of kornia's _map_luts, and a grid that is not square, which
+kornia refuses, is equalized consistently with its transposition, the YUV conversions give the values of kornia's
+rgb_to_yuv and yuv_to_rgb, every comparison being exact (the rotation and the CLAHE on the GPU when there is one, the
+YUV conversions on the CPU), and on the GPU (skipped without one) none of the operations makes the host wait for the
 device.
 """
 
@@ -55,13 +55,12 @@ def create_random_images(shape: Tuple[int, ...], seed: int) -> torch.Tensor:
     return images
 
 
-@pytest.mark.parametrize(argnames="device", argvalues=DEVICES)
-@pytest.mark.parametrize(argnames="shape", argvalues=[(3, 64, 64), (3, 48, 80), (2, 3, 32, 32)])
+@pytest.mark.parametrize(argnames="device", argvalues=DEVICES[-1:])
+@pytest.mark.parametrize(argnames="shape", argvalues=[(3, 64, 64)])
 def test_rotation_gives_the_values_of_torchvision(device: str, shape: Tuple[int, ...]) -> None:
     """
-    Verifies that rotate_on_device gives exactly the bilinear rotation of torchvision filled with black, for square and
-    oblong images and for sequences, at every kind of angle, the right angles being pixel permutations for square
-    images only.
+    Verifies that rotate_on_device gives exactly the bilinear rotation of torchvision filled with black, for square
+    images, at every kind of angle, the right angles being pixel permutations.
 
     Args:
         device (str): The device of the images.
@@ -75,7 +74,7 @@ def test_rotation_gives_the_values_of_torchvision(device: str, shape: Tuple[int,
         assert torch.equal(input=rotated_images, other=expected_images), angle
 
 
-@pytest.mark.parametrize(argnames="device", argvalues=DEVICES)
+@pytest.mark.parametrize(argnames="device", argvalues=DEVICES[-1:])
 def test_mask_rotation_gives_the_values_of_torchvision(device: str) -> None:
     """
     Verifies that rotate_on_device gives exactly the nearest rotation of the masks of torchvision, with their dtype: a
@@ -100,13 +99,13 @@ def test_mask_rotation_gives_the_values_of_torchvision(device: str) -> None:
             assert rotated_mask.dtype == mask.dtype and torch.equal(input=rotated_mask, other=expected_mask), angle
 
 
-@pytest.mark.parametrize(argnames="device", argvalues=DEVICES)
-@pytest.mark.parametrize(argnames="shape", argvalues=[(3, 64, 64), (3, 50, 70), (2, 3, 64, 96), (1, 33, 47)])
+@pytest.mark.parametrize(argnames="device", argvalues=DEVICES[-1:])
+@pytest.mark.parametrize(argnames="shape", argvalues=[(3, 64, 64)])
 def test_clahe_gives_the_values_of_kornia(device: str, shape: Tuple[int, ...]) -> None:
     """
     Verifies that equalize_clahe_on_device gives exactly the values of kornia's equalize_clahe, for images that the
-    grid covers exactly or after a padding, sequences and single channels, on square grids of 1 to 8 tiles a side,
-    with the clip limit of the data augmentation, without limit and with kornia's default.
+    grid covers exactly, on square grids of 1 to 8 tiles a side, with the clip limit of the data augmentation, without
+    limit and with kornia's default.
 
     Args:
         device (str): The device of the images.
@@ -140,7 +139,7 @@ def test_clahe_tile_indices_are_those_of_kornia() -> None:
         assert torch.equal(input=column_indices, other=expected_column_indices)
 
 
-@pytest.mark.parametrize(argnames="grid_size", argvalues=[(2, 4), (4, 8), (4, 4)])
+@pytest.mark.parametrize(argnames="grid_size", argvalues=[(2, 4)])
 def test_clahe_of_a_grid_that_is_not_square_follows_its_transposition(grid_size: Tuple[int, int]) -> None:
     """
     Verifies that a grid that is not square, which kornia's indexing refuses, is equalized consistently: equalizing the
@@ -158,11 +157,11 @@ def test_clahe_of_a_grid_that_is_not_square_follows_its_transposition(grid_size:
     assert float(equalized_images.min()) >= 0.0 and float(equalized_images.max()) <= 1.0
 
 
-@pytest.mark.parametrize(argnames="device", argvalues=DEVICES)
+@pytest.mark.parametrize(argnames="device", argvalues=DEVICES[:1])
 def test_colour_conversions_give_the_values_of_kornia(device: str) -> None:
     """
     Verifies that convert_colour_space with the matrices of get_yuv_matrices gives exactly kornia's rgb_to_yuv and
-    yuv_to_rgb, the einsum of the CPU and the convolution of the GPU.
+    yuv_to_rgb, with the einsum of the CPU.
 
     Args:
         device (str): The device of the images.

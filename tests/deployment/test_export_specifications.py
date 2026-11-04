@@ -1,11 +1,9 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
-and ONNX exports of every task (the image classifier with a pooled or flattened feature map or pre-activation residual
-shortcuts, the semantic segmenter, the frame selector, the encoder of the self-supervised task, the bottom-up keypoint
-detector with its higher resolution branch and the 3x3 hidden convolution of its prediction heads) match the eager
-model, keep their dynamic frames, the comparisons of the segmenter and keypoint detector outputs report their
-differences, the inference models match the training path on full sequences, and the logit temperature of the
-classifier softens its probabilities in the eager model and both exports.
+and ONNX exports of the recurrent comparison model and of the comparison model with sequence normalization match the
+eager model, a second recurrent export keeps its dynamic frames, the comparisons of the segmenter and keypoint detector
+outputs report their differences, the inference models match the training path on full sequences, and the logit
+temperature of the classifier softens its probabilities in the eager model and both exports.
 """
 
 import numpy as np
@@ -97,31 +95,15 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
 
 
 @pytest.mark.parametrize(argnames=("task", "temporal_type", "fusion_type", "global_pooling", "pre_activation"),
-                         argvalues=[("classification", None, None, "average", False),
-                                    ("classification", None, None, "flatten", False),
-                                    ("classification", None, None, "average", True),
-                                    ("semantic_segmentation", None, None, "average", False),
-                                    ("sequence_classification", "gru", None, "average", False),
-                                    ("sequence_classification", "transformer", None, "average", False),
-                                    ("sequence_labelling", "lstm", None, "average", False),
-                                    ("sequence_labelling", "transformer", None, "average", False),
-                                    ("sequence_labelling", "temporal_convolution", None, "average", False),
-                                    ("sequence_comparison", "gru", "cross_attention", "average", False),
-                                    ("sequence_comparison", "transformer", "difference", "average", False),
-                                    ("frame_selection", "gru", None, "average", False),
-                                    ("self_supervised", None, None, "average", False),
-                                    ("keypoint_detection", None, None, "average", False)])
+                         argvalues=[("sequence_comparison", "gru", "cross_attention", "average", False)])
 def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type: Optional[str],
                                        fusion_type: Optional[str], global_pooling: str, pre_activation: bool) -> None:
     """
-    Verifies the TorchScript and ONNX exports of the inference models of the classification, segmentation, sequence,
-    self-supervised and keypoint detection tasks: both keep the input names of the specification and reproduce the
-    eager class probabilities (class maps of the segmenter, representations of the encoder, candidate positions,
-    scores and tags of the keypoint detector) on a batch of another size than the traced one and, for
-    the sequence models, with another number of frames, so that Triton can batch requests and receive sequences of any
-    length. The before and after members of the comparison model are checked
-    with different numbers of frames, and its recurrent case, exported after the recurrent sequence classifier in the
-    same process, also checks that a second recurrent export keeps its numbers of frames dynamic.
+    Verifies the TorchScript and ONNX exports of the inference model of the recurrent comparison model with cross
+    attention: both keep the input names of the specification and reproduce the eager class probabilities on a batch
+    of another size than the traced one and with other numbers of frames, so that Triton can batch requests and
+    receive sequences of any length. The before and after members of the comparison model are checked with different
+    numbers of frames.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -357,33 +339,7 @@ def test_second_recurrent_export_keeps_dynamic_frames(tmp_path: Path) -> None:
                                                 **specification["comparison_tolerances"]) == []
 
 
-def test_fixed_dynamic_dimensions_are_reported(tmp_path: Path) -> None:
-    """
-    Verifies that the guard of the ONNX exports reports every input dimension the specification declares dynamic but
-    the file holds as a fixed value, here the batch dimension and the number of frames of a sequence model exported
-    without dynamic shapes.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    hide_known_export_warnings()
-    inference_model = build_inference_model(task="sequence_classification", model=build_test_model(
-        task="sequence_classification", temporal_type="mean", fusion_type=None, global_pooling="average"))
-    specification = get_export_specification(task="sequence_classification", inference_model=inference_model)
-    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
-                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
-                                          generator=torch.Generator().manual_seed(1))
-    torch.onnx.export(inference_model, args=tuple(example_inputs.values()), f=str(tmp_path / "fixed.onnx"),
-                      input_names=list(example_inputs), opset_version=18, dynamo=True, verbose=False)
-
-    assert find_fixed_dynamic_dimensions(model_proto=onnx.load(f=str(tmp_path / "fixed.onnx")),
-                                         specification=specification) == [
-        "the batch dimension of 'images' is fixed to 2", "the frames dimension of 'images' is fixed to 4"]
-
-
-@pytest.mark.parametrize(argnames=("task", "temporal_type"), argvalues=[
-    ("sequence_classification", "gru"), ("sequence_classification", "attention_pooling"),
-    ("sequence_labelling", "transformer"), ("sequence_labelling", "temporal_convolution")])
+@pytest.mark.parametrize(argnames=("task", "temporal_type"), argvalues=[("sequence_labelling", "transformer")])
 def test_inference_path_matches_the_training_path_on_full_sequences(task: str, temporal_type: str) -> None:
     """
     Verifies that the path of the sequence models without sequence mask, run by the inference models, gives the
@@ -402,8 +358,7 @@ def test_inference_path_matches_the_training_path_on_full_sequences(task: str, t
     assert torch.allclose(input=inference_probabilities, other=masked_probabilities, atol=1e-6)
 
 
-@pytest.mark.parametrize(argnames=("temporal_type", "fusion_type"), argvalues=[
-    ("gru", "concatenation"), ("transformer", "cross_attention")])
+@pytest.mark.parametrize(argnames=("temporal_type", "fusion_type"), argvalues=[("transformer", "cross_attention")])
 def test_inference_comparator_matches_the_training_path_on_full_sequences(temporal_type: str, fusion_type: str) -> None:
     """
     Verifies that the inference comparator, which encodes and summarises every member on its own without sequence
@@ -427,8 +382,7 @@ def test_inference_comparator_matches_the_training_path_on_full_sequences(tempor
     assert torch.allclose(input=inference_probabilities, other=masked_probabilities, atol=1e-6)
 
 
-@pytest.mark.parametrize(argnames=("task", "normalization_scope"), argvalues=[
-    ("sequence_classification", None), ("sequence_comparison", "member"), ("sequence_comparison", "pair")])
+@pytest.mark.parametrize(argnames=("task", "normalization_scope"), argvalues=[("sequence_comparison", "pair")])
 def test_sequence_normalization_exports_match_the_eager_model(tmp_path: Path, task: str,
                                                               normalization_scope: Optional[str]) -> None:
     """
