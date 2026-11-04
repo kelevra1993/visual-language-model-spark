@@ -522,7 +522,9 @@ def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], i
     figure = Figure(figsize=(number_columns * PANEL_SIDE, number_rows * PANEL_SIDE + GRID_TITLE_HEIGHT),
                     dpi=IMAGE_DOTS_PER_INCH, layout="constrained")
     canvas = FigureCanvasAgg(figure=figure)
-    panel_axes = figure.subplots(nrows=number_rows, ncols=number_columns, sharex=True, sharey=True, squeeze=False)
+    # Panels with their own axes and the same limits: shared axes would make every limit set on a panel update all the
+    # others, 1.9 instead of 1.0 seconds for an image of 71 panels
+    panel_axes = figure.subplots(nrows=number_rows, ncols=number_columns, squeeze=False)
 
     # Every panel: the reference line, the curve of its class and its metric in its title, the unused panels hidden
     for panel_index, axes in enumerate(panel_axes.flatten()):
@@ -539,11 +541,13 @@ def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], i
         axes.set_title(label=f"{class_names[class_index][:MAXIMUM_NAME_LENGTH]}\n{metric_name} "
                              f"{format_report_value(value=class_curves[class_index][metric_key])}", fontsize=7)
 
-        # Axis names on the lowest panel of every column and on the first column, with the ticks of the lowest panels
-        if panel_index + number_columns >= len(drawn_classes):
+        # Axis names and tick values on the lowest panel of every column and on the first column only
+        is_lowest_panel = panel_index + number_columns >= len(drawn_classes)
+        is_first_column = panel_index % number_columns == 0
+        axes.tick_params(labelbottom=is_lowest_panel, labelleft=is_first_column)
+        if is_lowest_panel:
             axes.set_xlabel(xlabel=image_settings["x_label"], fontsize=8, fontweight="bold")
-            axes.tick_params(labelbottom=True)
-        if panel_index % number_columns == 0:
+        if is_first_column:
             axes.set_ylabel(ylabel=image_settings["y_label"], fontsize=8, fontweight="bold")
 
     # Reference legend of the whole grid below the panels, and the title telling when only the lowest classes are drawn

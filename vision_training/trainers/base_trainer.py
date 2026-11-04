@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from shutil import copyfile
 from torch.utils.data import DataLoader
-from torch.utils.data.dataloader import _BaseDataLoaderIter
+from torch.utils.data.dataloader import _BaseDataLoaderIter, _MultiProcessingDataLoaderIter
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
@@ -1444,9 +1444,10 @@ class BaseTrainer(ABC):
 
     def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
         """
-        Trains the model (see run_training_iterations) and closes its MLflow run whatever ends the training: FINISHED
-        once the training ends normally, KILLED when the user stops it (Ctrl+C), FAILED after too many consecutive
-        errors or on an unexpected error, which is raised again once the run is closed.
+        Trains the model (see run_training_iterations), then stops the worker processes of its loaders
+        (shutdown_loader_workers) and closes its MLflow run whatever ends the training: FINISHED once the training ends
+        normally, KILLED when the user stops it (Ctrl+C), FAILED after too many consecutive errors or on an unexpected
+        error, which is raised again once the run is closed.
 
         Args:
             maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training
@@ -1459,7 +1460,33 @@ class BaseTrainer(ABC):
             run_status = KILLED_STATUS
             raise
         finally:
-            self.finish_experiment_tracking(run_status=run_status)
+            # The loader workers are stopped first, the MLflow run being closed even if their shutdown fails
+            try:
+                self.shutdown_loader_workers()
+            finally:
+                self.finish_experiment_tracking(run_status=run_status)
+
+    def shutdown_loader_workers(self) -> None:
+        """
+        Stops the worker processes of the training, validation and test loaders once the training ends
+        (run_training_loop), whatever ended it, so that they free their memory at once instead of at the end of the
+        process. The workers are kept alive between the passes and evaluations of the training (persistent_workers of
+        build_native_loader). Left to the garbage collection of the trainer, the queues of a loader may be freed before
+        the loader itself, losing the stop message of its workers, which then wait the whole join timeout of PyTorch (5
+        seconds) before being terminated: 30 seconds for the 6 workers of a trainer, in a process running several
+        trainings such as the tests. A loader iterated again afterwards starts new workers.
+        """
+        for dataloader in [self.train_dataloader, self.validation_dataloader, self.test_dataloader]:
+            # Only a DataLoader has workers, the loaders of a task being any iterable of batches (build_dataloaders)
+            if not isinstance(dataloader, DataLoader):
+                continue
+
+            # The iterator kept by a loader with persistent workers holds them, None before its first pass or without
+            # workers. PyTorch has no public method stopping them: the shutdown its own exit hook runs is called
+            iterator = dataloader._iterator
+            if isinstance(iterator, _MultiProcessingDataLoaderIter):
+                iterator._shutdown_workers()
+            dataloader._iterator = None
 
     def run_training_iterations(self, maximum_consecutive_errors: int) -> str:
         """

@@ -177,7 +177,7 @@ main()
         │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
         │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
         └── save_model() of the steps taken since the last checkpoint, if any; then run_training_loop() calls
-                finish_experiment_tracking(), whatever ended the loop
+                shutdown_loader_workers() and finish_experiment_tracking(), whatever ended the loop
 
 run_test_evaluation(iteration)  [STAGE 4]
 ├── create_evaluation_accumulator()

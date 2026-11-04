@@ -35,9 +35,10 @@ def build_native_loader(dataset: Dataset, batch_size: int, collate_function: Opt
     for the embedding extraction of scripts/embedding/cluster_image_embeddings.py, which writes every batch to its
     rows), or the batches of a batch sampler (the grouped batches of the self-supervised task), NUMBER_LOADER_WORKERS
     worker processes each preparing PREFETCH_BATCHES batches in advance and kept alive between epochs and evaluations
-    (no restart at every pass), each decoding with a single OpenCV thread, and batches copied to pinned memory for
-    faster transfers to the GPU. With 0 workers, the samples are loaded in the main process, for debugging. The single
-    OpenCV thread is set in this process, which then also runs OpenCV on one thread.
+    (no restart at every pass) until the end of the training (BaseTrainer.shutdown_loader_workers), each decoding with
+    a single OpenCV thread, and batches copied to pinned memory for faster transfers to the GPU. With 0 workers, the
+    samples are loaded in the main process, for debugging. The single OpenCV thread is set in this process, which then
+    also runs OpenCV on one thread.
 
     Args:
         dataset (Dataset): The Native dataset of the split.
