@@ -2,7 +2,7 @@
 
 - **Configurations:** `vision_training/configurations/object_detection/run-<n>.yaml`, one per launch, launched with `uv run python -m vision_training.main --configuration_path=vision_training/configurations/object_detection/run-<n>.yaml`; the files after `run-1.yaml` are copies of it with the settings kept by the previous stages and the changed parameter, written by the driver `hyperparameter_experiments/object_detection/run_benchmark_stages.py`
 - **Dataset:** synthetic hard shapes (`create_synthetic_dataset(task="object_detection", hard_objects=True)`), `/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes`: 512,000 train / 50,000 validation / 50,000 test images of 1024 pixels, 5 to 12 shapes of the 35 shape classes per image (8.5 on average), from 16 pixels to 80% of the image side with log-uniform sizes (as many objects per scale octave), drawn from the largest to the smallest so that small shapes lie over large ones, up to 30% of a shape outside the image (box clipped, 19% of the boxes touching the border), on a flat background (20% of its shapes in a colour 20 to 40 levels from the background) or, for half of the images, a textured one (gradient, smooth noise or clutter lines changing the background by up to 40 levels). Below about 64 pixels the round polygons (heptagon, octagon, nonagon) are hard to tell from each other and from the circle
-- **Launch folders:** `hyperparameter_experiments/object_detection/run_<n>` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch
+- **Launch folders:** `hyperparameter_experiments/object_detection/run_<n>` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch. The learning rate stage is archived in `hyperparameter_experiments/object_detection/learning_rate_stage/` (its launches, state, results and a copy of its driver), the stages from 2026-11-05 numbering their launches from run_1 again
 
 ## Strategy
 
@@ -12,45 +12,93 @@ Every setting is launched twice, A and B, to smooth out the noise of a single tr
 
 Every launch keeps a moving average of its weights, and the settings are compared on the averaged weights (`Tensorboard/Test_EMA`): the score of a setting is the test mean average precision over the intersection over union thresholds 0.5 to 0.95 (`mAP@[0.5:0.95]/area`, the area under the precision recall curves) at the last iteration of the stage, averaged over its two launches. The mean average precision by object size (small, medium, large) and the proposal recall by detection level are read next to it.
 
+The values of a stage are searched one pair at a time (the user's choice of 2026-11-02), so that no pair is trained once the answer is known. A challenger whose pair mean differs from the best value so far by less than the larger gap between the two launches of either value is a tie, within the noise of a single training: the search then ends on the earlier value, unless the stage says otherwise.
+
 ## Fixed Settings
 
 - `batch_size`: 64 images of 1024 pixels (two launches side by side reach about 63 Gigabytes above the idle machine, of its 121; one launch at 128 images would take about 49 alone)
-- `number_iterations`: 20,000 (1,280,000 images, 2.5 epochs of the 512,000 training images): lowered from 20,000 to 10,000 by the user on 2026-11-02 at iteration 2500 of run_1 and run_2 (a pair at 20,000 took about 26 hours in the first estimate), raised to 15,000 at iteration 4500 as the scores were still rising, then back to 20,000 at iteration 13,500 (20:30), the user wanting the detection settings chosen carefully while run_1 still gained 0.4% relative per 500 iterations (78.29% at 13,500). run_1 and run_2 were launched for 20,000 and simply run to the end; every launch is evaluated at 10,000, 15,000 and 20,000, so the stage can also be read at the shorter lengths
+- `number_iterations`: 15,000 (960,000 images, 1.9 epochs of the 512,000 training images) from 2026-11-04, the user's choice for every detection stage. The learning rate stage was launched for 20,000 and read at 15,000 under its constant learning rate
 - `weight_saving_iterations`: 500, the test evaluation running every 500 iterations (30 tested models) on `test_10000`, the first 10,000 of the 50,000 test images (85,143 objects), its images read from the `test` split through a link; `intermediate_weight_saving_iterations`: 250
 - `information_dump`: 1000, `validation_iteration_ratio`: 0 (no validation during the training)
 - Backbone `{"1": [1, 16], "2": [2, 16], "3": [2, 16], "4": [3, 32], "5": [3, 32], "6": [5, 32], "7": [5, 32]}`, residual blocks with squeeze and excite, input normalization, batch normalization
 - Detection levels 4 to 7 (strides 16 to 128) with anchors of 16 and 32, 48 and 96, 128 and 256, 384 and 768 pixels, aspect ratios 0.5, 1 and 2, so that every size of the dataset has an anchor; region proposal heads `[2, 32]`, detection heads with a 7 x 7 RoIAlign grid, `[2, 32]` convolutions and `[64, 32]` fully connected layers, each level with its own heads (no feature pyramid network)
-- Region proposals: 1000 before and 500 after the non-maximum suppression in training, 500 and 250 in inference, foreground intersection over union 0.5, background below 0.3, 128 positive of 256 sampled anchors
+- Region proposals: 1000 before and 500 after the non-maximum suppression in training, 500 and 250 in inference, foreground intersection over union 0.5, background up to 0.3, 128 positive of 256 sampled anchors
 - Adam, no weight decay, constant learning rate without warm-up, no gradient clipping, moving average of the weights with a decay of 0.9998
-- Data augmentation with a probability of 0.4: the haze (0.3), every other type off
+- Data augmentation:
+  - learning rate stage: probability 0.4, the haze alone;
+  - from 2026-11-05 (the user's `detection-run-configuration-defaults.yaml`): probability 0.25, the zoom-out, the left-right flip (0.5) and the photometric types (brightness, contrast and saturation, hue, CLAHE, sharpening, both histogram equalizations, noise, grayscale, colour swap, gamma, linear illumination, blur, motion blur, haze), each at 0.25
+- MLflow tracking from 2026-11-05
 
 ## Starting Values
 
 | Parameter | Value |
 |---|---|
-| `learning_rate` | 1e-3 |
-| Feature pyramid network | none |
+| `learning_rate` | 1e-3 (kept by stage 1) |
+| `RegionProposal.background_iou_threshold.min` | 0.0 |
+| `Detector.normalization.feature_map_normalization` | batch |
+| Anchor centres | cell corners (audit L1 open) |
+| Proposal selection | one top-k and one NMS over every level (audit M3 open), zero-area boxes kept (audit L7 open) |
+| Box loss | smooth L1 on the offsets, beta 1/9 |
+| Neck | none |
 
 ## Stages
 
-| Stage | Parameter | Values | Iterations |
-|---|---|---|---|
-| 1 | `learning_rate` | 1e-3, 1e-4, 2e-4, 2e-3 | 20,000 |
-| 2 | Feature pyramid network | none, feature pyramid network (to implement) | 20,000 |
+| Stage | Parameter | Values | Iterations | Status |
+|---|---|---|---|---|
+| 1 | `learning_rate` | 1e-3, 2e-3, 2e-4 (1e-4 not needed) | 15,000 | done, 1e-3 kept |
+| 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1 | 15,000 | started 2026-11-05 |
+| 3 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 2 |
+| 4 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | after run_8, code |
+| 5 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 4, code |
+| 6 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 5, code |
+| 7 | Neck (`suggestions.md` items 1 and 37) | none, feature pyramid, path aggregation | 15,000 | after stage 6, code |
+
+The code of stages 4 to 7 is merged only after run_8, the last launch of stage 3, so that the eight launches of stages 2 and 3 all run the same code (the driver starts every launch with the code on `main` at that time). `RegionProposal.foreground_iou_threshold.max`, read by the checks but never by the model, is removed from the configuration files in the same merge (no number changes).
 
 ## Launches
 
-Every launch gives its test mean average precision at every evaluation (every 500 iterations up to 20,000) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "object_detection"`), launches and mean rows as in the tables below.
+Every launch gives its test mean average precision at every evaluation (every 500 iterations) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by the driver (one column per swept setting), launches and mean rows as in the tables below.
 
-### Stage 1: Learning Rate (8 launches, 20,000 iterations)
+### Stage 1: Learning Rate (6 launches, done)
 
-The learning rates are searched one pair at a time instead of all trained, as the user asked on 2026-11-02 so that no pair is trained once the answer is known, the early iterations of the smaller learning rates mostly measuring their speed: 2e-3 first, kept if better than 1e-3 and the stage then ending; otherwise 2e-4, the stage ending on 1e-3 if 2e-4 is not better, and 1e-4 last if it is. A challenger whose pair mean differs from the best value so far by less than the larger gap between the two launches of either value is a tie, within the noise of a single training: the search then ends on the earlier value (the user's rule of 2026-11-02, so that a noisy branch decision never sends the search further).
+The learning rates were searched one pair at a time: 2e-3 first, kept if better than 1e-3; otherwise 2e-4, then 1e-4 if 2e-4 were better. On 2026-11-03 the user stopped the 2e-3 pair at 15,000, tied with 1e-3 there, and asked for 2e-4 anyway, which was stopped at 7500 (2026-11-04), far behind.
+
+| Value | Launches | Test_EMA mAP@[0.5:0.95] at 15,000 | Pair |
+|---|---|---|---|
+| 1e-3 | run_1, run_2 | 0.7905, 0.7628 | 0.7766 |
+| 2e-3 | run_3, run_4 | 0.7853, 0.7244 | 0.7549 (tie: -0.0218 within the launch gap 0.0609) |
+| 2e-4 | run_5, run_6 | 0.4714, 0.4570 at 7500 | 0.4642 against 0.7010 for 1e-3 at 7500 |
+
+1e-3 was kept. At 20,000 its pair reached 0.7956 (run_1 0.8088, run_2 0.7823), the averaged weights ahead of the trained ones at every evaluation (0.7102 for the trained weights at 20,000). At 15,000, run_1 found almost every object (proposal recall at 0.5 of 0.998, 0.995 for the small objects) with a mAP@0.5 of 0.97, but its boxes are not tight: mAP@0.75 0.93 and mAP@0.95 0.05, which stages 4 to 7 address.
+
+### Stage 2: Background IoU Minimum (4 launches, 15,000 iterations)
+
+The anchors whose best overlap is below `RegionProposal.background_iou_threshold.min` are ignored by the region proposal loss: 0.0 samples every anchor below 0.3 as background, 0.1 leaves out those touching no object, the region proposal network then learning from the hard negatives only. The tie keeps 0.0.
 
 | Order | Value | Launches |
 |---|---|---|
-| reference | 1e-3 | run_1, run_2 |
-| 1 | 2e-3 | run_3, run_4 |
-| 2 (if 2e-3 is not better) | 2e-4 | run_5, run_6 |
-| 3 (if 2e-4 is better) | 1e-4 | run_7, run_8 |
+| reference | 0.0 | run_1, run_2 |
+| 1 | 0.1 | run_3, run_4 |
 
-A pair trains in about 22 to 23 hours (13,500 iterations of run_1 and run_2 in about 15 hours, test evaluations included): run_1 and run_2 end on 2026-11-03 around 03:30, and the stage takes 2 to 4 days depending on the search.
+The comparison of run_1 and run_2 with run_1 and run_2 of stage 1 (same settings, but the haze alone) measures the augmentation of the defaults, without any training.
+
+### Stage 3: Detector Normalization (2 or 4 launches, 15,000 iterations)
+
+The normalization of the convolutions of the detection heads, with the minimum kept by stage 2: batch normalization (the reference, whose launches are reused), then layer normalization, then none. Layer normalization clearly worse than batch normalization ends the search, no normalization being then unlikely to do better; layer better or tied goes on to none.
+
+| Order | Value | Launches |
+|---|---|---|
+| reference | batch | those of the minimum kept by stage 2 |
+| 1 | layer | run_5, run_6 |
+| 2 (unless layer is clearly worse) | none | run_7, run_8 |
+
+### Stages 4 to 7: after run_8 (code changes)
+
+Every change is merged before its pair, which trains against the reference kept so far (trained on the earlier code). A fix that is not better is reverted before the next stage, a tie keeping the earlier code. The box loss and the neck are configuration settings during their stages.
+
+- **Stage 4, anchor centres (audit L1, `suggestions.md`):** the anchors are centred on the cell corners (`anchors.py`, `shifts = arange(F) * stride`) while RoIAlign and the convolutions place the cells at their centres, a constant half-stride offset the regressor has to learn: `(arange(F) + 0.5) * stride`, in the training and in the export.
+- **Stage 5, proposal selection per level (audit M3 with L7, `suggestions.md` item 3):** the pre-NMS top-k taken per level, `batched_nms` grouped by level, then the global top `post_nms`, in the proposal filter and in `InferenceDetector`, the zero-area proposals and detections removed. Level 7 had the lowest proposal recall at 0.5 of stage 1 (0.29, against 0.37 to 0.43 for levels 4 to 6).
+- **Stage 6, CIoU box loss (`suggestions.md` item 36):** 1 - CIoU between the decoded boxes of the sampled positives and their targets, in both stages, against the smooth L1 on the offsets; aimed at the mAP@0.75 to @0.95.
+- **Stage 7, neck (`suggestions.md` items 1 and 37):** no neck, then the feature pyramid (1x1 laterals to a common channel count and the top-down path), then path aggregation (the bottom-up path after it) against the better of the two.
+
+A pair trains in about 15 hours at 15,000 iterations (two launches side by side, test evaluations included), so stages 2 and 3 take 2.5 to 3 days and stages 4 to 7 five to six pairs.
