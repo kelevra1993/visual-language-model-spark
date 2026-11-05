@@ -446,7 +446,7 @@ Every split line gives its sequences and frames, then the sequences kept and the
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence classification (`sequence_classification_workflow.md`, Step 2.21), the temporal module panel giving `Output Features : 128` and the head panel `Input Features : 128` and `Number Of Classes : 71`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`, `suggestions.md` H4). With `view_input_images`, every frame of the grids is captioned with its number and its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the sequence starts with the order of its classes (`get_sample_caption()`).
+The summary panels are those of the sequence classification (`sequence_classification_workflow.md`, Step 2.21), the temporal module panel giving `Output Features : 128` and the head panel `Input Features : 128` and `Number Of Classes : 71`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`, `bug_standards.md` H4, dropped). With `view_input_images`, every frame of the grids is captioned with its number and its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the sequence starts with the order of its classes (`get_sample_caption()`).
 
 **Example: the modules and shapes of the backbone panel, and the model size panel** (the model rebuilt on the CPU)
 ```text
