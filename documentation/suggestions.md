@@ -41,8 +41,8 @@
 >   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
 > - INS evaluation at the original resolution of the test images (`evaluation.original_resolution`) and mean
 >   average recall of the boxes and masks by object size, for DET and INS (item 12), not compared with pycocotools;
-> - a weight per loss of DET and INS in the total loss (`Optimization.loss_weights`), tested: the weights of 1 everywhere
->   gave the best results and are kept (2026-11-05);
+> - a weight per loss of DET and INS in the total loss (`Optimization.loss_weights`), tested: the weights of 1
+>   everywhere gave the best results and are kept (2026-11-05);
 > - the decorrelation of the hidden features of the classification head (`ClassificationHead.decorrelation`, item 18,
 >   whose experiment is left);
 > - the keypoint candidates placed within their cell by the parabola of the log-heatmap (item 17, whose measure on
@@ -120,6 +120,35 @@
    not suppress the proposals of the others (audit M3). Mask R-CNN does not do this either: it runs one top-k and one
    NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level) are
    the reference.
+36. **A box loss on the overlap (CIoU)**, scheduled in `object_detection_experiment_plan.md`:
+    - **Why:** the smooth L1 on the offsets gives the same loss to predictions of very different overlap and shrinks
+      with the size of the boxes, while 1 - IoU is flat for every box that does not overlap. GIoU adds the empty area of
+      the smallest enclosing box, but falls back to the IoU when one box contains the other; DIoU adds the squared
+      distance between the centres over the squared diagonal of the enclosing box (faster convergence); CIoU (the loss
+      of YOLOv4) adds a term on the difference of aspect ratios.
+    - **Here:** the region proposal and detection losses are smooth L1 on the offsets (`LOCALISATION_LOSS_BETA` 1/9),
+      while the synthetic hard shapes reach mAP@0.5 0.97 but mAP@0.75 0.93 and mAP@0.95 0.05: the boxes are found but
+      not tight. torchvision 0.29 has `complete_box_iou_loss`, `distance_box_iou_loss` and `generalized_box_iou_loss`.
+    - **Change:** decode the predicted offsets of the sampled positives into boxes (`apply_regression_predictions`)
+      and take 1 - CIoU against their target boxes, for both stages, the smooth L1 staying the other value of the
+      setting during the stage.
+37. **Path aggregation after the feature pyramid (PANet)**, with item 1, scheduled in
+    `object_detection_experiment_plan.md`:
+    - **Why:** the top-down path of the FPN gives the fine levels the context of the deep ones, but the localisation
+      detail of the fine levels reaches the coarse ones only through the whole backbone. Path aggregation adds a
+      bottom-up path after the top-down one: every finer output, downsampled by a strided 3x3 convolution, is merged
+      into the next coarser level, and the heads read the outputs of that path (the neck of YOLOv4, which concatenates
+      where PANet adds).
+    - **Here:** one neck between the backbone blocks of `DetectionLevels` (4 to 7) and the heads: 1x1 laterals to a
+      common channel count, the top-down path, then optionally the bottom-up one. Blocks 6 and 7 have the same 16 x 16
+      resolution at 1024 pixels, so they are merged without resampling. The neck changes the run name, the export and
+      the transfer of pretrained components.
+38. **DIoU non-maximum suppression**: suppress a box by its IoU minus the centre distance term of DIoU with the kept
+    box, so that two distinct objects overlapping a lot but with distant centres are not merged (occlusions). For
+    the final detections, and possibly the proposals.
+39. **Spatial pyramid pooling (SPP) after the backbone**: the last feature map concatenated with its max pools of 5, 9
+    and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
+
 ## B. Instance segmentation
 5. **Sharper masks for small objects**: the mask heads pool every box from the backbone feature map of its level
    (RoIAlign 14 × 14, upsampled to 28 × 28), never from the image, so a small object on a coarse level (blocks 5–7
@@ -524,11 +553,13 @@ committed): every image can be taken again from them without training, except wh
     parameter names (or a run description) would let the table show the settings of the runs.
 
 ## Suggested Order
-1. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
+1. **The detection stages scheduled in `object_detection_experiment_plan.md`:** the audit fixes L1, M3 (item 3) and L7, the CIoU
+   box loss (item 36), then the FPN and the path aggregation (items 1 and 37).
+2. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.
-2. **The rest when the need appears:** item 12 when debugging, item 3 if one level keeps most proposals, item 11 when
-   deploying a class with its own threshold, and items 8, 9 and 10 depending on the datasets.
+3. **The rest when the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
+   items 8, 9 and 10 depending on the datasets, and items 38 and 39 once the detection stages are done.
 
 ## Repository Audit For Instance Segmentation
 
