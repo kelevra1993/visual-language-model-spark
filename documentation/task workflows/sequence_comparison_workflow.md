@@ -410,7 +410,7 @@ get_class_counts()    = [992, 1008]
 ```
 
 ### Step 2.10 — `build_native_loader()`
-**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 len(loader) = 125   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```

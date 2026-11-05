@@ -398,7 +398,7 @@ test_image_file_names: 20 entries, [(1, 'test_000000.png'), (2, 'test_000001.png
 ```
 
 ### Step 2.8 — `get_detection_dataloaders(load_instance_masks=True)`
-**Example: the three loaders** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
+**Example: the three loaders** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 train_dataloader        100 images   3 batches   collate_function   num_workers 8   prefetch 2   pin True   persistent True
 validation_dataloader    20 images   1 batch     collate_function   num_workers 8   prefetch 2   pin True   persistent True

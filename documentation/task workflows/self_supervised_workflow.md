@@ -481,7 +481,7 @@ dataset[0]:       images [3, 256, 256] torch.uint8 in [14, 231]   labels () torc
 ### Step 2.10 — `build_native_loader()`
 Same torch DataLoader as the classification. With grouped batches, the DataLoader receives the `GroupedBatchSampler` as its `batch_sampler` instead of the batch size, the shuffling and `drop_last`, which it refuses next to a batch sampler: it then reads `batch_size None` and `drop_last False`, its length being the number of batches of the sampler.
 
-**Example: the training loader** (recorded with 2 workers, when the number of workers was a setting; every loader now has 4)
+**Example: the training loader** (recorded with 2 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 len 3906   batch_size 128   num_workers 2   prefetch_factor 2   pin_memory True   persistent_workers True   drop_last True
 ```

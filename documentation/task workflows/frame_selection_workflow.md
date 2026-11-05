@@ -400,7 +400,7 @@ ValueError: 500 sequences cannot be used for the frame selection, which needs ev
 The warnings name every left-out sequence, in red; the run goes on with the 280 sequences of at most 8 frames. The error lists the first 20 invalid sequences and stops the training.
 
 ### Step 2.9 — `build_native_loader()`
-**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 len(loader) = 32   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
