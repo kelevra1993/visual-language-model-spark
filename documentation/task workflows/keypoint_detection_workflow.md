@@ -391,7 +391,7 @@ The augmenter of every task. Its geometric types move the keypoints of the objec
 ### Step 2.5 — `build_dataloaders()` → `get_keypoint_dataloaders()` → `CocoDetectionDataset(load_keypoints=True)`
 `build_dataloaders()` calls `read_test_manifest()` of `CocoSplitTrainer`, which reads `class_names` from the test `labels.json` (`get_class_names()`), gives every class a colour for the sample images and keeps the file name of every test image, then calls `get_keypoint_dataloaders()`. It builds one `CocoDetectionDataset` per split, the dataset of the object detection, with `load_keypoints=True` and `maximum_keypoints=18`, and with `load_ignored_regions=True` for the training and validation splits when `KeypointHead.ignore_unlabelled_objects` is on (off here; never for the test split, which computes no loss). The sample is **one whole image** with all its objects, as for the detection. The dataset reads the number of keypoints of every category from the `categories` of the split (0 for the distractors).
 
-**Example: the loaders** (recorded with 2 workers, when the number of workers was a setting; every loader now has 4)
+**Example: the loaders** (recorded with 2 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 class_names {0: 'background', 1: 'square', 2: 'triangle', 3: 'rectangle', 4: 'pentagon', 5: 'hexagon', 6: 'plus_sign', 7: 'star',
              8: 'octagon', 9: 'rhombus', 10: 'parallelogram', 11: 'trapezoid', 12: 'kite', 13: 'heptagon', 14: 'nonagon',

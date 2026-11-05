@@ -454,7 +454,7 @@ dataset[0]:   images [3, 512, 512] torch.uint8, masks [512, 512] torch.int64 hol
 ### Step 2.10 — `build_native_loader()`
 The same PyTorch `DataLoader` as for the classification (see `classification_workflow.md`, Step 2.10).
 
-**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 len(loader) = 125   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```

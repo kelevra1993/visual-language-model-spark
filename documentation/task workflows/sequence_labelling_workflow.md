@@ -390,7 +390,7 @@ count_split_sequences() = (60, 427, 45)          <- sequences and frames of the 
 ```
 
 ### Step 2.9 — `build_native_loader()`
-**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 4)
+**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 len(loader) = 32   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
