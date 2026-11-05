@@ -101,7 +101,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 - Small objects are barely found: the finest level has a stride of 32 and anchors of 32 and 64 pixels, the anchors sitting on the cell corners (`suggestions.md`, items 1 and 5, audit L1). `anchor_recall.csv` of that run gives a foreground anchor to 10.3 % of the 1,254 small training objects, and at iteration 5000 the 184 small test objects have a `mAP@0.5` of 0.0147 and a proposal recall at 0.5 of 0.3315 (`Results.txt`).
 - The proposals are selected over all the levels at once (`select_best_proposals()`, audit M3): at iteration 5000, 178.7 of the 250 proposals per image come from block 5 (`proposal_recall.csv`).
 - The mAP matches the detections with the PASCAL VOC rule at every IoU, so `mAP@[0.5:0.95]` and the 101-point values are not those of pycocotools (`match_detections_to_ground_truth()`, audit L6).
-- A head or backbone block whose first convolution changes the channel count adds no residual shortcut with 2 layers (`ConvolutionBlock.count_residual_additions()`, `suggestions.md` H4): the detection heads of blocks 6 and 7 of `configuration_example.yaml` (128 to 64 channels) compute without shortcut, the summary listing only their squeeze-and-excitation (Step 2.19).
+- A head or backbone block whose first convolution changes the channel count adds no residual shortcut with 2 layers (`ConvolutionBlock.count_residual_additions()`, `bug_standards.md` H4, dropped): the detection heads of blocks 6 and 7 of `configuration_example.yaml` (128 to 64 channels) compute without shortcut, the summary listing only their squeeze-and-excitation (Step 2.19).
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -487,7 +487,7 @@ DetectionHead(
   (bounding_box_regressor): Linear(in_features=128, out_features=40, bias=True)               <- 4 offsets for each of the 10 classes
 )
 ```
-The heads of levels 6 and 7 read 128 channels instead of 64, hence their 36,864 more parameters (the first 3x3 convolution). Their first convolution changing the channel count (128 to 64), the residual pairs of their 2 layers are shifted by one layer and no shortcut is added: these two heads compute like heads without `residual_nets` (`ConvolutionBlock.count_residual_additions()` gives 0, `suggestions.md` H4).
+The heads of levels 6 and 7 read 128 channels instead of 64, hence their 36,864 more parameters (the first 3x3 convolution). Their first convolution changing the channel count (128 to 64), the residual pairs of their 2 layers are shifted by one layer and no shortcut is added: these two heads compute like heads without `residual_nets` (`ConvolutionBlock.count_residual_additions()` gives 0, `bug_standards.md` H4, dropped).
 
 ### Step 2.16 — `RegionProposalFilter.__init__()`
 The filter keeps the proposals the detection heads classify: the `pre_nms_proposals` best scored, then those surviving the non-maximum suppression at `nms_iou_threshold`, at most `post_nms_proposals`, with different numbers in training and in inference.

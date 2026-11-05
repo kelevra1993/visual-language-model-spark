@@ -179,12 +179,12 @@ class RegionProposal(nn.Module):
                                                           out_channels=input_channels,
                                                           kernel_size=3, stride=1, padding=1)
 
-        # 1x1 Convolution Layer for classification : Todo later complexify this step
+        # 1x1 Convolution Layer for classification, the depth of the head being set by its convolutions
         self.region_proposal_classifier = nn.Conv2d(in_channels=input_channels,
                                                     out_channels=self.number_anchors_per_location,
                                                     kernel_size=1, stride=1)
 
-        # 1x1 Convolution Layer for regression : Todo later complexify this step
+        # 1x1 Convolution Layer for regression, the depth of the head being set by its convolutions
         self.region_proposal_bounding_box_regressor = nn.Conv2d(in_channels=input_channels,
                                                                 out_channels=self.number_anchors_per_location * 4,
                                                                 kernel_size=1, stride=1)

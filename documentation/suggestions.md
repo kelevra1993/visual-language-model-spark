@@ -37,11 +37,12 @@
 > - region proposal negatives down to IoU 0 (audit H1), the check warning when `background_iou_threshold.min` is
 >   above 0;
 > - NMS at 0.7 for the region proposals and 0.5 for the detections (audit M4);
-> - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`, the first part of item 6),
+> - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`),
 >   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
 > - INS evaluation at the original resolution of the test images (`evaluation.original_resolution`) and mean
 >   average recall of the boxes and masks by object size, for DET and INS (item 12), not compared with pycocotools;
-> - a weight per loss of DET and INS in the total loss (`Optimization.loss_weights`, item 6, whose experiment is left);
+> - a weight per loss of DET and INS in the total loss (`Optimization.loss_weights`), tested: the weights of 1 everywhere
+>   gave the best results and are kept (2026-11-05);
 > - the decorrelation of the hidden features of the classification head (`ClassificationHead.decorrelation`, item 18,
 >   whose experiment is left);
 > - the keypoint candidates placed within their cell by the parabola of the log-heatmap (item 17, whose measure on
@@ -57,13 +58,14 @@
 > - the dropout and the global average pooling of the detection head;
 > - the watch for the CUDA crash seen with DALI;
 > - the crowd regions ignored by the targets and the evaluation (audit M12), the crowds being ordinary objects;
-> - the COCO matching of the mAP (audit L6), the VOC matching being kept.
+> - the COCO matching of the mAP (audit L6), the VOC matching being kept;
+> - the box-aware mosaic / copy-paste augmentation, the tiles at native resolution for DET and INS, and the projection
+>   shortcuts of the channel-changing residual blocks (audit H4), dropped on 2026-11-05.
 
 ## Table Of Content
 - [A. Detector architecture](#a-detector-architecture)
 - [B. Instance segmentation](#b-instance-segmentation)
 - [C. Evaluation and deployment](#c-evaluation-and-deployment)
-- [D. Training data](#d-training-data)
 - [E. Mask R-CNN on the open audit items](#e-mask-r-cnn-on-the-open-audit-items)
 - [F. Reference: Mask R-CNN compared stage by stage](#f-reference-mask-r-cnn-compared-stage-by-stage)
 - [G. Keypoint detection](#g-keypoint-detection)
@@ -118,9 +120,6 @@
    not suppress the proposals of the others (audit M3). Mask R-CNN does not do this either: it runs one top-k and one
    NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level) are
    the reference.
-4. **Box-aware mosaic / copy-paste augmentation**: combine 4 images into one, or paste objects from one image into
-   another. Copy-paste is usually combined with a large scale jitter, which the zoom-out (`random_zoom_out`) provides.
-
 ## B. Instance segmentation
 5. **Sharper masks for small objects**: the mask heads pool every box from the backbone feature map of its level
    (RoIAlign 14 × 14, upsampled to 28 × 28), never from the image, so a small object on a coarse level (blocks 5–7
@@ -136,18 +135,6 @@
      features themselves are fine enough;
    - a boundary refinement in the style of PointRend, predicting the uncertain border points again from finer
      features.
-6. **The weights of the losses, experiment left to run** (`Optimization.loss_weights`, implemented):
-   - **Mask R-CNN:** `LOSS_WEIGHTS` multiplies each of the five losses (`config.py:189-195`, `model.py:2172-2174`).
-   - **Here:** `Optimization.loss_weights` multiplies each of the four losses of DET and the five of INS in the total
-     loss, the tracked losses staying unweighted. Every configuration file keeps the weights at 1, never tuned. The box
-     regression targets of both stages keep the fixed
-     weights (1, 1, 1, 1) of `BOX_REGRESSION_WEIGHTS`: the (10, 10, 5, 5) equivalent to the [0.1, 0.1, 0.2, 0.2] of
-     Mask R-CNN gave about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes.
-   - **Why it can help:** it lets the mask loss be raised when the masks lag behind the boxes, or the box losses be
-     balanced against the classification.
-   - **Experiment:** together with audit L5 (dividing by the positives or by the sampled count), which also moves the
-     balance of the losses. The weights give no run name token, so every launch needs its own run_<n> folder.
-   - **Measure:** box and mask mAP@0.75 / @[0.5:0.95] on the synthetic shapes, against the weights of 1.
 7. **One mask head shared by the levels**:
    - **Mask R-CNN:** `build_fpn_mask_graph` is built once (`model.py:956-1005`) and receives the RoIs of every level
      through `PyramidROIAlign`. The box head and the region proposal head are shared the same way
@@ -224,22 +211,6 @@
       glance. (b) In `build_detection_sample_grid`, caption every detection with its score and its IoU to the matched
       ground truth.
     - **Cost and risk:** (b) is small, (a) medium. No number changes.
-
-## D. Training data
-13. **Tiles at native resolution for large images**:
-    - **Mask R-CNN:** the nucleus sample (`nucleus.py:127-133, 165, 173`) trains on random 512 × 512 crops
-      (`IMAGE_RESIZE_MODE: crop`) of the image scaled up by 2 (`IMAGE_MIN_SCALE`), infers on the whole image padded to a
-      multiple of 64 (`pad64`), with anchors from 8 to 128 pixels and up to 400 detections.
-    - **Here:** the SEG task has the same mechanism as `Data.tiling` (`scale`, `overlap`, `sliding_window.py`). DET and
-      INS always resize the whole image to the network input, so objects of a few pixels in a large image shrink to a
-      pixel or less, the INS masks that vanish being removed from the training targets.
-    - **Change:** extend `Data.tiling` to DET and INS. Training samples are tiles cut at random places, the boxes and
-      masks cropped with them, an object cut by the border being kept or removed by its visible fraction like the
-      fragments of the crop. Test images are processed tile by tile with `compute_tile_starts`, the detections of all
-      tiles moved to image coordinates and merged with a class-wise NMS, and the masks pasted into the full image. The
-      export is unchanged, one tile per request, the clients merging the tiles as the SEG clients already do.
-    - **Cost and risk:** high, the objects cut by tile borders needing care in the merge. Only worth doing for
-      datasets of large images with small objects.
 
 ## E. Mask R-CNN on the open audit items
 What Mask R-CNN does for the items of the [repository audit](#repository-audit-for-instance-segmentation) that are still open:
@@ -327,7 +298,7 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 | Weight decay | 1e-4, BN parameters excluded | 0 | Audit M10 |
 | Gradient clipping | Norm 5 per gradient tensor | None | Mask R-CNN always clips, and its README suspects that clipping is what keeps the higher learning rate of the paper stable. `gradient_clipping_norm: 5.0` is a cheap first INS experiment. |
 | Batch | 2 images per GPU, BN frozen | 40, BN trained | |
-| Loss weights | 1 each, configurable | 1 each, configurable (`Optimization.loss_weights`) | Same; item 6 tunes them |
+| Loss weights | 1 each, configurable | 1 each, configurable (`Optimization.loss_weights`) | Same; tested, the weights of 1 kept |
 
 ## G. Keypoint detection
 14. **Keypoint names next to the exported model**: the export of a KPT run writes no channel names. The clients
@@ -553,12 +524,11 @@ committed): every image can be taken again from them without training, except wh
     parameter names (or a run description) would let the table show the settings of the runs.
 
 ## Suggested Order
-1. **The experiment of the loss weights (item 6)**, implemented, together with audit L5.
-2. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
+1. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.
-3. **The rest when the need appears:** item 12 when debugging, item 3 if one level keeps most proposals, item 11 when
-   deploying a class with its own threshold, and items 4, 8, 9, 10 and 13 depending on the datasets.
+2. **The rest when the need appears:** item 12 when debugging, item 3 if one level keeps most proposals, item 11 when
+   deploying a class with its own threshold, and items 8, 9 and 10 depending on the datasets.
 
 ## Repository Audit For Instance Segmentation
 
@@ -582,7 +552,7 @@ committed): every image can be taken again from them without training, except wh
 
 | Task | Findings |
 |---|---|
-| All tasks (training loop, backbone, data, configuration) | C1, C4, H4, H5, H6, M1, M2, M6, M7, M8, M9, M10, M15, M17, M20, L13–L18 |
+| All tasks (training loop, backbone, data, configuration) | C1, C4, H5, H6, M1, M2, M6, M7, M8, M9, M10, M15, M17, M20, L13–L18 |
 | DET | C3, H1, H2, H3, M3, M4, M12, M13, M14, M16, M21, L1, L2, L5, L6, L7, L8 |
 | INS | Everything DET has, plus M5 (RLE masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
@@ -744,29 +714,6 @@ committed): every image can be taken again from them without training, except wh
     summary is skipped, so monitoring is lost. INS goes through the same path.
 - **Fix:** postprocess only when `ground_truth_bounding_boxes is None`, and skip `predict_detection_masks` in
   `InstanceSegmenter.forward` in the same case. The validation metrics of DET and INS do not use these detections.
-
-#### H4. `residual_nets: True` does nothing in blocks that change the channel count, and in every 2-layer decoder level
-- **Where:**
-  - `models/components/convolution_block.py:125`:
-    `self.residual_parity = 1 if input_channels != output_channels else 0`.
-  - With parity 1 the shortcut is stored at layer 1 and added at layer 2 (lines 231 and 244). A 2-layer block has no
-    layer 2, so nothing is added, and there is no 1×1 projection.
-  - `segmentation_decoder.py:87-93`: a decoder level reads skip + upsampled channels, never equal to its output.
-- **Effect (reproduced):**
-  - A block 32→64 with 2 layers gives bitwise-identical outputs with `residual=True` and `residual=False`.
-  - The whole example `SegmentationDecoder` is identical with `residual_nets` True and False.
-  - Backbone blocks that change width with 2 layers (blocks 2, 4 and 6 of the SEG example and the synthetic SEG and CLS
-    configurations) have no shortcut.
-  - The detection, mask and region proposal heads use the same block, so they are affected too.
-  - The YAML comments say "Shortcuts are added every two convolution layers". The summaries listed "Residual
-    Shortcuts" for these blocks too, until `get_active_module_names` listed them only for the blocks adding one
-    (`count_residual_additions`, 2026-10-24).
-- **Fix:** when the input and output channels differ, add a 1×1 convolution with normalization as the projection
-  shortcut of the first pair, and set the parity to 0.
-  - The new keys only appear in channel-changing residual blocks, so existing checkpoints of those blocks need a
-    non-strict load or a migration.
-  - Until then, the summaries report the residual module only when at least one addition happens (done on
-    2026-10-24, the computation unchanged); the projection shortcut is still to do.
 
 #### H5. A failed save or evaluation (e.g. disk full) is swallowed: no checkpoint, no evaluation, skipped steps, orphan `.tmp` files
 - **Where:**
@@ -1156,7 +1103,7 @@ committed): every image can be taken again from them without training, except wh
 | Where | Statement | Reality |
 |---|---|---|
 | README "Stopping And Resuming", `build_run_name` docstring | "Changing any other setting gives another run name" | See C4 |
-| Every YAML with `residual_nets` | "Shortcuts are added every two convolution layers" | See H4 |
+| Every YAML with `residual_nets` | "Shortcuts are added every two convolution layers" | No shortcut in the 2-layer channel-changing blocks (projection shortcuts of H4 dropped on 2026-11-05) |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum IoU limit for matching" | Never read by the model, only by the checker |
 | `RegionProposal.strict_fallback_assignment` (YAML) | "Force assign best-overlapping anchors as foreground" | Removed (2026-11-05): they are always forced and regress to the ground truth they overlap the most |
 | `losses/detection_losses.py:65-76` | "aligns perfectly with standard RPN normalization" | See L5 |
@@ -1239,9 +1186,8 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
 3. **Detection accuracy** *(changes DET numbers, baseline to regenerate with your confirmation)*: H1 (RPN background),
    H2 (ground truths in the proposals), M4 (NMS thresholds), M3 (per-level proposal selection), M14 (float32
    objectness), L1 (anchor centres), H3 (no postprocessing during validation).
-4. **Architecture of the shared blocks** *(changes every task, checkpoints of channel-changing residual blocks no
-   longer load strictly)*: H4 (projection shortcuts), M1 (SE on the branch), M2 (shortcut before the ReLU). Compare
-   them on the synthetic datasets before adopting them.
+4. **Architecture of the shared blocks** *(changes every task)*: M1 (SE on the branch), M2 (shortcut before the
+   ReLU). Compare them on the synthetic datasets before adopting them.
 5. **Evaluation and deployment:** M15 and M16 (export check), L3, L6
    and the statements of the last table.
 
