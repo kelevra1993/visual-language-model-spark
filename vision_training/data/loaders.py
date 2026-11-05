@@ -22,7 +22,7 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Worker processes reading and resizing the images of every loader of the trainings, the training, validation and test
 # loaders each having their own, and the batches prepared in advance by every worker
-NUMBER_LOADER_WORKERS = 2
+NUMBER_LOADER_WORKERS = 1
 PREFETCH_BATCHES = 2
 
 
