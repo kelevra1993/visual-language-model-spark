@@ -223,7 +223,7 @@ def compute_anchor_labels(model: TwoStageDetector, aggregated_proposals: Dict[st
         Dict[str, Any]: The label of every anchor, the sampled masks, and the counts.
     """
     configuration = model.region_proposal_configuration
-    _, anchor_labels = batch_assign_targets_to_anchors(
+    _, anchor_labels, _ = batch_assign_targets_to_anchors(
         batched_ground_truth_boxes=[object_boxes], batched_anchors=aggregated_proposals["anchors"],
         background_iou_threshold=configuration["background_iou_threshold"],
         foreground_iou_threshold=configuration["foreground_iou_threshold"])

@@ -35,6 +35,9 @@
 >   every task, off in every configuration file;
 > - region proposal negatives down to IoU 0 (audit H1), the check warning when `background_iou_threshold.min` is
 >   above 0;
+> - region proposal negatives mixing a share of easy anchors below `background_iou_threshold.min` with the hard ones
+>   above it (`RegionProposal.easy_negative_fraction`, 0.0 in every configuration), whose experiment is stage 2b of
+>   `architecture_benchmarking/object_detection_experiment_plan.md`;
 > - NMS at 0.7 for the region proposals and 0.5 for the detections (audit M4);
 > - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`),
 >   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
