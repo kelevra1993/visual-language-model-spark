@@ -767,7 +767,8 @@ the README screenshots, was done on 2026-10-23.
 - **`img_tensor`** (`tests/evaluation/test_evaluation_report.py:43`, file removed on 2026-11-04 with the test suite
   reduction): the keyword of the TensorBoard `add_image` that the fake writer of the test replaces.
 - **One argument or parameter per line where no two fit in 120 characters:** the 25 places listed in S5.
-- **`max_pool_connections`** (`foundation_model_image_downloader.py:650`): the botocore setting it is passed to.
+- **`max_pool_connections`** (`foundation_model_image_downloader.py:650`, file removed on 2026-11-06 with the Tencent
+  downloader): the botocore setting it is passed to.
 - **`previous_settings.get(setting_key, MISSING_SETTING)`** (`configuration_changes.py:73`): it compares a saved
   configuration, with a sentinel for the settings that configuration was saved without.
 - **Broad `except` without `raise`:**

@@ -142,7 +142,7 @@ def test_hold_out_validation_images(tmp_path: Path) -> None:
         target=validation_folder / first_class_identifier / first_validation_name)
 
     number_moved_images = hold_out_validation_images(train_folder=train_folder, validation_folder=validation_folder,
-                                                     images_per_class=2)
+                                                     images_per_class=2, minimum_class_size=0)
 
     # Three images moved to complete the two classes, the same ones as without the interruption
     assert number_moved_images == 3
@@ -155,6 +155,29 @@ def test_hold_out_validation_images(tmp_path: Path) -> None:
     duplicated_name = expected_validation_names[first_class_identifier][1]
     (train_folder / first_class_identifier / duplicated_name).write_bytes(data=b"extracted again")
     assert hold_out_validation_images(train_folder=train_folder, validation_folder=validation_folder,
-                                      images_per_class=2) == 0
+                                      images_per_class=2, minimum_class_size=0) == 0
     assert not (train_folder / first_class_identifier / duplicated_name).exists()
     assert (validation_folder / first_class_identifier / duplicated_name).exists()
+
+
+def test_hold_out_validation_images_leaves_small_classes_whole(tmp_path: Path) -> None:
+    """
+    Verifies that a class of fewer than 'minimum_class_size' images keeps all its training images without an empty
+    validation folder, while a large enough class gives its validation images, as ImageNet-22k needs.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Five training images in the first class, two in the second
+    train_folder = tmp_path / "train"
+    validation_folder = tmp_path / "validation"
+    for class_identifier, class_size in zip(CLASS_IDENTIFIERS, [5, 2]):
+        (train_folder / class_identifier).mkdir(parents=True)
+        for image_index in range(class_size):
+            (train_folder / class_identifier / f"{class_identifier}_{image_index}.JPEG").write_bytes(data=b"image")
+
+    assert hold_out_validation_images(train_folder=train_folder, validation_folder=validation_folder,
+                                      images_per_class=2, minimum_class_size=4) == 2
+    assert len(list((validation_folder / CLASS_IDENTIFIERS[0]).iterdir())) == 2
+    assert not (validation_folder / CLASS_IDENTIFIERS[1]).exists()
+    assert len(list((train_folder / CLASS_IDENTIFIERS[1]).iterdir())) == 2

@@ -96,7 +96,7 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 **Converting a dataset**
 - One folder of images per class: `vision_training/data/classification/class_folder_manifests.py` writes the manifests and the label mapping, `data/` linking to the class folders without copying them. Set `split_folders` and `output_folder` in its main block, then run `uv run python -m vision_training.data.classification.class_folder_manifests`.
 - ImageNet-1k: `imagenet_download.py` downloads it from Hugging Face (about 310 GB).
-- Tencent ML-Images (17.6M multi-label images, 11,166 categories, about 1.7 TB), to pre-train the backbones: `foundation_model_image_downloader.py`.
+- ImageNet-22k (14.1M images, 21,841 classes, about 1.15 TB), to pre-train the backbones: `imagenet_22k_download.py` downloads it from Hugging Face, leaving out the copies of the ImageNet-1k test images.
 
 **Configuration** (`ClassificationHead`)
 - `global_pooling`: `average`, `max` or `flatten`.
