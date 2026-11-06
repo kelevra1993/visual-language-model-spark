@@ -30,7 +30,7 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
         ground_truth_bounding_boxes (List[torch.Tensor]): The batched ground truth boxes.
         aggregated_proposals_dictionary (Dict[str, torch.Tensor]): The aggregated anchor and prediction tensor.
         region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' configuration section, giving the
-            anchor IoU thresholds and the sampling counts.
+            anchor IoU thresholds, the sampling counts and the share of easy negatives.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
@@ -38,7 +38,7 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
 
     # First assign targets based on ground truth bounding boxes
     # Here we consider absolutely all anchors targets based on all ground truth boxes
-    region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
+    region_proposal_anchor_targets, region_proposal_anchor_labels, easy_negative_mask = batch_assign_targets_to_anchors(
         batched_ground_truth_boxes=ground_truth_bounding_boxes,
         batched_anchors=aggregated_proposals_dictionary["anchors"],
         background_iou_threshold=region_proposal_configuration['background_iou_threshold'],
@@ -48,20 +48,23 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
     region_proposal_regression_targets = turn_boxes_to_transformation_targets(
         ground_truth_boxes=region_proposal_anchor_targets, predicted_boxes=aggregated_proposals_dictionary["anchors"])
 
-    # Get training samples for region proposal network
+    # Get training samples for region proposal network, the share 'easy_negative_fraction' of the negatives drawn
+    # among the anchors below the background minimum
     sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
         labels=region_proposal_anchor_labels,
         desired_positives=region_proposal_configuration['number_training_positives'],
-        desired_total=region_proposal_configuration['total_training_samples'])
+        desired_total=region_proposal_configuration['total_training_samples'], easy_negative_mask=easy_negative_mask,
+        easy_negative_fraction=region_proposal_configuration['easy_negative_fraction'])
 
     # Compute the classification loss: Simple binary cross entropy loss
     # We use the variant 'with_logits' since the classification scores are raw, un-sigmoid network outputs.
-    # Computed over both the sampled positive (foreground) and sampled negative (background) anchors.
+    # Computed over both the sampled positive (foreground) and sampled negative (background) anchors, the target being
+    # 1 for a positive and 0 for a negative, the easy negatives carrying the ignored label -1
     sampled_mask = sampled_positive_mask | sampled_negative_mask
 
     region_proposal_classification_loss = torch.nn.functional.binary_cross_entropy_with_logits(
         input=aggregated_proposals_dictionary["classification_scores"][sampled_mask],
-        target=region_proposal_anchor_labels[sampled_mask], reduction="mean")
+        target=sampled_positive_mask[sampled_mask].to(dtype=torch.float32), reduction="mean")
 
     # Compute the localization loss: Smooth L1 Loss (Huber Loss)
     # We only compute regression loss on the positively sampled anchors, as background anchors have no target.

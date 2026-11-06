@@ -115,7 +115,8 @@ def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], b
 
 def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor], batched_anchors: torch.Tensor,
                                     background_iou_threshold: Dict[str, float],
-                                    foreground_iou_threshold: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
+                                    foreground_iou_threshold: Dict[str, float]
+                                    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Assigns ground truth boxes to the anchors of every image of a batch to prepare the binary classification and
     regression targets for the Region Proposal Network.
@@ -125,7 +126,9 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     overlap nothing), categorizing each anchor as foreground (positive object), background (negative), or grey zone
     (ignored during training). It guarantees that every ground truth box has at least one positive anchor assigned to
     it to prevent objects from being missed during training. The anchors of an image without ground truth are all
-    background.
+    background. The ignored anchors below the background minimum are also returned as the easy negatives, which
+    sample_positive_and_negative_training_targets mixes with the background ones at the share
+    'RegionProposal.easy_negative_fraction'.
 
     Args:
         batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor contains the
@@ -135,11 +138,13 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
         foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
             - batched_target_boxes (torch.Tensor): The assigned ground truth box of each anchor, shape
               [batch_size, number_of_anchors, 4].
             - batched_labels (torch.Tensor): The float32 label of each anchor (1.0 = foreground, 0.0 = background,
               -1.0 = ignored), shape [batch_size, number_of_anchors].
+            - batched_easy_negative_mask (torch.Tensor): True for the ignored anchors whose best IoU is below
+              background_iou_threshold['min'], none when it is 0.0, shape [batch_size, number_of_anchors].
     """
     padded_boxes, _, valid_ground_truths = pad_ground_truths(batched_ground_truth_boxes=batched_ground_truth_boxes)
 
@@ -216,7 +221,11 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     batched_labels = torch.where(condition=has_ground_truth, input=batched_labels,
                                  other=torch.zeros_like(input=batched_labels))
 
-    return batched_target_boxes, batched_labels
+    # Easy negatives: the anchors ignored for overlapping every object less than the background minimum, the best
+    # anchors of the objects being foreground and the anchors of an image without ground truth background
+    batched_easy_negative_mask = below_background_minimum & (batched_labels == -1.0)
+
+    return batched_target_boxes, batched_labels, batched_easy_negative_mask
 
 
 def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
@@ -270,8 +279,10 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     return regression_targets
 
 
-def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int,
-                                                  desired_total: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int, desired_total: int,
+                                                  easy_negative_mask: Optional[torch.Tensor] = None,
+                                                  easy_negative_fraction: float = 0.0
+                                                  ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Randomly samples positive and negative targets (anchors or proposals) to maintain a fixed ratio during training.
 
@@ -284,46 +295,75 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
     the targets of its kind in its image, and the targets ranked below the count of their kind are kept, a uniform
     draw without replacement like a random permutation of every kind.
 
+    The Region Proposal Network can also mix easy negatives (the anchors below the background minimum, given by
+    batch_assign_targets_to_anchors) with its background anchors, the hard negatives touching an object: the share
+    `easy_negative_fraction` of the negatives of every image, rounded, is drawn among the easy ones and the rest among
+    the hard ones, each kind filling a shortage of the other. At 0.0 the easy negatives are never drawn, and the draw
+    is the one of a call without them.
+
     Args:
         labels (torch.Tensor): A batched tensor of shape (B, N) containing target labels
                                (Values >= 1.0 = positive foreground, 0.0 = negative background).
         desired_positives (int): The maximum number of positive targets to sample per image.
         desired_total (int): The total combined number of targets (positive + negative) to sample per image.
+        easy_negative_mask (Optional[torch.Tensor]): The (B, N) easy negatives, ignored targets that may be sampled as
+            negatives, or None when the targets have none (the proposals of the detection heads).
+        easy_negative_fraction (float): The share within [0, 1] of the negatives drawn among the easy negatives.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing two boolean masks of shape (B, N):
             - sampled_positive_mask (torch.Tensor): True for selected positive targets.
-            - sampled_negative_mask (torch.Tensor): True for selected negative targets.
+            - sampled_negative_mask (torch.Tensor): True for selected negative targets, easy ones included.
     """
     is_positive = labels >= 1.0
     is_negative = labels == 0.0
+
+    # Easy negatives taken into account only when a share of the negatives is drawn among them
+    if easy_negative_mask is None or easy_negative_fraction == 0.0:
+        is_easy_negative = torch.zeros_like(input=is_positive)
+    else:
+        is_easy_negative = easy_negative_mask
     number_positives = is_positive.sum(dim=1)
     number_negatives = is_negative.sum(dim=1)
+    number_easy_negatives = is_easy_negative.sum(dim=1)
 
     # Calculate the actual number of positives of every image, capped by availability, and fill the remaining
     # slots with negatives, capped by availability
     possible_positives = number_positives.clamp(max=desired_positives)
     desired_negatives = desired_total - possible_positives
-    possible_negatives = torch.minimum(input=number_negatives, other=desired_negatives)
+
+    # Split the negatives between the easy share and the background ones, the background ones filling a shortage of
+    # easy ones, then the easy ones a shortage of background ones
+    desired_easy_negatives = torch.round(input=desired_negatives * easy_negative_fraction).to(dtype=torch.int64)
+    possible_negatives = torch.minimum(
+        input=number_negatives,
+        other=desired_negatives - torch.minimum(input=number_easy_negatives, other=desired_easy_negatives))
+    possible_easy_negatives = torch.minimum(input=number_easy_negatives, other=desired_negatives - possible_negatives)
 
     # CRITICAL FIX: If an image ran out of negatives, we must over-sample positives to maintain
     # a uniform number of samples across the batch!
-    possible_positives = torch.minimum(input=number_positives,
-                                       other=possible_positives + desired_negatives - possible_negatives)
+    possible_positives = torch.minimum(
+        input=number_positives,
+        other=possible_positives + desired_negatives - possible_negatives - possible_easy_negatives)
 
     # Random rank of every target among the targets of its kind in its image: the random keys offset by kind sort the
-    # positives first, then the negatives, then the ignored targets, each kind in a random order
-    kind_offsets = (~is_positive).to(dtype=torch.float32) + (~is_positive & ~is_negative).to(dtype=torch.float32)
+    # positives first, then the negatives, then the easy negatives, then the ignored targets, each kind in a random
+    # order, the ranks of the positives and negatives not depending on the easy negatives
+    kind_offsets = ((~is_positive).to(dtype=torch.float32) + (~is_positive & ~is_negative).to(dtype=torch.float32)
+                    + (~is_positive & ~is_negative & ~is_easy_negative).to(dtype=torch.float32))
     random_order = torch.argsort(input=torch.rand(size=labels.shape, device=labels.device) + kind_offsets, dim=1)
     positions = torch.arange(end=labels.shape[1], device=labels.device).expand_as(random_order)
     ranks = torch.empty_like(input=random_order).scatter_(dim=1, index=random_order, src=positions)
 
-    # Keep the positives ranked below their count, and the negatives ranked below theirs after the positives
+    # Keep the positives ranked below their count, the negatives ranked below theirs after the positives, and the
+    # easy negatives ranked below theirs after the negatives
     sampled_positive_mask = is_positive & (ranks < possible_positives.unsqueeze(dim=1))
     sampled_negative_mask = is_negative & (ranks - number_positives.unsqueeze(dim=1)
                                            < possible_negatives.unsqueeze(dim=1))
+    sampled_easy_negative_mask = is_easy_negative & (ranks - (number_positives + number_negatives).unsqueeze(dim=1)
+                                                     < possible_easy_negatives.unsqueeze(dim=1))
 
-    return sampled_positive_mask, sampled_negative_mask
+    return sampled_positive_mask, sampled_negative_mask | sampled_easy_negative_mask
 
 
 def batch_assign_targets_to_proposals(batched_ground_truth_boxes: List[torch.Tensor],

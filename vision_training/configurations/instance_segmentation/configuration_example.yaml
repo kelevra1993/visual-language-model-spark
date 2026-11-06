@@ -308,6 +308,9 @@ RegionProposal:
     min: 0.0
     # Maximum IoU of a strict background anchor.
     max: 0.3
+  # Share of the sampled negatives drawn among the easy anchors below background min (otherwise ignored), the rest
+  # among the hard ones; must be 0.0 when min is 0.0.
+  easy_negative_fraction: 0.0
   # IoU threshold of the non-maximum suppression of overlapping proposals.
   nms_iou_threshold: 0.7
   # Positive foreground anchors sampled per image for the loss.
