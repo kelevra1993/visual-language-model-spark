@@ -4,8 +4,7 @@
 > yet, kept in `documentation/` so that we can come back to them and decide what to implement. They were checked
 > against the code on 2026-10-15, together with the findings of the
 > [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation), which they do not repeat.
-> The repository audit and the instructions of the
-> [ImageNet-22k Downloader](#imagenet-22k-downloader) are kept at the end of this file. The items
+> The repository audit is kept at the end of this file. The items
 > taken from Mask R-CNN come from a comparison with its Keras / TensorFlow 1 implementation (matterport, commit
 > `3deaec5`) written on 2026-10-12 and merged here: "Mask R-CNN" means that repository, and "the paper" He et al.,
 > 2017. Its file references (`model.py`, `utils.py`, `config.py`, `coco.py`, `nucleus.py`, `visualize.py`) are those of
@@ -48,7 +47,9 @@
 > - the keypoint candidates placed within their cell by the parabola of the log-heatmap (item 17, whose measure on
 >   COCO is left);
 > - the objects without labelled keypoint left out of the keypoint heatmap loss
->   (`KeypointHead.ignore_unlabelled_objects`, item 16, whose experiment is left).
+>   (`KeypointHead.ignore_unlabelled_objects`, item 16, whose experiment is left);
+> - the ImageNet-22k download (`imagenet_22k_download.py`, which replaced the Tencent ML-Images downloader) and its
+>   merge with ImageNet-1k (`merge_imagenet_manifests.py`, `~/Data/classifier_data/imagenet-merged`), on 2026-11-06.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -83,13 +84,6 @@
   - [Statements Contradicting The Code](#statements-contradicting-the-code)
   - [Checked And Correct](#checked-and-correct)
   - [Suggested Order Of Fixes](#suggested-order-of-fixes)
-- [ImageNet-22k Downloader](#imagenet-22k-downloader)
-  - [Before Running](#before-running)
-  - [Running](#running)
-  - [Decisions](#decisions)
-  - [Dataset Folder](#dataset-folder)
-  - [Merged With ImageNet-1k](#merged-with-imagenet-1k)
-  - [Risk To Check Before Training](#risk-to-check-before-training)
 
 ## A. Detector architecture
 1. **A top-down feature pyramid (FPN)**: lateral 1×1 convolutions and upsampling would give the finest detection
@@ -1220,76 +1214,3 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
    ReLU). Compare them on the synthetic datasets before adopting them.
 5. **Evaluation and deployment:** M15 and M16 (export check), L3, L6
    and the statements of the last table.
-
-## ImageNet-22k Downloader
-
-Should you want to pre-train the backbones on more than ImageNet-1k, `vision_training/data/classification/imagenet_22k_download.py`
-downloads ImageNet-22k (the full ImageNet fall11 release of `timm/imagenet-22k-wds`: 14,146,391 images, 21,841 WordNet
-classes, one class per image) and builds the classification manifests. It replaced the Tencent ML-Images downloader on
-2026-11-06, the Tencent lists and the Open Images images being dropped.
-
-### Before Running
-
-1. **ImageNet-22k access**: the account logged in on this machine has access to
-   https://huggingface.co/datasets/timm/imagenet-22k-wds (checked on 2026-11-06). On another machine, click "Access
-   repository" on that page; without access the script stops at the start with that link.
-2. **ImageNet-1k test images**: their copies are left out, read from `~/Data/classifier_data/imagenet-1k/images/test`
-   (present). Set `excluded_images_folder = None` in the main block to leave nothing out.
-3. **Disk space**: about 1.15 TB of images (81 KB on average, measured on the first shard), against 1,402 GB free on
-   2026-11-06. No new shard starts below `minimum_free_gigabytes` (100 GB), and the next run resumes.
-
-### Running
-
-Once the checks above pass, run it in tmux with `.venv/bin/python`, since `uv run` breaks when the output is sent to a
-log file:
-
-```
-.venv/bin/python -m vision_training.data.classification.imagenet_22k_download
-```
-
-Every step skips the work already done, so it can be run again after any stop.
-
-### Decisions
-
-| Topic | Decision |
-|-------|----------|
-| Source | `timm/imagenet-22k-wds` (fall11), 4,608 shards of 0.29 GB, each deleted after use, the images resized by timm to a shorter side of at most 600 |
-| Images | Original bytes kept, no re-encoding (about 1.15 TB; quality 85 would give about 540 GB) |
-| Labels | One class per image, its WordNet identifier, the class folder of the image |
-| Splits | Training shards (13,673,551) = train; validation shards (472,840, 40 per class of the 11,821 ImageNet-12k classes) = test; 5 training images per class of at least 50 images held out as validation by file name hash |
-| Exclusion | Copies of the ImageNet-1k test images (128-bit perceptual hash, at most 3 differing bits) never written: 4 of the 3,339 images of the first shard, all exact copies |
-| Undecodable images | Not written, listed in the records of their shard |
-| Layout | `images/<split>/<WordNet identifier>/<key>.jpg`, class folder manifests in `manifests/<split>/{data,labels.json}` |
-
-### Dataset Folder
-
-To find your way in `~/Data/classifier_data/imagenet-22k`:
-- `images/`: the stored images of every split.
-- `progress/`: the hashes of the ImageNet-1k test images and the records of the finished shards (resumption).
-- `manifests/`: `train`, `validation`, `test` splits and `label_mapping.json`.
-- `reports/summary.json`: the stored, excluded and undecodable images of every split.
-
-### Merged With ImageNet-1k
-
-To train on as many images as possible, `vision_training/data/classification/merge_imagenet_manifests.py` writes
-`~/Data/classifier_data/imagenet-merged` (2026-11-06) without copying an image, its `data/` folders holding one link
-per source dataset:
-
-| Split | Sources | Images |
-|-------|---------|--------|
-| train | ImageNet-22k train, validation and test, ImageNet-1k train | 15,405,266 |
-| validation | ImageNet-1k validation | 10,000 |
-| test | ImageNet-1k test | 50,000 |
-
-- **Duplicates**: the 912,867 ImageNet-1k training images also in ImageNet-22k are kept twice, as the user chose.
-- **Validation copies**: the 7,209 ImageNet-22k images having the name of an ImageNet-1k validation image (6,963 in
-  its train split, 25 in its validation split, 221 in its test split) are left out of train, so that the validation
-  scores stay those of unseen images.
-- **Classes**: 21,842 in `label_mapping.json`, the 21,841 of ImageNet-22k and `n04399382` (teddy bear), which
-  ImageNet-22k lacks; the validation and test splits cover the 1,000 ImageNet-1k classes only.
-
-### Risk To Check Before Training
-
-Before the first training on it, check the memory of the loader: `ClassificationDataset` loads the merged train
-manifest (15.4M samples) in 80 s with a peak of 12.5 GB in one process (measured 2026-11-06), before the loader
-workers start, each of which may come to hold a copy of it.
