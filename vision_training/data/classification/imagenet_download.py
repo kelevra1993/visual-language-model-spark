@@ -357,7 +357,7 @@ def download_imagenet(dataset_folder: str, validation_images_per_class: int, num
                                             "test": NUMBER_OFFICIAL_VALIDATION_IMAGES})
     create_class_folder_manifests(split_folders={split_name: str(images_folder / split_name)
                                                  for split_name in ["train", "validation", "test"]},
-                                  output_folder=str(dataset_path / "manifests"))
+                                  output_folder=str(dataset_path / "manifests"), excluded_file_names=None)
     print_color(color="green", output=f"Class Names : {format_path_link(path=class_names_path)}")
 
 

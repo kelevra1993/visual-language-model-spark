@@ -88,6 +88,7 @@
   - [Running](#running)
   - [Decisions](#decisions)
   - [Dataset Folder](#dataset-folder)
+  - [Merged With ImageNet-1k](#merged-with-imagenet-1k)
   - [Risk To Check Before Training](#risk-to-check-before-training)
 
 ## A. Detector architecture
@@ -1268,7 +1269,27 @@ To find your way in `~/Data/classifier_data/imagenet-22k`:
 - `manifests/`: `train`, `validation`, `test` splits and `label_mapping.json`.
 - `reports/summary.json`: the stored, excluded and undecodable images of every split.
 
+### Merged With ImageNet-1k
+
+To train on as many images as possible, `vision_training/data/classification/merge_imagenet_manifests.py` writes
+`~/Data/classifier_data/imagenet-merged` (2026-11-06) without copying an image, its `data/` folders holding one link
+per source dataset:
+
+| Split | Sources | Images |
+|-------|---------|--------|
+| train | ImageNet-22k train, validation and test, ImageNet-1k train | 15,405,266 |
+| validation | ImageNet-1k validation | 10,000 |
+| test | ImageNet-1k test | 50,000 |
+
+- **Duplicates**: the 912,867 ImageNet-1k training images also in ImageNet-22k are kept twice, as the user chose.
+- **Validation copies**: the 7,209 ImageNet-22k images having the name of an ImageNet-1k validation image (6,963 in
+  its train split, 25 in its validation split, 221 in its test split) are left out of train, so that the validation
+  scores stay those of unseen images.
+- **Classes**: 21,842 in `label_mapping.json`, the 21,841 of ImageNet-22k and `n04399382` (teddy bear), which
+  ImageNet-22k lacks; the validation and test splits cover the 1,000 ImageNet-1k classes only.
+
 ### Risk To Check Before Training
 
-Before the first training on it, check the memory of the loader: the train manifest holds about 13.6M samples, which
-`ClassificationDataset` loads into Python objects, possibly using a lot of RAM once the loader workers start.
+Before the first training on it, check the memory of the loader: `ClassificationDataset` loads the merged train
+manifest (15.4M samples) in 80 s with a peak of 12.5 GB in one process (measured 2026-11-06), before the loader
+workers start, each of which may come to hold a copy of it.

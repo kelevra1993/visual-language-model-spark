@@ -3,7 +3,7 @@ Tests of the classification data of vision_training/data/classification: Classif
 multi-label manifests, keeping the unlabelled samples for the self-supervised task, whose loaders keep full training
 and validation batches, as the training loader of a classifier needing batch statistics does, the console report of
 the samples without mapped category of the three splits, the label mapping without background class, and the
-manifests written by create_class_folder_manifests from class folders.
+manifests written by create_class_folder_manifests from class folders, of one dataset or of several merged ones.
 """
 
 import json
@@ -275,7 +275,7 @@ def test_class_folder_manifests(tmp_path: Path) -> None:
     output_folder = tmp_path / "manifests"
     create_class_folder_manifests(split_folders={"train": str(tmp_path / "training_data"),
                                                  "validation": str(tmp_path / "validation_data")},
-                                  output_folder=str(output_folder))
+                                  output_folder=str(output_folder), excluded_file_names=None)
 
     train_labels = json.loads((output_folder / "train" / "labels.json").read_text())
     validation_labels = json.loads((output_folder / "validation" / "labels.json").read_text())
@@ -290,10 +290,55 @@ def test_class_folder_manifests(tmp_path: Path) -> None:
 
     # A second conversion replaces the links and manifests
     create_class_folder_manifests(split_folders={"train": str(tmp_path / "training_data")},
-                                  output_folder=str(output_folder))
+                                  output_folder=str(output_folder), excluded_file_names=None)
 
     dataset = ClassificationDataset(data_directory=str(output_folder / "train" / "data"),
                                     labels_file=str(output_folder / "train" / "labels.json"), image_size=16,
                                     keep_ratio=True, label_dictionary={1: 0, 2: 1}, output_mode="multi_class",
                                     shuffle=False)
     assert [int(dataset[sample_index]["labels"]) for sample_index in range(len(dataset))] == [0, 1, 1]
+
+
+def test_create_class_folder_manifests_from_several_sources(tmp_path: Path) -> None:
+    """
+    Verifies that a split gathering two class-folder datasets links each under its name in 'data/', prefixes its file
+    names with the source name, numbers the categories over the classes of every source, leaves out the excluded
+    images, and is read by the loader; then that an excluded name that is not an image of the split is refused.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Two datasets sharing the squares, the circles in the first one only, the triangles in the second one only
+    for source_name, class_images in [("first", {"squares": 2, "circles": 1}), ("second", {"squares": 1,
+                                                                                          "triangles": 1})]:
+        for class_name, number_images in class_images.items():
+            class_folder = tmp_path / source_name / class_name
+            class_folder.mkdir(parents=True)
+            for image_index in range(number_images):
+                cv2.imwrite(filename=str(class_folder / f"image_{image_index}.png"),
+                            img=np.zeros(shape=(16, 16, 3), dtype=np.uint8))
+
+    output_folder = tmp_path / "manifests"
+    split_folders = {"train": {"first": str(tmp_path / "first"), "second": str(tmp_path / "second")}}
+    create_class_folder_manifests(split_folders=split_folders, output_folder=str(output_folder),
+                                  excluded_file_names={"train": {"first/squares/image_1.png"}})
+
+    # One link per source in a real data folder, the excluded image left out
+    data_folder = output_folder / "train" / "data"
+    assert data_folder.is_dir() and not data_folder.is_symlink()
+    assert (data_folder / "first").resolve() == (tmp_path / "first").resolve()
+    train_labels = json.loads((output_folder / "train" / "labels.json").read_text())
+    assert [category["name"] for category in train_labels["categories"]] == ["circles", "squares", "triangles"]
+    assert [(sample["file_name"], sample["category_id"]) for sample in train_labels["samples"]] == \
+        [("first/circles/image_0.png", 1), ("first/squares/image_0.png", 2), ("second/squares/image_0.png", 2),
+         ("second/triangles/image_0.png", 3)]
+    dataset = ClassificationDataset(data_directory=str(data_folder), labels_file=str(output_folder / "train" /
+                                                                                      "labels.json"),
+                                    image_size=16, keep_ratio=True, label_dictionary={1: 0, 2: 1, 3: 2},
+                                    output_mode="multi_class", shuffle=False)
+    assert [int(dataset[sample_index]["labels"]) for sample_index in range(len(dataset))] == [0, 1, 1, 2]
+
+    # An excluded name absent from the split points to a wrong list, refused instead of ignored
+    with pytest.raises(expected_exception=ValueError, match="1 excluded file names of the train split"):
+        create_class_folder_manifests(split_folders=split_folders, output_folder=str(output_folder),
+                                      excluded_file_names={"train": {"first/squares/image_9.png"}})
