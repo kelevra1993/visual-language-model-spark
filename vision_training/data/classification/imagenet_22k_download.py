@@ -468,7 +468,7 @@ def build_imagenet_22k_splits(dataset_path: Path, validation_images_per_class: i
                                             "test": shard_counts["test"]["stored"]})
     create_class_folder_manifests(split_folders={split_name: str(images_folder / split_name)
                                                  for split_name in SPLIT_NAMES},
-                                  output_folder=str(dataset_path / "manifests"))
+                                  output_folder=str(dataset_path / "manifests"), excluded_file_names=None)
 
     # Counts of every step, for the record of the dataset
     summary_path = dataset_path / "reports" / "summary.json"
