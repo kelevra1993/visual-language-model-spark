@@ -228,18 +228,22 @@ def compute_file_name_hash(file_name: str) -> str:
     return hashlib.md5(file_name.encode(), usedforsecurity=False).hexdigest()
 
 
-def hold_out_validation_images(train_folder: Path, validation_folder: Path, images_per_class: int) -> int:
+def hold_out_validation_images(train_folder: Path, validation_folder: Path, images_per_class: int,
+                               minimum_class_size: int) -> int:
     """
     Builds the validation split out of the training images, the official validation images being the test split:
     'images_per_class' images of every class folder of 'train_folder' are moved into the same class folder of
     'validation_folder'. The moved images are the ones whose file names have the smallest MD5 hashes, so that running
     it again gives the same split, completes an interrupted run, and moves nothing more once done. A training image
     also found in the validation split (written again by a new extraction) is deleted, so that no image is in both.
+    The classes of fewer than 'minimum_class_size' images (ImageNet-22k has many) keep all their training images.
 
     Args:
         train_folder (Path): The folder of the class folders of the training images.
         validation_folder (Path): The folder receiving the class folders of the validation images.
         images_per_class (int): The number of validation images of every class.
+        minimum_class_size (int): The number of images (training and validation) below which a class gives no
+            validation image, 0 to hold out images from every class.
 
     Returns:
         int: The number of images moved by this call.
@@ -247,8 +251,8 @@ def hold_out_validation_images(train_folder: Path, validation_folder: Path, imag
     number_moved_images = 0
     for train_class_folder in sorted(path for path in train_folder.iterdir() if path.is_dir()):
         validation_class_folder = validation_folder / train_class_folder.name
-        validation_class_folder.mkdir(parents=True, exist_ok=True)
-        validation_file_names = {path.name for path in validation_class_folder.iterdir()}
+        validation_file_names = ({path.name for path in validation_class_folder.iterdir()}
+                                 if validation_class_folder.is_dir() else set())
 
         # Delete the training copies of the images already held out, keeping the other training images
         train_file_names = []
@@ -257,6 +261,11 @@ def hold_out_validation_images(train_folder: Path, validation_folder: Path, imag
                 image_path.unlink()
             else:
                 train_file_names.append(image_path.name)
+
+        # Leave the small classes whole, without an empty validation folder
+        if len(train_file_names) + len(validation_file_names) < minimum_class_size:
+            continue
+        validation_class_folder.mkdir(parents=True, exist_ok=True)
 
         # Move the training images with the smallest hashes until the class has its number of validation images
         number_missing_images = max(images_per_class - len(validation_file_names), 0)
@@ -337,7 +346,7 @@ def download_imagenet(dataset_folder: str, validation_images_per_class: int, num
     # Hold out the validation split from the training images
     number_moved_images = hold_out_validation_images(train_folder=images_folder / "train",
                                                      validation_folder=images_folder / "validation",
-                                                     images_per_class=validation_images_per_class)
+                                                     images_per_class=validation_images_per_class, minimum_class_size=0)
     print_color(color="blue", output=f"{number_moved_images} training images moved to the validation split")
 
     # Check every split, then build the manifests read by the classification loader
@@ -353,9 +362,9 @@ def download_imagenet(dataset_folder: str, validation_images_per_class: int, num
 
 
 if __name__ == "__main__":
-    # Folder of the dataset, next to the COCO dataset of the object detection configurations. It needs about 310 GB:
-    # 153 GB of downloaded shards, which can be deleted once the manifests exist, and 153 GB of extracted images
-    dataset_folder = "/home/robert_kelevra/Data/object_detection_data/imagenet-1k"
+    # Folder of the dataset, next to the other classification datasets and read by the ImageNet configurations. It
+    # needs about 310 GB: 153 GB of downloaded shards, deleted once the manifests exist, and 153 GB of extracted images
+    dataset_folder = "/home/robert_kelevra/Data/classifier_data/imagenet-1k"
     # Training images of every class moved to the validation split (10,000 in total), the official validation images
     # (50 per class) becoming the test split
     validation_images_per_class = 10

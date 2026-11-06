@@ -5,7 +5,7 @@
 > against the code on 2026-10-15, together with the findings of the
 > [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation), which they do not repeat.
 > The repository audit and the instructions of the
-> [Foundation Models Data Downloader](#foundation-models-data-downloader) are kept at the end of this file. The items
+> [ImageNet-22k Downloader](#imagenet-22k-downloader) are kept at the end of this file. The items
 > taken from Mask R-CNN come from a comparison with its Keras / TensorFlow 1 implementation (matterport, commit
 > `3deaec5`) written on 2026-10-12 and merged here: "Mask R-CNN" means that repository, and "the paper" He et al.,
 > 2017. Its file references (`model.py`, `utils.py`, `config.py`, `coco.py`, `nucleus.py`, `visualize.py`) are those of
@@ -83,14 +83,12 @@
   - [Statements Contradicting The Code](#statements-contradicting-the-code)
   - [Checked And Correct](#checked-and-correct)
   - [Suggested Order Of Fixes](#suggested-order-of-fixes)
-- [Foundation Models Data Downloader](#foundation-models-data-downloader)
+- [ImageNet-22k Downloader](#imagenet-22k-downloader)
   - [Before Running](#before-running)
   - [Running](#running)
   - [Decisions](#decisions)
-  - [Changes Forced By The Data](#changes-forced-by-the-data)
   - [Dataset Folder](#dataset-folder)
   - [Risk To Check Before Training](#risk-to-check-before-training)
-  - [Dependencies](#dependencies)
 
 ## A. Detector architecture
 1. **A top-down feature pyramid (FPN)**: lateral 1×1 convolutions and upsampling would give the finest detection
@@ -1222,29 +1220,30 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
 5. **Evaluation and deployment:** M15 and M16 (export check), L3, L6
    and the statements of the last table.
 
-## Foundation Models Data Downloader
+## ImageNet-22k Downloader
 
-Instructions for `vision_training/data/classification/foundation_model_image_downloader.py`, which downloads Tencent
-ML-Images (ImageNet-22k + Open Images, 11,166 WordNet categories, multi-label) and builds the classification manifests.
+Should you want to pre-train the backbones on more than ImageNet-1k, `vision_training/data/classification/imagenet_22k_download.py`
+downloads ImageNet-22k (the full ImageNet fall11 release of `timm/imagenet-22k-wds`: 14,146,391 images, 21,841 WordNet
+classes, one class per image) and builds the classification manifests. It replaced the Tencent ML-Images downloader on
+2026-11-06, the Tencent lists and the Open Images images being dropped.
 
 ### Before Running
 
-1. **ImageNet-22k access**: click "Access repository" on https://huggingface.co/datasets/timm/imagenet-22k-wds with
-   your Hugging Face account (approved automatically). Without it the script stops at the start with that link.
-2. **ImageNet-1k test images (exclusion of their copies)**: `imagenet-1k/` does not exist yet. Either run
-   `vision_training/data/classification/imagenet_download.py` first, or set `excluded_images_folder = None` in the main
-   block.
-3. **Disk space**: about 1.7 TB for this dataset, plus about 150 GB of ImageNet-1k images (once its parquet files are
-   deleted), against 2.2 TB free. The script stops cleanly below `minimum_free_gigabytes` (100 GB) and resumes on the
-   next run.
+1. **ImageNet-22k access**: the account logged in on this machine has access to
+   https://huggingface.co/datasets/timm/imagenet-22k-wds (checked on 2026-11-06). On another machine, click "Access
+   repository" on that page; without access the script stops at the start with that link.
+2. **ImageNet-1k test images**: their copies are left out, read from `~/Data/classifier_data/imagenet-1k/images/test`
+   (present). Set `excluded_images_folder = None` in the main block to leave nothing out.
+3. **Disk space**: about 1.15 TB of images (81 KB on average, measured on the first shard), against 1,402 GB free on
+   2026-11-06. No new shard starts below `minimum_free_gigabytes` (100 GB), and the next run resumes.
 
 ### Running
 
-Set the paths in the main block, then run in tmux (`.venv/bin/python`, since `uv run` breaks when the output is sent to
-a log file):
+Once the checks above pass, run it in tmux with `.venv/bin/python`, since `uv run` breaks when the output is sent to a
+log file:
 
 ```
-.venv/bin/python -m vision_training.data.classification.foundation_model_image_downloader
+.venv/bin/python -m vision_training.data.classification.imagenet_22k_download
 ```
 
 Every step skips the work already done, so it can be run again after any stop.
@@ -1253,43 +1252,23 @@ Every step skips the work already done, so it can be run again after any stop.
 
 | Topic | Decision |
 |-------|----------|
-| ImageNet source | `timm/imagenet-22k-wds` (fall11), 4,608 shards of 0.29 GB, each deleted after use |
-| Open Images source | Public S3 bucket through `boto3` (unsigned) |
-| Tencent lists | Fetched from Google Drive with `gdown`; if Drive refuses, the error gives the link and the target path |
-| Matching | Tencent URL to Open Images identifier by Flickr photo number; unmatched URLs reported |
-| Images | Shorter side 512 (never enlarged), JPEG quality 85, Open Images rotation applied |
-| Labels | Every label kept (all confidences, ancestors included); confidences stored in `category_confidences` |
-| Duplicates | Merged into one sample with combined labels (test copy wins over training copies) |
-| Exclusion | Copies of the ImageNet-1k test images removed from every split |
-| Splits | Tencent validation images = test; 50,000 training images held out as validation by file name hash |
-| Layout | `images/imagenet/<wnid>/`, `images/openimages/<first 2 characters>/`, `manifests/<split>/{data,labels.json}` |
-| Class names | First synonym, WordNet identifier appended when two classes share a name |
-
-### Changes Forced By The Data
-
-- **Open Images comes from archives**: only the 1.74M boxable training images exist as single files on S3 (already in
-  `open-images-v7`). The full training set is only in 16 `.tar.gz` archives (548 GB), streamed without being saved, at
-  about 24 MB/s per archive. Progress is saved every 1,000 images; after an interruption the archive is downloaded again
-  but stored images are skipped. The local copy is only used for the validation images.
-- **About 1.07M Open Images images are lost**: 15.6% of the Tencent Open Images URLs are no longer in Open Images, so
-  about 5.87M Open Images images instead of 6.9M. They are listed in `reports/`.
-- **Duplicates use a perceptual hash, not MD5**: the ImageNet-22k copy was re-encoded, so byte hashes could not match
-  across sources or with ImageNet-1k. A 128-bit thumbnail hash is used: identical hash for merging duplicates, at most 3
-  differing bits for the ImageNet-1k exclusion. Nearly uniform images get no hash and are never merged.
+| Source | `timm/imagenet-22k-wds` (fall11), 4,608 shards of 0.29 GB, each deleted after use, the images resized by timm to a shorter side of at most 600 |
+| Images | Original bytes kept, no re-encoding (about 1.15 TB; quality 85 would give about 540 GB) |
+| Labels | One class per image, its WordNet identifier, the class folder of the image |
+| Splits | Training shards (13,673,551) = train; validation shards (472,840, 40 per class of the 11,821 ImageNet-12k classes) = test; 5 training images per class of at least 50 images held out as validation by file name hash |
+| Exclusion | Copies of the ImageNet-1k test images (128-bit perceptual hash, at most 3 differing bits) never written: 4 of the 3,339 images of the first shard, all exact copies |
+| Undecodable images | Not written, listed in the records of their shard |
+| Layout | `images/<split>/<WordNet identifier>/<key>.jpg`, class folder manifests in `manifests/<split>/{data,labels.json}` |
 
 ### Dataset Folder
 
-- `annotations/`: Tencent lists, category dictionary, Open Images metadata.
-- `images/`: the stored images.
-- `progress/`: records of finished shards, batches and archives (resumption).
+To find your way in `~/Data/classifier_data/imagenet-22k`:
+- `images/`: the stored images of every split.
+- `progress/`: the hashes of the ImageNet-1k test images and the records of the finished shards (resumption).
 - `manifests/`: `train`, `validation`, `test` splits and `label_mapping.json`.
-- `reports/`: images of the lists left out, `summary.json` with the counts.
+- `reports/summary.json`: the stored, excluded and undecodable images of every split.
 
 ### Risk To Check Before Training
 
-The train manifest will hold about 16M samples (about 3 GB of JSON). `ClassificationDataset` loads it into Python
-objects, which may use a lot of RAM once the data loader workers start.
-
-### Dependencies
-
-`gdown` and `boto3` were added to `pyproject.toml` and `uv.lock`.
+Before the first training on it, check the memory of the loader: the train manifest holds about 13.6M samples, which
+`ClassificationDataset` loads into Python objects, possibly using a lot of RAM once the loader workers start.
