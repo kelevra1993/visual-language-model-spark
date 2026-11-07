@@ -88,7 +88,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 - The frames of unmapped categories get the label -100: they are left out of the loss and the metrics, and end a segment. Nothing checks that `frame_category_ids` holds one label per frame (`suggestions.md` L10), and a batch without labelled frame gives a NaN loss while the sequences without labelled frame count as exact matches (L11, `sequence_losses.py`, `compute_sequence_exact_matches()`).
 - A causal module (`causal: True`, or a GRU or LSTM that is not bidirectional) with `Backbone.normalization.feature_map_normalization: "sequence"` still uses the future frames: the statistics of every backbone layer are those of the whole sequence (`bug_standards.md` B8).
 - `label_smoothing` above 0 with `class_weighting: "balanced"` pulls every frame towards the rarest classes (`suggestions.md` C2); on the synthetic training split the balanced weight of `no_change` would be 0.030 against 1.82 to 1.89 for a change class (819,173 of the 1,749,690 frames, `data.json`).
-- `test_10000` holds a copy of the labels and a link to the frames of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without any error (`bug_standards.md` B2). The test split of the synthetic configuration holds all 50,000 test sequences, whose evaluation took 26 minutes at 256 pixels in the experiment plan.
+- `test_10000` holds a copy of the labels and a link to the frames of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without any error (`bug_standards.md` B2, dropped). The test split of the synthetic configuration holds all 50,000 test sequences, whose evaluation took 26 minutes at 256 pixels in the experiment plan.
 - `Data.sequence_settings` only takes `maximum_sequence_length`: a sequence is never cut into windows, a longer one is left out with a red warning (Step 2.8), and a step runs the backbone on up to `batch_size` x `maximum_sequence_length` frames (comment of `batch_size` in the configuration).
 
 ## Table of Contents
@@ -325,7 +325,7 @@ M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71
 ### Step 2.5 — `DataAugmenter()`
 **Example: the settings of the configuration**
 ```text
-activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
+activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.25}
 6 of 28 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation, random_noise,
                          random_haze
 ```

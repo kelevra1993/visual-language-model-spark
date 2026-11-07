@@ -91,8 +91,8 @@ uv run python -m vision_training.deployment.export_model
 ### Pitfalls
 - Every sequence must hold exactly `frames_per_class` frames of every wanted class, otherwise the training stops at startup with the list of the first 20 such sequences (Step 2.8, `describe_selection_problem()`); a wanted class left out of the label mapping turns its frames into unselected ones (README, Frame Selection; `SequenceDataset`).
 - The Hungarian decoding maximises the probability of the whole labelling, not the number of right frames: on the 20 sequences of Stage 5, the checkpoint of iteration 3 gets 3 true triangle frames with the greedy decoding and 1 with the Hungarian one (Step 5.6). The best checkpoint, the thresholds and the deployment follow `Selection.decoding` only.
-- Tied probabilities give every tied frame the best rank, so a model giving the same probabilities to every frame scores a Top-k Selection Accuracy and a Mean True Frame Rank of 1.0 (`bug_standards.md` B52, `compute_frame_ranks()`).
-- A class never reaching `target_precision` gets a `null` threshold, every frame chosen for it being flagged low confidence (Step 4.14). A checkpoint exported without its evaluation folder gets thresholds of 0, so nothing is flagged, and `decoding_settings.json` names its wanted classes by their indices (`build_decoding_settings()`); an export of the averaged weights reads the thresholds of the trained weights (`bug_standards.md` B17).
+- Tied probabilities give every tied frame the best rank, so a model giving the same probabilities to every frame scores a Top-k Selection Accuracy and a Mean True Frame Rank of 1.0 (`bug_standards.md` B52, dropped; `compute_frame_ranks()`).
+- A class never reaching `target_precision` gets a `null` threshold, every frame chosen for it being flagged low confidence (Step 4.14). A checkpoint exported without its evaluation folder gets thresholds of 0, so nothing is flagged, and `decoding_settings.json` names its wanted classes by their indices (`build_decoding_settings()`); an export of the averaged weights reads the thresholds of the trained weights (`bug_standards.md` B17, dropped).
 - The synthetic configuration is solved quickly: the README screenshot run reaches a Hungarian selection accuracy of 0.9950 at iteration 1000 and 1.0000 at iteration 2000, so its sample images show no wrong choice (`suggestions.md` K34). Its 3 wrong choices of iteration 1000 are triangles (`selections.csv`: `test_000004`, `test_000134`, `test_000052`), the last one chosen at 0.4446, above the triangle threshold of 0.1830, so not flagged.
 - The exported network has no sequence mask: the sequences of one request must have the same number of frames, from 1 to `maximum_sequence_length` (`InferenceSequenceModel`, README Deployment), and the decoding runs in the Python backend on the CPU, after the network.
 
@@ -326,7 +326,7 @@ SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_F
 ### Step 2.5 — `DataAugmenter()`
 **Example: the settings of the configuration**
 ```text
-activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
+activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.25}
 6 of 28 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation, random_noise,
                          random_haze
 ```

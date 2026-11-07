@@ -11,12 +11,13 @@ The examples of Stages 1 and 2 and of the steps of one batch come from real runs
 > - the region proposal NMS is 0.7 and the detector NMS 0.5 (they were 0.5 and 0.8), and the anchors overlapping no object (IoU 0) can be sampled as background (`RegionProposal.background_iou_threshold.min: 0.0`);
 > - the evaluation shows the mask and box `Mean Average Recall` tables after the size tables, and can score the boxes and masks at the original resolution (`evaluation.original_resolution`, `False` in the synthetic configuration); its tables, scalars and `class_metrics.csv` also have a column at IoU 0.95 (`mAP@0.95`, `AP@0.95`, `average_precision_95` and `mask_average_precision_95`, `351a4d1`), so the scalar and column counts quoted below are those of that time;
 > - the mask overlaps paste 16 detection masks at a time for a 1024 x 1024 image, the chunk growing as the image shrinks (`MASK_OVERLAP_REFERENCE_PIXELS`): 64 at 512 pixels, where the examples of Step 4.5 paste 16;
-> - the synthetic configuration keeps a moving average of the weights (`Optimization.exponential_moving_average`), saved in the checkpoints and evaluated after the trained weights in `Evaluation/Iteration_<n>/EMA/`, `Tensorboard/Test_EMA/` and an `EMA Weights` block of `Results.txt`, and `Optimization.loss_weights` weighs the five losses (1 each).
+> - the synthetic configuration keeps a moving average of the weights (`Optimization.exponential_moving_average`), saved in the checkpoints and evaluated after the trained weights in `Evaluation/Iteration_<n>/EMA/`, `Tensorboard/Test_EMA/` and an `EMA Weights` block of `Results.txt`, and `Optimization.loss_weights` weighs the five losses (1 each);
+> - the configurations have the `Neck` section of the detection (`type: "none"`, no layer, the outputs unchanged), among the model sections of Steps 1.2 and 1.3 and printed in a `Neck Architecture` panel by the summary.
 >
 > The synthetic configuration now trains on the full synthetic dataset with blocks of 16 and 32 filters, two anchor scales per level and smaller heads (mask heads `[3, 32]`), batch size 64 and 2000 iterations: `Read This First` describes it with a run of `experiments/readme_screenshots`, and Stages 3 to 5 show the outputs of its 5000-iteration copy.
 
 ## Read This First
-The instance segmenter learns to find every object of an image with its box, class and score, like the detector of DET, and the pixel mask of every detection. It is the two-stage detector of `object_detection_workflow.md` (backbone, anchors, region proposal and detection heads of every level of `DetectionLevels`) with one mask head per level, in the style of Mask R-CNN without feature pyramid: the mask head of the level of a detection pools its refined box and predicts one 28 x 28 mask per class, of which the channel of the detected class is kept. The input is a COCO split whose objects have a `segmentation` (a run length encoding or polygons), the box of every object being taken from its mask; the output is the detections of DET with the mask probabilities of every detection in the frame of its box, pasted into the image by the evaluation and by the clients. Choose INS when the pixels of every object matter (touching or overlapping objects, their areas or outlines); DET when boxes are enough, without mask annotations; SEG (`semantic_segmentation_workflow.md`) when the class of every pixel is enough at the resolution of the image and the objects of a class need not be told apart; KPT for keypoints.
+The instance segmenter learns to find every object of an image with its box, class and score, like the detector of DET, and the pixel mask of every detection. It is the two-stage detector of `object_detection_workflow.md` (backbone, anchors, region proposal and detection heads of every level of `DetectionLevels`) with one mask head per level, in the style of Mask R-CNN without feature pyramid by default (`Neck.type: "none"`; with `feature_pyramid` or `path_aggregation` every head reads the merged levels): the mask head of the level of a detection pools its refined box and predicts one 28 x 28 mask per class, of which the channel of the detected class is kept. The input is a COCO split whose objects have a `segmentation` (a run length encoding or polygons), the box of every object being taken from its mask; the output is the detections of DET with the mask probabilities of every detection in the frame of its box, pasted into the image by the evaluation and by the clients. Choose INS when the pixels of every object matter (touching or overlapping objects, their areas or outlines); DET when boxes are enough, without mask annotations; SEG (`semantic_segmentation_workflow.md`) when the class of every pixel is enough at the resolution of the image and the objects of a class need not be told apart; KPT for keypoints.
 
 ### The Task At A Glance
 Shapes of the synthetic configuration (512 pixels, batch size 64, 20 classes and the background, R the positive proposals of the batch), checked by running the last checkpoint of the INS run of `experiments/readme_screenshots` on the CPU.
@@ -83,7 +84,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `MaskHead.inference.mask_threshold` | 0.5 | pixels of a pasted mask kept for the mask IoU, the confusion matrix and the sample and error images; the exported model returns the probabilities without it |
 | `Optimization.loss_weights.mask_loss` | 1.0 (1.0 for the four detection losses too) | weight of the mask loss in the total loss, the losses being tracked unweighted |
 | `ExperimentConfiguration.evaluation.original_resolution` | False | True scores the boxes and masks on the original test images: the boxes restored, the masks pasted at that size, the objects those of the original annotations |
-| `DetectionLevels.<level>.anchors`, `.region_proposal`, `.detector`, `RegionProposal`, `Detector` | those of DET | the detector, whose keys the `Read This First` of `object_detection_workflow.md` describes |
+| `DetectionLevels.<level>.anchors`, `.region_proposal`, `.detector`, `Neck`, `RegionProposal`, `Detector` | those of DET (`Neck.type` `none`) | the detector, whose keys the `Read This First` of `object_detection_workflow.md` describes |
 | `Detector.inference.score_threshold`, `maximum_detections` | 0.5, 100 | the detections of the deployed model, each with its mask |
 | `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mask and box mAP; precision of the class thresholds, found on the mask average precisions |
 
@@ -121,7 +122,7 @@ main()
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
-│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector, MaskHead), converts the types, adds tracking_root,
+│   │   Data, Backbone, DetectionLevels, Neck, RegionProposal, Detector, MaskHead), converts the types, adds tracking_root,
 │   │   run_name (None), label_mode and label_dictionary.
 │   │
 │   ├── load_configuration(configuration_path)
@@ -165,8 +166,8 @@ main()
 │           ├── get_test_sample_classes() + choose_sample_identifiers()
 │           ├── build_model()
 │           │   └── InstanceSegmenter.__init__()
-│           │       ├── TwoStageDetector.__init__()                  backbone, RegionProposal and DetectionHead per level,
-│           │       │                                                anchors, RegionProposalFilter
+│           │       ├── TwoStageDetector.__init__()                  backbone, FeatureNeck, RegionProposal and DetectionHead
+│           │       │                                                per level, anchors, RegionProposalFilter
 │           │       └── _build_mask_heads_dictionary()
 │           │           └── MaskHead() for every level -> count_mask_upsamplings()
 │           │                   RoIAlign -> ConvolutionBlock -> doublings (ConvTranspose2d, or bilinear + Conv2d) ->
@@ -174,7 +175,7 @@ main()
 │           ├── initialise_pretrained_components()                   Backbone, RegionProposal, Detector, MaskHead
 │           ├── build_optimizer() / ExponentialMovingAverage() (when activated)
 │           ├── get_loss_weights() / get_tracked_metrics()           5 losses + Total Loss
-│           ├── print_experiment_information() / print_summary()     backbone, RPN, detection, mask, receptive field,
+│           ├── print_experiment_information() / print_summary()     backbone, neck, RPN, detection, mask, receptive field,
 │           │                                                        model size panels
 │           ├── view_input_batches() -> show_input_samples() -> get_input_sample_image() -> overlay_instance_masks()
 │           │                                                        (only with view_input_images)
@@ -281,7 +282,7 @@ MaskHead: {"mask_resolution": 28, "upsampling": "transposed",
            "inference": {"mask_threshold": 0.5},
            "pretrained": {"experiment_folder": null, "iteration": null, "freeze": false, "learning_rate_multiplier": 1.0}}
 ```
-The current file also has `'original_resolution': False` in its `evaluation` section, between `target_precision` and `error_dumps` (the scoring at the original resolution of Step 4.7), and `mask_loss: 1.0` in `Optimization.loss_weights`.
+The current file also has a `Neck` section (`type: "none"`) before `RegionProposal`, `'original_resolution': False` in its `evaluation` section, between `target_precision` and `error_dumps` (the scoring at the original resolution of Step 4.7), and `mask_loss: 1.0` in `Optimization.loss_weights`.
 
 ### Step 1.3 — `load_configuration()`
 **Example output**

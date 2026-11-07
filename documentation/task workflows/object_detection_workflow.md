@@ -13,12 +13,13 @@ The examples of Stages 1 and 2 and of the steps of one batch come from real runs
 > - the region proposal NMS is 0.7 and the detector NMS 0.5 (they were 0.5 and 0.8), and the anchors overlapping no object (IoU 0) can be sampled as background (`RegionProposal.background_iou_threshold.min: 0.0`, it was 0.1);
 > - the evaluation tables, scalars and `class_metrics.csv` have a column at IoU 0.95 (`mAP@0.95`, `AP@0.95`, `average_precision_95`, `351a4d1`), and the report shows a `Mean Average Recall` table after the size tables;
 > - the checkpoints also record the source run of the region proposal and detection heads (`pretrained_region_proposer_dictionary`, `pretrained_detector_heads_dictionary`), and the synthetic configuration keeps a moving average of the weights (`Optimization.exponential_moving_average`), whose checkpoint state is saved with the weights and which is evaluated after the trained weights in `Evaluation/Iteration_<n>/EMA/`, `Tensorboard/Test_EMA/` and an `EMA Weights` block of `Results.txt`;
-> - the summaries list the residual shortcuts only for a block adding one (`count_residual_additions()`), the panel of Step 2.19 being printed again with the current code.
+> - the summaries list the residual shortcuts only for a block adding one (`count_residual_additions()`), the panel of Step 2.19 being printed again with the current code;
+> - the configurations have a `Neck` section between `DetectionLevels` and `RegionProposal` (`type: "none"`, which builds no layer, so the outputs are unchanged), listed among the model sections of Steps 1.2 and 1.3, checked by `check_neck_configuration()` and printed in a `Neck Architecture` panel before the region proposal panel of Step 2.19.
 >
 > The synthetic configuration now trains at 512 pixels on the instance segmentation dataset, with blocks of 16 and 32 filters, two anchor scales per level and smaller heads, batch size 64 and 2000 iterations: `Read This First` describes it with a run of `experiments/readme_screenshots`, and Stages 3 to 5 show the outputs of its 5000-iteration copy. The configuration of Stages 1 and 2 is the one of `vision_training/configurations/object_detection/configuration_example.yaml` (same backbone, levels and heads, at 1024 pixels).
 
 ## Read This First
-The detector learns to find every object of an image: its box, its class and a score. It is a two-stage detector in the style of Faster R-CNN, without feature pyramid: every backbone block named in `DetectionLevels` gets its own anchors, region proposal head and detection head, and every proposal is classified by the head of the level its anchor came from. The input is a COCO split (images and a `labels.json` whose objects have a `bbox`); the output is a fixed number of detections per image (`Detector.inference.maximum_detections`, padded), boxes in network input pixels. Choose DET when boxes are enough; INS (`instance_segmentation_workflow.md`) when every object also needs its pixel mask, the same detector with one mask head per level; KPT when the objects are described by keypoints (a bottom-up HigherHRNet, without boxes or anchors); SEG when the class of every pixel is enough and the objects need not be told apart; CLS for one label per image.
+The detector learns to find every object of an image: its box, its class and a score. It is a two-stage detector in the style of Faster R-CNN, without feature pyramid by default (`Neck.type: "none"`; `feature_pyramid` or `path_aggregation` merge the levels first): every backbone block named in `DetectionLevels` gets its own anchors, region proposal head and detection head, and every proposal is classified by the head of the level its anchor came from. The input is a COCO split (images and a `labels.json` whose objects have a `bbox`); the output is a fixed number of detections per image (`Detector.inference.maximum_detections`, padded), boxes in network input pixels. Choose DET when boxes are enough; INS (`instance_segmentation_workflow.md`) when every object also needs its pixel mask, the same detector with one mask head per level; KPT when the objects are described by keypoints (a bottom-up HigherHRNet, without boxes or anchors); SEG when the class of every pixel is enough and the objects need not be told apart; CLS for one label per image.
 
 ### The Task At A Glance
 Shapes of the synthetic configuration (512 pixels, batch size 64, 20 classes and the background), checked by running the last checkpoint of the DET run of `experiments/readme_screenshots` on the CPU.
@@ -52,7 +53,7 @@ confusion_matrix.csv/.png, proposal_recall.csv, Samples/, EMA/} · Tensorboard/{
 |---|---|---|
 | Trainer | `vision_training/trainers/detection_trainer.py` (bases `coco_split_trainer.py`, `base_trainer.py`) | `DetectionTrainer`: `build_dataloaders`, `analyse_training_data`, `forward_pass`, `evaluation_context`, `predict_batch`, `accumulate_evaluation_batch`, `compute_evaluation_results`, `save_error_analysis`, `draw_test_image` |
 | Dataset and loaders | `vision_training/data/detection/coco_dataset.py`, `vision_training/data/loaders.py` | `CocoDetectionDataset`, `select_image_objects`, `collate_function`, `get_detection_dataloaders` |
-| Model | `vision_training/models/detection/two_stage_detector.py` | `TwoStageDetector`: `forward_detection_stages`, `_prepare_detector_inputs`, `get_level_anchors`, `print_summary` |
+| Model | `vision_training/models/detection/two_stage_detector.py`, `feature_neck.py` | `TwoStageDetector`: `forward_detection_stages`, `_prepare_detector_inputs`, `get_level_anchors`, `print_summary`; `FeatureNeck` |
 | Anchors and proposals | `vision_training/models/detection/anchors.py`, `region_proposer.py` | `Anchors.generate_anchors`, `RegionProposal`, `RegionProposalFilter`, `select_best_proposals` |
 | Head and boxes | `vision_training/models/detection/detection_head.py`, `box_operations.py`, `postprocessing.py` | `DetectionHead`, `apply_regression_predictions`, `BOX_REGRESSION_WEIGHTS`, `postprocess_detections` |
 | Targets and losses | `vision_training/models/detection/target_assignment.py`, `vision_training/losses/detection_losses.py` | `batch_assign_targets_to_anchors`, `add_ground_truth_proposals`, `batch_assign_targets_to_proposals`, `sample_positive_and_negative_training_targets`, `compute_region_proposal_losses`, `compute_detection_losses` |
@@ -124,7 +125,7 @@ main()
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
-│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector), converts the types, adds tracking_root, run_name
+│   │   Data, Backbone, DetectionLevels, Neck, RegionProposal, Detector), converts the types, adds tracking_root, run_name
 │   │   (None), label_mode and label_dictionary.
 │   │
 │   ├── load_configuration(configuration_path)
@@ -136,6 +137,7 @@ main()
 │       └── check_detection_configuration()
 │               ├── check_detection_evaluation_configuration()   evaluation.score_threshold, target_precision and
 │               │                                                error_dumps
+│               ├── check_anchor_coverage_configuration()        diagnosis_modes.compute_anchor_coverage
 │               ├── check_detection_data_configuration()         classes 0 (background) to K-1 without gaps, the
 │               │                                                categories mapped to 0 announced in yellow
 │               ├── check_image_task_sequence_settings()         no sequence normalization
@@ -144,6 +146,7 @@ main()
 │               ├── check_detection_levels()                     DetectionLevels: quoted backbone blocks in increasing
 │               │                                                order, anchor scales within the image size, positive
 │               │                                                ratios, region proposal and detection heads
+│               ├── check_neck_configuration()                   Neck: type, output channels, normalization
 │               ├── check_region_proposal_configuration()        IoU thresholds, proposals before and after NMS
 │               ├── check_detector_configuration()               maximum detections, training samples
 │               └── check_loss_weights_configuration()           Optimization.loss_weights of the four losses
@@ -169,6 +172,7 @@ main()
 │       ├── build_model()
 │       │   └── TwoStageDetector.__init__()
 │       │       ├── build_backbone() + compute_detection_input_information()   feature maps of the detection blocks
+│       │       ├── FeatureNeck()                                     no layer with Neck.type "none"
 │       │       ├── RegionProposal() for every level -> Anchors.generate_anchors()
 │       │       ├── DetectionHead() for every level
 │       │       ├── _aggregate_all_anchors()                                     all the anchors in one tensor
@@ -195,6 +199,7 @@ main()
         │   │   ├── forward_pass() -> TwoStageDetector.forward(ground_truth_bounding_boxes=..., ground_truth_labels=...)
         │   │   │   │   -> forward_detection_stages(), which runs every stage below
         │   │   │   ├── Backbone.forward()                                   feature maps of the detection blocks
+        │   │   │   ├── FeatureNeck.forward()                                the blocks themselves with Neck.type "none"
         │   │   │   ├── _forward_region_proposals() -> RegionProposal.forward()  objectness and boxes of every anchor
         │   │   │   ├── aggregate_proposals_and_anchors()
         │   │   │   ├── RegionProposalFilter.forward() -> select_best_proposals()   top-k, NMS, padded to a fixed number
@@ -266,7 +271,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1).
 
 ### Step 1.2 — `load_experiment_configuration()`
-The model sections of the detection are `Backbone`, `DetectionLevels` (keyed by the backbone blocks whose feature maps feed the detection, every level holding the scales and aspect ratios of its anchors, its region proposal head and its detection head), `RegionProposal` (the settings shared by the region proposal heads: the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression) and `Detector` (the settings shared by the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision, the `target_precision` of the score threshold of every class (Step 4.12) and the `error_dumps` of the error images (Step 4.5). `Optimization.loss_weights` gives the weight of every loss of the detector in the total loss (Step 3.9).
+The model sections of the detection are `Backbone`, `DetectionLevels` (keyed by the backbone blocks whose feature maps feed the detection, every level holding the scales and aspect ratios of its anchors, its region proposal head and its detection head), `Neck` (the layers merging the levels before the heads, none with `type: "none"`), `RegionProposal` (the settings shared by the region proposal heads: the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression) and `Detector` (the settings shared by the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision, the `target_precision` of the score threshold of every class (Step 4.12) and the `error_dumps` of the error images (Step 4.5). `Optimization.loss_weights` gives the weight of every loss of the detector in the total loss (Step 3.9).
 
 **Example: the sections and the detection settings**
 ```text
@@ -439,7 +444,7 @@ names                     -> test_000000, test_000003, test_000005, test_000008,
 ```
 
 ### Step 2.12 — `build_model()` → `TwoStageDetector.__init__()`
-The two-stage detector: the backbone (Step 2.13), a region proposal head on every detection level that scores the anchors and proposes boxes (Step 2.14), a filter keeping the best proposals (Step 2.16), and a detection head on every level that classifies the proposals and refines their boxes (Step 2.15). It reads the post-processing settings of the inference: `Detector.inference.score_threshold`, `maximum_detections` and `Detector.nms_iou_threshold`.
+The two-stage detector: the backbone (Step 2.13), the neck of `Neck.type` (`FeatureNeck`, without layer for `none`, the heads then reading the backbone blocks), a region proposal head on every detection level that scores the anchors and proposes boxes (Step 2.14), a filter keeping the best proposals (Step 2.16), and a detection head on every level that classifies the proposals and refines their boxes (Step 2.15). It reads the post-processing settings of the inference: `Detector.inference.score_threshold`, `maximum_detections` and `Detector.nms_iou_threshold`.
 
 **Example: the components of the model**
 ```text
@@ -525,7 +530,7 @@ Adam, 1 parameter group, base_learning_rates [0.0002], weight decay 0.0
 ```
 
 ### Step 2.19 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The summary of the detector adds a region proposal panel (the anchors of every level) and a detection panel (the heads of every level); the receptive field panel marks the anchor scales of every detection block, to compare them with what a position of its feature map sees. The `Modules` line of a head lists the residual shortcuts only when its block adds one (`get_active_module_names()` -> `count_residual_additions()`): the heads of blocks 6 and 7, whose first convolution turns 128 channels into 64 and whose 2 layers then add no shortcut (Step 2.15), list the squeeze-and-excitation only.
+The summary of the detector adds a neck panel (its type, and with a neck the size and channels of every level), a region proposal panel (the anchors of every level) and a detection panel (the heads of every level); the receptive field panel marks the anchor scales of every detection block, to compare them with what a position of its feature map sees. The `Modules` line of a head lists the residual shortcuts only when its block adds one (`get_active_module_names()` -> `count_residual_additions()`): the heads of blocks 6 and 7, whose first convolution turns 128 channels into 64 and whose 2 layers then add no shortcut (Step 2.15), list the squeeze-and-excitation only.
 
 **Example output** (shortened; the panels rebuilt on the CPU with the current code from the configuration of this stage)
 ```text

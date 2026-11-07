@@ -4,7 +4,7 @@ This document follows one semantic segmentation run from `main()` to the evaluat
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
 - **Stages 1 and 2**: `vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml` (synthetic shapes, 9 shape classes plus the background, 512 pixel images, batch size 16), with the run folder redirected to a temporary folder. The dataset of `configuration_example.yaml` is not on this machine. The synthetic dataset of this machine was generated before the 26 other shapes were added and keeps its 9 classes; a dataset generated now holds the 35 shapes, and its runs end with `MC35`.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel images, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the predicted masks saved and the MLflow tracking turned on. After 12 iterations the network mostly predicts the background, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel images, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting then, now fixed at 1), with the predicted masks saved and the MLflow tracking turned on. After 12 iterations the network mostly predicts the background, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Read This First
 
