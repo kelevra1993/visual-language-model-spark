@@ -163,7 +163,7 @@ scenes:
       - {type: text, position: [1320, 610], text: "more grid cells hidden,\nin the second view only", font: diagram_small, colour: dim, anchor: lm, appear: 2}
     narration:
       - "Here are three types applied alone to a photo of a cat, where the changes are easier to see than on a synthetic shape, with the strengths of the supervised tasks and with those of the self-supervised views."
-      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps half of the area or more with another aspect ratio, so that a view can lose a large part of the object."
+      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps a fifth of the area or more with another aspect ratio, so that a view can lose a large part of the object."
       - "The colour changes and the black-out are stronger too, the black-out and the solarization hitting the second view only: the two views of one image must differ enough for the self-supervised loss to learn something."
 
   - kind: html

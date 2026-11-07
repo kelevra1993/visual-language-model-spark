@@ -155,14 +155,14 @@ SUPERVISED_AUGMENTATION_STRENGTHS: AugmentationStrengths = {
     "black_out_cell_probability": 0.2, "erasing_area_range": (0.02, 0.15), "erasing_aspect_ratio_range": (0.3, 3.3)}
 
 # Strengths of the self-supervised task, the views of SimCLR, BYOL and Barlow Twins, lowered from those of SimCLR on
-# ImageNet, which were too strong for the images of the project: the crop covers 50 % to 100 % of the area with an
+# ImageNet, which were too strong for the images of the project: the crop covers 20 % to 100 % of the area with an
 # aspect ratio of x1/2 to x2, the colour jitter scales the brightness, contrast and saturation by 0.6 to 1.2 and shifts
 # the hue by up to a tenth of the hue circle, the translation reaches 25 %, the perspective 5 %, the rotation 10
 # degrees, the noise 30 levels, the haze 70 % with an airlight of 160 to 255 levels and the black-out 35 % of the
 # cells. The plasma shadows darken by up to 51 levels on up to 30 % of the image and the solarization inverts the
 # pixels at or above 191.25 levels only, milder than in the supervised tasks. The other types keep the supervised values
 SELF_SUPERVISED_AUGMENTATION_STRENGTHS: AugmentationStrengths = {
-    "crop_side_range": None, "crop_area_range": (0.5, 1.0), "crop_aspect_ratio_range": (1.0 / 2.0, 2.0),
+    "crop_side_range": None, "crop_area_range": (0.2, 1.0), "crop_aspect_ratio_range": (1.0 / 2.0, 2.0),
     "aspect_crop_side_range": (0.75, 1.0), "zoom_out_side_range": (0.5, 1.0), "maximum_translation_fraction": 0.25,
     "maximum_rotation_degrees": 10.0, "perspective_distortion_scale": 0.05, "jigsaw_grid_size": 2,
     "brightness_maximum_delta": None, "brightness_factor_range": (0.6, 1.2), "contrast_factor_range": (0.6, 1.2),
@@ -1166,7 +1166,7 @@ class DataAugmenter:
         """
         Crops a random region and resizes it back to the original size, which zooms into the image. In the supervised
         tasks (crop_side_range) the region keeps the aspect ratio of the image and 75 to 100% of each side, a slight
-        zoom; in the self-supervised task (crop_area_range) it covers 50 to 100% of the area with an aspect ratio of
+        zoom; in the self-supervised task (crop_area_range) it covers 20 to 100% of the area with an aspect ratio of
         x1/2 to x2 (draw_area_crop), the random resized crop of SimCLR, its content being stretched when it is resized
         back. Boxes are shifted and scaled accordingly; boxes leaving the crop, or keeping too small a share of their
         area inside it, are removed afterwards by 'clean_bounding_boxes'. The mask is cropped and resized with the

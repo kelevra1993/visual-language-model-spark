@@ -119,7 +119,7 @@ Training Batch Dropped : The image cannot be read : <file>
 
 | Type | Supervised tasks | Self-supervised task |
 |---|---|---|
-| `random_crop` | 75 % to 100 % of each side, same aspect ratio, resized back to the input size | 50 % to 100 % of the area, aspect ratio x1/2 to x2 |
+| `random_crop` | 75 % to 100 % of each side, same aspect ratio, resized back to the input size | 20 % to 100 % of the area, aspect ratio x1/2 to x2 |
 | `random_aspect_crop` | 75 % to 100 % of the width and, drawn on its own, of the height | same |
 | `random_zoom_out` | image shrunk to 50 % to 100 % of each side on a black canvas | same |
 | `random_translation` | shift of up to 25 % of the width, of the height or of both | same |

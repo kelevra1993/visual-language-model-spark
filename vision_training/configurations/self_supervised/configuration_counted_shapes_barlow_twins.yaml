@@ -119,7 +119,7 @@ Data:
     # Probability that a training image is augmented, ignored by the self-supervised task (every image gets two views).
     probability: 1.0
     types:
-      # Geometric augmentations, drawn per view. Random Crop : resized crop of 50% to 100% of the area, aspect ratio
+      # Geometric augmentations, drawn per view. Random Crop : resized crop of 20% to 100% of the area, aspect ratio
       # x1/2 to x2, probability 1.0 when activated; off here, a crop changing the shape count (the k-NN class)
       random_crop: { activated: False, probability: 1.0 }
       # Random Aspect Crop : 75% to 100% of the width and, drawn separately, of the height, resized back, stretching one

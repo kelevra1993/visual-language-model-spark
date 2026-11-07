@@ -120,7 +120,7 @@ scenes:
       - {match: "random_solarize|random_black_out", sentences: [3]}
     narration:
       - "The views are drawn by the data augmentation section every task has, and it must be on; its global probability is ignored, every image getting its two views."
-      - "The random crop must stay at a probability of one: half the area or more, at an aspect ratio between one half and two, it is the main difference between the views."
+      - "The random crop must stay at a probability of one: a fifth of the area or more, at an aspect ratio between one half and two, it is the main difference between the views."
       - "Every activated type is then drawn for each view on its own, with its probability: {{self_supervised.run.activated_type_count}} of the {{self_supervised.run.type_count}} types here, at the stronger self-supervised strengths of the code, compared side by side in the foundations series."
       - "The solarization and the black-out are drawn for the second view only, as in the asymmetric views of Barlow Twins."
 

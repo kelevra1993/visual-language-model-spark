@@ -87,7 +87,7 @@ A dataset generated now holds the 35 classes of `SHAPE_CATEGORIES` (a k-NN chanc
 | `ProjectionHead.fully_connected` | `[512, 128]` | hidden layers, then the embedding size (linear only), the `PAVG.512.128` token |
 | `ProjectionHead.fully_connected_normalization` | `"batch"` | `PBN`; `"layer"` gives `PLN`; must be `"none"` when the list holds the embedding layer only |
 | `Data.data_augmentation.activated` | `True` | must be True, its types drawing the views; its global `probability` is ignored |
-| `Data.data_augmentation.types.random_crop` | `activated: True, probability: 1.0` | random resized crop of 50 % to 100 % of the area, aspect ratio x1/2 to x2; the checks refuse another probability |
+| `Data.data_augmentation.types.random_crop` | `activated: True, probability: 1.0` | random resized crop of 20 % to 100 % of the area, aspect ratio x1/2 to x2; the checks refuse another probability |
 | `ExperimentConfiguration.batch_size` | `128` | N: every view is compared with the 2N - 1 = 255 others; at least 2, and a training or validation split smaller than a batch stops the launch |
 | `ExperimentConfiguration.evaluation.number_neighbours` | `20` | k of the leave-one-out k-NN, reduced to the labelled test images minus 1 |
 | `Data.grouped_batches.activated` | `False` | True builds the batches from blocks of `images_per_block` (32) images sharing `groups[block_key]` (`"camera"`), the hard negatives |
@@ -402,7 +402,7 @@ SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR
 ```
 
 ### Step 2.5 — `DataAugmenter()`
-The general trainer builds the `DataAugmenter` of every task (in `vision_training/data/augmentations.py`) from `Data.data_augmentation`, here with `self_supervised=True` since the trainer sets `SELF_SUPERVISED_AUGMENTATION`: the types keep the activated flags and the probabilities of the configuration and take the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`, different from the `SUPERVISED_AUGMENTATION_STRENGTHS` of the other tasks (a crop of 50 % to 100 % of the area at an aspect ratio of x1/2 to x2, a colour jitter of x0.6 to x1.2, a hue turned by up to 36 degrees..., the table of the [training reference, Data Augmentation](../reference/training_reference.md#data-augmentation)). Its `create_views(images)` draws the two views of a batch (Step 3.12):
+The general trainer builds the `DataAugmenter` of every task (in `vision_training/data/augmentations.py`) from `Data.data_augmentation`, here with `self_supervised=True` since the trainer sets `SELF_SUPERVISED_AUGMENTATION`: the types keep the activated flags and the probabilities of the configuration and take the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`, different from the `SUPERVISED_AUGMENTATION_STRENGTHS` of the other tasks (a crop of 20 % to 100 % of the area at an aspect ratio of x1/2 to x2, a colour jitter of x0.6 to x1.2, a hue turned by up to 36 degrees..., the table of the [training reference, Data Augmentation](../reference/training_reference.md#data-augmentation)). Its `create_views(images)` draws the two views of a batch (Step 3.12):
 - every image gets its two views: the global `probability` is ignored, and every activated type is drawn for each view of each image with its own probability;
 - `random_solarize` and `random_black_out` (`SECOND_VIEW_ONLY_TYPES`) are drawn for the second view only, as the asymmetric views of BYOL and Barlow Twins, while the supervised tasks draw them for every image;
 - the views are computed in float32 with the autocast off, so that the interpolations and the blurs keep their precision under the bfloat16 autocast of mixed precision, and returned with the augmentation report of every view.
@@ -417,7 +417,7 @@ strengths is SELF_SUPERVISED_AUGMENTATION_STRENGTHS: True
     'random_plasma_shadow': 0.2, 'random_blur': 0.5, 'random_motion_blur': 0.1, 'random_haze': 0.3,
     'random_solarize': 0.2, 'random_black_out': 0.3, 'random_erasing': 0.25}
 black_out_grid_size: 8   second view only: ['random_solarize', 'random_black_out']
-  crop_area_range: (0.5, 1.0)
+  crop_area_range: (0.2, 1.0)
   crop_aspect_ratio_range: (0.5, 2.0)
   maximum_rotation_degrees: 10.0
   brightness_factor_range: (0.6, 1.2)
