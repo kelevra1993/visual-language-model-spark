@@ -35,9 +35,6 @@
 >   every task, off in every configuration file;
 > - region proposal negatives down to IoU 0 (audit H1), the check warning when `background_iou_threshold.min` is
 >   above 0;
-> - region proposal negatives mixing a share of easy anchors below `background_iou_threshold.min` with the hard ones
->   above it (`RegionProposal.easy_negative_fraction`, 0.0 in every configuration), whose experiment is stage 2b of
->   `architecture_benchmarking/object_detection_experiment_plan.md`;
 > - NMS at 0.7 for the region proposals and 0.5 for the detections (audit M4);
 > - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`),
 >   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
@@ -65,6 +62,13 @@
 > - the COCO matching of the mAP (audit L6), the VOC matching being kept;
 > - the box-aware mosaic / copy-paste augmentation, the tiles at native resolution for DET and INS, and the projection
 >   shortcuts of the channel-changing residual blocks (audit H4), dropped on 2026-11-05.
+>
+> Tested and reverted:
+> - the region proposal negatives mixing a share of easy anchors below `background_iou_threshold.min` with the hard
+>   ones above it (`RegionProposal.easy_negative_fraction`, c3068e3): tested in stage 2b of
+>   `architecture_benchmarking/object_detection_experiment_plan.md` (share 0.25, run_7 and run_8 against run_3 and
+>   run_4), not conclusive, 0.25 being 0.0190 behind at 12,500 with boxes about half as tight at mAP@0.95, so the code
+>   was reverted on 2026-11-07.
 
 ## Table Of Content
 - [A. Detector architecture](#a-detector-architecture)

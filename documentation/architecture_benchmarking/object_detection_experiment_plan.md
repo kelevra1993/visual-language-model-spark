@@ -35,7 +35,6 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 |---|---|
 | `learning_rate` | 1e-3 (kept by stage 1) |
 | `RegionProposal.background_iou_threshold.min` | 0.0 |
-| `RegionProposal.easy_negative_fraction` | 0.0 (added for stage 2b) |
 | `Detector.normalization.feature_map_normalization` | batch |
 | Anchor centres | cell corners (audit L1 open) |
 | Proposal selection | one top-k and one NMS over every level (audit M3 open), zero-area boxes kept (audit L7 open) |
@@ -48,14 +47,14 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 |---|---|---|---|---|
 | 1 | `learning_rate` | 1e-3, 2e-3, 2e-4 (1e-4 not needed) | 15,000 | done, 1e-3 kept |
 | 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1, 0.15 (0.2 dropped) | 15,000 | done, 0.1 kept |
-| 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | run_7 and run_8 started 2026-11-07 |
+| 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
 | 3 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 2b |
 | 4 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | after stage 3, code |
 | 5 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 4, code |
 | 6 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 5, code |
 | 7 | Neck (`suggestions.md` items 1 and 37) | none, feature pyramid, path aggregation | 15,000 | after stage 6, code |
 
-The code of stages 4 to 7 is merged only after the last launch of stage 3, so that the launches of stages 2 to 3 all run the same code (the driver starts every launch with the code on `main` at that time); the easy negatives of stage 2b, merged before run_7, leave the draws of a share of 0.0 unchanged, so that run_1 to run_6 stay comparable. `RegionProposal.foreground_iou_threshold.max`, read by the checks but never by the model, is removed from the configuration files in the same merge (no number changes).
+The code of stages 4 to 7 is merged only after the last launch of stage 3, so that the launches of stages 2 to 3 all run the same code (the driver starts every launch with the code on `main` at that time); the easy negatives of stage 2b, merged before run_7 and reverted after run_8, left the draws of a share of 0.0 unchanged. `RegionProposal.foreground_iou_threshold.max`, read by the checks but never by the model, is removed from the configuration files in the same merge (no number changes).
 
 ## Launches
 
@@ -85,22 +84,24 @@ The anchors whose best overlap is below `RegionProposal.background_iou_threshold
 
 The comparison of run_1 and run_2 with run_1 and run_2 of stage 1 (same settings, but the haze alone) measures the augmentation of the defaults, without any training.
 
-### Stage 2b: Easy Negatives Mixed With The Hard Ones (2 launches, 15,000 iterations)
+### Stage 2b: Easy Negatives Mixed With The Hard Ones (2 launches, done, reverted)
 
-With the minimum 0.1, `RegionProposal.easy_negative_fraction` draws a share of the sampled negatives of every image among the easy anchors below the minimum, the rest among the hard ones of [0.1, 0.3). At 0.25, the 64 first images of `test_10000` with the anchors of run_3 sample a median of 66.5 positives, 142 hard and 47.5 easy negatives per image (256 in all, the easy ones overlapping their objects by 0.04 at most); at 0.0 the samples and the loss are those of the previous code under the same seed, so that run_3 and run_4 are the reference.
+With the minimum 0.1, `RegionProposal.easy_negative_fraction` (merged in c3068e3, reverted after the stage) drew a share of the sampled negatives of every image among the easy anchors below the minimum, the rest among the hard ones of [0.1, 0.3). At 0.25, the 64 first images of `test_10000` with the anchors of run_3 sample a median of 66.5 positives, 142 hard and 47.5 easy negatives per image (256 in all, the easy ones overlapping their objects by 0.04 at most); at 0.0 the samples and the loss are those of the previous code under the same seed, so that run_3 and run_4 are the reference.
 
-| Order | Value | Launches |
-|---|---|---|
-| reference | 0.0 | run_3, run_4 |
-| 1 | 0.25 | run_7, run_8 |
+0.25 led until 4000 (+0.043 at 2000), then fell behind at every evaluation, its boxes staying loose (mAP@0.95 about half that of 0.0): at 12,500 the pair was 0.0190 behind, above the launch gap 0.0066, and the user stopped run_7 and run_8 there (2026-11-07 13:29) and had the code reverted.
+
+| Value | Launches | Test_EMA mAP@[0.5:0.95] at 12,500 | Pair | mAP@0.95 pair |
+|---|---|---|---|---|
+| 0.0 | run_3, run_4 | 0.7827, 0.7865 | 0.7846 | 0.0970 |
+| 0.25 | run_7, run_8 | 0.7688, 0.7622 | 0.7655 | 0.0471 |
 
 ### Stage 3: Detector Normalization (2 or 4 launches, 15,000 iterations)
 
-The normalization of the convolutions of the detection heads, with the minimum kept by stage 2 and the share kept by stage 2b: batch normalization (the reference, whose launches are reused), then layer normalization, then none. Layer normalization clearly worse than batch normalization ends the search, no normalization being then unlikely to do better; layer better or tied goes on to none.
+The normalization of the convolutions of the detection heads, with the minimum 0.1 kept by stage 2 and no easy negatives: batch normalization (the reference, whose launches are reused), then layer normalization, then none. Layer normalization clearly worse than batch normalization ends the search, no normalization being then unlikely to do better; layer better or tied goes on to none.
 
 | Order | Value | Launches |
 |---|---|---|
-| reference | batch | those of the share kept by stage 2b |
+| reference | batch | run_3, run_4 |
 | 1 | layer | run_9, run_10 |
 | 2 (unless layer is clearly worse) | none | run_11, run_12 |
 
@@ -113,4 +114,4 @@ Every change is merged before its pair, which trains against the reference kept 
 - **Stage 6, CIoU box loss (`suggestions.md` item 36):** 1 - CIoU between the decoded boxes of the sampled positives and their targets, in both stages, against the smooth L1 on the offsets; aimed at the mAP@0.75 to @0.95.
 - **Stage 7, neck (`suggestions.md` items 1 and 37):** no neck, then the feature pyramid (1x1 laterals to a common channel count and the top-down path), then path aggregation (the bottom-up path after it) against the better of the two. Design in `../detection_neck_design.md`.
 
-A pair trains in about 15 hours at 15,000 iterations (two launches side by side, test evaluations included), so stages 2b and 3 take two or three pairs (1.3 to 1.9 days) and stages 4 to 7 five to six pairs.
+A pair trains in about 15 hours at 15,000 iterations (two launches side by side, test evaluations included), so stage 3 takes one or two pairs (0.6 to 1.3 days) and stages 4 to 7 five to six pairs.

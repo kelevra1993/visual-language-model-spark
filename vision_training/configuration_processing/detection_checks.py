@@ -20,7 +20,7 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_intersection_over_union_value,
                                                                            check_positive_integers,
                                                                            check_probability_value,
-                                                                           get_configuration_value, is_number)
+                                                                           get_configuration_value)
 from vision_training.utilities.os_utilities import print_color
 
 
@@ -179,8 +179,7 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     proposal counts kept around non-maximum suppression, the anchor sampling budget of the proposal losses, and the
     'pretrained' settings initialising the heads with those of another run. A background range starting above 0.0 is
     allowed but printed as a yellow warning, since the anchors overlapping no object are then never sampled as
-    background, only the hard negatives touching an object, unless 'easy_negative_fraction' (within [0, 1], 0.0 for a
-    minimum of 0.0) draws a share of the negatives among them.
+    background, only the hard negatives touching an object.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -207,15 +206,6 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
             value=get_configuration_value(configuration=model_configuration, key_path=key_path), key_path=key_path)
     errors += threshold_errors
 
-    # Share of the sampled negatives drawn among the easy negatives, the anchors below the background minimum
-    easy_negative_fraction = get_configuration_value(configuration=model_configuration,
-                                                     key_path="RegionProposal.easy_negative_fraction")
-    fraction_errors = []
-    if not is_number(value=easy_negative_fraction) or not 0.0 <= easy_negative_fraction <= 1.0:
-        fraction_errors.append(f"'RegionProposal.easy_negative_fraction' must be a number within [0, 1], got "
-                               f"{easy_negative_fraction!r}.")
-    errors += fraction_errors
-
     # The ranges must be ordered and the background range must end before the foreground range starts
     if not threshold_errors:
         foreground_threshold = get_configuration_value(configuration=model_configuration,
@@ -231,16 +221,9 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
                           f"'RegionProposal.foreground_iou_threshold.min' ({foreground_threshold['min']}), otherwise "
                           f"anchors can be labelled both background and foreground.")
 
-        # A background range starting at 0.0 leaves no easy negative, every anchor below its maximum being background
-        if not fraction_errors and easy_negative_fraction > 0.0 and background_threshold["min"] == 0.0:
-            errors.append(f"'RegionProposal.easy_negative_fraction' ({easy_negative_fraction}) must be 0.0 when "
-                          f"'RegionProposal.background_iou_threshold.min' is 0.0: the easy negatives are the anchors "
-                          f"below the minimum, and every anchor below the maximum ({background_threshold['max']}) is "
-                          f"already background.")
-
-        # A background range starting above 0.0 without easy negatives ignores the anchors overlapping no object, the
-        # region proposal network then only learning from the hard negatives: allowed, but announced
-        if background_threshold["min"] > 0.0 and easy_negative_fraction == 0.0:
+        # A background range starting above 0.0 ignores the anchors overlapping no object, the region proposal
+        # network then only learning from the hard negatives: allowed, but announced
+        if background_threshold["min"] > 0.0:
             print_color(color="yellow",
                         output=f"Warning: 'RegionProposal.background_iou_threshold.min' is "
                                f"{background_threshold['min']}, above 0.0: the anchors whose best IoU is below it "
