@@ -48,7 +48,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 1 | `learning_rate` | 1e-3, 2e-3, 2e-4 (1e-4 not needed) | 15,000 | done, 1e-3 kept |
 | 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1, 0.15 (0.2 dropped) | 15,000 | done, 0.1 kept |
 | 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
-| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | code, then run_9 and run_10 |
+| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | code merged (main 35aa62a), run_9 and run_10 running since 2026-11-07 14:51 |
 | 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against the better of stage 3 | 15,000 | after stage 3, code of stage 3 |
 | 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 4, code |
 | 6 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 5 |
@@ -105,6 +105,8 @@ Until now every detection level has its own region proposal and detection heads 
 | 3 | reference | none | run_3, run_4 |
 | 3 | 1 | feature_pyramid | run_9, run_10 |
 | 4 | 1 | path_aggregation | run_11, run_12 |
+
+The neck was merged on 2026-11-07 (main 35aa62a), and run_9 and run_10 were launched by hand at 14:51:40 and 14:52:10 with the settings of run_3 and run_4 (background IoU minimum 0.1, detector batch normalization, learning rate 1e-3, 15,000 iterations, 1 loader worker), their configuration files differing from those of run_3 and run_4 only by `Neck.type: "feature_pyramid"` (run name token `L4567-NFPN32BN`). Before the launch, 40 iterations of the same configuration on the Spark gave 43.5 and 43.7 images per second alone without neck at iterations 20 and 40, 41.0 and 45.2 with the feature pyramid, 41.6 and 42.6 with path aggregation (no measurable cost over so few iterations), and a peak GPU memory of 17.2 GB without neck against 17.3 GB with either neck, whose 41,728 parameters (feature pyramid) add 0.17 MB to the model.
 
 ### Stages 5 To 8: Box Loss, Detector Normalization, Proposal Selection, Anchor Centres
 
