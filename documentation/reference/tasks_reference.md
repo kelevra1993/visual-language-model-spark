@@ -115,7 +115,7 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 - The confusion matrix, `predictions.csv` (`save_predictions`), and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/` (`error_dumps`).
 
 ## Object Detection (DET)
-A two-stage detector. Every entry of `DetectionLevels` is a backbone level with its own anchors, region proposal head and detection head. In training, the ground truth boxes are added to the proposals, so every object gives a positive proposal even when the region proposal network misses it.
+A two-stage detector. Every entry of `DetectionLevels` is a backbone level with its own anchors, region proposal head and detection head, which read the block directly or through a neck merging the levels. In training, the ground truth boxes are added to the proposals, so every object gives a positive proposal even when the region proposal network misses it.
 
 **Data.** A COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels of the original image. The crowd annotations (`"iscrowd": 1`) are ordinary objects.
 
@@ -136,6 +136,7 @@ A two-stage detector. Every entry of `DetectionLevels` is a backbone level with 
 
 **Configuration**
 - `DetectionLevels`: keyed by the quoted number of the backbone block feeding the level, finest first. Every level holds its `anchors` (scales in input pixels, aspect ratios height / width), its `region_proposal` convolutions and its `detector` head.
+- `Neck`: `none` (the heads read the blocks), `feature_pyramid` (1x1 laterals, then a top-down path adding every coarser level, upsampled, to the finer one, then a 3x3 convolution) or `path_aggregation` (the feature pyramid, then a bottom-up path adding every finer level, downsampled by a strided 3x3 convolution, to the coarser one). Every level keeps the size of its block with `output_channels` channels, normalized by `normalization.feature_map_normalization`.
 - `RegionProposal` and `Detector`: the settings shared by the levels (normalization, modules, proposal counts, IoU thresholds, sampling, pretrained heads).
 - `Optimization.loss_weights`: the weights of `region_proposal_classification_loss`, `region_proposal_localisation_loss`, `detection_classification_loss` and `detection_regression_loss`, at least 0 and not all 0. The curves show the losses unweighted and the total weighted.
 

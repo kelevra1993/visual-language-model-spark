@@ -10,14 +10,18 @@ import torch
 from typing import Any, Dict, Tuple
 
 
-def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+def get_detection_model_configuration(mask_head: bool = False,
+                                      neck_type: str = "none") -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
     """
     Supplies a small detector configuration dictionary, with its device and dtype, shared by the detector tests:
-    9 backbone blocks, levels 5 to 7 and 5 foreground classes. With mask_head, the 'MaskHead' section of the
-    instance segmenter is added: 7 x 7 pooling (14 x 14 masks) and 2 layers of 32 channels on every level.
+    9 backbone blocks, levels 5 to 7, no neck by default and 5 foreground classes. With mask_head, the 'MaskHead'
+    section of the instance segmenter is added: 7 x 7 pooling (14 x 14 masks) and 2 layers of 32 channels on every
+    level.
 
     Args:
         mask_head (bool): Whether to add the 'MaskHead' section of the instance segmentation task. Defaults to False.
+        neck_type (str): The 'Neck.type' between the backbone blocks and the heads, 32 channels with batch
+            normalization. Defaults to "none", the heads reading the blocks.
 
     Returns:
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and
@@ -56,6 +60,9 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                                  'detector': {'roi_align_pool_size': 7, 'convolutions': [2, 64],
                                               'fully_connected': [256, 128]}}
                          for level in ['5', '6', '7']},
+                     # Neck between the blocks of the levels and the heads
+                     'Neck': {'type': neck_type, 'output_channels': 32,
+                              'normalization': {'feature_map_normalization': 'batch'}},
                      # Proposal filter and anchor target assignment of the region proposal network
                      'RegionProposal': {
                          'normalization': {'feature_map_normalization': 'batch'},

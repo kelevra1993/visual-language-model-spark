@@ -49,7 +49,9 @@
 > - the objects without labelled keypoint left out of the keypoint heatmap loss
 >   (`KeypointHead.ignore_unlabelled_objects`, item 16, whose experiment is left);
 > - the ImageNet-22k download (`imagenet_22k_download.py`, which replaced the Tencent ML-Images downloader) and its
->   merge with ImageNet-1k (`merge_imagenet_manifests.py`, `~/Data/classifier_data/imagenet-merged`), on 2026-11-06.
+>   merge with ImageNet-1k (`merge_imagenet_manifests.py`, `~/Data/classifier_data/imagenet-merged`), on 2026-11-06;
+> - the neck of DET and INS (`Neck.type`: `feature_pyramid`, `path_aggregation`, items 1 and 37, `none` in every
+>   configuration), on 2026-11-07, whose stages 3 and 4 are left to run.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -93,9 +95,11 @@
   - [Suggested Order Of Fixes](#suggested-order-of-fixes)
 
 ## A. Detector architecture
-1. **A top-down feature pyramid (FPN)**: lateral 1×1 convolutions and upsampling would give the finest detection
-   level the context of the deeper ones. All levels would then share the same channel count, and could share one
-   detection head.
+1. **A top-down feature pyramid (FPN), implemented, stage 3 left to run** (`Neck.type: "feature_pyramid"`, 1x1
+   laterals to `Neck.output_channels`, nearest upsampling and addition, the 16 x 16 blocks 6 and 7 added without
+   resampling, then a 3x3 convolution; the heads stay one per level): lateral 1×1 convolutions and upsampling give
+   the finest detection level the context of the deeper ones. All levels then share the same channel count, and
+   could share one detection head.
    - **Mask R-CNN's recipe** (`model.py:1902-1925`): 1×1 laterals to 256 channels on C2–C5, nearest ×2 upsampling and
      addition top-down, and a 3×3 convolution on every sum; P6, made by subsampling P5, serves the region proposal
      network only.
@@ -132,7 +136,8 @@
     - **Change:** decode the predicted offsets of the sampled positives into boxes (`apply_regression_predictions`)
       and take 1 - CIoU against their target boxes, for both stages, the smooth L1 staying the other value of the
       setting during the stage.
-37. **Path aggregation after the feature pyramid (PANet)**, with item 1, scheduled in
+37. **Path aggregation after the feature pyramid (PANet), implemented, stage 4 left to run**
+    (`Neck.type: "path_aggregation"`, with item 1, the bottom-up convolutions followed by a ReLU), scheduled in
     `object_detection_experiment_plan.md`:
     - **Why:** the top-down path of the FPN gives the fine levels the context of the deep ones, but the localisation
       detail of the fine levels reaches the coarse ones only through the whole backbone. Path aggregation adds a
@@ -274,7 +279,7 @@ average recall by object size and the recall of the anchors and of the proposals
 |---|---|---|
 | Input | Resize so the short side reaches 800 (up only) and the long side stays ≤ 1024, then pad to 1024 × 1024 centred. Modes `crop` (random crops, training) and `pad64` (native size, inference) (`utils.py:388-492`). RGB minus the mean pixel. | Fixed square input, letterboxed centred (`keep_ratio`) or stretched. BGR in [0, 255], then `input_normalization` / `per_sample_normalization`. |
 | Backbone | ResNet-50/101 bottleneck stages C2–C5, pretrained on ImageNet or COCO (`model.py:171-206`). | Stack of `ConvolutionBlock`s (residual, SE, inception options). The detection levels are the outputs of the blocks numbered by the keys of `DetectionLevels`, after their pooling. Pretrained from another run of any task. |
-| Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | None (item 1). The levels keep the channels of their blocks. |
+| Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | `Neck` (items 1 and 37): none by default, the levels keeping the channels of their blocks, or a feature pyramid or path aggregation to `output_channels`, without P6. |
 | Anchors | One scale per level (32 on P2 to 512 on P6), ratios 0.5 / 1 / 2, corner-aligned (`utils.py:583-619`). | Several scales and ratios per level (`DetectionLevels.<level>.anchors`), corner-aligned (audit L1). |
 | Region proposal head | One head shared by every level: 3 × 3 conv of 512, then 1 × 1 convs for a 2-class softmax and the offsets (`model.py:830-871`). | One head per level (`DetectionLevels.<level>.region_proposal`): `ConvolutionBlock`, 3 × 3 conv, then 1 × 1 convs for a sigmoid objectness and the offsets. |
 | Region proposal targets | Positive at IoU ≥ 0.7, plus the best anchor(s) of every ground truth. Negative below 0.3. Anchors touching a crowd are never negatives. 256 sampled, at most half positive (`model.py:1445-1553`). | Positive at IoU ≥ 0.5, plus the best anchor(s). Negative below 0.3, 0 included. 256 sampled, at most 128 positive. |

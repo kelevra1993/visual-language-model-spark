@@ -19,7 +19,9 @@ from vision_training.models.instance_segmentation.inference_instance_segmenter i
 MIXED_MASK_HEAD_SETTINGS = {"MaskHead": {"mask_resolution": 14, "upsampling": "bilinear"}, "level_mask_heads": {
     "5": {"roi_align_pool_size": 7, "convolutions": [2, 32]}, "6": {"roi_align_pool_size": 14, "convolutions": [2, 32]},
     "7": {"roi_align_pool_size": 5, "convolutions": [2, 32]}}}
-MASK_HEAD_GEOMETRIES = [MIXED_MASK_HEAD_SETTINGS]
+
+# Mask geometries and neck types of the tests, the mask heads reading the levels after the neck
+MASK_HEAD_GEOMETRIES_AND_NECKS = [(MIXED_MASK_HEAD_SETTINGS, "none"), (MIXED_MASK_HEAD_SETTINGS, "path_aggregation")]
 
 
 def build_box_masks(boxes: List[torch.Tensor], image_size: int) -> List[torch.Tensor]:
@@ -43,8 +45,9 @@ def build_box_masks(boxes: List[torch.Tensor], image_size: int) -> List[torch.Te
     return masks
 
 
-@pytest.mark.parametrize(argnames="mask_head_settings", argvalues=MASK_HEAD_GEOMETRIES)
-def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Optional[Dict[str, Any]]) -> None:
+@pytest.mark.parametrize(argnames=["mask_head_settings", "neck_type"], argvalues=MASK_HEAD_GEOMETRIES_AND_NECKS)
+def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Optional[Dict[str, Any]],
+                                                      neck_type: str) -> None:
     """
     Verifies that with ground truth the instance segmenter adds a finite mask loss that reaches the mask heads, and
     that in evaluation mode it gives the [B, K, M, M] mask probabilities of the final detections, within [0, 1] and
@@ -53,8 +56,10 @@ def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Option
     Args:
         mask_head_settings (Optional[Dict[str, Any]]): The mask geometry replacing the one of the fixture, None to
             keep it.
+        neck_type (str): The 'Neck.type' of the instance segmenter.
     """
-    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings)
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings,
+                             neck_type=neck_type)
     images, boxes, labels = get_fixed_batch()
     images, boxes = images.float(), [image_boxes.float() for image_boxes in boxes]
     masks = build_box_masks(boxes=boxes, image_size=model.input_image_size)
@@ -91,8 +96,9 @@ def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Option
         model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
 
 
-@pytest.mark.parametrize(argnames="mask_head_settings", argvalues=MASK_HEAD_GEOMETRIES)
-def test_inference_instance_segmenter_matches_the_eager_model(mask_head_settings: Optional[Dict[str, Any]]) -> None:
+@pytest.mark.parametrize(argnames=["mask_head_settings", "neck_type"], argvalues=MASK_HEAD_GEOMETRIES_AND_NECKS)
+def test_inference_instance_segmenter_matches_the_eager_model(mask_head_settings: Optional[Dict[str, Any]],
+                                                              neck_type: str) -> None:
     """
     Verifies that the export-friendly inference instance segmenter reproduces the detections and masks of the eager
     model in evaluation mode, every detection using the mask head of its own level.
@@ -100,8 +106,10 @@ def test_inference_instance_segmenter_matches_the_eager_model(mask_head_settings
     Args:
         mask_head_settings (Optional[Dict[str, Any]]): The mask geometry replacing the one of the fixture, None to
             keep it.
+        neck_type (str): The 'Neck.type' of the instance segmenter.
     """
-    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings)
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings,
+                             neck_type=neck_type)
     segmenter = InferenceInstanceSegmenter(model=model).eval()
     images = torch.rand(size=(2, 3, 512, 512)) * 255.0
 

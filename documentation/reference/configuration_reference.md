@@ -21,7 +21,7 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 
 | Key | Tasks |
 |---|---|
-| `DetectionLevels`, `RegionProposal`, `Detector`, `Optimization.loss_weights`, `evaluation.score_threshold` | DET, INS |
+| `DetectionLevels`, `Neck`, `RegionProposal`, `Detector`, `Optimization.loss_weights`, `evaluation.score_threshold` | DET, INS |
 | `MaskHead` | INS |
 | `evaluation.original_resolution` | INS, SEG |
 | `evaluation.target_precision`, `evaluation.error_dumps` | DET, INS, CLS, M2O, M2M, CMP, SEL (`target_precision` a list of precisions, the first one the main target, for CLS, M2O, M2M, CMP) |
@@ -52,7 +52,7 @@ The check of a task refuses a value it cannot use. Every key not listed accepts 
 - `TemporalModel.causal`: `True` for M2M and SEL only.
 
 **Task rules**
-- DET: every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`. INS adds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`.
+- DET: every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`. INS adds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`. `Neck.type` is `none`, `feature_pyramid` or `path_aggregation`, `Neck.output_channels` a positive integer, and with a neck every level must be a whole multiple of the next coarser one (checked when the model is built).
 - SEG: the keys of `SegmentationDecoder.convolutions` are the backbone blocks whose output is a skip connection, blocks 1 to N-1 of N blocks (and N with `last_max_pooling: True`). The keys of `deep_supervision_weights` are keys of `convolutions` other than the finest level. The categories of a `multi_class` mapping are the mask values 1 to 254.
 - KPT: `Backbone` ends at 1/4 of the image (3 blocks, or 2 with `last_max_pooling: True`), and `Data.image_settings.size` is a multiple of 4 x 2 to the power of the length of `HRNet.modules_per_stage`. `hidden_width` and the tag loss weights are at least 0, `inference.maximum_candidates` at least 1, `inference.keypoint_threshold` within ]0, 1[, `inference.tag_threshold` positive and `inference.object_score_threshold` within [0, 1]. The categories and keypoints of `evaluation.keypoint_sigmas` must exist in the training split.
 
@@ -159,6 +159,7 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Backbone | `LMP` | `Backbone.last_max_pooling` | all |
 | Backbone | `PT`, `FRZ`, `FBN` | `Backbone.pretrained`: set, `freeze`, `freeze_normalization_parameters` | all |
 | Levels | `L<blocks>` | the keys of `DetectionLevels` | DET, INS |
+| Neck | `NFPN<channels><BN, LN or NN>`, `NPAN…` | `Neck.type` (no token for `none`), `output_channels`, `normalization` | DET, INS |
 | Anchors | `A<anchors>.<smallest>-<largest>.<hash>` | anchors per position, range of the scales, first 6 characters of the SHA-256 of the scales and ratios | DET, INS |
 | Region proposal | `RBN`, `RLN`, `RNN` | `RegionProposal.normalization.feature_map_normalization` | DET, INS |
 | Region proposal | `R<layers>x<filters>` | `DetectionLevels.<level>.region_proposal.convolutions` | DET, INS |

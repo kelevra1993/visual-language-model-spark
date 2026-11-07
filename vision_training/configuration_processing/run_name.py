@@ -15,6 +15,9 @@ from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 # hidden layers of the classification head
 NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "SN"}
 
+# Run name code of every neck of the detection tasks, written after the levels (no token without neck)
+NECK_TYPE_CODES = {"feature_pyramid": "FPN", "path_aggregation": "PAN"}
+
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "instance_segmentation": "INS", "classification": "CLS",
               "sequence_classification": "M2O", "sequence_labelling": "M2M", "sequence_comparison": "CMP",
@@ -231,9 +234,11 @@ def build_anchors_hash(detection_levels: Dict[str, Any], level_names: List[str])
 
 def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
-    Builds the sections of the run name specific to object detection: L<blocks feeding the detection heads>, the
-    anchors A<anchors per position>.<smallest scale>-<largest scale>.<hash of every scale and aspect ratio of every
-    level> (build_anchors_hash), so that other ratios or middle scales start a new run, the region proposal heads
+    Builds the sections of the run name specific to object detection: L<blocks feeding the detection heads> followed
+    by the neck N<FPN or PAN><output channels><normalization> (e.g. 'L4567-NFPN32BN', no token without neck, so that
+    the runs written before the neck keep their names), the anchors A<anchors per position>.<smallest scale>-<largest
+    scale>.<hash of every scale and aspect ratio of every level> (build_anchors_hash), so that other ratios or middle
+    scales start a new run, the region proposal heads
     (R<normalization>, R<layers>x<filters>, then RPT and RFRZ when they are transferred and frozen), the detector heads
     (modules DSE, DRES, DINC, D<normalization>, D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, then
     DPT and DFRZ when they are transferred and frozen) and the classes (BIN or MC<foreground classes>, the categories
@@ -248,13 +253,20 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
         List[List[str]]: The tokens of every section.
     """
     data_configuration = model_configuration["Data"]
+    neck_configuration = model_configuration["Neck"]
     region_proposal_configuration = model_configuration["RegionProposal"]
     detector_configuration = model_configuration["Detector"]
     detection_levels = model_configuration["DetectionLevels"]
     level_names = sorted(detection_levels, key=int)
 
-    # Detection levels, and the number of anchors per position (scales x ratios) with the range of anchor scales
-    levels_token = "L" + "".join(level_names)
+    # Detection levels, then the neck with its output channels and normalization when there is one
+    levels_tokens = ["L" + "".join(level_names)]
+    if neck_configuration["type"] != "none":
+        neck_normalization = str(neck_configuration["normalization"]["feature_map_normalization"]).lower().strip()
+        levels_tokens.append(f"N{NECK_TYPE_CODES[neck_configuration['type']]}{neck_configuration['output_channels']}"
+                             f"{NORMALIZATION_CODES[neck_normalization]}")
+
+    # Number of anchors per position (scales x ratios) with the range of anchor scales
     anchor_counts = [str(len(detection_levels[level]["anchors"]["scales"]) *
                          len(detection_levels[level]["anchors"]["aspect_ratios"])) for level in level_names]
     anchor_scales = [scale for level in level_names for scale in detection_levels[level]["anchors"]["scales"]]
@@ -297,7 +309,7 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     else:
         classes_token = f"MC{len(set(data_configuration['label_dictionary'].values())) - 1}"
 
-    return [[levels_token], [anchors_token], region_proposal_tokens, detector_tokens, [classes_token]]
+    return [levels_tokens, [anchors_token], region_proposal_tokens, detector_tokens, [classes_token]]
 
 
 def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:

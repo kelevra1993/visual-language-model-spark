@@ -69,6 +69,8 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 "region_proposal": {"convolutions": [2, 64]},
                 "detector": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}}
         for level, scales in [("5", [32, 64, 128]), ("6", [64, 128, 256]), ("7", [128, 256, 512])]}
+    model_configuration["Neck"] = {"type": "none", "output_channels": 32,
+                                   "normalization": {"feature_map_normalization": "batch"}}
     model_configuration["RegionProposal"]["normalization"]["feature_map_normalization"] = "batch"
     model_configuration["Detector"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
                                                        "inception": False})
@@ -104,6 +106,29 @@ def change_detection_levels(experiment_configuration: Dict[str, Any], model_conf
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
     del model_configuration["DetectionLevels"]["5"]
+
+
+def add_feature_pyramid(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Adds a feature pyramid neck of 32 channels with batch normalization between the blocks and the heads.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Neck"]["type"] = "feature_pyramid"
+
+
+def add_path_aggregation(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Adds a path aggregation neck of 64 channels with layer normalization between the blocks and the heads.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Neck"] = {"type": "path_aggregation", "output_channels": 64,
+                                   "normalization": {"feature_map_normalization": "layer"}}
 
 
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -146,7 +171,9 @@ def test_reference_run_name() -> None:
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (enable_inception, REFERENCE_RUN_NAME.replace("_SE-RES-BN-", "_SE-RES-INC3-BN-").replace(
         "DSE-DRES-DBN", "DSE-DRES-DINC-DBN")),
-    (change_detection_levels, REFERENCE_RUN_NAME.replace("_L567_A9.32-512.598295_", "_L67_A9.64-512.169502_"))])
+    (change_detection_levels, REFERENCE_RUN_NAME.replace("_L567_A9.32-512.598295_", "_L67_A9.64-512.169502_")),
+    (add_feature_pyramid, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NFPN32BN_")),
+    (add_path_aggregation, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NPAN64LN_"))])
 def test_changed_settings_change_run_name(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None],
                                           expected_run_name: str) -> None:
     """

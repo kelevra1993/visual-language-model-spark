@@ -136,7 +136,7 @@ def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = tor
 
 
 def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
-                     mask_head_settings: Optional[Dict[str, Any]] = None) -> TwoStageDetector:
+                     mask_head_settings: Optional[Dict[str, Any]] = None, neck_type: str = "none") -> TwoStageDetector:
     """
     Builds a small untrained detector from the debug configuration, shared by the detector tests (export path and
     behaviour baseline), with 512 pixel inputs (the smallest size fitting its 9 pooling blocks) and a score threshold
@@ -152,12 +152,14 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
         mask_head_settings (Optional[Dict[str, Any]]): The mask geometry replacing the one of the fixture: the
             'MaskHead' settings under 'MaskHead' (e.g. 'mask_resolution', 'upsampling') and the mask head of every
             detection level under 'level_mask_heads', None to keep them. Defaults to None.
+        neck_type (str): The 'Neck.type' between the backbone blocks and the heads. Defaults to "none", the heads
+            reading the blocks, as in the behaviour baseline.
 
     Returns:
         TwoStageDetector: The detector (or instance segmenter) in evaluation mode, on the CPU.
     """
     torch.manual_seed(seed=0)
-    configuration, device, _ = get_detection_model_configuration(mask_head=instance_segmentation)
+    configuration, device, _ = get_detection_model_configuration(mask_head=instance_segmentation, neck_type=neck_type)
     configuration: Dict[str, Any] = copy.deepcopy(x=configuration)
     configuration["Data"]["image_settings"]["size"] = 512
     configuration["Detector"]["inference"]["score_threshold"] = 0.0

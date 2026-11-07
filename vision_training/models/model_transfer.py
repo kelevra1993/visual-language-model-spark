@@ -53,6 +53,9 @@ ARCHITECTURE_BACKBONE_KEYS = ["input_channels", "convolutions", "modules", "norm
 # without the pre-activation placement of the shortcuts used the original one
 BACKBONE_MODULE_DEFAULTS = {"residual_nets_v2": False}
 
+# Neck section of the detection runs written before the neck existed, whose heads read the backbone blocks
+NECK_DEFAULTS = {"Neck": {"type": "none"}}
+
 # Backbone module settings removed from the configuration files, with the value the code always uses: a source run
 # written before their removal still holds them, and has the same layers when it used that value
 FIXED_BACKBONE_MODULE_SETTINGS = {"inception_starting_block": INCEPTION_STARTING_BLOCK}
@@ -413,7 +416,8 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     """
     Lists the differences between the settings defining the weights of the region proposal heads, of the detection
     heads or of the mask heads of two runs of the detection tasks (DET or INS, INS only for the mask heads): their
-    detection levels (the keys of 'DetectionLevels'), the head of every level (DETECTION_LEVEL_COMPONENTS), the
+    detection levels (the keys of 'DetectionLevels'), the neck whose outputs they read (both runs without neck, a
+    source run written before the neck counting as none), the head of every level (DETECTION_LEVEL_COMPONENTS), the
     settings of DETECTION_HEAD_WEIGHT_KEYS (the normalization without its batch normalization momentum, which
     changes no tensor) and, for the region proposal heads, the number of anchors per position of every level.
     The channels of the backbone blocks they read are compared on the weights themselves, and the classes of the
@@ -435,8 +439,17 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
         return [f"The detection levels are {source_levels!r} in the source run and {target_levels!r} in this run, "
                 f"the levels of the {get_component_name(section_name=section_name)}."]
 
-    # Layers of the head of every level
+    # Heads read the levels after the neck, which is not transferable: heads trained after a neck would read a new,
+    # untrained neck, and heads trained on the blocks would read a neck, so they only move between runs without neck
     differences = []
+    source_neck_type = {**NECK_DEFAULTS, **source_configuration}["Neck"]["type"]
+    target_neck_type = target_configuration["Neck"]["type"]
+    if source_neck_type != "none" or target_neck_type != "none":
+        differences.append(f"'Neck.type' is {source_neck_type!r} in the source run and {target_neck_type!r} in this "
+                           f"run: the {get_component_name(section_name=section_name)} only move between runs whose "
+                           f"neck is 'none', the neck itself not being transferable.")
+
+    # Layers of the head of every level
     level_component = DETECTION_LEVEL_COMPONENTS[section_name]
     for level_key in target_levels:
         source_level_value = source_configuration["DetectionLevels"][level_key][level_component]

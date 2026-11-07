@@ -5,21 +5,27 @@ carried through forward_detection_stages, and the filtered proposals and the anc
 and proposal recall of the detection trainers.
 """
 
+import pytest
 import torch
 
 from tests.models.detection.test_detector_baseline import get_fixed_batch
 from tests.testing_utilities import build_test_model
 
 
-def test_detection_stages_carry_levels_and_matched_ground_truths() -> None:
+@pytest.mark.parametrize(argnames="neck_type", argvalues=["none", "path_aggregation"])
+def test_detection_stages_carry_levels_and_matched_ground_truths(neck_type: str) -> None:
     """
     Verifies that with ground truth the sampled proposals carry their level and their matched ground truth (an index
     exactly for the positive proposals, whose label is the one of that ground truth), and that in evaluation mode the
     level of every proposal and the proposal of every final detection are returned, so that the level of every
     detection can be read, with the filtered proposals, their level and their validity for the proposal recall. The
-    anchors of every level are given for the anchor recall.
+    anchors of every level are given for the anchor recall. With a neck, the feature maps returned to the mask heads
+    are those of the neck, at the size of their block with the neck channels.
+
+    Args:
+        neck_type (str): The 'Neck.type' of the detector.
     """
-    model = build_test_model(dtype=torch.float64)
+    model = build_test_model(dtype=torch.float64, neck_type=neck_type)
     images, boxes, labels = get_fixed_batch()
     level_numbers = {int(level) for level in model.detector_heads_dictionary}
 
@@ -38,6 +44,11 @@ def test_detection_stages_carry_levels_and_matched_ground_truths() -> None:
         ground_truth_index = int(detections["sliced_matched_ground_truth_indices"][proposal_index])
         assert int(labels[image_index][ground_truth_index]) == int(detections["sliced_labels"][proposal_index])
     assert set(stages["backbone_output_tensor_dictionary"]) == {str(level) for level in level_numbers}
+    for level_name, feature_map in stages["backbone_output_tensor_dictionary"].items():
+        assert feature_map.shape[1:] == (model.detection_input_information[level_name]["number_channels"],
+                                         *[model.detection_input_information[level_name]["feature_map_size"]] * 2)
+    assert {information["number_channels"] for information in model.detection_input_information.values()} == (
+        {32} if neck_type != "none" else {64})
 
     # Inference path: level of every proposal, and proposal of every final detection
     model.eval()

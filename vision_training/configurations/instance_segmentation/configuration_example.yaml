@@ -283,6 +283,17 @@ DetectionLevels:
     detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
     mask_head: { roi_align_pool_size: 14, convolutions: [4, 64] }
 
+# Neck between the level blocks and the heads, every level keeping the size of its block.
+Neck:
+  # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels) or "path_aggregation"
+  # (the feature pyramid, then a bottom-up path from the fine levels).
+  type: "none"
+  # Channels of every level after the neck, read by the heads (unused with "none").
+  output_channels: 64
+  normalization:
+    # "batch", "layer" (over channels) or "none"
+    feature_map_normalization: "batch"
+
 RegionProposal:
   normalization:
     # "batch", "layer" (over channels) or "none"
