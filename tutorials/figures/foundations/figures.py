@@ -37,7 +37,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     classification_run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="classification")
     run_label = f"{experiments_folder.name}/{classification_run_folder.relative_to(experiments_folder)}"
     return merge_facts(fact_groups=[
-        make_listings(output_folder=output_folder, run_folder=classification_run_folder),
+        make_listings(output_folder=output_folder, run_folder=classification_run_folder,
+                      data_configuration_path=find_repository_file(file_key="data_pipeline_configuration")),
         make_training_curves_figure(output_folder=output_folder, run_folder=classification_run_folder,
                                     run_label=run_label),
         make_learning_rate_schedule_figure(output_folder=output_folder, configuration_path=find_repository_file(

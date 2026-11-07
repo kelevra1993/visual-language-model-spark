@@ -71,7 +71,8 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 
 # 3. Evaluation of checkpoints: in the main block of scripts/evaluation/evaluate_checkpoint.py set run_name,
 #    experiment_folder (the run folder), iteration (None, an integer or "all"), test_data_folder, batch_size,
-#    track_evaluation, output_folder, and maximum_error_images_per_class_pair = None (see the pitfalls)
+#    track_evaluation and output_folder; maximum_error_images_per_class_pair (and target_precisions when set) is
+#    skipped with a yellow warning, the task saving no error image and no class threshold (Step 5.1)
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
@@ -269,8 +270,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   (uv run python -m scripts.evaluation.evaluate_checkpoint)
-└── same as every task, with maximum_error_images_per_class_pair set to None (the configuration has no error_dumps
-    section): loads training_configuration.yaml, builds the SelfSupervisedTrainer in the output folder, then
+└── same as every task, maximum_error_images_per_class_pair skipped with a warning (the configuration has no
+    error_dumps section): loads training_configuration.yaml, builds the SelfSupervisedTrainer in the output folder, then
     evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations() -> run_test_evaluation()
 ```
 
@@ -329,7 +330,7 @@ label_dictionary: {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
 The common checks, then `check_self_supervised_configuration()` (in `vision_training/configuration_processing/self_supervised_checks.py`):
 - **data**: `multi_class` label mode, classes 0 to K-1, `Data.data_augmentation.activated` True, since its types draw the two views of every image, which would otherwise both be the image itself, `random_crop`, the random resized crop of the views, at a probability of 1.0 when it is activated (drawn for every view, or turned off to keep the whole images), and no sequence settings (`check_image_task_sequence_settings()`). The flag and the probability of every type are checked as for every task (`check_data_configuration()`); the strengths are hard-coded.
 - **grouped batches**: `check_grouped_batches_configuration()`: `Data.grouped_batches.activated` is True or False, `block_key` a non-empty string, `batch_key` null or a non-empty string, and `images_per_block` an integer of at least 2 that divides the batch size when the section is on.
-- **head**: `check_projection_head_configuration()`: the pooling, the layers (a non-empty list of positive integers, the embedding size last), the normalization (`"none"` when the list holds the embedding layer only) and its batch momentum, the method (`simclr` or `barlow_twins`), and the settings of both methods (`simclr.temperature` and `barlow_twins.off_diagonal_weight` above 0), checked whatever the method so that a run can switch method by one key.
+- **head**: `check_projection_head_configuration()`: the pooling, the layers (a non-empty list of positive integers, the embedding size last), the normalization (`"none"` when the list holds the embedding layer only; its batch momentum is fixed at 0.1 in the code), the method (`simclr` or `barlow_twins`), and the settings of both methods (`simclr.temperature` and `barlow_twins.off_diagonal_weight` above 0), checked whatever the method so that a run can switch method by one key.
 - **batch and evaluation**: a batch size of at least 2, and `number_neighbours` above 0.
 
 Every error is listed before the program stops.

@@ -84,7 +84,7 @@ scenes:
       - {type: box, box: [1575, 290, 1745, 400], text: "post-process\n100 per image", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
       - {type: text, position: [1390, 660], text: "{{object_detection.inference.model.number_classes}} classes · a box per class", font: diagram_small, colour: dim, anchor: ma, appear: 3}
     narration:
-      - "The detector is a two-stage detector in the style of Faster R-CNN, built on the shared backbone of the repository without any feature pyramid."
+      - "The detector is a two-stage detector in the style of Faster R-CNN, built on the shared backbone of the repository, without feature pyramid in the shipped configurations."
       - "Every block named in Detection Levels is a level with its own anchors and region proposal head: here blocks 5, 6 and 7, with {{object_detection.inference.level_5.anchor_count:,}}, {{object_detection.inference.level_6.anchor_count:,}} and {{object_detection.inference.level_7.anchor_count:,}} anchors at 512 pixels."
       - "The proposal filter ranks the proposals of all the levels together, keeps the best thousand, suppresses the overlaps at 0.7, and passes 500 per image to the second stage, 250 in evaluation."
       - "Every proposal goes back to the detection head of the level its anchor came from, which pools it with ROI Align, classifies it among {{object_detection.inference.model.number_classes}} classes and refines one box per class."
@@ -130,7 +130,7 @@ scenes:
     narration:
       - "Detection Levels names the backbone blocks the detector reads, as quoted keys in increasing order, and gives every level its anchors, its region proposal head and its detection head."
       - "The backbone divides the resolution by two in every block; with the last max pooling off, block 7 keeps the eight by eight map of block 6, so the levels have strides of 32, 64 and 64."
-      - "Picture a data set of small objects: no top-down path merges the levels, the finest stride is 32, and those objects pay for it, as the last chapter shows."
+      - "Picture a data set of small objects: with the Neck type none of the configuration, no top-down path merges the levels, the finest stride is 32, and those objects pay for it, as the last chapter shows; the feature pyramid and path aggregation types add that path."
       - "The heads are small here: two convolutions of 32 channels for the proposals, and for the detections two convolutions with squeeze and excitation and residual shortcuts, then fully connected layers of 64 and 32 units."
 
   - kind: html
@@ -294,7 +294,7 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Two stages: proposals per level, then RoI heads per level, no feature pyramid"}
+      - {text: "Two stages: proposals per level, then RoI heads per level, Neck none: no feature pyramid"}
       - {text: "COCO bbox [x, y, w, h] to corners; background added as class 0"}
       - {text: "Blocks 5, 6, 7: strides 32, 64, 64"}
       - {text: "6 anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners"}

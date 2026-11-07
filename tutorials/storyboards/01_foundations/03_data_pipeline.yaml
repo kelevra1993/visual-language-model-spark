@@ -2,8 +2,9 @@
 # the loader workers, the image size and aspect ratio, the input normalization, and the augmentation (its switches and
 # probabilities in the configuration, its strengths in the code, how it draws, its 28 types at the strengths of the
 # supervised tasks and of the self-supervised views), then the input viewer. The augmentation settings are those of the
-# classification run of tutorial_sources.yaml (listings.py, the data facts), the images those of augmentation_examples.py
-# and aspect_ratio.py of tutorials/figures/foundations.
+# synthetic classification configuration the chapter shows (data_pipeline_configuration of tutorial_sources.yaml, read by
+# listings.py for the data facts), the images those of augmentation_examples.py and aspect_ratio.py of
+# tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
 chapter: 3

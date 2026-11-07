@@ -64,7 +64,7 @@ def check_self_supervised_data_configuration(model_configuration: Dict[str, Any]
 def check_projection_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ProjectionHead' section: the global pooling, the layers (at least the embedding layer), the
-    normalization of the hidden layers and its batch momentum, the self-supervised method and the settings of both
+    normalization of the hidden layers, the self-supervised method and the settings of both
     methods, every one of them being required whatever the method so that a run can switch method by one key.
 
     Args:

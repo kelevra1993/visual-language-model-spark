@@ -196,7 +196,7 @@ scenes:
       - {type: text, position: [40, 200], text: "│   ├── data/ · models/ · losses/ · trainers/", font: diagram_monospace, anchor: ls, highlight: [0]}
       - {type: text, position: [40, 250], text: "│   └── evaluation/ · tracking/ · deployment/ · utilities/", font: diagram_monospace, anchor: ls, highlight: [0]}
       - {type: text, position: [40, 300], text: "├── scripts/", font: diagram_monospace, anchor: ls, highlight: [1]}
-      - {type: text, position: [40, 350], text: "│   └── evaluation/ · embedding/ · data/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 350], text: "│   └── evaluation/ · embedding/ · data/ · configuration_processing/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 400], text: "├── tests/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 450], text: "├── documentation/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 500], text: "│   └── architecture_benchmarking/ · reference/ · task workflows/", font: diagram_monospace, anchor: ls, highlight: [1]}

@@ -7,7 +7,7 @@
 runs:
   classification:
     folder: readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9
-    trained_with: "vision_training/configurations/classification/configuration_synthetic_shapes.yaml on the 9-class synthetic shapes dataset, 1500 iterations, learning rate 0.0002"
+    trained_with: "vision_training/configurations/classification/configuration_synthetic_shapes.yaml on the 9-class synthetic shapes dataset, 1500 iterations, learning rate 0.0002, a checkpoint every 250 iterations (intermediate_weight_saving_iterations 250) evaluated every 500 (weight_saving_iterations 500), MLflow tracking on, with the augmentation probabilities the file had then (0.3 for most types, 0.25 now)"
   # Standalone evaluation of the classification run, whose error images the classification figures show; written by
   # scripts/evaluation/evaluate_checkpoint.py into the evaluations folder next to the run
   classification_evaluation:
@@ -70,3 +70,5 @@ repository_files:
   benchmark_plan: documentation/architecture_benchmarking/experiment_plan.md
   # Configuration whose learning rate schedule (warm-up, then cosine decay) the optimization figure draws
   learning_rate_schedule_configuration: vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml
+  # Configuration whose data augmentation (activated types and probabilities) the data pipeline chapter shows and draws
+  data_pipeline_configuration: vision_training/configurations/classification/configuration_synthetic_shapes.yaml

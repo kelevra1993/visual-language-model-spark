@@ -104,7 +104,7 @@ A dataset described by one pair list file per split is converted to the `pairs` 
 - The dataset the synthetic configuration points to on this machine holds members of 2 to 6 frames of 128 pixels, read at 512 pixels; the generator now writes members of 2 to 12 frames of 512 pixels, so a new dataset gives longer and slower batches (`create_synthetic_dataset.py`, main block; README, Quick Start With Synthetic Data).
 - `Fusion.number_heads`, `Fusion.dropout_rate` and `Fusion.sequence_normalization_scope` are required for every fusion type and checked even when unused, and `SNP` only appears with the `sequence` normalization of the backbone (`check_fusion_configuration()` of `sequence_checks.py`, `build_fusion_tokens()` of `run_name.py`).
 - Blocks 2 and 4 of the synthetic backbone (16 to 32 and 32 to 64 channels, 2 layers each) add no residual shortcut, their first layer changing the channel count, so only blocks 3 and 5 add one (`count_residual_additions()` of `convolution_block.py`; `bug_standards.md` H4, dropped).
-- `Iterations Per Epoch` and the split descriptions count the pairs before the label mapping, a pair of an unmapped category being left out by the dataset only (`count_split_pairs()` of `split_description.py`; `bug_standards.md` B46).
+- `Iterations Per Epoch` and the split descriptions count the pairs before the label mapping, a pair of an unmapped category being left out by the dataset only (`count_split_pairs()` of `split_description.py`; `bug_standards.md` B46, dropped).
 - `predictions.csv` names a pair by its name only, without its frames, and the test loader shuffles the pairs, so the order of its rows changes from one evaluation to the next (`SequencePairDataset.describe_sample()`, `build_native_loader()`).
 
 ## Table of Contents
@@ -328,7 +328,7 @@ CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2
 ### Step 2.5 — `DataAugmenter()`
 **Example: the settings of the configuration**
 ```text
-activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
+activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.25}
 4 of 28 types activated: random_left_right_flip, brightness_contrast_saturation, random_noise, random_haze
 ```
 

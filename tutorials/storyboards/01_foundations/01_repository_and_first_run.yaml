@@ -122,10 +122,11 @@ scenes:
       comments: false
     highlights:
       - {match: "^(ExperimentConfiguration|Optimization|Data|Backbone|ClassificationHead):", sentences: [0]}
-      - {match: "task:", sentences: [0, 1]}
-      - {match: "number_iterations|weight_saving_iterations|validation_iteration_ratio", sentences: [2]}
+      - {match: "task:", sentences: [0, 2]}
+      - {match: "number_iterations|weight_saving_iterations|validation_iteration_ratio", sentences: [3]}
     narration:
       - "A configuration has one section for the experiment, one for the optimization, one for the data, one for the backbone, and the sections of the task, here the classification head."
+      - "Detection and instance segmentation also have a Neck section between the backbone and their heads, whose type is none in every configuration of the repository."
       - "There are no defaults, the file of a task holding every key the task reads: if, for instance, you forget three keys, the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all three."
       - "The training is counted in iterations, not epochs: checkpoints, evaluations and summaries are all set in iterations."
 

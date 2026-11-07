@@ -145,7 +145,7 @@ scenes:
       - {type: box, box: [40, 270, 860, 460], text: "the dataset on this machine\n{{sequence_classification.dataset.disk_frames}} frames everywhere, never padded\n(suggestions.md K32)", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [900, 270, 1720, 460], text: "TemporalModel.dropout_rate\nno effect with one GRU layer", font: diagram_text, outline: yellow, highlight: [3]}
       - {type: box, box: [40, 500, 860, 690], text: "shuffle_frames with an ordered module\na yellow warning only", font: diagram_text, outline: yellow, highlight: [3]}
-      - {type: box, box: [900, 500, 1720, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(bug_standards.md B46)", font: diagram_text, outline: yellow, highlight: [3]}
+      - {type: box, box: [900, 500, 1720, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(count_split_sequences)", font: diagram_text, outline: yellow, highlight: [3]}
     narration:
       - "The pitfalls of the task: average or max pooling leaves motion classes at chance, and nothing warns about it but a loss stuck at the natural log of four."
       - "Flatten follows the image size: at 512 pixels its GRU grows to {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million weights and its checkpoint to {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} megabytes, against {{sequence_classification.checkpoints.flatten_128.megabytes:.0f}} at 128 pixels, and it did not learn in 500 iterations."

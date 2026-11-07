@@ -59,7 +59,7 @@ scenes:
       - {type: text, position: [1250, 650], text: "final_detection_masks [B, 100, 28, 28]", font: diagram_monospace_small, appear: 2}
       - {type: text, position: [880, 600], text: "[R, {{instance_segmentation.model.number_classes}}, 28, 28] logits", font: diagram_monospace_small, anchor: ma, appear: 3}
     narration:
-      - "The segmenter is the detector of the object detection series unchanged, plus one mask head per detection level, in the style of Mask R-CNN without feature pyramid."
+      - "The segmenter is the detector of the object detection series unchanged, plus one mask head per detection level, in the style of Mask R-CNN without feature pyramid, its Neck type being none by default."
       - "In training, every level runs its mask head on its own positive sampled proposals, which gives the mask loss."
       - "In evaluation, the mask heads run on the final boxes refined by the detection heads, each at the level of its proposal, which gives a hundred masks of 28 by 28 per image."
       - "A head predicts one mask per class, and only the channel of the ground truth class, or of the detected class, is used."
@@ -190,7 +190,7 @@ scenes:
           - "masks predicted on the refined boxes"
       - heading: "Different here"
         lines:
-          - "no FPN: strides 32 and 64, not 4 to 32"
+          - "Neck none: strides 32 and 64, not 4 to 32"
           - "one mask head per level, not shared"
           - "full-size ground truth masks (L19)"
           - "ground truth boxes added to the proposals"
@@ -222,6 +222,7 @@ scenes:
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
       - "The task trains on the data set of the detection, every object segmented by a compressed run length encoding of its visible pixels."
+      - "Should you need harder images, adding instance segmentation to the hard object tasks of the main block draws those of the detection benchmark, with the mask of every visible part."
       - "Its synthetic configuration also stops at two thousand iterations; the run shown was resumed to five thousand, and the evaluation script evaluates any checkpoint again."
 
   - kind: summary
