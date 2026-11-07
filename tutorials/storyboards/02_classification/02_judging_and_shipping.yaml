@@ -66,7 +66,7 @@ scenes:
       - {type: text, position: [880, 660], text: "Results.txt: one block per evaluated checkpoint · the console prints it with the links of the files", font: diagram_small, colour: dim, anchor: mm}
       - {type: text, position: [880, 705], text: "newer evaluations: a Per Class Recall table, every recall with its 95% interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
     narration:
-      - "At iteration 1500 the report gives an accuracy of {{classification.headline.iteration_1500.accuracy:.3f}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top two accuracy of {{classification.headline.iteration_1500.top_2_accuracy:.3f}}: the right class is almost always among the two most probable."
+      - "At iteration 1500 the report gives an accuracy of {{classification.headline.iteration_1500.accuracy:.3f}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top two accuracy of {{classification.headline.iteration_1500.top_2_accuracy:.3f}}, newer evaluations writing a top five accuracy instead: the right class is almost always among the two most probable."
       - "With the per class report, the macro ROC AUC and average precision join them, and every class gets its row, the worst F1 first: square, octagon and pentagon."
       - "The last two columns give the threshold reaching a precision of {{classification.class_metrics.target_precision}} and the recall it keeps, a dash when that precision is never reached, as for rectangle."
       - "Evaluations newer than this run add a per class recall table, the worst recall first, with the exact 95% confidence interval of every recall over the test images of its class."
@@ -235,10 +235,10 @@ scenes:
           - "  {{classification.data.generator_class_count}} classes, the run ends with MC{{classification.data.generator_class_count}}"
           - ""
           - "Iterations Per Epoch, MLflow counts:"
-          - "  unmapped categories included (B46)"
+          - "  unmapped categories included (count_split_samples)"
           - ""
           - "RES: no shortcut in blocks {{classification.backbone.blocks_without_shortcut_text}}"
-          - "  two layers changing the channels (H4)"
+          - "  two layers changing the channels"
     narration:
       - "Here are the pitfalls specific to this task, or that bite it first, and one console marker fixed since."
       - "Label smoothing with balanced weights pulls every image towards the rare classes, and a flattened head only works at the image size and last max pooling it was trained with."

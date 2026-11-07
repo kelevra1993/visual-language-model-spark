@@ -4,11 +4,11 @@ so that the videos show the repository as it is: the folder tree of the real cla
 copy, records, checkpoints, logs, report and evaluation folders, one checkpoint and one evaluation expanded), and the
 summary panels the trainer prints at launch for that run (backbone, receptive field, model size), captured from the
 code of the repository on the CPU from the saved configuration of the run, without any training. The storyboards show
-them as text excerpts (source file figures:foundations/listings/...). It also gives the facts of the chapters on the
-data pipeline and on the backbone read from that model and configuration (the augmentation types activated and the
-share of the training images they change, the receptive field, parameters and residual pairs of every block), and
-the counts of the repository quoted by the closing chapter (tasks, test files), so that their narration and
-drawings follow the run and the repository when they change.
+them as text excerpts (source file figures:foundations/listings/...). It also gives the facts of the chapter on the
+backbone read from that model (the receptive field, parameters and residual pairs of every block), those of the chapter
+on the data pipeline read from the configuration file that chapter shows (the augmentation types activated and the
+share of the training images they change), and the counts of the repository quoted by the closing chapter (tasks, test
+files), so that their narration and drawings follow the run and the repository when they change.
 """
 
 import contextlib
@@ -20,7 +20,8 @@ from typing import Any, Dict, List, Tuple
 
 import torch
 
-from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import (load_configuration,
+                                                                          load_experiment_configuration)
 from vision_training.core.task_registry import TASK_TRAINER_CLASSES
 from vision_training.data.augmentations import (AUGMENTATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
@@ -178,12 +179,14 @@ def describe_repository(repository_folder: Path) -> Dict[str, Any]:
 def describe_data_pipeline(data_configuration: Dict[str, Any]) -> Dict[str, Any]:
     """
     Gives the facts of the data pipeline chapter of the foundations series from the Data section of the classification
-    run: its image settings, the probability of augmenting a training image, the activated augmentation types in their
-    order of application with their probabilities, and the expected share of the training images changed by at least
-    one type (DataAugmenter.augment_batch draws the sample, then DataAugmenter.should_apply every activated type).
+    configuration that chapter shows (repository file data_pipeline_configuration of tutorial_sources.yaml), so that the
+    probabilities drawn in the chapter are those of its configuration excerpt: its image settings, the probability of
+    augmenting a training image, the activated augmentation types in their order of application with their
+    probabilities, and the expected share of the training images changed by at least one type
+    (DataAugmenter.augment_batch draws the sample, then DataAugmenter.should_apply every activated type).
 
     Args:
-        data_configuration (Dict[str, Any]): The Data section of the run configuration.
+        data_configuration (Dict[str, Any]): The Data section of the configuration file.
 
     Returns:
         Dict[str, Any]: The facts, under the data prefix.
@@ -297,7 +300,7 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
             "listings.example_block.residual_additions": example_block.count_residual_additions()}
 
 
-def make_listings(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
+def make_listings(output_folder: Path, run_folder: Path, data_configuration_path: Path) -> Dict[str, Any]:
     """
     Writes the folder tree of the classification run and the summary panels of its model into the listings folder of
     the foundations figures, and gives the facts the storyboards quote from them.
@@ -305,6 +308,8 @@ def make_listings(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     Args:
         output_folder (Path): The figures folder of the foundations series.
         run_folder (Path): The folder of the classification run of tutorial_sources.yaml.
+        data_configuration_path (Path): The configuration file whose Data section gives the facts of the data
+            pipeline chapter (describe_data_pipeline).
 
     Returns:
         Dict[str, Any]: The facts: the number of checkpoints and evaluations of the run, the parameters of its model,
@@ -339,7 +344,10 @@ def make_listings(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
 
     # Facts of the backbone chapter, the third block being the one drawn layer by layer
     backbone_facts = describe_backbone_blocks(model=model, example_block_number=3)
-    data_facts = describe_data_pipeline(data_configuration=model_configuration["Data"])
+    # Facts of the data pipeline chapter, from the configuration file its excerpts show rather than from the run, whose
+    # augmentation probabilities may predate those of the file
+    data_facts = describe_data_pipeline(
+        data_configuration=load_configuration(configuration_path=data_configuration_path)["Data"])
     repository_facts = describe_repository(repository_folder=Path(__file__).absolute().parents[3])
     return {**backbone_facts, **data_facts, **repository_facts,
             "listings.checkpoint_count": len(checkpoint_names), "listings.evaluation_count": len(evaluation_names),

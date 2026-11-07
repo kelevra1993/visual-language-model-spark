@@ -75,7 +75,7 @@ scenes:
       - "The results file gives the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-1 accuracy, equal to the accuracy as it counts the most probable class only, and the macro ROC AUC and average precision."
       - "Same number of objects comes first, its F1 the lowest: a recall of 1, but a precision of {{sequence_comparison.evaluation_class.same_precision:.3f}}."
       - "Loss of object keeps a precision of one with a recall of {{sequence_comparison.evaluation_class.loss_recall:.3f}}: every error is a missed loss."
-      - "The current code adds a Per Class Recall table after this one, worst recall first: every recall with its exact 95% confidence interval, the pairs being independent."
+      - "The current code writes a top-5 accuracy instead, always one with two classes, and adds a Per Class Recall table: every recall with its exact 95% interval, the pairs being independent."
 
   - kind: image
     title: "The evaluation images"
@@ -118,7 +118,7 @@ scenes:
       - {type: box, box: [900, 40, 1720, 230], text: "the dataset on this machine\nmembers of 2 to 6 frames of 128 pixels,\nread at 512", font: diagram_text, outline: yellow, highlight: [1]}
       - {type: box, box: [40, 270, 860, 460], text: "512 pixel pairs\n{{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second", font: diagram_text, outline: yellow, highlight: [1]}
       - {type: box, box: [900, 270, 1720, 460], text: "Fusion keys\nrequired for every type,\nSNP only with sequence normalization", font: diagram_text, outline: yellow, highlight: [2]}
-      - {type: box, box: [40, 500, 860, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(bug_standards.md B46)", font: diagram_text, outline: yellow, highlight: [2]}
+      - {type: box, box: [40, 500, 860, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(count_split_pairs)", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [900, 500, 1720, 690], text: "predictions.csv\npair names only,\nrows reshuffled at every evaluation", font: diagram_text, outline: yellow, highlight: [2]}
     narration:
       - "The pitfalls of the task: training encodes 2B padded sequences while the export encodes every member alone, which agree in evaluation mode, but only the exported path takes members of different lengths without padding."

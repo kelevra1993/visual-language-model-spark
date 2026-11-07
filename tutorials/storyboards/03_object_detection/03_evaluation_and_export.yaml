@@ -188,11 +188,11 @@ scenes:
       - heading: "Evaluation and tools"
         lines:
           - "mAP@[0.5:0.95]: VOC matching (L6)"
-          - "2-layer heads changing channels: no shortcut (H4)"
+          - "2-layer heads changing channels: no shortcut"
           - "eager forward: padding copies valid (B35)"
     narration:
       - "To close, the pitfalls: the shipped two thousand iterations leave the samples nearly empty; the small objects get few anchors at a stride of 32, centered on the cell corners; and block 5 takes most proposals."
-      - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut, item H4."
+      - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut."
 
   - kind: summary
     title: "Recap"

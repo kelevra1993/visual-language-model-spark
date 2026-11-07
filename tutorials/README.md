@@ -180,6 +180,7 @@ Fonts: `diagram_heading`, `diagram_bold`, `diagram_text`, `diagram_small`, `diag
 - **Frames or figures take seconds each and the build uses its CPU in the kernel**: the transparent huge pages of numpy and PyTorch with fragmented memory; `build_tutorials.sh` sets `NUMPY_MADVISE_HUGEPAGE=0` and `THP_MEM_ALLOC_ENABLE=0` (the figure scripts get both too), run the build through it.
 - **No Chrome**: install one, or run `uv run --project tutorials playwright install chromium`.
 - **A figure script stops on a missing run**: the message quotes how the run was trained (`tutorial_sources.yaml`).
+- **A build from a git worktree checks the storyboards of the main checkout**: a `tutorials/.venv` linked to the one of the main checkout imports its `tutorial_builder`; prefix the command with `PYTHONPATH=<worktree>/tutorials`, and give a scratch `--cache-folder` so that the cache of the main checkout keeps its figures.
 
 ## Tests
 ```bash
