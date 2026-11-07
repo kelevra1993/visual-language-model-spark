@@ -160,19 +160,18 @@ scenes:
         font: diagram_monospace_tiny
         source: {file: "figures:self_supervised/listings/test_000000_view_1_augmentations.txt"}
         highlights:
-          - {match: "random_crop|random_left_right_flip|random_perspective", sentences: [1]}
-          - {match: "brightness_contrast_saturation|random_hue|random_gamma|random_haze", sentences: [1]}
+          # Every line, whatever types the draw of the current code picks for this view
+          - {match: ".", sentences: [1]}
       - type: listing
         box: [720, 420, 1740, 700]
         font: diagram_monospace_tiny
         source: {file: "figures:self_supervised/listings/test_000000_view_2_augmentations.txt"}
         highlights:
-          - {match: "random_crop|random_rotation|random_perspective", sentences: [2]}
-          - {match: "brightness_contrast_saturation|random_gamma|random_plasma_shadow|random_blur", sentences: [2]}
+          - {match: ".", sentences: [2]}
     narration:
-      - "Here is a star of the test split and the two views its sample image draws at every evaluation, from a seed of the image; drawn again on the CPU, they match the sample image the run saved, pixel for pixel."
-      - "The first view is a crop of most of the area, mirrored and slightly warped, its colours shifted, its hue turned and hazed."
-      - "The second is another crop, rotated and warped, darker and paler, with a plasma shadow and a blur."
+      - "Here is a star of the test split and the two views its sample image draws at every evaluation, from a seed of the image, each listed with the augmentations it drew."
+      - "The first view is a crop of a fifth to the whole of the area, followed by the geometric and photometric changes its draw picked, listed beside it."
+      - "The second view draws again from the same image, so its crop and its changes differ, and the black-out and solarization types only ever appear in this second view."
       - "The shape is what both views keep, and the loss pulls their embeddings together, so the backbone has to learn what survives these changes, and nothing else."
 
   - kind: html
