@@ -80,6 +80,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 |---|---|---|
 | `DetectionLevels.<5, 6, 7>.anchors` | scales `[32, 64]`, `[64, 128]`, `[128, 256]`, aspect ratios `[0.5, 1.0, 2.0]` | 6 anchors per cell, 2304 in all at 512 pixels; the `A6.32-256.e7b72c` token of the run name; `anchor_recall.csv` measures how they fit the training objects |
 | `DetectionLevels.<level>.region_proposal`, `.detector` | `[2, 32]`; RoIAlign 7, `[2, 32]`, fully connected `[64, 32]` | the heads of every level (`RBN-R2x32`, `DSE-DRES-DBN-D7.2x32.64.32`) |
+| `Neck.type`, `output_channels`, `normalization` | `none`, 32, batch | the heads read the blocks; `feature_pyramid` or `path_aggregation` merges the levels into `output_channels` channels first (`L567-NFPN32BN`) |
 | `RegionProposal.foreground_iou_threshold.min`, `background_iou_threshold` | 0.5; min 0.0, max 0.3 | anchor labels: positive from 0.5, negative below 0.3, ignored in between, plus the best anchor of every object |
 | `RegionProposal.training`, `.inference`, `nms_iou_threshold` | 1000 then 500; 500 then 250; 0.7 | proposals given to the detection heads per image |
 | `RegionProposal.number_training_positives`, `total_training_samples` | 128, 256 | anchors sampled per image for the region proposal losses |

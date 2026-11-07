@@ -95,6 +95,17 @@ def set_overlapping_thresholds(configuration: Dict[str, Any]) -> None:
     configuration["RegionProposal"]["background_iou_threshold"]["max"] = 0.6
 
 
+def set_invalid_neck_settings(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the neck an unknown type, no output channel and an unknown normalization.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Neck"] = {"type": "bidirectional_pyramid", "output_channels": 0,
+                             "normalization": {"feature_map_normalization": "group"}}
+
+
 def set_invalid_detection_level_settings(configuration: Dict[str, Any]) -> None:
     """
     Gives the fifth detection level an anchor scale of zero, a negative aspect ratio, region proposal convolutions
@@ -212,6 +223,10 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
     (set_image_size, ["'Data.image_settings.size' (1000) must be a multiple of 64, 2 to the power of the 6 Backbone "
                       "pooling layers"]),
     (set_overlapping_thresholds, ["'RegionProposal.background_iou_threshold.max' (0.6) must be <="]),
+    (set_invalid_neck_settings, ["'Neck.type' must be one of ['none', 'feature_pyramid', 'path_aggregation'], got "
+                                 "'bidirectional_pyramid'.", "'Neck.output_channels'",
+                                 "'Neck.normalization.feature_map_normalization' must be one of ['batch', 'layer', "
+                                 "'none'], got 'group'."]),
     (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
                                             "got [0, 64].",
                                             "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "

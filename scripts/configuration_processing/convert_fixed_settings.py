@@ -3,13 +3,15 @@ When run, removes from configuration files written before the fixed settings the
 the code (FIXED_SETTINGS, refused by check_removed_settings of
 vision_training/configuration_processing/common_checks.py: the settings of the first conversion, then the batch
 normalization momentums of the task heads, the strict fallback assignment and the localisation loss beta of the
-detection tasks), so that the training_configuration.yaml of the saved runs,
-reloaded to resume a run, by scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of
-vision_training/main.py load again.
+detection tasks), and adds the sections a task now requires with the values reproducing the runs written before them
+(ADDED_SECTIONS: the 'Neck' of the detection tasks, without neck), so that the training_configuration.yaml of the
+saved runs, reloaded to resume a run, by scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch
+files of vision_training/main.py load again.
 The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
 sections left empty are removed, and the settings still held by some tasks are kept in their files (the sequence
 settings of the sequence tasks, the number of candidate frames of the frame selection). Every converted file is first
-copied to a backup, and a conversion changing anything else than the removed settings stops the script. A file holding
+copied to a backup, and a conversion changing anything else than the removed settings and the added sections stops
+the script. A file holding
 another value than the fixed one is listed with the values its runs change to, and a file whose backbone would change
 (inception modules starting at another block) is refused, the code no longer building its layers.
 """
@@ -55,6 +57,24 @@ FIXED_VALUES = {"ExperimentConfiguration.evaluation.top_k": TOP_K_ACCURACY_CLASS
                 "Data.data_augmentation.shuffle_frames.activated": False,
                 "RegionProposal.strict_fallback_assignment": False, "RegionProposal.localisation_loss_beta": "1/9",
                 "Detector.localisation_loss_beta": "1/9"}
+
+# Text of the 'Neck' section added to the detection runs written before the neck, whose heads read the blocks
+NECK_SECTION_TEXT = """# Neck between the level blocks and the heads, every level keeping the size of its block.
+Neck:
+  # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels) or "path_aggregation"
+  # (the feature pyramid, then a bottom-up path from the fine levels).
+  type: "none"
+  # Channels of every level after the neck, read by the heads (unused with "none").
+  output_channels: 32
+  normalization:
+    # "batch", "layer" (over channels) or "none"
+    feature_map_normalization: "batch"
+"""
+
+# Sections a task now requires, added to the files of its runs written before them: the tasks holding the section, the
+# top-level section it is written before, and its text, whose values reproduce those runs
+ADDED_SECTIONS = {"Neck": {"tasks": ["object_detection", "instance_segmentation"], "before": "RegionProposal",
+                           "text": NECK_SECTION_TEXT}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -219,6 +239,43 @@ def remove_fixed_settings(configuration_text: str, task: str) -> str:
     return "\n".join(kept_lines)
 
 
+def add_required_sections(configuration_text: str, task: str, configuration_path: Path) -> str:
+    """
+    Adds to the text of a configuration file the sections of ADDED_SECTIONS its task requires and it does not hold,
+    each written before its top-level section and the comment lines directly above it, followed by a blank line, so
+    that the runs written before the section load again with the values that reproduce them.
+
+    Args:
+        configuration_text (str): The text of the configuration file.
+        task (str): The 'ExperimentConfiguration.task' of the file.
+        configuration_path (Path): The file, named in the error.
+
+    Returns:
+        str: The text with the added sections, identical when the file holds them or its task requires none.
+
+    Raises:
+        ValueError: If the file lacks the top-level section an added section is written before.
+    """
+    lines = configuration_text.split("\n")
+    for section_name, added_section in ADDED_SECTIONS.items():
+        # Sections of other tasks, and sections the file already holds
+        top_level_keys = [key_match.group(2) for key_match in map(KEY_LINE_PATTERN.match, lines)
+                          if key_match is not None and not key_match.group(1)]
+        if task not in added_section["tasks"] or section_name in top_level_keys:
+            continue
+        if added_section["before"] not in top_level_keys:
+            raise ValueError(f"{format_path_link(path=configuration_path)} has no '{added_section['before']}' section "
+                             f"to write the '{section_name}' section before.")
+
+        # Line of the following section, moved above the comment lines describing it
+        insertion_index = next(line_index for line_index, line in enumerate(lines)
+                               if line.startswith(f"{added_section['before']}:"))
+        while insertion_index > 0 and lines[insertion_index - 1].startswith("#"):
+            insertion_index -= 1
+        lines[insertion_index:insertion_index] = added_section["text"].split("\n")
+    return "\n".join(lines)
+
+
 def flatten_settings(settings: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
     """
     Gives every setting of a loaded configuration under its dotted path, so that a converted file can be compared
@@ -243,9 +300,9 @@ def flatten_settings(settings: Dict[str, Any], prefix: str = "") -> Dict[str, An
 
 def check_conversion(original_text: str, converted_text: str, task: str, configuration_path: Path) -> List[str]:
     """
-    Checks that a conversion only removed the fixed settings the task no longer holds, every other setting keeping
-    its value so that a mistake of the text edition never changes a run, and that the backbone of the file keeps its
-    layers. Lists the removed settings whose value differs from the one the code now uses, which change the runs of
+    Checks that a conversion only removed the fixed settings the task no longer holds and added the sections of
+    ADDED_SECTIONS the task requires and the file lacked, with their values, every other setting keeping its value so
+    that a mistake of the text edition never changes a run, and that the backbone of the file keeps its layers. Lists the removed settings whose value differs from the one the code now uses, which change the runs of
     the file once converted (e.g. a launch file with 'resume_training: false' resuming its run).
 
     Args:
@@ -258,8 +315,8 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
         List[str]: Every removed setting holding another value than the fixed one, as '<path> <value> -> <fixed>'.
 
     Raises:
-        ValueError: If the converted file loses or changes another setting, or keeps a removed one, or if the inception
-            modules of its backbone start at another block than the fixed one.
+        ValueError: If the converted file loses or changes another setting, keeps a removed one or lacks an added one,
+            or if the inception modules of its backbone start at another block than the fixed one.
     """
     removed_paths = [key_path for key_path in FIXED_SETTINGS if task not in REMOVED_SETTINGS[key_path][1]]
     original_settings = flatten_settings(settings=yaml.safe_load(original_text))
@@ -281,6 +338,13 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
                                     for removed_path in removed_paths)}
     expected_settings = {key_path: value for key_path, value in expected_settings.items()
                          if value != {} or key_path in converted_settings}
+
+    # Settings of the sections the task requires and the original file lacked, with the values of ADDED_SECTIONS
+    for section_name, added_section in ADDED_SECTIONS.items():
+        original_section_paths = [key_path for key_path in original_settings
+                                  if key_path == section_name or key_path.startswith(f"{section_name}.")]
+        if task in added_section["tasks"] and not original_section_paths:
+            expected_settings.update(flatten_settings(settings=yaml.safe_load(added_section["text"])))
     if converted_settings != expected_settings:
         # Settings lost or added by the conversion, and settings whose value changed
         changed_paths = sorted(set(expected_settings) ^ set(converted_settings) |
@@ -351,8 +415,9 @@ def list_configuration_files(run_roots: List[Path], configuration_folders: List[
 def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Path], write_files: bool,
                            backup_suffix: str) -> List[Path]:
     """
-    Converts the configuration files of the saved runs and of the launch folders to the fixed settings, each checked
-    by check_conversion and copied to its backup before being written, or only lists them without writing anything.
+    Converts the configuration files of the saved runs and of the launch folders to the fixed settings and the added
+    sections, each checked by check_conversion and copied to its backup before being written, or only lists them
+    without writing anything.
 
     Args:
         run_roots (List[Path]): The folders searched for the training_configuration.yaml of run folders.
@@ -362,7 +427,7 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
             earlier one are never overwritten.
 
     Returns:
-        List[Path]: The files holding fixed settings, converted when write_files is True.
+        List[Path]: The files holding fixed settings or lacking an added section, converted when write_files is True.
 
     Raises:
         FileExistsError: If the backup of a file to convert already exists, which would be overwritten.
@@ -377,15 +442,20 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
         if not isinstance(settings, dict) or "ExperimentConfiguration" not in settings:
             continue
 
-        # Conversion of the text, checked setting by setting, the files without fixed settings left as they are
+        # Conversion of the text, checked setting by setting, the files without fixed settings nor missing sections
+        # left as they are
         task = settings["ExperimentConfiguration"]["task"]
-        converted_text = remove_fixed_settings(configuration_text=original_text, task=task)
+        text_without_fixed_settings = remove_fixed_settings(configuration_text=original_text, task=task)
+        converted_text = add_required_sections(configuration_text=text_without_fixed_settings, task=task,
+                                               configuration_path=configuration_path)
         if converted_text == original_text:
             continue
         changed_values = check_conversion(original_text=original_text, converted_text=converted_text, task=task,
                                           configuration_path=configuration_path)
         converted_paths.append(configuration_path)
-        removed_lines = len(original_text.split("\n")) - len(converted_text.split("\n"))
+        removed_lines = len(original_text.split("\n")) - len(text_without_fixed_settings.split("\n"))
+        added_lines = len(converted_text.split("\n")) - len(text_without_fixed_settings.split("\n"))
+        line_counts = f"{removed_lines} lines removed, {added_lines} added"
         path_link = format_path_link(path=configuration_path, label=str(configuration_path))
 
         # The values the runs of the file change to once converted, listed before anything is written
@@ -393,7 +463,7 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
             print_color(color="yellow", output=f"Values changed by the conversion of {path_link}: "
                                                f"{', '.join(changed_values)}")
         if not write_files:
-            print_color(color="blue", output=f"To convert ({removed_lines} lines removed): {path_link}")
+            print_color(color="blue", output=f"To convert ({line_counts}): {path_link}")
             continue
 
         # Backup of the original, never overwritten, then the converted file
@@ -405,7 +475,7 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src=configuration_path, dst=backup_path)
         configuration_path.write_text(data=converted_text, encoding="utf-8")
-        print_color(color="green", output=f"Converted ({removed_lines} lines removed): {path_link}, backup "
+        print_color(color="green", output=f"Converted ({line_counts}): {path_link}, backup "
                                           f"{format_path_link(path=backup_path)}")
     return converted_paths
 
@@ -418,11 +488,11 @@ if __name__ == "__main__":
                  repository_folder / "ficha_previous_experiments", repository_folder / "hyperparameter_experiments"]
     # Folders of launch files, converted with their subfolders, their backups going to 'previous_configurations'
     configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files"]
-    # False to only list the files holding fixed settings, True to convert them
+    # False to only list the files holding fixed settings or lacking an added section, True to convert them
     write_files = False
-    # Suffix of the backups of this conversion: '_before_fixed_settings' was taken by the first one (2026-10-29), the
-    # head settings fixed on 2026-11-05 taking '_before_fixed_head_settings'
-    backup_suffix = "_before_fixed_head_settings"
+    # Suffix of the backups of this conversion: '_before_fixed_settings' (2026-10-29), '_before_fixed_head_settings'
+    # (2026-11-05), then '_before_neck' for the 'Neck' section added on 2026-11-07
+    backup_suffix = "_before_neck"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

@@ -35,6 +35,7 @@ class InferenceDetector(nn.Module):
         super(InferenceDetector, self).__init__()
 
         self.backbone = model.backbone
+        self.neck = model.neck
         self.region_proposer_dictionary = model.region_proposer_dictionary
         self.detector_heads_dictionary = model.detector_heads_dictionary
 
@@ -71,19 +72,23 @@ class InferenceDetector(nn.Module):
 
     def detect_objects(self, images: torch.Tensor) -> Dict[str, Any]:
         """
-        Runs every detection step on a batch of preprocessed images (backbone, region proposals, batched proposal
-        filter, detection heads and postprocessing), keeping the intermediate results that the inference instance
-        segmenter needs to predict the mask of every detection with the head of its level.
+        Runs every detection step on a batch of preprocessed images (backbone, neck, region proposals, batched
+        proposal filter, detection heads and postprocessing), keeping the intermediate results that the inference
+        instance segmenter needs to predict the mask of every detection with the head of its level.
 
         Args:
             images (torch.Tensor): Float BGR images in [0, 255] of shape [B, 3, H, W], resized and padded to the network
                 input size.
 
         Returns:
-            Dict[str, Any]: The backbone 'feature_maps' keyed by level name, the 'proposal_levels' [B, P] level index
-                of every filtered proposal, and the 'detections' of postprocess_detections.
+            Dict[str, Any]: The 'feature_maps' after the neck keyed by level name (read by the mask heads too), the
+                'proposal_levels' [B, P] level index of every filtered proposal, and the 'detections' of
+                postprocess_detections.
         """
-        _, feature_maps = self.backbone(input_tensor=images)
+        _, backbone_feature_maps = self.backbone(input_tensor=images)
+
+        # Merge the levels through the neck, as in training ('none' returns the backbone blocks)
+        feature_maps = self.neck(feature_maps=backbone_feature_maps)
 
         # Run every region proposal head and concatenate the proposals of all levels, remembering their level
         proposal_scores, proposal_boxes, proposal_levels = [], [], []

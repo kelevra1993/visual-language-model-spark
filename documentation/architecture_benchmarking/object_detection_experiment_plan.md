@@ -48,13 +48,14 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 1 | `learning_rate` | 1e-3, 2e-3, 2e-4 (1e-4 not needed) | 15,000 | done, 1e-3 kept |
 | 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1, 0.15 (0.2 dropped) | 15,000 | done, 0.1 kept |
 | 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
-| 3 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 2b |
-| 4 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | after stage 3, code |
-| 5 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 4, code |
-| 6 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 5, code |
-| 7 | Neck (`suggestions.md` items 1 and 37) | none, feature pyramid, path aggregation | 15,000 | after stage 6, code |
+| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | code, then run_9 and run_10 |
+| 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against the better of stage 3 | 15,000 | after stage 3, code of stage 3 |
+| 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 4, code |
+| 6 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 5 |
+| 7 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 6, code |
+| 8 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | after stage 7, code |
 
-The code of stages 4 to 7 is merged only after the last launch of stage 3, so that the launches of stages 2 to 3 all run the same code (the driver starts every launch with the code on `main` at that time); the easy negatives of stage 2b, merged before run_7 and reverted after run_8, left the draws of a share of 0.0 unchanged. `RegionProposal.foreground_iou_threshold.max`, read by the checks but never by the model, is removed from the configuration files in the same merge (no number changes).
+On 2026-11-07 the user reordered the stages after stage 2b by the gains the literature makes most likely (the neck, then the CIoU box loss, the detector normalization, the proposal selection per level and the anchor centres last). Every code stage is merged right before its pair, which trains against the reference kept so far on the earlier code, and is reverted when it is not better, a tie keeping the earlier code (the easy negatives of stage 2b, merged before run_7 and reverted after run_8, left the draws of a share of 0.0 unchanged). `RegionProposal.foreground_iou_threshold.max`, read by the checks but never by the model, is removed from the configuration files with the code of a later stage (no number changes).
 
 ## Launches
 
@@ -70,7 +71,7 @@ The learning rates were searched one pair at a time: 2e-3 first, kept if better 
 | 2e-3 | run_3, run_4 | 0.7853, 0.7244 | 0.7549 (tie: -0.0218 within the launch gap 0.0609) |
 | 2e-4 | run_5, run_6 | 0.4714, 0.4570 at 7500 | 0.4642 against 0.7010 for 1e-3 at 7500 |
 
-1e-3 was kept. At 20,000 its pair reached 0.7956 (run_1 0.8088, run_2 0.7823), the averaged weights ahead of the trained ones at every evaluation (0.7102 for the trained weights at 20,000). At 15,000, run_1 found almost every object (proposal recall at 0.5 of 0.998, 0.995 for the small objects) with a mAP@0.5 of 0.97, but its boxes are not tight: mAP@0.75 0.93 and mAP@0.95 0.05, which stages 4 to 7 address.
+1e-3 was kept. At 20,000 its pair reached 0.7956 (run_1 0.8088, run_2 0.7823), the averaged weights ahead of the trained ones at every evaluation (0.7102 for the trained weights at 20,000). At 15,000, run_1 found almost every object (proposal recall at 0.5 of 0.998, 0.995 for the small objects) with a mAP@0.5 of 0.97, but its boxes are not tight: mAP@0.75 0.93 and mAP@0.95 0.05, which stages 3 to 8 address.
 
 ### Stage 2: Background IoU Minimum (6 launches, done)
 
@@ -95,23 +96,23 @@ With the minimum 0.1, `RegionProposal.easy_negative_fraction` (merged in c3068e3
 | 0.0 | run_3, run_4 | 0.7827, 0.7865 | 0.7846 | 0.0970 |
 | 0.25 | run_7, run_8 | 0.7688, 0.7622 | 0.7655 | 0.0471 |
 
-### Stage 3: Detector Normalization (2 or 4 launches, 15,000 iterations)
+### Stages 3 And 4: Neck (2 or 4 launches, 15,000 iterations)
 
-The normalization of the convolutions of the detection heads, with the minimum 0.1 kept by stage 2 and no easy negatives: batch normalization (the reference, whose launches are reused), then layer normalization, then none. Layer normalization clearly worse than batch normalization ends the search, no normalization being then unlikely to do better; layer better or tied goes on to none.
+Until now every detection level has its own region proposal and detection heads reading their backbone block directly, without any path between the levels. The neck (design in `../detection_neck_design.md`, `Neck` section of the configuration) sits between the blocks and the heads, with 32 channels on every level (those of the blocks, so that the heads keep their size) and batch normalization, as the user chose: stage 3 compares no neck with the feature pyramid (1x1 laterals and the top-down path), stage 4 path aggregation (the bottom-up path after the pyramid) with the better of the two. Both types are merged with stage 3, so that stage 4 needs no other code.
 
-| Order | Value | Launches |
-|---|---|---|
-| reference | batch | run_3, run_4 |
-| 1 | layer | run_9, run_10 |
-| 2 (unless layer is clearly worse) | none | run_11, run_12 |
+| Stage | Order | Value | Launches |
+|---|---|---|---|
+| 3 | reference | none | run_3, run_4 |
+| 3 | 1 | feature_pyramid | run_9, run_10 |
+| 4 | 1 | path_aggregation | run_11, run_12 |
 
-### Stages 4 to 7: after stage 3 (code changes)
+### Stages 5 To 8: Box Loss, Detector Normalization, Proposal Selection, Anchor Centres
 
-Every change is merged before its pair, which trains against the reference kept so far (trained on the earlier code). A fix that is not better is reverted before the next stage, a tie keeping the earlier code. The box loss and the neck are configuration settings during their stages.
+Each pair trains against the reference kept so far, the detector normalization needing no code:
 
-- **Stage 4, anchor centres (audit L1, `suggestions.md`):** the anchors are centred on the cell corners (`anchors.py`, `shifts = arange(F) * stride`) while RoIAlign and the convolutions place the cells at their centres, a constant half-stride offset the regressor has to learn: `(arange(F) + 0.5) * stride`, in the training and in the export.
-- **Stage 5, proposal selection per level (audit M3 with L7, `suggestions.md` item 3):** the pre-NMS top-k taken per level, `batched_nms` grouped by level, then the global top `post_nms`, in the proposal filter and in `InferenceDetector`, the zero-area proposals and detections removed. Level 7 had the lowest proposal recall at 0.5 of stage 1 (0.29, against 0.37 to 0.43 for levels 4 to 6).
-- **Stage 6, CIoU box loss (`suggestions.md` item 36):** 1 - CIoU between the decoded boxes of the sampled positives and their targets, in both stages, against the smooth L1 on the offsets; aimed at the mAP@0.75 to @0.95.
-- **Stage 7, neck (`suggestions.md` items 1 and 37):** no neck, then the feature pyramid (1x1 laterals to a common channel count and the top-down path), then path aggregation (the bottom-up path after it) against the better of the two. Design in `../detection_neck_design.md`.
+- **Stage 5, CIoU box loss (`suggestions.md` item 36):** 1 - CIoU between the decoded boxes of the sampled positives and their targets, in both stages, against the smooth L1 on the offsets; aimed at the mAP@0.75 to @0.95.
+- **Stage 6, detector normalization:** the normalization of the convolutions of the detection heads, batch (the reference) then layer then none, layer clearly worse than batch ending the search.
+- **Stage 7, proposal selection per level (audit M3 with L7, `suggestions.md` item 3):** the pre-NMS top-k taken per level, `batched_nms` grouped by level, then the global top `post_nms`, in the proposal filter and in `InferenceDetector`, the zero-area proposals and detections removed. Level 7 had the lowest proposal recall at 0.5 of stage 1 (0.29, against 0.37 to 0.43 for levels 4 to 6).
+- **Stage 8, anchor centres (audit L1, `suggestions.md`):** the anchors are centred on the cell corners (`anchors.py`, `shifts = arange(F) * stride`) while RoIAlign and the convolutions place the cells at their centres, a constant half-stride offset the regressor has to learn: `(arange(F) + 0.5) * stride`, in the training and in the export.
 
-A pair trains in about 15 hours at 15,000 iterations (two launches side by side, test evaluations included), so stage 3 takes one or two pairs (0.6 to 1.3 days) and stages 4 to 7 five to six pairs.
+A pair trains in about 15 hours at 15,000 iterations (two launches side by side, test evaluations included), so stages 3 to 8 take six or seven pairs (3.5 to 4 days of training).

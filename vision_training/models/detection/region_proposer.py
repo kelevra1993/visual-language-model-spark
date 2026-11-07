@@ -282,7 +282,7 @@ class RegionProposalFilter(nn.Module):
         Args:
             proposal_boxes (torch.Tensor): A tensor containing the proposed bounding boxes of shape [B, N, 4].
             proposal_scores (torch.Tensor): A tensor containing the raw objectness logits of shape [B, N].
-            proposal_origins (torch.Tensor): A tensor tracking the FPN level origin of shape [B, N].
+            proposal_origins (torch.Tensor): A tensor tracking the detection level origin of shape [B, N].
             input_image_size (int): The spatial dimension (height and width) of the square input image.
 
         Returns:

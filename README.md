@@ -259,8 +259,8 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 Details: [reference](documentation/reference/tasks_reference.md#classification-cls) · [workflow](documentation/task%20workflows/classification_workflow.md)
 
 ### Object Detection (DET)
-A two-stage detector predicting the box, class and score of every object, its region proposal and detection heads running on several backbone levels. The splits hold a COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels; `vision_training/data/data_retriever.py` downloads COCO 2017.
-- **Configuration**: `object_detection/configuration_example.yaml`, with `DetectionLevels` (one entry per backbone block feeding a level, with its anchors, region proposal head and detection head), `RegionProposal`, `Detector`, `Optimization.loss_weights` and the evaluation keys `score_threshold`, `target_precision` and `error_dumps`.
+A two-stage detector predicting the box, class and score of every object, its region proposal and detection heads running on several backbone levels, read directly or through a feature pyramid or path aggregation neck. The splits hold a COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels; `vision_training/data/data_retriever.py` downloads COCO 2017.
+- **Configuration**: `object_detection/configuration_example.yaml`, with `DetectionLevels` (one entry per backbone block feeding a level, with its anchors, region proposal head and detection head), `Neck` (`none`, `feature_pyramid` or `path_aggregation` between the blocks and the heads), `RegionProposal`, `Detector`, `Optimization.loss_weights` and the evaluation keys `score_threshold`, `target_precision` and `error_dumps`.
 - **Evaluation**: the mAP at IoU 0.5, 0.75, 0.95 and 0.5:0.95, the mAP and mean average recall by object size, the anchor and proposal recall, a confusion matrix with a `background` row and column, the score threshold of every class and the images of the false positives, missed objects and wrong classes.
 
 <p align="center">
@@ -370,6 +370,8 @@ A component of a trained run initialises the same component of a new run, of the
 | `RegionProposal` | region proposal heads of every detection level | DET, INS |
 | `Detector` | detection heads of every detection level, with their classification and box regression layers | DET, INS |
 | `MaskHead` | mask heads of every detection level, with their mask prediction layers | INS |
+
+The heads of the detection tasks read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`.
 
 For example, a backbone trained on ImageNet classification initialises a detector, a segmenter or a sequence model:
 

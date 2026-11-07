@@ -1,14 +1,15 @@
 """
 Tests of scripts/configuration_processing/convert_fixed_settings.py, the conversion of the configuration files written
-before the fixed settings: the values changed by a conversion, and the refusals of a conversion changing another
-setting or the backbone.
+before the fixed settings and the added sections: the values changed by a conversion, the neck section added to the
+detection files, and the refusals of a conversion changing another setting or the backbone.
 """
 
 import pytest
 
 from pathlib import Path
 
-from scripts.configuration_processing.convert_fixed_settings import check_conversion, remove_fixed_settings
+from scripts.configuration_processing.convert_fixed_settings import (NECK_SECTION_TEXT, add_required_sections,
+                                                                      check_conversion, remove_fixed_settings)
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 
@@ -135,6 +136,50 @@ def test_conversion_removes_the_fixed_head_settings(tmp_path: Path) -> None:
     """
     converted_text = remove_fixed_settings(configuration_text=DETECTION_CONFIGURATION_TEXT, task="object_detection")
     assert converted_text == CONVERTED_DETECTION_TEXT
+    converted_text = add_required_sections(configuration_text=converted_text, task="object_detection",
+                                           configuration_path=tmp_path / "configuration.yaml")
     changed_values = check_conversion(original_text=DETECTION_CONFIGURATION_TEXT, converted_text=converted_text,
                                       task="object_detection", configuration_path=tmp_path / "configuration.yaml")
     assert changed_values == ["RegionProposal.strict_fallback_assignment True -> False"]
+
+
+# The converted detection sections with the neck section added before the region proposal, and its comment
+CONVERTED_DETECTION_TEXT_WITH_NECK = CONVERTED_DETECTION_TEXT.replace(
+    "RegionProposal:\n", f"{NECK_SECTION_TEXT}\n# Region proposal heads\nRegionProposal:\n")
+
+
+def test_conversion_adds_the_neck_to_the_detection_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the 'Neck' section without neck before the region proposal section and its
+    comment in the detection files written before the neck, and only there: a classification file and a detection file
+    holding a neck are left as they are, a detection file without region proposal section is refused, and the check
+    refuses a converted file lacking the section or holding other values than those reproducing its runs.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    original_text = CONVERTED_DETECTION_TEXT.replace("RegionProposal:\n", "# Region proposal heads\nRegionProposal:\n")
+    converted_text = add_required_sections(configuration_text=original_text, task="object_detection",
+                                           configuration_path=configuration_path)
+    assert converted_text == CONVERTED_DETECTION_TEXT_WITH_NECK
+    assert check_conversion(original_text=original_text, converted_text=converted_text, task="object_detection",
+                            configuration_path=configuration_path) == []
+
+    # Files of another task or already holding the section are left as they are
+    classification_text = CONVERTED_CLASSIFICATION_TEXT
+    assert add_required_sections(configuration_text=classification_text, task="classification",
+                                 configuration_path=configuration_path) == classification_text
+    assert add_required_sections(configuration_text=converted_text, task="object_detection",
+                                 configuration_path=configuration_path) == converted_text
+
+    # A detection file without region proposal section, and conversions without the section or with another neck
+    with pytest.raises(expected_exception=ValueError, match="has no 'RegionProposal' section"):
+        add_required_sections(configuration_text="ExperimentConfiguration:\n  task: object_detection\n",
+                              task="object_detection", configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError, match="Neck.type"):
+        check_conversion(original_text=original_text, converted_text=original_text, task="object_detection",
+                         configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError, match="Neck.type"):
+        check_conversion(original_text=original_text, task="object_detection", configuration_path=configuration_path,
+                         converted_text=converted_text.replace('type: "none"', 'type: "feature_pyramid"'))

@@ -13,6 +13,7 @@ from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.task_model import TaskModel
 from vision_training.models.detection.anchors import Anchors
+from vision_training.models.detection.feature_neck import FeatureNeck
 from vision_training.models.detection.region_proposer import RegionProposal, RegionProposalFilter
 from vision_training.models.detection.detection_head import DetectionHead
 from vision_training.models.detection.target_assignment import (turn_boxes_to_transformation_targets,
@@ -51,6 +52,7 @@ class TwoStageDetector(TaskModel):
         self.data_configuration = configuration['Data']
         self.backbone_configuration = configuration['Backbone']
         self.detection_levels_configuration = configuration['DetectionLevels']
+        self.neck_configuration = configuration['Neck']
         self.region_proposal_configuration = configuration['RegionProposal']
         self.detector_configuration = configuration['Detector']
 
@@ -71,14 +73,24 @@ class TwoStageDetector(TaskModel):
                                        detection_convolution_block_indices=detection_convolution_block_indices)
 
         # Pre-compute spatial dimensions and channel depths of the backbone's feature maps just once
-        self.detection_input_information = self.backbone.compute_detection_input_information()
+        backbone_level_information = self.backbone.compute_detection_input_information()
 
-        # Initialize the region proposal dictionary (since we are using a Feature Pyramid Network Approach)
+        # Build the neck between the backbone blocks and the heads ('none' builds no layer, the heads then reading the
+        # blocks), whose output sizes and channels are those the heads of every level are built from
+        neck_normalization = self.neck_configuration["normalization"]["feature_map_normalization"]
+        self.neck = FeatureNeck(neck_type=self.neck_configuration["type"], level_information=backbone_level_information,
+                                output_channels=self.neck_configuration["output_channels"],
+                                feature_map_normalization=neck_normalization,
+                                batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, device=self.device,
+                                dtype=self.dtype)
+        self.detection_input_information = self.neck.compute_output_information()
+
+        # Initialize the region proposal head of every detection level
         self.region_proposer_dictionary = self._build_region_proposer_dictionary(
             region_proposal_configuration=self.region_proposal_configuration,
             detection_levels_configuration=self.detection_levels_configuration)
 
-        # Initialize the detection head dictionary (each FPN scale gets its own detection head)
+        # Initialize the detection head of every detection level
         self.detector_heads_dictionary = self._build_detector_heads_dictionary(
             detector_configuration=self.detector_configuration,
             detection_levels_configuration=self.detection_levels_configuration)
@@ -96,9 +108,9 @@ class TwoStageDetector(TaskModel):
         """
         Dynamically constructs the Region Proposal components tailored for each detection feature map scale.
 
-        This builder method queries the Backbone for the exact spatial dimensions and channel depths
-        of the intermediate feature maps. It then reads the anchors and the convolutions of every detection level to
-        instantiate a distinct RegionProposal module for each scale level in the Feature Pyramid Network.
+        This builder method reads the exact spatial dimensions and channel depths of the feature maps of every
+        detection level after the neck (those of the backbone blocks without neck). It then reads the anchors and the
+        convolutions of every detection level to instantiate a distinct RegionProposal module for each level.
 
         Args:
             region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' section, giving the normalization
@@ -114,14 +126,14 @@ class TwoStageDetector(TaskModel):
         region_proposer_dictionary = nn.ModuleDict()
         feature_map_normalization = region_proposal_configuration["normalization"]["feature_map_normalization"]
 
-        # Iterate over the sequentially ordered detection blocks computed by the backbone
+        # Iterate over the sequentially ordered detection blocks given by the neck
         for index_string in self.detection_input_information.keys():
             # Retrieve the anchor scales and ratios of this scale level
             anchor_configuration = detection_levels_configuration[index_string]["anchors"]
             scales = anchor_configuration["scales"]
             aspect_ratios = anchor_configuration["aspect_ratios"]
 
-            # Dynamically fetch the accurate structural size and channel depth generated by the Backbone
+            # Dynamically fetch the accurate structural size and channel depth of the level after the neck
             feature_map_size = self.detection_input_information[index_string]["feature_map_size"]
             input_channels = self.detection_input_information[index_string]["number_channels"]
 
@@ -140,9 +152,9 @@ class TwoStageDetector(TaskModel):
         """
         Dynamically constructs the Detection Head components tailored for each detection feature map scale.
 
-        This builder method queries the Backbone for the exact spatial dimensions and channel depths
-        of the intermediate feature maps. It then reads the detection head of every detection level to
-        instantiate a distinct DetectionHead module for each scale level in the Feature Pyramid Network.
+        This builder method reads the exact spatial dimensions and channel depths of the feature maps of every
+        detection level after the neck (those of the backbone blocks without neck). It then reads the detection head
+        of every detection level to instantiate a distinct DetectionHead module for each level.
 
         Args:
             detector_configuration (Dict[str, Any]): The 'Detector' section, giving the normalization and the
@@ -159,12 +171,12 @@ class TwoStageDetector(TaskModel):
 
         feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
 
-        # Iterate over the sequentially ordered detection blocks computed by the backbone
+        # Iterate over the sequentially ordered detection blocks given by the neck
         for index_string in self.detection_input_information.keys():
             # Retrieve the detection head configuration of this scale level
             specific_configuration = detection_levels_configuration[index_string]["detector"]
 
-            # Dynamically fetch the accurate structural size and channel depth generated by the Backbone
+            # Dynamically fetch the accurate structural size and channel depth of the level after the neck
             feature_map_size = self.detection_input_information[index_string]["feature_map_size"]
             input_channels = self.detection_input_information[index_string]["number_channels"]
 
@@ -182,8 +194,8 @@ class TwoStageDetector(TaskModel):
         """
         Aggregates the base unbatched anchors across all RegionProposal modules.
         
-        This method concatenates the absolute base anchors from every scale level in the 
-        Feature Pyramid Network into a single unified tensor. This provides easy global 
+        This method concatenates the absolute base anchors from every detection level
+        into a single unified tensor. This provides easy global 
         access to all anchors via `model.anchors`.
         
         Returns:
@@ -283,7 +295,7 @@ class TwoStageDetector(TaskModel):
             if batch_size is None:
                 batch_size = classification_scores.shape[0]
 
-            # Generate origin tracker to know which FPN level these proposals came from
+            # Generate origin tracker to know which detection level these proposals came from
             origin_tensor = torch.full_like(input=classification_scores, fill_value=int(detection_index_string),
                                             dtype=torch.int64)
 
@@ -625,10 +637,11 @@ class TwoStageDetector(TaskModel):
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
-        Runs every stage of the two-stage detector (backbone, region proposals, proposal filter, target assignment,
-        detection heads, postprocessing and losses) and returns its output dictionary with the intermediate results
-        that the instance segmenter extends with its masks: the backbone feature maps the mask heads pool from, and
-        the aggregated detections holding the level and matched ground truth of every sampled proposal.
+        Runs every stage of the two-stage detector (backbone, neck, region proposals, proposal filter, target
+        assignment, detection heads, postprocessing and losses) and returns its output dictionary with the
+        intermediate results that the instance segmenter extends with its masks: the feature maps of the levels after
+        the neck that the mask heads pool from, and the aggregated detections holding the level and matched ground
+        truth of every sampled proposal.
 
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
@@ -638,7 +651,8 @@ class TwoStageDetector(TaskModel):
                 of shape [Num_GT].
 
         Returns:
-            Dict[str, Any]: The 'backbone_output_tensor_dictionary' (feature maps keyed by detection level), the
+            Dict[str, Any]: The 'backbone_output_tensor_dictionary' (feature maps keyed by detection level, after the
+                neck, the backbone blocks themselves without neck), the
                 'aggregated_detections_dictionary' (see aggregate_detection_outputs) and the
                 'model_output_dictionary', a unified dictionary containing:
                 - "classification_scores" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes].
@@ -657,6 +671,9 @@ class TwoStageDetector(TaskModel):
         """
         # Pass the raw image through the backbone to extract the multiscale feature maps
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
+
+        # Merge the levels through the neck, whose outputs are read by every head ('none' returns the blocks)
+        backbone_output_tensor_dictionary = self.neck(feature_maps=backbone_output_tensor_dictionary)
 
         # Execute the Region Proposal networks across all extracted intermediate feature maps
         region_proposal_output_tensor_dictionary = self._forward_region_proposals(
@@ -750,13 +767,34 @@ class TwoStageDetector(TaskModel):
         """
         Prints a structural summary of the overarching TwoStageDetector architecture.
         
-        This method delegates to the underlying Backbone to print its layer-by-layer 
-        spatial dimension summary, then prints the Region Proposal summary, and finally 
-        the Detection summary, ensuring the structural integrity of the visual pipeline.
+        This method delegates to the underlying Backbone to print its layer-by-layer
+        spatial dimension summary, then prints the Neck, the Region Proposal and finally
+        the Detection summaries, ensuring the structural integrity of the visual pipeline.
         """
         self.backbone.print_summary()
+        self.print_neck_summary()
         self.print_region_proposal_summary()
         self.print_detection_summary()
+
+    def print_neck_summary(self) -> None:
+        """
+        Prints the neck between the backbone blocks and the heads at the launch of every detection and instance
+        segmentation training: its type and, with a neck, its normalization and the size and channels of every level
+        read by the heads.
+        """
+        console = Console(width=60)
+        summary_text = f"[bold]Type:[/bold] {self.neck.neck_type}"
+
+        # With a neck, list its normalization and the maps it gives to the heads of every level
+        if self.neck.neck_type != "none":
+            normalization_name = str(object=self.neck_configuration["normalization"]["feature_map_normalization"])
+            summary_text += f"\n[bold]Normalization Strategy:[/bold] {normalization_name.capitalize()}\n"
+            for level_name, level_information in self.detection_input_information.items():
+                feature_map_size = level_information["feature_map_size"]
+                summary_text += (f"\n  - Level {level_name} : [{feature_map_size}, {feature_map_size}], "
+                                 f"{level_information['number_channels']} channels")
+
+        console.print(Panel(summary_text, title="[bold]Neck Architecture[/bold]", border_style="blue"))
 
     def print_region_proposal_summary(self) -> None:
         """
@@ -849,10 +887,11 @@ class TwoStageDetector(TaskModel):
     def get_size_components(self) -> Dict[str, nn.Module]:
         """
         Lists the components of the detector whose size is reported by the model size summary of TaskModel: the
-        backbone, the region proposal heads, the detection heads and the whole detector.
+        backbone, the neck when it has layers, the region proposal heads, the detection heads and the whole detector.
 
         Returns:
             Dict[str, nn.Module]: The display name and module of every component.
         """
-        return {"Backbone": self.backbone, "Region Proposal Heads": self.region_proposer_dictionary,
+        neck_component = {"Neck": self.neck} if self.neck.neck_type != "none" else {}
+        return {"Backbone": self.backbone, **neck_component, "Region Proposal Heads": self.region_proposer_dictionary,
                 "Detection Heads": self.detector_heads_dictionary, "Total Model": self}

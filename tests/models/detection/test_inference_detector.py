@@ -48,12 +48,17 @@ def test_postprocess_detections_threshold_nms_and_padding(suppress_candidates_on
     assert detections["final_detection_proposal_indices"].tolist() == [[2, 0, 0, 0]]
 
 
-def test_inference_detector_matches_the_eager_model() -> None:
+@pytest.mark.parametrize(argnames="neck_type", argvalues=["none", "path_aggregation"])
+def test_inference_detector_matches_the_eager_model(neck_type: str) -> None:
     """
     Verifies that the export-friendly inference detector reproduces exactly the detections of the eager
-    TwoStageDetector in evaluation mode, on the same weights and images.
+    TwoStageDetector in evaluation mode, on the same weights and images, without neck and with the neck applying both
+    the top-down and the bottom-up paths.
+
+    Args:
+        neck_type (str): The 'Neck.type' of the detector.
     """
-    model = build_test_model(dtype=torch.float32)
+    model = build_test_model(dtype=torch.float32, neck_type=neck_type)
     detector = InferenceDetector(model=model).eval()
     images = torch.rand(size=(2, 3, 512, 512)) * 255.0
 
@@ -67,15 +72,18 @@ def test_inference_detector_matches_the_eager_model() -> None:
     assert torch.allclose(input=boxes, other=eager_outputs["final_detection_boxes"])
 
 
-def test_torchscript_round_trip(tmp_path: Path) -> None:
+@pytest.mark.parametrize(argnames="neck_type", argvalues=["none", "path_aggregation"])
+def test_torchscript_round_trip(tmp_path: Path, neck_type: str) -> None:
     """
     Verifies that the traced TorchScript detector, saved and reloaded like the Triton PyTorch backend does,
-    reproduces the eager inference detector, including for a batch size different from the traced one.
+    reproduces the eager inference detector, including for a batch size different from the traced one, without neck
+    and with the neck whose level sizes are fixed numbers in the trace.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        neck_type (str): The 'Neck.type' of the detector.
     """
-    detector = InferenceDetector(model=build_test_model(dtype=torch.float32)).eval()
+    detector = InferenceDetector(model=build_test_model(dtype=torch.float32, neck_type=neck_type)).eval()
     model_path = tmp_path / "model.pt"
 
     with torch.no_grad():

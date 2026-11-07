@@ -21,9 +21,10 @@ from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
-from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, disable_pretrained_settings,
-                                                   freeze_batch_normalization_statistics, freeze_component,
-                                                   load_pretrained_component, load_segmentation_class_layers)
+from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, compare_component_configurations,
+                                                   disable_pretrained_settings, freeze_batch_normalization_statistics,
+                                                   freeze_component, load_pretrained_component,
+                                                   load_segmentation_class_layers)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import save_checkpoint
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
@@ -462,6 +463,40 @@ def test_detection_heads_initialise_an_instance_segmenter(tmp_path: Path, capsys
     assert "The Pretrained Region Proposal Heads Were Trained With The Anchors" in console_output
     assert "Region Proposal Heads Initialised From" in console_output
     assert "Detection Heads Initialised From" in console_output
+
+
+@pytest.mark.parametrize(argnames=["source_neck_type", "target_neck_type"],
+                         argvalues=[("feature_pyramid", "none"), ("none", "path_aggregation"),
+                                    ("feature_pyramid", "feature_pyramid")])
+def test_detection_heads_only_move_between_runs_without_neck(source_neck_type: str, target_neck_type: str) -> None:
+    """
+    Verifies that the region proposal, detection and mask heads are refused when the source run or the run receiving
+    them has a neck, the neck itself not being transferable, and that a source run written before the neck (without
+    'Neck' section) passes its heads to a run whose neck is 'none'.
+
+    Args:
+        source_neck_type (str): The 'Neck.type' of the source run.
+        target_neck_type (str): The 'Neck.type' of the run receiving the heads.
+    """
+    configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    source_configuration = copy.deepcopy(configuration)
+    source_configuration["Neck"]["type"] = source_neck_type
+    target_configuration = copy.deepcopy(configuration)
+    target_configuration["Neck"]["type"] = target_neck_type
+
+    # Every head is refused with the neck types of both runs
+    for section_name in ["RegionProposal", "Detector", "MaskHead"]:
+        differences = compare_component_configurations(section_name=section_name,
+                                                       source_configuration=source_configuration,
+                                                       target_configuration=target_configuration)
+        assert len(differences) == 1 and "'Neck.type'" in differences[0], differences
+
+    # A source run written before the neck counts as a run without neck
+    source_configuration.pop("Neck")
+    target_configuration["Neck"]["type"] = "none"
+    for section_name in ["RegionProposal", "Detector", "MaskHead"]:
+        assert compare_component_configurations(section_name=section_name, source_configuration=source_configuration,
+                                                target_configuration=target_configuration) == []
 
 
 def get_class_configuration(task: str, number_classes: int) -> Dict[str, Any]:

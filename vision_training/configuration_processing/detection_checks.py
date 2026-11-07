@@ -1,7 +1,7 @@
 """
 Checks of the configuration sections specific to the object detection task: the detection levels (anchors, region
-proposal and detection heads of every level), the region proposal network, the detector heads, the proposal and anchor
-sampling, the weights of the losses and the evaluation settings. Run by configuration_checker.py for the
+proposal and detection heads of every level), the neck, the region proposal network, the detector heads, the proposal
+and anchor sampling, the weights of the losses and the evaluation settings. Run by configuration_checker.py for the
 object_detection task, and by instance_segmentation_checks.py for the instance segmentation task, which adds its mask
 heads to the detector.
 """
@@ -21,6 +21,7 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value)
+from vision_training.models.detection.feature_neck import NECK_TYPES
 from vision_training.utilities.os_utilities import print_color
 
 
@@ -169,6 +170,35 @@ def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:
             errors.append(f"'{key_prefix}.detector.fully_connected' must be a non-empty list of positive integers, "
                           f"got {fully_connected!r}.")
 
+    return errors
+
+
+def check_neck_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'Neck' section, the layers between the backbone blocks of the detection levels and the region
+    proposal, detection and mask heads: its type, the channels of every level after the neck and their normalization,
+    all read even without neck so that switching the type is the only change of a run with a neck. The sizes of the
+    levels, which must be whole multiples of each other, are checked by FeatureNeck once the backbone is built.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Neck' section.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    neck_type = get_configuration_value(configuration=model_configuration, key_path="Neck.type")
+    if neck_type not in NECK_TYPES:
+        errors.append(f"'Neck.type' must be one of {NECK_TYPES}, got {neck_type!r}.")
+    errors += check_positive_integers(configuration=model_configuration, key_paths=["Neck.output_channels"],
+                                      allow_zero=False)
+
+    # Normalization of every convolution of the neck
+    feature_map_normalization = get_configuration_value(configuration=model_configuration,
+                                                        key_path="Neck.normalization.feature_map_normalization")
+    if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
+        errors.append(f"'Neck.normalization.feature_map_normalization' must be one of "
+                      f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
     return errors
 
 
@@ -445,8 +475,8 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     """
     Runs every check specific to the object detection task: its evaluation settings, its label mapping, its data
     settings without the sequence settings nor the augmentation types moving the image only, its detection levels
-    (anchors and heads of every level), region proposal and detector sections, and the weights of its losses, with the
-    mask loss for the instance segmentation, which runs these checks too.
+    (anchors and heads of every level), neck, region proposal and detector sections, and the weights of its losses,
+    with the mask loss for the instance segmentation, which runs these checks too.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -462,6 +492,7 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_image_only_augmentation_types(model_configuration=model_configuration)
     errors += check_detection_levels(model_configuration=model_configuration)
+    errors += check_neck_configuration(model_configuration=model_configuration)
     errors += check_region_proposal_configuration(model_configuration=model_configuration)
     errors += check_detector_configuration(model_configuration=model_configuration)
 

@@ -212,9 +212,9 @@ The settings defining the layers must match, which is checked at launch. The ima
 | Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling` |
 | Classification head | `fully_connected`, `fully_connected_normalization`, and the image size after a `flatten` pooling |
 | Transformer with positional embedding | `maximum_sequence_length` |
-| Region proposal heads | detection levels, `region_proposal` and anchors per position of every level, normalization |
-| Detection heads | detection levels, `detector` of every level, normalization, modules |
-| Mask heads | detection levels, `mask_head` of every level, `mask_resolution`, `upsampling`, normalization, modules |
+| Region proposal heads | detection levels, `region_proposal` and anchors per position of every level, normalization, `Neck.type` `none` in both runs |
+| Detection heads | detection levels, `detector` of every level, normalization, modules, `Neck.type` `none` in both runs |
+| Mask heads | detection levels, `mask_head` of every level, `mask_resolution`, `upsampling`, normalization, modules, `Neck.type` `none` in both runs |
 
 - An object detection run can thus initialise an instance segmentation run, whose mask heads train alone with the other components frozen.
 - A resumed run does not load the pretrained component again.
