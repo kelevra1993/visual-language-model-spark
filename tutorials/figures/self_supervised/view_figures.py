@@ -4,7 +4,8 @@ matrix), made by tutorials/figures/self_supervised/figures.py: four sample image
 (a star, a circle, a triangle and a square of its test split), each written with the two views the DataAugmenter of the
 run draws for it from the seed of its sample image, and the augmentations drawn for both views of the star as the input
 viewer lists them (describe_report), the listings of the views scene. The views of the star are compared with the
-sample image the run saved, which they must match pixel for pixel.
+sample image the run saved (views.star_saved_difference), 0 only while the augmentation strengths of the code are those
+the run was trained with.
 """
 
 import cv2
