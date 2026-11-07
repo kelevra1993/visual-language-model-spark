@@ -153,43 +153,10 @@ def raise_background_minimum(configuration: Dict[str, Any]) -> None:
     configuration["RegionProposal"]["background_iou_threshold"]["min"] = 0.1
 
 
-def mix_easy_negatives(configuration: Dict[str, Any]) -> None:
-    """
-    Starts the background IoU range of the region proposals at 0.1 and draws a quarter of the negatives among the
-    easy anchors below it.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["RegionProposal"]["background_iou_threshold"]["min"] = 0.1
-    configuration["RegionProposal"]["easy_negative_fraction"] = 0.25
-
-
-def set_easy_negatives_without_background_minimum(configuration: Dict[str, Any]) -> None:
-    """
-    Draws easy negatives from a background IoU range starting at 0.0, which leaves none.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["RegionProposal"]["easy_negative_fraction"] = 0.25
-
-
-def set_easy_negative_fraction_above_one(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a share of easy negatives above 1.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["RegionProposal"]["easy_negative_fraction"] = 1.5
-
-
 def test_background_minimum_above_zero_only_warns(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that a background IoU range starting above 0.0 loads with a yellow warning instead of an error, the hard
-    negatives being a choice, that the shipped value 0.0 prints no warning, and that a share of easy negatives drawn
-    below the minimum loads without the warning, the anchors overlapping no object being sampled too.
+    negatives being a choice, and that the shipped value 0.0 prints no warning.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -209,12 +176,6 @@ def test_background_minimum_above_zero_only_warns(tmp_path: Path, capsys: pytest
     expected_warning = ("Warning: 'RegionProposal.background_iou_threshold.min' is 0.1, above 0.0: the anchors whose "
                         "best IoU is below it are ignored, only the hard negatives being sampled as background.")
     assert color_text(color="yellow", text=expected_warning) in printed_output
-
-    # A quarter of easy negatives drawn below the minimum is accepted, silently
-    configuration_path = write_modified_configuration(temporary_directory=tmp_path, modify_function=mix_easy_negatives)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["RegionProposal"]["easy_negative_fraction"] == 0.25
-    assert "background_iou_threshold.min" not in capsys.readouterr().out
 
 
 def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
@@ -251,12 +212,6 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
     (set_image_size, ["'Data.image_settings.size' (1000) must be a multiple of 64, 2 to the power of the 6 Backbone "
                       "pooling layers"]),
     (set_overlapping_thresholds, ["'RegionProposal.background_iou_threshold.max' (0.6) must be <="]),
-    (set_easy_negatives_without_background_minimum,
-     ["'RegionProposal.easy_negative_fraction' (0.25) must be 0.0 when 'RegionProposal.background_iou_threshold.min' "
-      "is 0.0: the easy negatives are the anchors below the minimum, and every anchor below the maximum (0.3) is "
-      "already background."]),
-    (set_easy_negative_fraction_above_one, ["'RegionProposal.easy_negative_fraction' must be a number within [0, 1], "
-                                            "got 1.5."]),
     (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
                                             "got [0, 64].",
                                             "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "

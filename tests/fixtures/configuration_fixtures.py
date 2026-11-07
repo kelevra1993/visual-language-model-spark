@@ -64,7 +64,6 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          'inference': {'pre_nms_proposals': 100, 'post_nms_proposals': 50},
                          'foreground_iou_threshold': {"min": 0.35, "max": 1.0},
                          'background_iou_threshold': {"min": 0.2, "max": 0.3},
-                         'easy_negative_fraction': 0.0,
                          'number_training_positives': 128,
                          'total_training_samples': 256
                      },
