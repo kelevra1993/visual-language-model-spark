@@ -1,0 +1,474 @@
+# Comparisons of the hyperparameter experiments, one entry per stage of the experiment plans next to this file, read by
+# scripts/evaluation/plot_experiment_comparisons.py to draw the figures of figures/<experiment>/.
+# Each entry gives the results file of the stage, the iteration and weights the plan compares, the settings compared
+# (arms, their launches as written in the results file, the reference being the setting kept so far) and the verdict.
+# An arm trained without a moving average sets trained_as_averaged, its trained weights then standing in the column
+# of the averaged weights; plan_lines run from the heading of the stage to the last line of its section.
+# After every new stage, add its entry here, copy its results file next to the plans and draw its figure again.
+comparisons:
+  # Classification: experiment_plan.md and results.csv, accuracy_<iteration> columns.
+  - experiment: classification
+    results_file: results.csv
+    stage: "1"
+    title: Learning Rate
+    plan_lines: "41-65"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "1e-4", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
+      - {label: "2e-4", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
+      - {label: "5e-4", launches: [run_9, run_10], reference: false, trained_as_averaged: false}
+      - {label: "1e-3", launches: [run_5, run_6], reference: false, trained_as_averaged: false}
+      - {label: "2e-3", launches: [run_7, run_8], reference: false, trained_as_averaged: false}
+    kept: "2e-4"
+    verdict: "2e-4 kept: the highest mean of the eight evaluations, 0.8581 against 0.8486 for 1e-4 (0.3142 for 5e-4, 0.3030 for 2e-3, 0.1365 for 1e-3), though 1e-4 ends higher over iterations 1250 to 2000 (0.9802 against 0.9694)."
+    notes: "Rows of run_1 to run_32 have an empty evaluated_weights (trained weights, recorded before the column existed). The launch numbers do not follow the plan order: 5e-4 is run_9 and run_10, 1e-3 run_5 and run_6, 2e-3 run_7 and run_8 (learning_rate column checked)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "2"
+    title: Fully Connected Normalization
+    plan_lines: "67-87"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "none", launches: [run_3, run_4], reference: true, trained_as_averaged: false}
+      - {label: "batch", launches: [run_11, run_12], reference: false, trained_as_averaged: false}
+      - {label: "layer", launches: [run_13, run_14], reference: false, trained_as_averaged: false}
+    kept: "layer"
+    verdict: "layer kept: the highest mean, 0.8969 against 0.8581 for none and 0.7614 for batch, and the highest mean of the last four evaluations, 0.9793 against 0.9791 for batch and 0.9694 for none."
+    notes: "Reference none is run_3 and run_4 of stage 1. Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "3"
+    title: Backbone Batch Normalization Momentum
+    plan_lines: "89-105"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "0.1", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "0.01", launches: [run_15, run_16], reference: false, trained_as_averaged: false}
+    kept: "0.1"
+    verdict: "0.1 kept: the highest mean, 0.8969 against 0.7820 for 0.01, and the highest mean of the last four evaluations, 0.9793 against 0.9353, the running statistics of 0.01 lagging behind the weights."
+    notes: "Only backbone_batch_normalization_momentum changes (head_batch_normalization_momentum stays 0.1). Reference is run_13 and run_14 of stage 2. Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "4"
+    title: Feature Map Normalization
+    plan_lines: "107-124"
+    last_iteration: 500
+    compared_weights: trained
+    arms:
+      - {label: "batch", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "layer", launches: [run_17, run_18], reference: false, trained_as_averaged: false}
+    kept: "batch"
+    verdict: "batch kept, layer stopped by hand at iteration 500: both layer launches stay at the single-class accuracy (0.1106 and 0.1101 at iterations 250 and 500, against 0.5346 and 0.8083 for batch), training about three times slower (28 to 31 against 93 Images Per Second)."
+    notes: "run_17 and run_18 stop at iteration 500: finished False, accuracy_750 to accuracy_2000 and accuracy_last_4_mean empty; the reference pair has every evaluation to 2000. Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "5"
+    title: Global Pooling
+    plan_lines: "126-143"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "flatten", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "average", launches: [run_19, run_20], reference: false, trained_as_averaged: false}
+    kept: "flatten"
+    verdict: "flatten kept: average reaches a mean of 0.8859 against 0.8969 and a mean of the last four evaluations of 0.9750 against 0.9793, its two launches further apart (0.8425 and 0.9293) than the two settings."
+    notes: "Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "6"
+    title: Residual Connections
+    plan_lines: "145-161"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "True", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "False", launches: [run_21, run_22], reference: false, trained_as_averaged: false}
+    kept: "True"
+    verdict: "True kept: False does not learn, both launches staying at the single-class accuracy of about 0.11 at every evaluation up to iteration 2000 (mean 0.1122 against 0.8969)."
+    notes: "Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "7"
+    title: Squeeze And Excitation
+    plan_lines: "163-179"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "True", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "False", launches: [run_23, run_24], reference: false, trained_as_averaged: false}
+    kept: "False"
+    verdict: "False kept: mean 0.9005 against 0.8969 for True and mean of the last four evaluations 0.9847 against 0.9793, training faster and lighter (1 hour 49 minutes per pair against 2 hours 19 to 2 hours 25 minutes, 20.4 against 33.4 gigabytes per launch)."
+    notes: "Rows have an empty evaluated_weights (trained weights). The repeat stage (lines 239-263) later finds the two settings level over six launches each."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "8"
+    title: Data Type
+    plan_lines: "181-197"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "float32 (mixed_precision: True)", launches: [run_23, run_24], reference: true, trained_as_averaged: false}
+      - {label: "float32 (mixed_precision: False)", launches: [run_25, run_26], reference: false, trained_as_averaged: false}
+    kept: "float32 (mixed_precision: True)"
+    verdict: "float32 (mixed_precision: True) kept, chosen by the user whatever the results for its speed (about 1.8 times faster): without mixed precision the mean is 0.8787 against 0.9005 and the mean of the last four evaluations 0.9831 against 0.9847."
+    notes: "The CSV tells the arms apart by mixed_precision, dtype being float32 for both. float64 was removed from the stage (run_27 measured over 10 iterations only): results.csv has no run_27 or run_28 row. Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "9"
+    title: Class Weighting
+    plan_lines: "199-216"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "balanced", launches: [run_23, run_24], reference: true, trained_as_averaged: false}
+      - {label: "none", launches: [run_29, run_30], reference: false, trained_as_averaged: false}
+    kept: "balanced"
+    verdict: "balanced kept: none reaches a mean of 0.8814 against 0.9005 and a mean of the last four evaluations of 0.9751 against 0.9847, the gap between the two settings being the gap between launches (classes almost balanced)."
+    notes: "The bullet of line 214 gives 0.8815 for the mean of none, its table row (line 210) 0.8814, results.csv 0.881417. Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "10"
+    title: Dropout
+    plan_lines: "218-237"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "0.2", launches: [run_23, run_24], reference: true, trained_as_averaged: false}
+      - {label: "0.0", launches: [run_31, run_32], reference: false, trained_as_averaged: false}
+    kept: "0.2"
+    verdict: "0.2 kept: 0.0 reaches a mean of 0.9001 against 0.9005 (0.900061 against 0.900480) and a mean of the last four evaluations of 0.9812 against 0.9847, a gap far smaller than the one between the two launches of 0.0 (0.8836 and 0.9165)."
+    notes: "Rows have an empty evaluated_weights (trained weights). Line 237 closes the ten stages with the settings they kept."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "repeat"
+    title: Squeeze And Excitation
+    plan_lines: "239-263"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "False", launches: [run_23, run_24, run_23b, run_23c, run_24b, run_24c], reference: true, trained_as_averaged: false}
+      - {label: "True", launches: [run_13, run_14, run_13b, run_13c, run_14b, run_14c], reference: false, trained_as_averaged: false}
+    kept: "False"
+    verdict: "No Kept line, False (kept by stage 7) stays: over six launches each, off and on are level, mean 0.8929 against 0.8908 (a difference of 0.0021 for a standard error of 0.0111), mean of the last four evaluations 0.9844 against 0.9776 (not significant)."
+    notes: "The plan gives no verdict for this stage; kept is False because the next stages stay copies of run-23.yaml and run-24.yaml (line 267). Each arm holds the two launches of stage 7 (False) or stage 2 (True) and their four repeats. Rows have an empty evaluated_weights (trained weights)."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "11"
+    title: Pre-Activation Residual Shortcuts
+    plan_lines: "269-283"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "False", launches: [run_23, run_24], reference: true, trained_as_averaged: false}
+      - {label: "True", launches: [run_33, run_34], reference: false, trained_as_averaged: false}
+    kept: "False"
+    verdict: "False kept: the pre-activation mean (0.8925) is 0.008 under the reference pair (0.9005) and level with the mean of the 6 repeat launches (0.8929), well inside the noise between two-launch means (about 0.036); its curves drop more often and a launch takes 28.1 GB instead of 20.4 GB."
+    notes: "run_23 and run_24 rows have an empty evaluated_weights and an empty residual_nets_v2 (setting added later, False by the plan); run_33 and run_34 rows are trained (no moving average). The plan table also gives the mean of the 6 repeat launches (run_23, run_23b, run_23c, run_24, run_24b, run_24c) as a second reference row. The reference is set in the New Settings Stages introduction (line 267), whose launches shared the GPU with an ImageNet training."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "12"
+    title: Weight Initialisation
+    plan_lines: "285-298"
+    last_iteration: 2000
+    compared_weights: trained
+    arms:
+      - {label: "default", launches: [run_23, run_24], reference: true, trained_as_averaged: false}
+      - {label: "he", launches: [run_35, run_36], reference: false, trained_as_averaged: false}
+    kept: "default"
+    verdict: "default kept: the He mean (0.8208) is 0.080 under the reference pair (0.9005) and 0.072 under the mean of the 6 repeat launches, twice the noise (about 0.036); run_35 drops to 0.6248 at iteration 1000 and the final accuracy (0.9796) stays under the reference (0.9904)."
+    notes: "results.csv has no weight_initialization column (the setting was removed from the code with run-35.yaml and run-36.yaml): run_35 and run_36 carry the setting columns of the reference and are told apart by launch name only. run_23 and run_24 rows have an empty evaluated_weights, run_35 and run_36 rows are trained."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "13"
+    title: Moving Average Of The Weights
+    plan_lines: "300-318"
+    last_iteration: 2000
+    compared_weights: ema
+    arms:
+      - {label: "False", launches: [run_23, run_24], reference: true, trained_as_averaged: true}
+      - {label: "True", launches: [run_37, run_38], reference: false, trained_as_averaged: false}
+    kept: "True"
+    verdict: "True kept: the averaged weights are ahead of the trained weights at all 16 evaluations of the two launches, mean 0.9242 against 0.8924 (0.9005 for the reference pair without average) and 0.9962 against 0.9907 at iteration 2000."
+    notes: "The weights differ by arm: run_23 and run_24 have no ema row (moving average off, evaluated_weights empty), so the reference is their trained weights, while run_37 and run_38 are read from their ema rows. The plan also shows the trained weights of run_37 and run_38 (trained (EMA on), mean 0.8924), held in their trained rows. Plan typo at line 314: the EMA row of run_37 names its launch 'run_37, source'; its values are those of the run_37 ema row."
+
+  - experiment: classification
+    results_file: results.csv
+    stage: "14"
+    title: Adding Classes
+    plan_lines: "324-375"
+    last_iteration: 2000
+    compared_weights: ema
+    arms:
+      - {label: "random", launches: [run_39, run_40], reference: true, trained_as_averaged: false}
+      - {label: "run_37, source", launches: [run_41, run_42], reference: false, trained_as_averaged: false}
+      - {label: "run_37, random", launches: [run_43, run_44], reference: false, trained_as_averaged: false}
+    kept: "run_37, random"
+    verdict: "run_37 head with random new classes kept: on the 20 classes it matches the random head (mean 0.9790 against 0.9807 with the averaged weights, 0.9528 against 0.9435 with the trained ones) and beats the source initialisation at every evaluation (0.8902 averaged, 0.8617 trained), whose 11 new classes start far slower (0.3890 against 0.8375 at iteration 250, averaged weights)."
+    notes: "Accuracy over 20 classes (synthetic_shapes_20 in train_data_folder), not comparable with the earlier stages. The plan compares both weights; the trained rows are in results.csv as well. The CSV tells the arms apart by pretrained_classification_head (empty for random) and new_class_initialisation (source, random; a setting removed since). The tables of the 9 classes of run_37 and of the 11 new classes come from the class_metrics.csv of every evaluation and cannot be drawn from results.csv."
+
+  # Sequence labelling: sequence_labelling_experiment_plan.md and sequence_labelling_results.csv, macro_f1_<iteration> columns.
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "1"
+    title: Learning Rate
+    plan_lines: "71-92"
+    last_iteration: 2000
+    compared_weights: ema
+    arms:
+      - {label: "1e-4", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
+      - {label: "2e-4", launches: [run_5, run_6], reference: false, trained_as_averaged: false}
+      - {label: "1e-3", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
+      - {label: "2e-3", launches: [run_7, run_8], reference: false, trained_as_averaged: false}
+    kept: "1e-3"
+    verdict: "1e-3 kept: the highest mean of the eight evaluations, 0.0136 against 0.0117 for 2e-3, 0.0112 for 2e-4 and 0.0086 for 1e-4 (0.0244 at iteration 2000 against 0.0181 for 2e-3)."
+    notes: "Stages 1 to 3 score the mean over all evaluations of the averaged weights (Strategy, line 13)."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "2"
+    title: Class Weighting
+    plan_lines: "94-110"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "balanced", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
+      - {label: "none", launches: [run_11, run_12], reference: false, trained_as_averaged: false}
+    kept: "balanced"
+    verdict: "balanced kept: the highest mean of the 24 evaluations, 0.0645 against 0.0139 for none (0.1207 against 0.0233 at iteration 6000), run_12 staying at 0.0090 throughout."
+    notes: "run_9 and run_10 train the stage 1 settings again for 6000 iterations (run_1 and run_2 trained 2000 only, line 9); they share every setting column with run_1 and run_2, which results.csv groups under one mean row, so they are told apart by launch name only."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "3"
+    title: Direction
+    plan_lines: "112-128"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "unidirectional", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
+      - {label: "bidirectional", launches: [run_13, run_14], reference: false, trained_as_averaged: false}
+    kept: "bidirectional"
+    verdict: "bidirectional kept: the highest mean of the 24 evaluations, 0.0659 against 0.0645 for unidirectional, within the spread of the launches, but far higher at iteration 6000 (0.1936 against 0.1207)."
+    notes: "The plan table labels the reference 'uni'. The CSV tells the arms apart by bidirectional and causal (False and True for unidirectional, True and False for bidirectional)."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "4"
+    title: Temporal Module
+    plan_lines: "130-153"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "lstm", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "gru", launches: [run_15, run_16], reference: false, trained_as_averaged: false}
+      - {label: "transformer", launches: [run_17, run_18], reference: false, trained_as_averaged: false}
+      - {label: "temporal_convolution", launches: [run_19, run_20], reference: false, trained_as_averaged: false}
+    kept: "lstm"
+    verdict: "lstm kept: the highest value at iteration 6000, 0.1936 against 0.1512 for the GRU, 0.1353 for the transformer and 0.1055 for the temporal convolution (the mean over all evaluations would have kept the temporal convolution, 0.0761)."
+    notes: "From this stage on the score is the value at the last iteration (user decision of 2026-10-30, line 13). The transformer and temporal_convolution rows have bidirectional False and causal False, their non-causal form being the bidirectional direction (line 65)."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "5"
+    title: Temporal Layers
+    plan_lines: "155-171"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "1", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "2", launches: [run_21, run_22], reference: false, trained_as_averaged: false}
+    kept: "1"
+    verdict: "1 layer kept: 0.1936 at iteration 6000 against 0.0891 for 2 layers, the second layer slowing the start and levelling off from iteration 5500."
+    notes: ""
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "6"
+    title: Frame Pooling
+    plan_lines: "173-192"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "flatten", launches: [run_13, run_14], reference: true, trained_as_averaged: false}
+      - {label: "average", launches: [run_23, run_24], reference: false, trained_as_averaged: false}
+      - {label: "max", launches: [run_25, run_26], reference: false, trained_as_averaged: false}
+    kept: "max"
+    verdict: "max kept: 0.2147 at iteration 6000 against 0.1936 for flatten and 0.1132 for average, also the highest mean over the evaluations (0.1074 against 0.0659 and 0.0471); average loses on run_24, held at about 0.007 for all 6000 iterations."
+    notes: ""
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "7"
+    title: Feature Map Normalization
+    plan_lines: "194-210"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "batch", launches: [run_25, run_26], reference: true, trained_as_averaged: false}
+      - {label: "sequence", launches: [run_27, run_28], reference: false, trained_as_averaged: false}
+    kept: "batch"
+    verdict: "batch kept: 0.2147 at iteration 6000 against 0.1901 for sequence, also the highest mean over the evaluations (0.1074 against 0.0909); a sequence pair takes 7 hours 20 minutes against about 3 hours 25 minutes."
+    notes: ""
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "8"
+    title: Pretraining
+    plan_lines: "212-234"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "none", launches: [run_25, run_26], reference: true, trained_as_averaged: false}
+      - {label: "fine_tuned", launches: [run_29, run_30], reference: false, trained_as_averaged: false}
+      - {label: "fine_tuned_slow", launches: [run_31, run_32], reference: false, trained_as_averaged: false}
+    kept: "fine_tuned"
+    verdict: "fine_tuned kept: 0.7467 at iteration 6000 against 0.6440 for fine_tuned_slow and 0.2147 from scratch, also the highest mean over the evaluations (0.6266 against 0.5388 and 0.1074)."
+    notes: "The CSV tells the arms apart by pretrained_backbone (empty for none) and backbone_learning_rate_multiplier (1.0 for fine_tuned, 0.1 for fine_tuned_slow). The per-label F1 of run_30 (0.982 for the 50 labels of the 25 learned shapes, 0.156 for the 20 others, line 234) cannot be drawn from the CSV."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "9"
+    title: Learning Rate, Pretrained
+    plan_lines: "236-258"
+    last_iteration: 4000
+    compared_weights: ema
+    arms:
+      - {label: "1e-3", launches: [run_29, run_30], reference: true, trained_as_averaged: false}
+      - {label: "2e-3", launches: [run_37, run_38], reference: false, trained_as_averaged: false}
+      - {label: "2e-4", launches: [run_35, run_36], reference: false, trained_as_averaged: false}
+      - {label: "1e-4", launches: [run_33, run_34], reference: false, trained_as_averaged: false}
+    kept: "1e-3"
+    verdict: "1e-3 kept: 0.7149 at iteration 4000 against 0.6588 for 2e-3, 0.5180 for 2e-4 and 0.3327 for 1e-4, also the highest mean over the 16 evaluations."
+    notes: "run_29 and run_30 (stage 8) trained 6000 iterations under the constant learning rate and are read at 4000; the new launches stop at 4000. The plan's Mean column is taken over the 16 evaluations 250 to 4000, not the macro_f1_mean of the CSV (24 evaluations for run_29 and run_30)."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "10"
+    title: Class Weighting, Pretrained
+    plan_lines: "260-275"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "balanced", launches: [run_29, run_30], reference: true, trained_as_averaged: false}
+      - {label: "none", launches: [run_39, run_40], reference: false, trained_as_averaged: false}
+    kept: "balanced"
+    verdict: "balanced kept: 0.7467 at iteration 6000 against 0.4094 for none, also the highest mean over the evaluations (0.6266 against 0.2791), the two none launches spreading apart (0.5550 and 0.2638)."
+    notes: "Reference is run_29 and run_30 of stage 8."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "11"
+    title: Temporal Module, Pretrained
+    plan_lines: "277-296"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "lstm", launches: [run_29, run_30], reference: true, trained_as_averaged: false}
+      - {label: "gru", launches: [run_43, run_44], reference: false, trained_as_averaged: false}
+      - {label: "transformer", launches: [run_45, run_46], reference: false, trained_as_averaged: false}
+    kept: "lstm"
+    verdict: "lstm kept: 0.7467 at iteration 6000 against 0.7434 for gru and 0.7425 for transformer, the three within 0.005, less than the gap between two launches; the transformer has the highest mean over the evaluations (0.6637 against 0.6266)."
+    notes: "Reference is run_29 and run_30 of stage 8. The transformer rows have bidirectional False and causal False, the non-causal transformer being the bidirectional form (line 65). run_41 and run_42, a pretrained direction stage stopped after 250 iterations and deleted (line 63), are not in the CSV."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "12"
+    title: Temporal Layers, Pretrained
+    plan_lines: "298-313"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "1", launches: [run_29, run_30], reference: true, trained_as_averaged: false}
+      - {label: "2", launches: [run_47, run_48], reference: false, trained_as_averaged: false}
+    kept: "2"
+    verdict: "2 kept: 0.7565 at iteration 6000 against 0.7467 for 1, also the highest mean over the evaluations (0.6607 against 0.6266), the first change of a kept setting in the pretrained rerun."
+    notes: "Reference is run_29 and run_30 of stage 8."
+
+  - experiment: sequence_labelling
+    results_file: sequence_labelling_results.csv
+    stage: "13"
+    title: Frame Pooling, Pretrained
+    plan_lines: "315-330"
+    last_iteration: 6000
+    compared_weights: ema
+    arms:
+      - {label: "max", launches: [run_47, run_48], reference: true, trained_as_averaged: false}
+      - {label: "flatten", launches: [run_49, run_50], reference: false, trained_as_averaged: false}
+    kept: "flatten"
+    verdict: "flatten kept: 0.7584 at iteration 6000 against 0.7565 for max, a gap (0.0019) smaller than the gap between the two flatten launches (0.7562 and 0.7607); max keeps the highest mean over the evaluations (0.6607 against 0.6450)."
+    notes: "Reference is run_47 and run_48 of stage 12."
+
+  # Object detection: object_detection_experiment_plan.md; stage 1 in its own results file, stages 2 and later numbering their launches from run_1 again.
+  - experiment: object_detection
+    results_file: object_detection_learning_rate_stage_results.csv
+    stage: "1"
+    title: Learning Rate
+    plan_lines: "64-74"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "1e-3", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
+      - {label: "2e-3", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
+      - {label: "2e-4", launches: [run_5, run_6], reference: false, trained_as_averaged: false}
+    kept: "1e-3"
+    verdict: "1e-3 kept: 0.7766 at 15,000 (0.7905, 0.7628); 2e-3 tied at 0.7549 (-0.0218 within the launch gap 0.0609); 2e-4, stopped at 7500, far behind (0.4642 against 0.7010 for 1e-3 at 7500)."
+    notes: "These launches are not those of object_detection_results.csv, whose run_1 to run_6 are other launches. Searched one pair at a time against 1e-3. run_1 and run_2 trained 20,000 iterations (pair 0.7956 at 20,000) and are read at 15,000 under the constant learning rate; the plan says the 2e-3 pair was stopped at 15,000, but run_3 holds an evaluation at 15,500 (finished False); run_5 and run_6 end at 7500, where 2e-4 was compared. Augmentation of this stage: the haze alone, unlike stages 2 and later."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "2"
+    title: Background IoU Minimum
+    plan_lines: "76-86"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "0.0", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
+      - {label: "0.1", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
+      - {label: "0.15", launches: [run_5, run_6], reference: false, trained_as_averaged: false}
+    kept: "0.1"
+    verdict: "0.1 kept: 0.7983 against 0.7789 for 0.0 (+0.0194, above the launch gap 0.0105), mostly by tighter boxes (mAP@0.95 doubled); 0.15 tied with 0.1 at 0.7956 (-0.0027 within the launch gap 0.0044), and the user dropped 0.2."
+    notes: "Searched one pair at a time: 0.1 against 0.0, then 0.15 against 0.1, the best value so far. run_1 and run_2 are new launches with the 1e-3 of stage 1 and the augmentation defaults of 2026-11-05, not the run_1 and run_2 of the learning rate stage file. The mAP@0.95 pair column of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "2b"
+    title: Easy Negatives Mixed With The Hard Ones
+    plan_lines: "88-97"
+    last_iteration: 12500
+    compared_weights: ema
+    arms:
+      - {label: "0.0", launches: [run_3, run_4], reference: true, trained_as_averaged: false}
+      - {label: "0.25", launches: [run_7, run_8], reference: false, trained_as_averaged: false}
+    kept: "0.0"
+    verdict: "0.0 kept and the code reverted: 0.25 led until 4000 (+0.043 at 2000), then fell behind at every evaluation, 0.7655 against 0.7846 at 12,500 (-0.0190, above the launch gap 0.0066), its boxes loose (mAP@0.95 pair 0.0471 against 0.0970)."
+    notes: "The CSV has no easy_negative_fraction column: run_7 and run_8 carry the setting columns of run_3 and run_4 (background_iou_minimum 0.1, detector_normalization batch, neck_type none) and the four share one mean row, so the arms are told apart by launch name only. The plan says run_7 and run_8 were stopped at 12,500, but the CSV holds later evaluations: run_7 to 13,500 (trained and ema), run_8 to 13,500 (trained) and 13,000 (ema). The launch gap of 0.25 at 12,500 is 0.006661 (0.0067 rounded, the plan writes 0.0066). The Stages table calls the stage not conclusive (line 50). mAP@0.95 cannot be drawn from the CSV."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "3"
+    title: Neck, Feature Pyramid
+    plan_lines: "99-119"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "none", launches: [run_3, run_4], reference: true, trained_as_averaged: false}
+      - {label: "feature_pyramid", launches: [run_9, run_10], reference: false, trained_as_averaged: false}
+    kept: "feature_pyramid"
+    verdict: "feature_pyramid kept: 0.8079 against 0.7983 for none (+0.0096, more than twice the launch gaps 0.0038 and 0.0037), gaining most on the tight boxes (mAP@0.95 pair 0.126 against 0.108); its lead peaked at +0.039 at 3500 and held at +0.0096 from 14,000 on."
+    notes: "The section heading covers stages 3 and 4; stage 4 (path_aggregation in run_11 and run_12, against feature_pyramid in run_9 and run_10) is not trained and left out. The mAP@0.95, mAP@0.75, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."

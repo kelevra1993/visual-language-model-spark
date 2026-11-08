@@ -7,6 +7,7 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
   - [Logit Temperature](#logit-temperature)
 - [Comparing Launches](#comparing-launches)
   - [Comparing The Best Evaluations Of Runs](#comparing-the-best-evaluations-of-runs)
+  - [Drawing The Comparison Of Every Stage](#drawing-the-comparison-of-every-stage)
 - [Clustering Image Embeddings](#clustering-image-embeddings)
   - [Stored Features And Relaunch](#stored-features-and-relaunch)
   - [Clusters And Kept Images](#clusters-and-kept-images)
@@ -70,6 +71,17 @@ Every row is a launch, in launch order with its repeats right after it. It gives
 ```
 
 A run not evaluated yet is printed in yellow and left out. A missing curve or count stops the script, listing the available ones.
+
+### Drawing The Comparison Of Every Stage
+After a stage of a hyperparameter experiment, `scripts/evaluation/plot_experiment_comparisons.py` draws its figure next to its experiment plan, from the copy of its results file in `documentation/architecture_benchmarking` (`results.csv` for classification, `<task>_results.csv` for the others) and its entry in `experiment_comparisons.yaml`.
+
+| Setting | Meaning |
+|---|---|
+| `registry_path` | the registry of the compared stages, `documentation/architecture_benchmarking/experiment_comparisons.yaml` by default, the results files being read from its folder |
+| `output_folder` | the folder of the figures, one subfolder per experiment, `documentation/architecture_benchmarking/figures` by default |
+| `experiment`, `stage` | the experiment (`"classification"`, `"sequence_labelling"`, `"object_detection"`) and stage (`"3"`, `"2b"`, `"repeat"`) to draw alone, `None` for every stage |
+
+Every entry of the registry gives the results file, the stage and its title, the iteration and weights the plan compares (`last_iteration`, `compared_weights`), the verdict, and the compared settings (`arms`): their label, their launches as written in the results file, whether they are the reference, and `trained_as_averaged` for a setting trained without moving average whose trained weights stand in the column of the averaged weights. A figure has a column per kind of weights evaluated for every launch of the stage; every launch is a thin line, the mean of the launches of every setting a thick one labelled at the compared iteration, and the lower panel gives the gap of every setting to the reference. A stage without exactly one reference stops the script.
 
 ## Clustering Image Embeddings
 `scripts/embedding/cluster_image_embeddings.py` embeds images with a trained run and clusters them, to choose diverse images from a dataset of near-identical video frames.

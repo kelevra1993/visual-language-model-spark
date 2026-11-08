@@ -51,7 +51,7 @@
 > - the ImageNet-22k download (`imagenet_22k_download.py`, which replaced the Tencent ML-Images downloader) and its
 >   merge with ImageNet-1k (`merge_imagenet_manifests.py`, `~/Data/classifier_data/imagenet-merged`), on 2026-11-06;
 > - the neck of DET and INS (`Neck.type`: `feature_pyramid`, `path_aggregation`, items 1 and 37, `none` in every
->   configuration), on 2026-11-07, whose stages 3 and 4 are left to run.
+>   configuration), on 2026-11-07, the feature pyramid kept by stage 3 on 2026-11-08, stage 4 left to run.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -95,11 +95,11 @@
   - [Suggested Order Of Fixes](#suggested-order-of-fixes)
 
 ## A. Detector architecture
-1. **A top-down feature pyramid (FPN), implemented, stage 3 left to run** (`Neck.type: "feature_pyramid"`, 1x1
-   laterals to `Neck.output_channels`, nearest upsampling and addition, the 16 x 16 blocks 6 and 7 added without
-   resampling, then a 3x3 convolution; the heads stay one per level): lateral 1×1 convolutions and upsampling give
-   the finest detection level the context of the deeper ones. All levels then share the same channel count, and
-   could share one detection head.
+1. **A top-down feature pyramid (FPN), implemented, kept by stage 3 (+0.0096 mAP@[0.5:0.95], 2026-11-08)**
+   (`Neck.type: "feature_pyramid"`, 1x1 laterals to `Neck.output_channels`, nearest upsampling and addition, the
+   16 x 16 blocks 6 and 7 added without resampling, then a 3x3 convolution; the heads stay one per level): lateral
+   1×1 convolutions and upsampling give the finest detection level the context of the deeper ones. All levels then
+   share the same channel count, and could share one detection head.
    - **Mask R-CNN's recipe** (`model.py:1902-1925`): 1×1 laterals to 256 channels on C2–C5, nearest ×2 upsampling and
      addition top-down, and a 3×3 convolution on every sum; P6, made by subsampling P5, serves the region proposal
      network only.

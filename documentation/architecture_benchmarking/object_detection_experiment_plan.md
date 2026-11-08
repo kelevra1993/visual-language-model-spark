@@ -48,8 +48,8 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 1 | `learning_rate` | 1e-3, 2e-3, 2e-4 (1e-4 not needed) | 15,000 | done, 1e-3 kept |
 | 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1, 0.15 (0.2 dropped) | 15,000 | done, 0.1 kept |
 | 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
-| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | code merged (main 35aa62a), run_9 and run_10 running since 2026-11-07 14:51 |
-| 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against the better of stage 3 | 15,000 | after stage 3, code of stage 3 |
+| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | done, feature_pyramid kept (+0.0096) |
+| 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against feature_pyramid (run_9, run_10) | 15,000 | next, code of stage 3 |
 | 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 4, code |
 | 6 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 5 |
 | 7 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 6, code |
@@ -59,7 +59,7 @@ On 2026-11-07 the user reordered the stages after stage 2b by the gains the lite
 
 ## Launches
 
-Every launch gives its test mean average precision at every evaluation (every 500 iterations) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by the driver (one column per swept setting), launches and mean rows as in the tables below.
+Every launch gives its test mean average precision at every evaluation (every 500 iterations) for its trained and averaged weights, all gathered in `hyperparameter_experiments/object_detection/results.csv` by the driver (one column per swept setting), launches and mean rows as in the tables below. Since that folder is not versioned, a copy is kept next to this plan and committed after every stage: `object_detection_results.csv` for the stages from 2026-11-05, `object_detection_learning_rate_stage_results.csv` for stage 1. The figure of every stage (`figures/object_detection/`, drawn from these copies by `scripts/evaluation/plot_experiment_comparisons.py` with the stages of `experiment_comparisons.yaml`) shows the launches and pair means of the trained and averaged weights, and the gap of every value to the reference below.
 
 ### Stage 1: Learning Rate (6 launches, done)
 
@@ -73,6 +73,8 @@ The learning rates were searched one pair at a time: 2e-3 first, kept if better 
 
 1e-3 was kept. At 20,000 its pair reached 0.7956 (run_1 0.8088, run_2 0.7823), the averaged weights ahead of the trained ones at every evaluation (0.7102 for the trained weights at 20,000). At 15,000, run_1 found almost every object (proposal recall at 0.5 of 0.998, 0.995 for the small objects) with a mAP@0.5 of 0.97, but its boxes are not tight: mAP@0.75 0.93 and mAP@0.95 0.05, which stages 3 to 8 address.
 
+![Object detection, stage 1: Learning Rate](figures/object_detection/stage_1_learning_rate.png)
+
 ### Stage 2: Background IoU Minimum (6 launches, done)
 
 The anchors whose best overlap is below `RegionProposal.background_iou_threshold.min` are ignored by the region proposal loss: 0.0 samples every anchor below 0.3 as background, 0.1 leaves out those touching no object, the region proposal network then learning from the hard negatives only. 0.1 beat 0.0 (+0.0194, above the launch gap 0.0105), mostly by tighter boxes (mAP@0.95 doubled), and 0.15 tied with 0.1 (-0.0027 within the launch gap 0.0044), so the user dropped 0.2 and kept 0.1.
@@ -85,6 +87,8 @@ The anchors whose best overlap is below `RegionProposal.background_iou_threshold
 
 The comparison of run_1 and run_2 with run_1 and run_2 of stage 1 (same settings, but the haze alone) measures the augmentation of the defaults, without any training.
 
+![Object detection, stage 2: Background IoU Minimum](figures/object_detection/stage_2_background_iou_minimum.png)
+
 ### Stage 2b: Easy Negatives Mixed With The Hard Ones (2 launches, done, reverted)
 
 With the minimum 0.1, `RegionProposal.easy_negative_fraction` (merged in c3068e3, reverted after the stage) drew a share of the sampled negatives of every image among the easy anchors below the minimum, the rest among the hard ones of [0.1, 0.3). At 0.25, the 64 first images of `test_10000` with the anchors of run_3 sample a median of 66.5 positives, 142 hard and 47.5 easy negatives per image (256 in all, the easy ones overlapping their objects by 0.04 at most); at 0.0 the samples and the loss are those of the previous code under the same seed, so that run_3 and run_4 are the reference.
@@ -96,6 +100,8 @@ With the minimum 0.1, `RegionProposal.easy_negative_fraction` (merged in c3068e3
 | 0.0 | run_3, run_4 | 0.7827, 0.7865 | 0.7846 | 0.0970 |
 | 0.25 | run_7, run_8 | 0.7688, 0.7622 | 0.7655 | 0.0471 |
 
+![Object detection, stage 2b: Easy Negatives Mixed With The Hard Ones](figures/object_detection/stage_2b_easy_negatives_mixed_with_the_hard_ones.png)
+
 ### Stages 3 And 4: Neck (2 or 4 launches, 15,000 iterations)
 
 Until now every detection level has its own region proposal and detection heads reading their backbone block directly, without any path between the levels. The neck (design in `../detection_neck_design.md`, `Neck` section of the configuration) sits between the blocks and the heads, with 32 channels on every level (those of the blocks, so that the heads keep their size) and batch normalization, as the user chose: stage 3 compares no neck with the feature pyramid (1x1 laterals and the top-down path), stage 4 path aggregation (the bottom-up path after the pyramid) with the better of the two. Both types are merged with stage 3, so that stage 4 needs no other code.
@@ -104,9 +110,21 @@ Until now every detection level has its own region proposal and detection heads 
 |---|---|---|---|
 | 3 | reference | none | run_3, run_4 |
 | 3 | 1 | feature_pyramid | run_9, run_10 |
+| 4 | reference | feature_pyramid | run_9, run_10 |
 | 4 | 1 | path_aggregation | run_11, run_12 |
 
 The neck was merged on 2026-11-07 (main 35aa62a), and run_9 and run_10 were launched by hand at 14:51:40 and 14:52:10 with the settings of run_3 and run_4 (background IoU minimum 0.1, detector batch normalization, learning rate 1e-3, 15,000 iterations, 1 loader worker), their configuration files differing from those of run_3 and run_4 only by `Neck.type: "feature_pyramid"` (run name token `L4567-NFPN32BN`). Before the launch, 40 iterations of the same configuration on the Spark gave 43.5 and 43.7 images per second alone without neck at iterations 20 and 40, 41.0 and 45.2 with the feature pyramid, 41.6 and 42.6 with path aggregation (no measurable cost over so few iterations), and a peak GPU memory of 17.2 GB without neck against 17.3 GB with either neck, whose 41,728 parameters (feature pyramid) add 0.17 MB to the model.
+
+Stage 3 ended on 2026-11-08, both launches with their 15,000 checkpoint. The feature pyramid beat no neck by +0.0096, more than twice the launch gaps (0.0038 for run_9 and run_10, 0.0037 for run_3 and run_4), and was kept: it gained most on the tight boxes (mAP@0.75 +0.008, mAP@0.95 +0.018) and on the medium and large objects (+0.012, +0.013), the small ones about even (+0.002) and mAP@0.5 +0.001. Its lead peaked at +0.039 at 3500 and held at +0.0096 from 14,000 on; the trained weights led as well, with more noise (0.727 against 0.714 at 15,000).
+
+| Value | Launches | Test_EMA mAP@[0.5:0.95] at 15,000 | Pair | mAP@0.95 pair | Test (trained) pair |
+|---|---|---|---|---|---|
+| none | run_3, run_4 | 0.7964, 0.8001 | 0.7983 | 0.108 | 0.714 |
+| feature_pyramid | run_9, run_10 | 0.8098, 0.8060 | 0.8079 | 0.126 | 0.727 |
+
+A launch with the feature pyramid took 14.45 hours from its first to its last iteration, against 13.85 for run_3 and run_4 (+4.3 %), both pairs trained side by side. Most of that came from the first 4000 iterations, 15 to 20 % slower than the reference while the machine was busier (2.7 seconds per iteration, against 2.4 later in the same launches); from 5000 on an iteration cost 1.5 % more on average (from 2 % less to 4 % more over each 1000 iterations, median 2.39 seconds against 2.37). The two test evaluations of every checkpoint (10,000 images each, trained and averaged weights) took about 4.1 of those hours, 8.3 minutes per checkpoint, the neck adding 2 %.
+
+![Object detection, stage 3: Neck, Feature Pyramid](figures/object_detection/stage_3_neck_feature_pyramid.png)
 
 ### Stages 5 To 8: Box Loss, Detector Normalization, Proposal Selection, Anchor Centres
 

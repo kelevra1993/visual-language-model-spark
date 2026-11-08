@@ -36,7 +36,7 @@ Every setting is launched twice, A and B, to smooth out the noise of a single tr
 
 ## Launches
 
-Every launch gives its test accuracy at iterations 250, 500, 750, 1000, 1250, 1500, 1750 and 2000 (`Results.txt` of its run folder) and the mean of these eight values, all gathered in `hyperparameter_experiments/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results`, launches and Mean rows as in the tables below. `results.csv`, next to this plan, keeps every launch of the experiment: run_1 to run_32, gathered before their experiment folder was deleted, then run_33 to run_44 with their trained and averaged weights (`evaluated_weights`), a setting not recorded by a stage being left empty and run_41 to run_44 split by their `new_class_initialisation` (`source` or `random`, a setting removed since). The Mean row of a setting averages its two launches, and the setting with the highest mean of the Mean row is kept.
+Every launch gives its test accuracy at iterations 250, 500, 750, 1000, 1250, 1500, 1750 and 2000 (`Results.txt` of its run folder) and the mean of these eight values, all gathered in `hyperparameter_experiments/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results`, launches and Mean rows as in the tables below. `results.csv`, next to this plan, keeps every launch of the experiment: run_1 to run_32, gathered before their experiment folder was deleted, then run_33 to run_44 with their trained and averaged weights (`evaluated_weights`), a setting not recorded by a stage being left empty and run_41 to run_44 split by their `new_class_initialisation` (`source` or `random`, a setting removed since). The Mean row of a setting averages its two launches, and the setting with the highest mean of the Mean row is kept. The figure of every stage (`figures/classification/`, drawn from `results.csv` by `scripts/evaluation/plot_experiment_comparisons.py` with the stages of `experiment_comparisons.yaml`) shows the launches and means of the trained weights, and of the averaged weights from run_37 on, with the gap of every value to the reference below.
 
 ### Stage 1: Learning Rate (10 launches)
 
@@ -64,6 +64,8 @@ Kept: **2e-4** (run_3 and run_4), the highest mean (0.8581 against 0.8486 for 1e
 - 1e-4 ends higher and steadier over iterations 1250 to 2000 (mean 0.9802 against 0.9694), 2e-4 dropping to 0.9338 at iteration 1250 (run_3) and 0.9382 at iteration 2000 (run_3). The two launches of 2e-4 differ by 0.0548 at iteration 2000 (0.9382 and 0.9930), more than the gap between the two learning rates, so this difference is within the noise of two launches.
 - From 5e-4 up, the launches stay at about 0.111 (the accuracy of predicting a single class, 1 in 9) for at least the first 750 iterations, and run_8 never leaves it: the largest usable learning rate lies between 2e-4 and 5e-4.
 
+![Classification, stage 1: Learning Rate](figures/classification/stage_1_learning_rate.png)
+
 ### Stage 2: Fully Connected Normalization (4 launches)
 
 `ClassificationHead.fully_connected_normalization`: batch normalization (statistics of every unit over the vectors of the batch, running statistics used in evaluation) or layer normalization (statistics of every vector over its units, the same in training and evaluation) between every hidden linear layer and its ReLU.
@@ -86,6 +88,8 @@ Kept: **layer** (run_13 and run_14), the highest mean (0.8969 against 0.8581 for
 - layer and batch end at the same level, above none: 0.9793 and 0.9791 over iterations 1250 to 2000 against 0.9694, 0.9882 and 0.9864 at iteration 2000 against 0.9656. run_13 dips once to 0.9352 at iteration 1250, as run_3 does twice with none (0.9338 and 0.9382), where both launches of batch rise at every evaluation from iteration 1000.
 - The final train accuracies of the three settings are close (0.9574 and 0.9556 for layer, 0.9547 and 0.9555 for batch, 0.9523 and 0.9505 for none).
 
+![Classification, stage 2: Fully Connected Normalization](figures/classification/stage_2_fully_connected_normalization.png)
+
 ### Stage 3: Backbone Batch Normalization Momentum (2 launches)
 
 Changed in `Backbone.normalization.batch_normalization_momentum` only: stage 2 kept the layer normalization of the head, which has no running statistics, so `ClassificationHead.batch_normalization_momentum` stays at 0.1 and has no effect. 0.01 is the decay 0.99 of the running statistics of the older TensorFlow classifiers.
@@ -103,6 +107,8 @@ Kept: **0.1** (run_13 and run_14), the highest mean (0.8969 against 0.7820) and 
 
 - The running statistics of 0.01 lag behind the weights: both launches are at 0.1109 (single class) at iteration 250, where their train accuracies match those of 0.1 (0.74 and 0.68 at iteration 400 against 0.74 and 0.70), the momentum changing only the statistics used in evaluation.
 - The lag lasts to the end with the constant learning rate, Adam moving the weights by about the learning rate at every step: run_15 drops to 0.7789 at iteration 1500 and 0.9148 at iteration 2000, run_16 to 0.9511 at iteration 2000, where 0.1 ends at 0.9909 and 0.9856. The final train accuracies are the same (0.9520 and 0.9489 against 0.9574 and 0.9556).
+
+![Classification, stage 3: Backbone Batch Normalization Momentum](figures/classification/stage_3_backbone_batch_normalization_momentum.png)
 
 ### Stage 4: Feature Map Normalization (2 launches)
 
@@ -123,6 +129,8 @@ Kept: **batch** (run_13 and run_14), layer being stopped at iteration 500; the c
 - layer trains about three times slower (100 iterations in 13 minutes 52 seconds to 16 minutes 15 seconds against 4 minutes 34 seconds to 5 minutes 14 seconds, 28 to 31 Images Per Second against 93) and takes 44.8 gigabytes per launch against 33.4: `ChannelLayerNormalizer` permutes every feature map to channels last, `nn.LayerNorm` makes it contiguous and runs in float32 under autocast, and the next convolution casts it back.
 - Both launches were stopped by hand at iteration 500, reached in 72 minutes (about 3 hours 20 minutes more for the pair), their run folders keeping the evaluations of iterations 250 and 500.
 
+![Classification, stage 4: Feature Map Normalization](figures/classification/stage_4_feature_map_normalization.png)
+
 ### Stage 5: Global Pooling (2 launches)
 
 `ClassificationHead.global_pooling`: "flatten" gives the head every position of the last feature map, "average" the mean of every channel over the positions (128 features). `run-19.yaml` and `run-20.yaml` are copies of `run-13.yaml` and `run-14.yaml` (kept by stage 4) with `"average"`.
@@ -142,6 +150,8 @@ Kept: **flatten** (run_13 and run_14); the configuration files of the next stage
 - The two average launches are far apart: run_20 is ahead of both flatten launches at iterations 250 to 750 (0.6939, 0.8891 and 0.9646), while run_19 starts slowly (0.5882 at iteration 500) and drops to 0.9300 at iteration 1500; run_20 drops to 0.9626 at iteration 2000. The gap between the two launches of a setting is larger than the gap between the two settings.
 - The training time does not change: the pair took 2 hours 19 minutes (100 iterations in 4 minutes 33 seconds to 10 minutes 15 seconds), against 2 hours 19 to 2 hours 25 minutes for run_13 and run_14.
 
+![Classification, stage 5: Global Pooling](figures/classification/stage_5_global_pooling.png)
+
 ### Stage 6: Residual Connections (2 launches)
 
 `Backbone.modules.residual_nets`: True adds the input of every pair of convolution layers to its output (a shortcut every two layers, from the second convolution block on), False keeps the convolution layers stacked without shortcuts. `run-21.yaml` and `run-22.yaml` are copies of `run-13.yaml` and `run-14.yaml` (kept by stage 5) with `False`.
@@ -159,6 +169,8 @@ Kept: **True** (run_13 and run_14); the configuration files of the next stages s
 
 - False does not learn: both launches stay at the accuracy of a single class up to iteration 2000 (test accuracy 0.11 at every evaluation, train loss 2.20, the log of 9 classes, train accuracy 0.11), the 61 convolution layers of the backbone being stacked without shortcuts.
 - The training time does not change: the pair took 2 hours 14 minutes (100 iterations in about 4 minutes 50 seconds), against 2 hours 19 to 2 hours 25 minutes for run_13 and run_14.
+
+![Classification, stage 6: Residual Connections](figures/classification/stage_6_residual_connections.png)
 
 ### Stage 7: Squeeze And Excitation (2 launches)
 
@@ -178,6 +190,8 @@ Kept: **False** (run_23 and run_24); the configuration files of the next stages 
 - False reaches a mean of 0.9005 against 0.8969 for True, and a mean of the last 4 evaluations (iterations 1250 to 2000) of 0.9847 against 0.9793, both launches being at 0.97 or more from iteration 1000 on.
 - False trains faster and lighter: the pair took 1 hour 49 minutes (100 iterations in 3 minutes 20 seconds to 8 minutes 17 seconds) against 2 hours 19 to 2 hours 25 minutes for run_13 and run_14, with 20.4 gigabytes per launch against 33.4.
 
+![Classification, stage 7: Squeeze And Excitation](figures/classification/stage_7_squeeze_and_excitation.png)
+
 ### Stage 8: Data Type (2 launches)
 
 `ExperimentConfiguration.dtype` and `TrainingConfiguration.mixed_precision`: float32 with mixed precision runs the training and validation forward passes in bfloat16, the weights and the test evaluation staying in float32; float32 without mixed precision runs everything in float32. `run-25.yaml` and `run-26.yaml` are copies of `run-23.yaml` and `run-24.yaml` (kept by stage 7) with `mixed_precision: False`. float64 was removed: a float64 launch trains at 9.4 Images Per Second and takes 64 gigabytes (measured over the first 10 iterations of run_27), that is about 15 hours of training per launch, two float64 launches not fitting in memory together.
@@ -195,6 +209,8 @@ Kept: **float32 (`mixed_precision: True`)** (run_23 and run_24), chosen by the u
 
 - Without mixed precision the mean is 0.8787 against 0.9005 and the mean of the last 4 evaluations (iterations 1250 to 2000) 0.9831 against 0.9847: float32 starts slower (0.4255 against 0.5119 at iteration 250, 0.7490 against 0.8277 at iteration 500), then both data types are level from iteration 750 on.
 - Without mixed precision the pair took 2 hours 48 minutes against 1 hour 49 minutes (100 iterations in 6 minutes 16 seconds to 7 minutes 1 second at iteration 100, 68.0 and 60.8 Images Per Second, against 3 minutes 20 seconds to 3 minutes 57 seconds), with 38.7 gigabytes per launch against 20.4.
+
+![Classification, stage 8: Data Type](figures/classification/stage_8_data_type.png)
 
 ### Stage 9: Class Weighting (2 launches)
 
@@ -214,6 +230,8 @@ Kept: **balanced** (run_23 and run_24); the configuration files of the next stag
 - none reaches a mean of 0.8815 against 0.9005 for balanced, and a mean of the last 4 evaluations (iterations 1250 to 2000) of 0.9751 against 0.9847.
 - The two none launches are far apart: run_29 has the second highest mean of all launches (0.9173 after 0.9293 for run_20, 0.9276 at iteration 500), run_30 a mean of 0.8456 (0.5849 at iteration 500 and 0.8896 at iteration 1250). With almost balanced classes, the gap between the two settings is the gap between launches.
 - The training time does not change: the pair took 1 hour 49 minutes (100 iterations in 3 minutes 20 seconds to 3 minutes 59 seconds at iteration 100), with 20.4 gigabytes per launch.
+
+![Classification, stage 9: Class Weighting](figures/classification/stage_9_class_weighting.png)
 
 ### Stage 10: Dropout (2 launches)
 
@@ -235,6 +253,8 @@ Kept: **0.2** (run_23 and run_24).
 - The training time does not change: the pair took 1 hour 49 minutes (100 iterations in 3 minutes 20 seconds to 3 minutes 59 seconds at iteration 100), with 20.4 gigabytes per launch.
 
 The settings kept by the ten stages are those of `run-23.yaml` and `run-24.yaml`: learning rate 2e-4, fully connected normalization "layer", backbone batch normalization momentum 0.1, feature map batch normalization, flatten pooling, residual connections, no squeeze and excitation, float32 with mixed precision, balanced class weighting and dropout 0.2 (mean 0.9005, mean of the last 4 evaluations 0.9847).
+
+![Classification, stage 10: Dropout](figures/classification/stage_10_dropout.png)
 
 ### Repeat Launches: Squeeze And Excitation (8 launches)
 
@@ -262,6 +282,8 @@ Four more launches of each squeeze and excitation setting of stage 7, the other 
 - The mean of a single launch varies by about 0.02 between launches of the same settings (0.8750 to 0.9218 off, 0.8546 to 0.9118 on), mostly through iterations 250 to 1000; with two launches per setting, the gap between two settings is noise below about 0.036, which covers stages 5, 7, 9 and 10. The mean of the last 4 evaluations varies about six times less for off (0.0030).
 - Off stays the faster and lighter setting: the off pairs took 1 hour 51 to 1 hour 55 minutes and the on pairs 2 hours 28 to 2 hours 33 minutes (with another process of the machine on the GPU), with 20.4 gigabytes per launch against 25.2, both read at iteration 100.
 
+![Classification, stage repeat: Squeeze And Excitation](figures/classification/stage_repeat_squeeze_and_excitation.png)
+
 ## New Settings Stages
 
 Stages 11 to 13 test the settings added after the ten stages, one at a time on top of the settings they kept, with the same fixed settings. The launches run one at a time, next to the training of the large model on ImageNet, which shares the GPU: their speed and memory are not comparable with the earlier stages, their accuracy is. The configuration files are copies of `run-23.yaml` and `run-24.yaml` with the changed parameter, completed with the settings added since (`weight_initialization: "default"`, `exponential_moving_average` off) and without `dtype`, removed since (every model is built in float32). The reference of stage 11 is run_23 and run_24, the six launches of the repeat stage giving the spread of the kept settings (mean 0.8929, standard deviation 0.0180 between launches).
@@ -282,6 +304,8 @@ Stages 11 to 13 test the settings added after the ten stages, one at a time on t
 
 **Kept: False.** The pre-activation mean (0.8925) is 0.008 under the reference pair and level with the mean of the 6 repeat launches (0.8929), a gap well inside the noise between two-launch means (about 0.036). Its curves drop more often between evaluations (run_34 at 750 and 1750, run_33 at 1250 and 1500), and a launch takes 28.1 GB of GPU memory instead of 20.4 GB, so the original placement stays.
 
+![Classification, stage 11: Pre-Activation Residual Shortcuts](figures/classification/stage_11_pre_activation_residual_shortcuts.png)
+
 ### Stage 12: Weight Initialisation (2 launches)
 
 `Optimization.weight_initialization`: "he" draws the convolutions of the convolution blocks and the hidden fully connected layers of the head from the He normal distribution (standard deviation √(2 / fan_in), biases at 0), the class layer keeping the PyTorch initialisation; "default" keeps the PyTorch initialisation of every layer (uniform, standard deviation √(1 / (3 × fan_in)), about 2.45 times smaller). `run-35.yaml` and `run-36.yaml` are copies of the files kept by stage 11 with `"he"`, the launches kept by stage 11 being the "default" reference.
@@ -296,6 +320,8 @@ Stages 11 to 13 test the settings added after the ten stages, one at a time on t
 | he | **Mean** | 0.3513 | 0.7236 | 0.8618 | 0.7656 | 0.9470 | 0.9789 | 0.9584 | 0.9796 | 0.8208 |
 
 **Kept: default.** The He mean (0.8208) is 0.080 under the reference pair and 0.072 under the mean of the 6 repeat launches, twice the noise between two-launch means (about 0.036). Both launches start slower (0.35 against 0.51 at iteration 250), run_35 drops to 0.6248 at iteration 1000, and the final accuracy (0.9796) stays under the reference (0.9904), so the default initialisation stays. The `weight_initialization` setting and the He initialisation were then removed from the code; `run-35.yaml` and `run-36.yaml` were deleted with them, the results above staying as the record of the stage.
+
+![Classification, stage 12: Weight Initialisation](figures/classification/stage_12_weight_initialisation.png)
 
 ### Stage 13: Moving Average Of The Weights (2 launches)
 
@@ -316,6 +342,8 @@ In 2,000 iterations, the decay of the n-th update, min(decay, (1 + n) / (10 + n)
 | EMA | **Mean** | 0.5374 | 0.9028 | 0.9836 | 0.9901 | 0.9927 | 0.9946 | 0.9959 | 0.9962 | 0.9242 |
 
 **Kept: True.** The averaged weights are ahead of the trained weights at all 16 evaluations of the two launches, with a mean of 0.9242 against 0.8924 (0.9005 for the reference pair without average) and 0.9962 against 0.9907 at iteration 2000, the errors falling from 0.9 % to 0.4 %. Their two curves stay within 0.001 of each other from iteration 750, where the trained weights of the two launches differ by up to 0.067 (run_38 dropping to 0.9083 at iteration 1000), and the trained weights of the launches keeping the average stay within the noise of the reference, the average never feeding back into the training. An audit of run_37 found no leakage: no test image is identical to a training image, the evaluation leaves every buffer of the averaged model unchanged, and the checkpoints of iterations 500, 1000 and 2000, scored again outside the trainer, give the logged accuracies. Swapping the batch normalization statistics between the two sets of weights shows that the averaged parameters bring most of the gain from iteration 1000 (0.9899 and 0.9955 with the statistics of the trained weights at iterations 1000 and 2000), the averaged statistics mattering early (0.8212 instead of 0.8760 at iteration 500). The launches keep a constant learning rate, whose noise the average removes: a decaying learning rate would leave a smaller gap, and the decay of 0.9998, never reached in 2,000 iterations, needs longer trainings.
+
+![Classification, stage 13: Moving Average Of The Weights](figures/classification/stage_13_moving_average_of_the_weights.png)
 
 ## Class Extension Stage
 
@@ -373,6 +401,8 @@ The 11 new classes:
 **Kept: run_37 head, random new classes.** With the source initialisation, the transferred head keeps the 9 classes of run_37: its averaged weights classify them at 0.9997 from iteration 250 (0.9980 for the random head), its trained weights at 0.9665 against 0.9569, a gap within the spread of the launches (run_42 dropping to 0.9279 at iteration 500, run_40 to 0.8544). But it slows the 11 new classes, at 0.3144 against 0.7736 with the trained weights at iteration 250 and 0.3890 against 0.8375 with the averaged weights, and still at 0.9689 against 0.9915 and 0.9882 against 0.9994 at iteration 2000. The 20 classes stay behind the random head at every evaluation, mean 0.8902 against 0.9807 with the averaged weights and 0.8617 against 0.9435 with the trained ones, the two launches of each head being within 0.007 of each other. In run_41 at iteration 250 the ellipses (0.99), the annuli (1.00) and most semicircles (0.62) are predicted as capsules, the rhombi, parallelograms and kites as l_shapes or trapezoids, the nonagons as octagons (0.99), and the octagons lose 38 % of their images to the heptagons, while the random head of run_39 already gives the annuli a recall of 0.998, the ellipses 0.96 and the nonagons 0.87.
 
 run_43 and run_44 copy the same hidden layers and 9 class rows as run_41 and run_42, only the 11 new rows keeping the random initialisation of the new run, and their new classes learn as fast as with the random head: 0.7513 at iteration 250 with the trained weights (0.7736 for the random head, 0.3144 for the source initialisation), a mean of 0.9325 (0.9181, 0.7594), and 0.8190 at iteration 250 and a mean of 0.9623 with the averaged weights (0.8375 and 0.9655 for the random head). The hidden layers trained on 9 classes are therefore not what slowed the new classes, but the initialisation of their rows, the likely cause being that the zero rows of the source initialisation all start in the same direction with quiet biases, while random rows split the new classes along different directions of the hidden features from the first iteration. The 9 classes of run_37 stay at 0.9986 with the averaged weights at iteration 250 (0.9997 for the source initialisation, 0.9980 for the random head) and at a mean of 0.9776 with the trained weights (0.9874, 0.9748), the trained weights of run_44 starting lower (0.9141 at iteration 250) within the spread of the launches. On the 20 classes, the random new classes match the random head, a mean of 0.9528 against 0.9435 with the trained weights and 0.9790 against 0.9807 with the averaged ones, the launches of each head differing by as much (0.9553 and 0.9502, 0.9548 and 0.9323), and they beat the source initialisation at every evaluation (0.9790 against 0.8902 with the averaged weights). On this dataset, whose backbone already separates the shapes, keeping the classification head gains nothing measurable over a random head once its new classes start random; with "source", it costs the new classes 1,000 to 1,500 iterations. The source initialisation was removed after this stage, with the `new_class_initialisation` key and the `HRND`, `DRND` and `MRND` tokens: the new classes of a component with class layers now always keep the random initialisation of the new run. The run names of run_41 and run_42 are unchanged, so that `run-41.yaml` and `run-42.yaml` launched again into their folders resume them, and in other folders train as `run-43.yaml` and `run-44.yaml`; the folders of run_43 and run_44 keep the `HRND` token their run name had when they were trained, which a launch of `run-43.yaml` or `run-44.yaml` no longer gives, starting a new run beside them.
+
+![Classification, stage 14: Adding Classes](figures/classification/stage_14_adding_classes.png)
 
 ## Total
 

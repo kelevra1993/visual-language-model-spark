@@ -402,12 +402,15 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 It writes `Results.txt`, `Tensorboard/Test` and `Evaluation/` in `<output_folder>/<run name>/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, a temperature dividing the class logits before the softmax spreads probabilities squeezed against 1: choose it on `Evaluation/Iteration_<n>/temperature_explorer.html`, opened with `scripts/evaluation/serve_temperature_explorer.py`, whose save button writes the thresholds at that temperature next to the page. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
 
 ## Comparing Launches
+Once the launches of a hyperparameter stage have trained, these scripts gather their test curves, compare the best evaluations of runs, and draw the comparison of every stage.
 - `scripts/evaluation/collect_experiment_results.py` gathers the test curve and the swept settings of the `run_<n>` launches of a hyperparameter experiment into one CSV file, the launches of the same settings followed by a `mean` row.
 - `scripts/evaluation/compare_best_evaluations.py` prints Markdown tables of the best test evaluation of runs, over the trained and the averaged weights, with chosen curves, settings and class counts.
+- `scripts/evaluation/plot_experiment_comparisons.py` draws one figure per stage of the experiment plans of `documentation/architecture_benchmarking`, from the copies of their results files and the stages of `experiment_comparisons.yaml`: every launch and the mean of every setting for the trained and averaged weights, with the gap to the reference setting.
 
 ```bash
 uv run python -m scripts.evaluation.collect_experiment_results
 uv run python -m scripts.evaluation.compare_best_evaluations
+uv run python -m scripts.evaluation.plot_experiment_comparisons
 ```
 
 Their settings: [tools reference](documentation/reference/tools_reference.md#comparing-launches).
