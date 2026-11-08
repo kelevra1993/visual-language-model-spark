@@ -181,6 +181,10 @@
       term keeps apart only pairs below an IoU of 0.5505 (exponent 1.0) or 0.6314 (0.6), and random placements with
       the cap 0.6 give one such pair of a class per 300 images, so the occlusion split needs objects placed next to
       one of their class first.
+    - **Same-class placement (2026-11-08):** `same_class_neighbour_probability` of the generator places part of the
+      objects next to the object placed before them, with its class, at an IoU drawn between 0.5 and the cap, in
+      pairs. The split, generated with 0.3 and the cap 0.6 (5,000 images, `synthetic_hard_shapes_occlusion/test`),
+      holds 8,675 pairs of a class above 0.5, 1,728 and 7,079 of which the exponents 1.0 and 0.6 can keep apart.
 39. **Spatial pyramid pooling (SPP) after the backbone**: the last feature map concatenated with its max pools of 5, 9
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
 
