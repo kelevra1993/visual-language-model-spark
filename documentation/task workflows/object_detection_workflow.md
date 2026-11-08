@@ -14,7 +14,8 @@ The examples of Stages 1 and 2 and of the steps of one batch come from real runs
 > - the evaluation tables, scalars and `class_metrics.csv` have a column at IoU 0.95 (`mAP@0.95`, `AP@0.95`, `average_precision_95`, `351a4d1`), and the report shows a `Mean Average Recall` table after the size tables;
 > - the checkpoints also record the source run of the region proposal and detection heads (`pretrained_region_proposer_dictionary`, `pretrained_detector_heads_dictionary`), and the synthetic configuration keeps a moving average of the weights (`Optimization.exponential_moving_average`), whose checkpoint state is saved with the weights and which is evaluated after the trained weights in `Evaluation/Iteration_<n>/EMA/`, `Tensorboard/Test_EMA/` and an `EMA Weights` block of `Results.txt`;
 > - the summaries list the residual shortcuts only for a block adding one (`count_residual_additions()`), the panel of Step 2.19 being printed again with the current code;
-> - the configurations have a `Neck` section between `DetectionLevels` and `RegionProposal` (`type: "none"`, which builds no layer, so the outputs are unchanged), listed among the model sections of Steps 1.2 and 1.3, checked by `check_neck_configuration()` and printed in a `Neck Architecture` panel before the region proposal panel of Step 2.19.
+> - the configurations have a `Neck` section between `DetectionLevels` and `RegionProposal` (`type: "none"`, which builds no layer, so the outputs are unchanged), listed among the model sections of Steps 1.2 and 1.3, checked by `check_neck_configuration()` and printed in a `Neck Architecture` panel before the region proposal panel of Step 2.19;
+> - the `RegionProposal` and `Detector` sections have a `box_loss` (`"smooth_l1"`, the loss of every output shown, or `"complete_iou"`, 1 - CIoU of the boxes the offsets decode to, `documentation/detection_box_loss_design.md`), checked by `check_box_loss_configuration()`, the CIoU loss adding `RCIOU` or `DCIOU` to the run name.
 >
 > The synthetic configuration now trains at 512 pixels on the instance segmentation dataset, with blocks of 16 and 32 filters, two anchor scales per level and smaller heads, batch size 64 and 2000 iterations: `Read This First` describes it with a run of `experiments/readme_screenshots`, and Stages 3 to 5 show the outputs of its 5000-iteration copy. The configuration of Stages 1 and 2 is the one of `vision_training/configurations/object_detection/configuration_example.yaml` (same backbone, levels and heads, at 1024 pixels).
 
@@ -86,6 +87,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `RegionProposal.training`, `.inference`, `nms_iou_threshold` | 1000 then 500; 500 then 250; 0.7 | proposals given to the detection heads per image |
 | `RegionProposal.number_training_positives`, `total_training_samples` | 128, 256 | anchors sampled per image for the region proposal losses |
 | `Detector.foreground_iou_threshold`, `number_training_positives`, `total_training_samples` | 0.5, 64, 128 | proposals sampled per image for the detection losses, the ground truth boxes included |
+| `RegionProposal.box_loss`, `Detector.box_loss` | `smooth_l1`, `smooth_l1` | box loss of the positive anchors and proposals: smooth L1 on the offsets, or `complete_iou`, 1 - CIoU of the decoded boxes (`RCIOU`, `DCIOU`) |
 | `Detector.inference.score_threshold`, `maximum_detections`, `Detector.nms_iou_threshold` | 0.5, 100, 0.5 | post-processing of the deployed detector, also used by the sample images, the confusion matrix and the error images |
 | `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mAP; precision of the class thresholds of `class_thresholds.json` |
 | `Optimization.loss_weights` | 1.0 for each of the four losses | weights of the losses in the total loss, the losses being tracked unweighted |
@@ -210,8 +212,8 @@ main()
         │   │   │   ├── _forward_detections() -> DetectionHead.forward()     RoIAlign, class logits, box regressions
         │   │   │   ├── aggregate_detection_outputs() + _rearrange_predictions_by_batch()
         │   │   │   ├── compute_region_proposal_losses()
-        │   │   │   │       batch_assign_targets_to_anchors(), sampling, binary cross entropy + smooth L1
-        │   │   │   └── compute_detection_losses()                           cross entropy + smooth L1
+        │   │   │   │       batch_assign_targets_to_anchors(), sampling, binary cross entropy + smooth L1 or CIoU
+        │   │   │   └── compute_detection_losses()                           cross entropy + smooth L1 or CIoU
         │   │   ├── compute_batch_metrics()   none: the four losses are the tracked metrics
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   ├── training_loss.backward() / step_optimizer()
@@ -801,7 +803,7 @@ by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)
 ```
 
 ### Step 3.17 — `compute_region_proposal_losses()`
-`batch_assign_targets_to_anchors()` labels every anchor of every image of the batch at once (`pad_ground_truths()` completes the ground truths of every image with empty boxes up to the largest number of objects of the batch) from its best IoU with a ground truth box: foreground from `RegionProposal.foreground_iou_threshold.min` (0.5, the `.max` being unused), background between `background_iou_threshold.min` and `.max` (0.1 to 0.3 in this run), ignored otherwise (between 0.3 and 0.5, and below 0.1; the current configurations set the minimum to 0.0, so that every anchor below 0.3 can be sampled as background, audit H1); the anchors overlapping a ground truth box the most are foreground whatever their IoU (above 0), each assigned to the ground truth box it overlaps most, so that almost every box has an anchor (`bug_standards.md` B40: a small box sharing its best anchor with a larger one gets none). `sample_positive_and_negative_training_targets()` keeps at most `number_training_positives` (128) foreground anchors per image, filled to `total_training_samples` (256) with background ones, drawn at random for all the images with one sort of random keys. The classification loss is the binary cross entropy of the objectness of the sampled anchors; the regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) between the predicted and target offsets of the sampled foreground anchors, summed and divided by their number.
+`batch_assign_targets_to_anchors()` labels every anchor of every image of the batch at once (`pad_ground_truths()` completes the ground truths of every image with empty boxes up to the largest number of objects of the batch) from its best IoU with a ground truth box: foreground from `RegionProposal.foreground_iou_threshold.min` (0.5, the `.max` being unused), background between `background_iou_threshold.min` and `.max` (0.1 to 0.3 in this run), ignored otherwise (between 0.3 and 0.5, and below 0.1; the current configurations set the minimum to 0.0, so that every anchor below 0.3 can be sampled as background, audit H1); the anchors overlapping a ground truth box the most are foreground whatever their IoU (above 0), each assigned to the ground truth box it overlaps most, so that almost every box has an anchor (`bug_standards.md` B40: a small box sharing its best anchor with a larger one gets none). `sample_positive_and_negative_training_targets()` keeps at most `number_training_positives` (128) foreground anchors per image, filled to `total_training_samples` (256) with background ones, drawn at random for all the images with one sort of random keys. The classification loss is the binary cross entropy of the objectness of the sampled anchors; the regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) between the predicted and target offsets of the sampled foreground anchors, summed and divided by their number (`RegionProposal.box_loss: "smooth_l1"`; with `"complete_iou"`, `compute_localisation_loss()` sums 1 - CIoU between the boxes both offsets decode to from the anchors instead).
 
 **Example: the anchors of the first batch**
 ```text
@@ -814,7 +816,7 @@ losses: classification 0.6702   regression 0.4774
 ```
 
 ### Step 3.18 — `compute_detection_losses()`
-The classification loss is the cross entropy of the class logits of the sampled proposals, the background ones teaching the detector to reject false positives. The regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) between the target offsets and the offsets predicted for the true class of every foreground proposal, summed and divided by their number (0 when no sampled proposal is foreground).
+The classification loss is the cross entropy of the class logits of the sampled proposals, the background ones teaching the detector to reject false positives. The regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) between the target offsets and the offsets predicted for the true class of every foreground proposal, summed and divided by their number (0 when no sampled proposal is foreground); with `Detector.box_loss: "complete_iou"` it is 1 - CIoU between the boxes both offsets decode to from the proposals, summed and divided the same way.
 
 **Example output**
 ```text

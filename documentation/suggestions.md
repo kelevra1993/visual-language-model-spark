@@ -124,7 +124,9 @@
    not suppress the proposals of the others (audit M3). Mask R-CNN does not do this either: it runs one top-k and one
    NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level) are
    the reference.
-36. **A box loss on the overlap (CIoU)**, scheduled in `object_detection_experiment_plan.md`:
+36. **A box loss on the overlap (CIoU), implemented, off in every configuration, stage 5 left to run**
+    (`RegionProposal.box_loss` and `Detector.box_loss`: `"complete_iou"`), scheduled in
+    `object_detection_experiment_plan.md`:
     - **Why:** the smooth L1 on the offsets gives the same loss to predictions of very different overlap and shrinks
       with the size of the boxes, while 1 - IoU is flat for every box that does not overlap. GIoU adds the empty area of
       the smallest enclosing box, but falls back to the IoU when one box contains the other; DIoU adds the squared
@@ -136,6 +138,11 @@
     - **Change:** decode the predicted offsets of the sampled positives into boxes (`apply_regression_predictions`)
       and take 1 - CIoU against their target boxes, for both stages, the smooth L1 staying the other value of the
       setting during the stage.
+    - **Implemented (2026-11-08):** `compute_complete_iou_loss` of `detection_losses.py`, checked against the CIoU
+      papers, their official Faster R-CNN code, darknet, torchvision and mmdetection (`detection_box_loss_design.md`):
+      boxes in image pixels, alpha 0 below an IoU of 0.5 (journal Eq. 10) and constant in the gradient, one setting
+      per stage. The published Faster R-CNN applies it to the detection heads only, with a loss weight of 12; both
+      are left to decide for stage 5.
 37. **Path aggregation after the feature pyramid (PANet), implemented, checked against the paper and its code,
     stage 4 left to run** (`Neck.type: "path_aggregation"`, with item 1, the bottom-up convolutions followed by a
     ReLU), scheduled in `object_detection_experiment_plan.md`:

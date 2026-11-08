@@ -748,9 +748,10 @@ class TwoStageDetector(TaskModel):
                 aggregated_proposals_dictionary=aggregated_proposals_dictionary,
                 region_proposal_configuration=self.region_proposal_configuration)
 
-            # Detection Losses
+            # Detection Losses, with the box loss of 'Detector.box_loss'
             (detection_classification_loss, detection_regression_loss) = compute_detection_losses(
-                aggregated_detections_dictionary=aggregated_detections_dictionary)
+                aggregated_detections_dictionary=aggregated_detections_dictionary,
+                box_loss=self.detector_configuration["box_loss"])
 
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss

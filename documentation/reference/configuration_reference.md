@@ -52,7 +52,7 @@ The check of a task refuses a value it cannot use. Every key not listed accepts 
 - `TemporalModel.causal`: `True` for M2M and SEL only.
 
 **Task rules**
-- DET: every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`. INS adds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`. `Neck.type` is `none`, `feature_pyramid` or `path_aggregation`, `Neck.output_channels` a positive integer, and with a neck every level must be a whole multiple of the next coarser one (checked when the model is built).
+- DET: every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`. INS adds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`. `Neck.type` is `none`, `feature_pyramid` or `path_aggregation`, `Neck.output_channels` a positive integer, and with a neck every level must be a whole multiple of the next coarser one (checked when the model is built). `RegionProposal.box_loss` and `Detector.box_loss` are `smooth_l1` or `complete_iou` (`BOX_LOSSES` of `vision_training/losses/detection_losses.py`).
 - SEG: the keys of `SegmentationDecoder.convolutions` are the backbone blocks whose output is a skip connection, blocks 1 to N-1 of N blocks (and N with `last_max_pooling: True`). The keys of `deep_supervision_weights` are keys of `convolutions` other than the finest level. The categories of a `multi_class` mapping are the mask values 1 to 254.
 - KPT: `Backbone` ends at 1/4 of the image (3 blocks, or 2 with `last_max_pooling: True`), and `Data.image_settings.size` is a multiple of 4 x 2 to the power of the length of `HRNet.modules_per_stage`. `hidden_width` and the tag loss weights are at least 0, `inference.maximum_candidates` at least 1, `inference.keypoint_threshold` within ]0, 1[, `inference.tag_threshold` positive and `inference.object_score_threshold` within [0, 1]. The categories and keypoints of `evaluation.keypoint_sigmas` must exist in the training split.
 
@@ -71,13 +71,13 @@ These settings were removed from the configuration files, the code always using 
 | `Backbone.modules.inception_starting_block` | The inception modules start at block 3 (`INCEPTION_STARTING_BLOCK`). |
 | `batch_normalization_momentum` of `Backbone.normalization`, `ClassificationHead`, `RegionProposal.normalization`, `Detector.normalization`, `MaskHead.normalization`, `SegmentationDecoder`, `HRNet.normalization` and `ProjectionHead` | 0.1 (`BATCH_NORMALIZATION_MOMENTUM`) for every batch normalization. |
 | `RegionProposal.strict_fallback_assignment` | The anchor made foreground for an object it does not overlap the most targets the object it overlaps the most, as the region proposal network of torchvision. |
-| `RegionProposal.localisation_loss_beta`, `Detector.localisation_loss_beta` | The smooth L1 box losses of the region proposal network and of the detection heads use a beta of 1/9 (`LOCALISATION_LOSS_BETA` of `vision_training/losses/detection_losses.py`). |
+| `RegionProposal.localisation_loss_beta`, `Detector.localisation_loss_beta` | The smooth L1 box losses of the region proposal network and of the detection heads (`box_loss: "smooth_l1"`) use a beta of 1/9 (`LOCALISATION_LOSS_BETA` of `vision_training/losses/detection_losses.py`). |
 | `Data.data_augmentation.independent_frames`, `shuffle_frames` | Kept in M2O, M2M, CMP and SEL only, off for the other tasks. |
 
 The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, removed earlier, are refused the same way.
 
-`scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the files written before, the `training_configuration.yaml` of the run folders and the launch files set in its main block, keeping their comments:
-- Every converted file is first copied to a backup: `training_configuration_before_fixed_settings.yaml` next to a run configuration, `previous_configurations/<subfolder>/<name>_before_fixed_settings.yaml` for a launch file. The copies of MLflow (`mlartifacts`) are left as logged.
+`scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the files written before, the `training_configuration.yaml` of the run folders and the launch files set in its main block, keeping their comments. It also adds what a task now requires with the values its runs trained with: the `Neck` section (`type: "none"`) and the `box_loss` (`"smooth_l1"`) of `RegionProposal` and `Detector` in the DET and INS files (`ADDED_SECTIONS`, `ADDED_SETTINGS`):
+- Every converted file is first copied to a backup named with the `backup_suffix` of the main block, one per conversion (`_before_fixed_settings`, `_before_fixed_head_settings`, `_before_neck`, `_before_box_loss`): `training_configuration<suffix>.yaml` next to a run configuration, `previous_configurations/<subfolder>/<name><suffix>.yaml` for a launch file. The copies of MLflow (`mlartifacts`) are left as logged.
 - A file holding another value than the fixed one is listed with the values its runs change to (e.g. `ExperimentConfiguration.resume_training False -> True`), and a backbone whose inception modules start at another block than 3 is refused, the code no longer building its layers.
 - `write_files = False` only lists the files to convert.
 
@@ -163,10 +163,12 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Anchors | `A<anchors>.<smallest>-<largest>.<hash>` | anchors per position, range of the scales, first 6 characters of the SHA-256 of the scales and ratios | DET, INS |
 | Region proposal | `RBN`, `RLN`, `RNN` | `RegionProposal.normalization.feature_map_normalization` | DET, INS |
 | Region proposal | `R<layers>x<filters>` | `DetectionLevels.<level>.region_proposal.convolutions` | DET, INS |
+| Region proposal | `RCIOU` | `RegionProposal.box_loss` `complete_iou` (no token for `smooth_l1`) | DET, INS |
 | Region proposal | `RPT`, `RFRZ` | `RegionProposal.pretrained`, frozen | DET, INS |
 | Detector | `DSE`, `DRES`, `DINC` | `Detector.modules` | DET, INS |
 | Detector | `DBN`, `DLN`, `DNN` | `Detector.normalization.feature_map_normalization` | DET, INS |
 | Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `DetectionLevels.<level>.detector` | DET, INS |
+| Detector | `DCIOU` | `Detector.box_loss` `complete_iou` (no token for `smooth_l1`) | DET, INS |
 | Detector | `DPT`, `DFRZ` | `Detector.pretrained`, frozen | DET, INS |
 | Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | INS |
 | Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | INS |

@@ -260,7 +260,7 @@ Details: [reference](documentation/reference/tasks_reference.md#classification-c
 
 ### Object Detection (DET)
 A two-stage detector predicting the box, class and score of every object, its region proposal and detection heads running on several backbone levels, read directly or through a feature pyramid or path aggregation neck. The splits hold a COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels; `vision_training/data/data_retriever.py` downloads COCO 2017.
-- **Configuration**: `object_detection/configuration_example.yaml`, with `DetectionLevels` (one entry per backbone block feeding a level, with its anchors, region proposal head and detection head), `Neck` (`none`, `feature_pyramid` or `path_aggregation` between the blocks and the heads), `RegionProposal`, `Detector`, `Optimization.loss_weights` and the evaluation keys `score_threshold`, `target_precision` and `error_dumps`.
+- **Configuration**: `object_detection/configuration_example.yaml`, with `DetectionLevels` (one entry per backbone block feeding a level, with its anchors, region proposal head and detection head), `Neck` (`none`, `feature_pyramid` or `path_aggregation` between the blocks and the heads), `RegionProposal` and `Detector` (each with its `box_loss`, `smooth_l1` on the offsets or `complete_iou` on the decoded boxes), `Optimization.loss_weights` and the evaluation keys `score_threshold`, `target_precision` and `error_dumps`.
 - **Evaluation**: the mAP at IoU 0.5, 0.75, 0.95 and 0.5:0.95, the mAP and mean average recall by object size, the anchor and proposal recall, a confusion matrix with a `background` row and column, the score threshold of every class and the images of the false positives, missed objects and wrong classes.
 
 <p align="center">

@@ -1,9 +1,9 @@
 """
 Checks of the configuration sections specific to the object detection task: the detection levels (anchors, region
 proposal and detection heads of every level), the neck, the region proposal network, the detector heads, the proposal
-and anchor sampling, the weights of the losses and the evaluation settings. Run by configuration_checker.py for the
-object_detection task, and by instance_segmentation_checks.py for the instance segmentation task, which adds its mask
-heads to the detector.
+and anchor sampling, the box losses, the weights of the losses and the evaluation settings. Run by
+configuration_checker.py for the object_detection task, and by instance_segmentation_checks.py for the instance
+segmentation task, which adds its mask heads to the detector.
 """
 
 import math
@@ -21,6 +21,7 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value)
+from vision_training.losses.detection_losses import BOX_LOSSES
 from vision_training.models.detection.feature_neck import NECK_TYPES
 from vision_training.utilities.os_utilities import print_color
 
@@ -206,10 +207,10 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     """
     Verifies the 'RegionProposal' section, the settings shared by the region proposal heads of every level (their
     convolutions being checked with the levels): the normalization, the IoU thresholds used to label anchors, the
-    proposal counts kept around non-maximum suppression, the anchor sampling budget of the proposal losses, and the
-    'pretrained' settings initialising the heads with those of another run. A background range starting above 0.0 is
-    allowed but printed as a yellow warning, since the anchors overlapping no object are then never sampled as
-    background, only the hard negatives touching an object.
+    proposal counts kept around non-maximum suppression, the anchor sampling budget of the proposal losses, their box
+    loss, and the 'pretrained' settings initialising the heads with those of another run. A background range starting
+    above 0.0 is allowed but printed as a yellow warning, since the anchors overlapping no object are then never
+    sampled as background, only the hard negatives touching an object.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -274,8 +275,9 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
             errors.append(f"'RegionProposal.{phase}.post_nms_proposals' ({post_nms_proposals}) must be <= "
                           f"'RegionProposal.{phase}.pre_nms_proposals' ({pre_nms_proposals}).")
 
-    # Anchor sampling budget of the proposal stage
+    # Anchor sampling budget and localisation loss of the proposal stage
     errors += check_sampling_configuration(model_configuration=model_configuration, section_key="RegionProposal")
+    errors += check_box_loss_configuration(model_configuration=model_configuration, section_key="RegionProposal")
 
     # Region proposal heads possibly initialised by those of another run
     errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="RegionProposal")
@@ -288,7 +290,7 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
     Verifies the 'Detector' section, the settings shared by the detection heads of every level (their pool size,
     convolutions and fully connected layers being checked with the levels): the normalization, the modules, the IoU
     thresholds, that the proposal sampling budget fits within the proposals kept by the Region Proposal stage during
-    training, and the 'pretrained' settings initialising the heads with those of another run.
+    training, the box loss, and the 'pretrained' settings initialising the heads with those of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Detector' section.
@@ -349,6 +351,9 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
                       f"'RegionProposal.training.post_nms_proposals' ({post_nms_proposals}), since the detector "
                       f"samples its targets among these proposals.")
 
+    # Localisation loss of the detection stage
+    errors += check_box_loss_configuration(model_configuration=model_configuration, section_key="Detector")
+
     # Detection heads possibly initialised by those of another run
     errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="Detector")
 
@@ -382,6 +387,24 @@ def check_sampling_configuration(model_configuration: Dict[str, Any], section_ke
                           f"'{section_key}.total_training_samples' ({total_training_samples}).")
 
     return errors
+
+
+def check_box_loss_configuration(model_configuration: Dict[str, Any], section_key: str) -> List[str]:
+    """
+    Verifies the localisation loss of the Region Proposal or Detector losses, the smooth L1 on the regression offsets
+    or the CIoU loss on the decoded boxes, which detection_losses.py computes on the sampled positives.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration.
+        section_key (str): The section to verify, either 'RegionProposal' or 'Detector'.
+
+    Returns:
+        List[str]: The description of the inconsistency found, empty when the loss is known.
+    """
+    box_loss = get_configuration_value(configuration=model_configuration, key_path=f"{section_key}.box_loss")
+    if box_loss not in BOX_LOSSES:
+        return [f"'{section_key}.box_loss' must be one of {BOX_LOSSES}, got {box_loss!r}."]
+    return []
 
 
 def check_detection_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:

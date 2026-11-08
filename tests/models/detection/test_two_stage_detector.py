@@ -85,3 +85,39 @@ def test_detection_stages_carry_levels_and_matched_ground_truths(neck_type: str)
                 min=0.0, max=float(model.input_image_size))
             assert torch.allclose(input=proposal_box, other=outputs["final_detection_boxes"][image_index,
                                                                                              detection_index])
+
+
+def test_complete_iou_box_loss_trains_both_detection_stages() -> None:
+    """
+    Verifies that the 'box_loss' of 'RegionProposal' and 'Detector' set to "complete_iou" changes the localisation
+    losses of both stages and nothing else, the same seed sampling the same positives with both box losses so that the
+    classification losses are equal, and that the CIoU losses are finite and backpropagate to the box regression
+    layers of the region proposal and detection heads.
+    """
+    images, boxes, labels = get_fixed_batch()
+    losses = {}
+    for box_loss in ["smooth_l1", "complete_iou"]:
+        model = build_test_model(dtype=torch.float64, box_loss=box_loss).train()
+        torch.manual_seed(seed=2)
+        outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
+        losses[box_loss] = {key: value for key, value in outputs.items() if key.endswith("_loss")}
+
+    # Classification losses unchanged, localisation losses of both stages changed and finite
+    for loss_name in ["region_proposal_classification_loss", "detection_classification_loss"]:
+        assert torch.equal(input=losses["complete_iou"][loss_name], other=losses["smooth_l1"][loss_name])
+    for loss_name in ["region_proposal_localisation_loss", "detection_regression_loss"]:
+        complete_iou_loss = losses["complete_iou"][loss_name].detach()
+        assert bool(torch.isfinite(input=complete_iou_loss)) and 0 < float(complete_iou_loss) < 2
+        assert not torch.isclose(input=complete_iou_loss, other=losses["smooth_l1"][loss_name].detach())
+
+    # Gradients of the CIoU losses reaching the box regression layers of both stages, the last model built
+    model.zero_grad()
+    (losses["complete_iou"]["region_proposal_localisation_loss"] +
+     losses["complete_iou"]["detection_regression_loss"]).backward()
+    for regressor_prefix, regressor_name in [("region_proposer_dictionary", "region_proposal_bounding_box_regressor"),
+                                             ("detector_heads_dictionary", "bounding_box_regressor")]:
+        regressor_gradients = [parameter.grad for name, parameter in model.named_parameters()
+                               if name.startswith(regressor_prefix) and f".{regressor_name}." in name]
+        assert regressor_gradients and all(gradient is not None and bool(torch.isfinite(input=gradient).all())
+                                           for gradient in regressor_gradients)
+        assert any(float(gradient.abs().sum()) > 0 for gradient in regressor_gradients)
