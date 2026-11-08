@@ -219,7 +219,9 @@ HOUSE_ROOF_HEIGHT_RATIO_RANGE = (0.3, 0.5)
 KEYPOINT_MINIMUM_OBJECTS = 2
 KEYPOINT_MAXIMUM_OUTSIDE_FRACTION = 0.3
 
-# Maximum overlap allowed between two objects of the same image, and number of placement attempts per object
+# Maximum overlap allowed between two objects of the same image, the default of create_synthetic_dataset with which
+# every dataset was drawn (larger for the occlusion test split of the detection benchmark), and number of placement
+# attempts per object
 MAXIMUM_OBJECT_INTERSECTION_OVER_UNION = 0.3
 MAXIMUM_PLACEMENT_ATTEMPTS = 50
 
@@ -1653,20 +1655,21 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
 
 def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator,
                    keypoints: bool = False, hard_objects: bool = False,
-                   object_pixel_counts: Optional[List[int]] = None
+                   object_pixel_counts: Optional[List[int]] = None,
+                   maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION
                    ) -> Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]:
     """
     Generates one synthetic detection, segmentation, keypoint detection or classification image: a random-colour or
     black background with 1 to 'maximum_objects' shapes of the SHAPE_CATEGORIES classes, of random colours and sizes
     from MINIMUM_SHAPE_SIZE (64) pixels to a third of the image side, overlapping each other by at most an intersection
-    over union of 0.3, with the class map and the instance map of its pixels. On images too small for the minimum size
-    (the 64 pixel images of the tests), every shape gets the largest size. The keypoint images draw at least
-    KEYPOINT_MINIMUM_OBJECTS upright shapes of the KEYPOINT_CATEGORIES, which may stick out of the image, with their
-    keypoints. The hard object detection and instance segmentation images, closer to the difficulty of real images,
-    draw HARD_OBJECTS_MINIMUM_OBJECTS to 'maximum_objects' shapes of log-uniform sizes from HARD_OBJECTS_MINIMUM_SIZE
-    pixels to HARD_OBJECTS_MAXIMUM_SIZE_FRACTION of the image side, from the largest to the smallest so that the small
-    shapes lie over the large ones, some sticking out of the image, on a flat background (where some of them get a
-    colour close to the background) or a textured one.
+    over union of 'maximum_object_intersection_over_union' (0.3), with the class map and the instance map of its
+    pixels. On images too small for the minimum size (the 64 pixel images of the tests), every shape gets the largest
+    size. The keypoint images draw at least KEYPOINT_MINIMUM_OBJECTS upright shapes of the KEYPOINT_CATEGORIES, which
+    may stick out of the image, with their keypoints. The hard object detection and instance segmentation images,
+    closer to the difficulty of real images, draw HARD_OBJECTS_MINIMUM_OBJECTS to 'maximum_objects' shapes of
+    log-uniform sizes from HARD_OBJECTS_MINIMUM_SIZE pixels to HARD_OBJECTS_MAXIMUM_SIZE_FRACTION of the image side,
+    from the largest to the smallest so that the small shapes lie over the large ones, some sticking out of the image,
+    on a flat background (where some of them get a colour close to the background) or a textured one.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
@@ -1677,6 +1680,8 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
         object_pixel_counts (Optional[List[int]]): A list filled in place with the number of pixels of the whole shape
             of every placed object, in the order of the objects, so that keep_visible_objects measures the visible share
             of every object of a hard image, or None. Defaults to None.
+        maximum_object_intersection_over_union (float): The largest IoU between the box of an object and the box of
+            every object placed before it. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3).
 
     Returns:
         Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]: The [H, W, 3] uint8 BGR image, for every
@@ -1729,7 +1734,7 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
             low_contrast_range=HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE if low_contrast else None)
         box = place_shape(image=image, shape_descriptor=shape_descriptor,
                           placed_boxes=[placed_object[1] for placed_object in objects],
-                          maximum_intersection_over_union=MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, minimum_gap=0,
+                          maximum_intersection_over_union=maximum_object_intersection_over_union, minimum_gap=0,
                           random_generator=random_generator, class_map=class_map, instance_map=instance_map,
                           maximum_outside_fraction=maximum_outside_fraction)
         if box is None:
@@ -1872,8 +1877,9 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             (whether the objects with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels are left out),
             'instance_segmentation' (whether the visible parts of the objects are kept), 'keypoints' (whether the
             images are keypoint detection images), 'counted_shapes' (whether the images are self-supervised or
-            multi-label classification images, drawn like the sequence labelling frames) and 'hard_objects' (whether
-            the images are hard object detection or instance segmentation images, generate_image).
+            multi-label classification images, drawn like the sequence labelling frames), 'hard_objects' (whether
+            the images are hard object detection or instance segmentation images, generate_image) and
+            'maximum_object_intersection_over_union' (the largest IoU between two objects of an image, generate_image).
 
     Returns:
         List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', the
@@ -1904,7 +1910,8 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
         object_pixel_counts = [] if chunk["hard_objects"] else None
         image, objects, class_map, instance_map = generate_image(
             image_size=chunk["image_size"], maximum_objects=chunk["maximum_objects"], random_generator=random_generator,
-            keypoints=chunk["keypoints"], hard_objects=chunk["hard_objects"], object_pixel_counts=object_pixel_counts)
+            keypoints=chunk["keypoints"], hard_objects=chunk["hard_objects"], object_pixel_counts=object_pixel_counts,
+            maximum_object_intersection_over_union=chunk["maximum_object_intersection_over_union"])
         file_name = f"{chunk['split_name']}_{image_index:06d}.png"
         cv2.imwrite(filename=os.path.join(chunk["data_folder"], file_name), img=image)
 
@@ -2674,7 +2681,9 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
 
 def generate_split(split_folder: str, split_name: str, number_samples: int, image_size: int, maximum_objects: int,
                    minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
-                   hard_objects: bool = False) -> Dict[str, int]:
+                   hard_objects: bool = False,
+                   maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION
+                   ) -> Dict[str, int]:
     """
     Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images (or
     the frame folders of the sequences) in '<split_folder>/data', the class masks of the segmentation images in
@@ -2706,6 +2715,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
             "frame_selection", "self_supervised" or "multi_label_classification".
         hard_objects (bool): True for the hard object detection or instance segmentation images (generate_image).
             Defaults to False.
+        maximum_object_intersection_over_union (float): The largest IoU between two objects of an image drawn by
+            generate_image. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3).
 
     Returns:
         Dict[str, int]: The number of labels (objects, images, sequences, frames or pairs) of every class in the split.
@@ -2742,7 +2753,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                    "remove_covered_objects": task in TASKS_REMOVING_COVERED_OBJECTS,
                    "instance_segmentation": task == "instance_segmentation",
                    "keypoints": task == "keypoint_detection", "counted_shapes": task in COUNTED_SHAPES_TASKS,
-                   "hard_objects": hard_objects}
+                   "hard_objects": hard_objects,
+                   "maximum_object_intersection_over_union": maximum_object_intersection_over_union}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             image_records = [record for chunk_records in pool.map(generate_image_chunk, chunks)
@@ -2773,7 +2785,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
 
 def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: Dict[str, int], maximum_objects: int,
                              minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
-                             hard_objects: bool = False) -> None:
+                             hard_objects: bool = False,
+                             maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION
+                             ) -> None:
     """
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
@@ -2811,16 +2825,32 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
             "frame_selection", "self_supervised" or "multi_label_classification".
         hard_objects (bool): True for the hard images (generate_image), object detection and instance segmentation
             only. Defaults to False.
+        maximum_object_intersection_over_union (float): The largest IoU between two objects of an image, within [0, 1],
+            for the images drawn by generate_image (object detection, instance segmentation, keypoint detection,
+            semantic segmentation, classification), e.g. 0.6 for the occlusion test split of stage 5b of the detection
+            benchmark (documentation/detection_nms_design.md). Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3),
+            with which every dataset was drawn.
 
     Raises:
         ValueError: If the frame range of a sequence task starts below 2 (below the number of wanted shapes for the
-            frame selection) or is empty, or if hard_objects is set for another task than the object detection and the
-            instance segmentation.
+            frame selection) or is empty, if hard_objects is set for another task than the object detection and the
+            instance segmentation, or if the largest IoU between two objects is not within [0, 1] or is changed for a
+            task whose images are not drawn by generate_image.
     """
     # The hard images label the whole box or the visible part of every object, their keypoints not being drawn
     if hard_objects and task not in HARD_OBJECTS_TASKS:
         raise ValueError(f"hard_objects only draws object detection and instance segmentation images, got task "
                          f"'{task}'.")
+
+    # The overlap cap is an IoU, which only the images of generate_image use, the sequence frames and the counted
+    # shapes images placing their shapes apart
+    if not 0.0 <= maximum_object_intersection_over_union <= 1.0:
+        raise ValueError(f"maximum_object_intersection_over_union must be within [0, 1], got "
+                         f"{maximum_object_intersection_over_union!r}.")
+    if maximum_object_intersection_over_union != MAXIMUM_OBJECT_INTERSECTION_OVER_UNION and \
+            task in SEQUENCE_TASKS + COUNTED_SHAPES_TASKS:
+        raise ValueError(f"maximum_object_intersection_over_union only changes the images drawn by generate_image, "
+                         f"not those of the '{task}' task, got {maximum_object_intersection_over_union!r}.")
 
     # A movement, a change of shapes or a comparison needs two frames, a selection one frame per wanted shape, in a
     # range that holds at least one length
@@ -2837,7 +2867,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         class_counts = generate_split(split_folder=split_folder, split_name=split_name, number_samples=number_samples,
                                       image_size=image_size, maximum_objects=maximum_objects,
                                       minimum_frames=minimum_frames, maximum_frames=maximum_frames,
-                                      number_workers=number_workers, task=task, hard_objects=hard_objects)
+                                      number_workers=number_workers, task=task, hard_objects=hard_objects,
+                                      maximum_object_intersection_over_union=maximum_object_intersection_over_union)
         print_color(color="green", output=f"{split_name} split : {format_path_link(path=split_folder)}", indent=1)
         print_color(color="green", output=f"Labels per class : {class_counts}", indent=1)
 
@@ -2942,6 +2973,9 @@ if __name__ == "__main__":
     hard_instance_segmentation_settings = {
         "output_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_hard_shapes",
         "image_size": 1024, "split_sizes": {"train": 512000, "validation": 50000, "test": 50000}, "maximum_objects": 12}
+    # Largest IoU between two objects of an image drawn by generate_image: 0.3 for every dataset, 0.6 for the occlusion
+    # test split of stage 5b of the detection benchmark (documentation/detection_nms_design.md), in a folder of its own
+    maximum_object_intersection_over_union = 0.3
     # Number of worker processes generating the images
     number_workers = 8
 
@@ -2955,4 +2989,5 @@ if __name__ == "__main__":
     create_synthetic_dataset(output_folder=output_folders[task], image_size=image_sizes[task],
                              split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
                              minimum_frames=minimum_frames[task], maximum_frames=maximum_frames[task],
-                             number_workers=number_workers, task=task, hard_objects=task in hard_object_tasks)
+                             number_workers=number_workers, task=task, hard_objects=task in hard_object_tasks,
+                             maximum_object_intersection_over_union=maximum_object_intersection_over_union)

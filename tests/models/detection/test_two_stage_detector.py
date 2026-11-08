@@ -2,7 +2,8 @@
 Tests of the intermediate results of vision_training/models/detection/two_stage_detector.py read by the instance
 segmenter: the level and matched ground truth of the sampled proposals and the proposal of every final detection
 carried through forward_detection_stages, and the filtered proposals and the anchors of every level read by the anchor
-and proposal recall of the detection trainers.
+and proposal recall of the detection trainers. The box loss of the configuration trains both stages, and the criterion
+of its final NMS suppresses the detections of the evaluation.
 """
 
 import pytest
@@ -10,6 +11,7 @@ import torch
 
 from tests.models.detection.test_detector_baseline import get_fixed_batch
 from tests.testing_utilities import build_test_model
+from vision_training.models.detection.postprocessing import postprocess_detections
 
 
 @pytest.mark.parametrize(argnames="neck_type", argvalues=["none", "path_aggregation"])
@@ -121,3 +123,41 @@ def test_complete_iou_box_loss_trains_both_detection_stages() -> None:
         assert regressor_gradients and all(gradient is not None and bool(torch.isfinite(input=gradient).all())
                                            for gradient in regressor_gradients)
         assert any(float(gradient.abs().sum()) > 0 for gradient in regressor_gradients)
+
+
+def test_final_nms_criterion_of_the_configuration_suppresses_the_evaluated_detections() -> None:
+    """
+    Verifies that the 'nms_criterion' and 'nms_distance_exponent' of the 'Detector' section reach the final
+    postprocessing of the eager detector in evaluation mode: the same weights and images give the same head outputs
+    with the greedy NMS and with DIoU-NMS, the final detections of each model being those postprocess_detections gives
+    with its own criterion, and different from one another on the untrained detector, whose boxes overlap.
+    """
+    images, _, _ = get_fixed_batch()
+    nms_settings = {"iou": 1.0, "distance_iou": 0.6}
+    outputs, models = {}, {}
+    for nms_criterion, nms_distance_exponent in nms_settings.items():
+        models[nms_criterion] = build_test_model(dtype=torch.float64, nms_criterion=nms_criterion,
+                                                 nms_distance_exponent=nms_distance_exponent)
+        assert models[nms_criterion].detection_nms_criterion == nms_criterion
+        assert models[nms_criterion].detection_nms_distance_exponent == nms_distance_exponent
+        torch.manual_seed(seed=3)
+        with torch.no_grad():
+            outputs[nms_criterion] = models[nms_criterion](input_tensor=images)
+
+    # Same head outputs, and the final detections of the criterion and exponent of every model
+    for key in ["classification_scores", "detection_boxes"]:
+        assert torch.equal(input=outputs["iou"][key], other=outputs["distance_iou"][key])
+    for nms_criterion, nms_distance_exponent in nms_settings.items():
+        model, model_outputs = models[nms_criterion], outputs[nms_criterion]
+        expected_detections = postprocess_detections(
+            classification_scores=model_outputs["classification_scores"],
+            detection_boxes=model_outputs["detection_boxes"],
+            valid_proposal_mask=torch.ones_like(input=model_outputs["classification_scores"][..., 0], dtype=torch.bool),
+            score_threshold=model.detection_score_threshold, nms_iou_threshold=model.detection_nms_iou_threshold,
+            nms_criterion=nms_criterion, nms_distance_exponent=nms_distance_exponent,
+            maximum_detections=model.maximum_detections, input_image_size=model.input_image_size,
+            suppress_candidates_only=True)
+        for key, expected_value in expected_detections.items():
+            assert torch.equal(input=model_outputs[key], other=expected_value), f"{key} differs for {nms_criterion}"
+    assert not torch.equal(input=outputs["iou"]["final_detection_boxes"],
+                           other=outputs["distance_iou"]["final_detection_boxes"])

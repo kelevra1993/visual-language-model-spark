@@ -1,7 +1,8 @@
 """
 Tests of the detection inference path of vision_training/models/detection: postprocess_detections (threshold, NMS and
 padding, the NMS run on the candidates reaching the score threshold only and giving the detections of the NMS on every
-pair run by the exports), InferenceDetector matching the eager detector and its TorchScript round trip.
+pair run by the exports, DIoU-NMS in the eager path only), InferenceDetector matching the eager detector, its
+TorchScript round trip, and its refusal of DIoU-NMS.
 """
 
 import pytest
@@ -14,6 +15,7 @@ from torchvision.ops import batched_nms
 
 from vision_training.models.detection import postprocessing
 from vision_training.models.detection.inference_detector import InferenceDetector
+from vision_training.models.instance_segmentation.inference_instance_segmenter import InferenceInstanceSegmenter
 from tests.testing_utilities import build_test_model
 from vision_training.models.detection.postprocessing import postprocess_detections
 
@@ -37,8 +39,9 @@ def test_postprocess_detections_threshold_nms_and_padding(suppress_candidates_on
 
     detections = postprocess_detections(classification_scores=torch.log(input=probabilities), detection_boxes=boxes,
                                         valid_proposal_mask=torch.tensor(data=[[True, True, True, False]]),
-                                        score_threshold=0.5, nms_iou_threshold=0.5, maximum_detections=4,
-                                        input_image_size=128, suppress_candidates_only=suppress_candidates_only)
+                                        score_threshold=0.5, nms_iou_threshold=0.5, nms_criterion="iou",
+                                        nms_distance_exponent=1.0, maximum_detections=4, input_image_size=128,
+                                        suppress_candidates_only=suppress_candidates_only)
 
     assert detections["number_detections"].tolist() == [2]
     assert detections["final_detection_labels"].tolist() == [[2, 1, 0, 0]]
@@ -46,6 +49,60 @@ def test_postprocess_detections_threshold_nms_and_padding(suppress_candidates_on
     assert detections["final_detection_boxes"][0, :2].tolist() == [[100.0, 100.0, 128.0, 128.0], first_box]
     assert detections["final_detection_boxes"][0, 2:].abs().sum() == 0.0
     assert detections["final_detection_proposal_indices"].tolist() == [[2, 0, 0, 0]]
+
+
+def test_postprocess_detections_with_distance_nms_and_its_refusals() -> None:
+    """
+    Verifies the criterion of the final NMS of postprocess_detections on hand-made predictions: a lower scoring box of
+    the class of the best box, overlapping it by 0.526 with its centre 4.5 pixels away, is suppressed by the greedy NMS
+    and kept by DIoU-NMS, the box of another class staying in both, with the proposal of every detection; the export
+    path refuses DIoU-NMS, and both paths refuse an unknown criterion.
+    """
+    # One image, three proposals, classes (background, A, B): the best box of A, a wider box of A sharing its right
+    # edge, and a box of B apart
+    probabilities = torch.tensor(data=[[[0.1, 0.8, 0.1], [0.2, 0.7, 0.1], [0.05, 0.1, 0.85]]])
+    first_box, wider_box, far_box = [10.0, 10.0, 20.0, 20.0], [1.0, 10.0, 20.0, 20.0], [60.0, 60.0, 90.0, 90.0]
+    boxes = torch.tensor(data=[[[box] * 3 for box in [first_box, wider_box, far_box]]])
+    settings = {"classification_scores": torch.log(input=probabilities), "detection_boxes": boxes,
+                "valid_proposal_mask": torch.ones(size=(1, 3), dtype=torch.bool), "score_threshold": 0.5,
+                "nms_iou_threshold": 0.5, "nms_distance_exponent": 1.0, "maximum_detections": 4,
+                "input_image_size": 128}
+
+    greedy_detections = postprocess_detections(**settings, nms_criterion="iou", suppress_candidates_only=True)
+    assert greedy_detections["number_detections"].tolist() == [2]
+    assert greedy_detections["final_detection_labels"].tolist() == [[2, 1, 0, 0]]
+    distance_detections = postprocess_detections(**settings, nms_criterion="distance_iou",
+                                                 suppress_candidates_only=True)
+    assert distance_detections["number_detections"].tolist() == [3]
+    assert distance_detections["final_detection_labels"].tolist() == [[2, 1, 1, 0]]
+    assert distance_detections["final_detection_boxes"][0, :3].tolist() == [far_box, first_box, wider_box]
+    assert distance_detections["final_detection_proposal_indices"].tolist() == [[2, 0, 1, 0]]
+
+    # DIoU-NMS has no exportable form, and an unknown criterion is refused by both paths
+    with pytest.raises(expected_exception=ValueError, match=r"greedy NMS \('iou'\) only, got 'distance_iou'"):
+        postprocess_detections(**settings, nms_criterion="distance_iou", suppress_candidates_only=False)
+    for suppress_candidates_only in [True, False]:
+        with pytest.raises(expected_exception=ValueError, match="'soft_nms'"):
+            postprocess_detections(**settings, nms_criterion="soft_nms",
+                                   suppress_candidates_only=suppress_candidates_only)
+
+
+@pytest.mark.parametrize(argnames="instance_segmentation", argvalues=[False, True])
+def test_inference_models_refuse_the_distance_nms(instance_segmentation: bool) -> None:
+    """
+    Verifies that the deployed detector and instance segmenter, which run the greedy NMS on every pair, refuse a model
+    whose 'Detector.nms_criterion' is "distance_iou", so that a deployed model never suppresses otherwise than in its
+    evaluation, while the eager model evaluates it.
+
+    Args:
+        instance_segmentation (bool): Whether the model is the instance segmenter.
+    """
+    model = build_test_model(dtype=torch.float32, instance_segmentation=instance_segmentation,
+                             nms_criterion="distance_iou")
+    assert model.detection_nms_criterion == "distance_iou"
+    inference_class = InferenceInstanceSegmenter if instance_segmentation else InferenceDetector
+    with pytest.raises(expected_exception=ValueError, match="'Detector.nms_criterion' is 'distance_iou'"):
+        inference_class(model=model)
 
 
 @pytest.mark.parametrize(argnames="neck_type", argvalues=["none", "path_aggregation"])
@@ -167,7 +224,8 @@ def test_postprocess_detections_runs_the_nms_on_the_candidates_only(monkeypatch:
                         value=partial(record_batched_nms, recorded_box_counts=recorded_box_counts))
     postprocess_detections(classification_scores=classification_scores, detection_boxes=detection_boxes,
                            valid_proposal_mask=valid_proposal_mask, score_threshold=0.3, nms_iou_threshold=0.5,
-                           maximum_detections=20, input_image_size=128, suppress_candidates_only=True)
+                           nms_criterion="iou", nms_distance_exponent=1.0, maximum_detections=20, input_image_size=128,
+                           suppress_candidates_only=True)
 
     # Number of valid pairs reaching the threshold, a small part of all the pairs
     probabilities = torch.softmax(input=classification_scores, dim=-1)[..., 1:]
@@ -187,7 +245,8 @@ def test_postprocess_detections_match_the_nms_on_every_pair() -> None:
             classification_scores, detection_boxes, valid_proposal_mask = build_random_head_outputs(seed=seed)
             settings = {"classification_scores": classification_scores, "detection_boxes": detection_boxes,
                         "valid_proposal_mask": valid_proposal_mask, "score_threshold": score_threshold,
-                        "nms_iou_threshold": 0.5, "maximum_detections": 100, "input_image_size": 128}
+                        "nms_iou_threshold": 0.5, "nms_criterion": "iou", "nms_distance_exponent": 1.0,
+                        "maximum_detections": 100, "input_image_size": 128}
 
             # Eager path on the candidates, then the reference on every pair
             detections = postprocess_detections(**settings, suppress_candidates_only=True)

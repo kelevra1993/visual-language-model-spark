@@ -61,10 +61,13 @@ class TwoStageDetector(TaskModel):
         self.label_dictionary = self.data_configuration["label_dictionary"]
         self.number_classes = len(set(self.label_dictionary.values()))
 
-        # Final detection post-processing settings, applied at inference only
+        # Final detection post-processing settings, applied at inference only: the score threshold, the number of
+        # detections per image, and the threshold, criterion and distance exponent of the final per-class NMS
         self.detection_score_threshold = self.detector_configuration["inference"]["score_threshold"]
         self.maximum_detections = self.detector_configuration["inference"]["maximum_detections"]
         self.detection_nms_iou_threshold = self.detector_configuration["nms_iou_threshold"]
+        self.detection_nms_criterion = self.detector_configuration["nms_criterion"]
+        self.detection_nms_distance_exponent = self.detector_configuration["nms_distance_exponent"]
 
         # Initialize the backbone feature extractor, whose outputs are the blocks numbered by the detection levels
         detection_convolution_block_indices = sorted(int(level_key) for level_key in configuration["DetectionLevels"])
@@ -722,7 +725,8 @@ class TwoStageDetector(TaskModel):
             detection_batch_indices=aggregated_detections_dictionary["sliced_batch_indices"],
             prediction_tensors_dictionary=aggregated_detections_dictionary)
 
-        # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections
+        # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections, with
+        # the greedy NMS or DIoU-NMS of 'Detector.nms_criterion'
         if not self.training:
             model_output_dictionary.update(postprocess_detections(
                 classification_scores=model_output_dictionary["classification_scores"],
@@ -730,6 +734,7 @@ class TwoStageDetector(TaskModel):
                 valid_proposal_mask=torch.ones_like(input=model_output_dictionary["classification_scores"][..., 0],
                                                     dtype=torch.bool),
                 score_threshold=self.detection_score_threshold, nms_iou_threshold=self.detection_nms_iou_threshold,
+                nms_criterion=self.detection_nms_criterion, nms_distance_exponent=self.detection_nms_distance_exponent,
                 maximum_detections=self.maximum_detections, input_image_size=self.input_image_size,
                 suppress_candidates_only=True))
 

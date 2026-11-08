@@ -86,6 +86,9 @@ def get_detection_model_configuration(mask_head: bool = False, neck_type: str = 
                          'box_loss': box_loss,
                          'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False},
                          'nms_iou_threshold': 0.5,
+                         # Greedy final NMS, as in the behaviour baseline
+                         'nms_criterion': 'iou',
+                         'nms_distance_exponent': 1.0,
                          'inference': {'score_threshold': 0.5, 'maximum_detections': 100},
                      },
                      'Optimization': {'exponential_moving_average': {'activated': False, 'decay': 0.9998}}}

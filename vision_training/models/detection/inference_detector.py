@@ -31,8 +31,18 @@ class InferenceDetector(nn.Module):
 
         Args:
             model (TwoStageDetector): The trained detector, whose submodules and configuration are reused.
+
+        Raises:
+            ValueError: If the final NMS of the detector is not the greedy NMS ('Detector.nms_criterion' "iou"), the
+                only one the exports run.
         """
         super(InferenceDetector, self).__init__()
+
+        # The exports run the greedy NMS on every pair, DIoU-NMS having no exportable form until a stage keeps it
+        # (documentation/detection_nms_design.md, Part B), so that a deployed model suppresses as in its evaluation
+        if model.detection_nms_criterion != "iou":
+            raise ValueError(f"The deployed detector runs the greedy NMS only: 'Detector.nms_criterion' is "
+                             f"{model.detection_nms_criterion!r}, set it to 'iou' to export or deploy the model.")
 
         self.backbone = model.backbone
         self.neck = model.neck
@@ -51,6 +61,8 @@ class InferenceDetector(nn.Module):
         self.proposal_nms_iou_threshold = model.region_proposal_filter.nms_iou_threshold
         self.score_threshold = model.detection_score_threshold
         self.detection_nms_iou_threshold = model.detection_nms_iou_threshold
+        self.detection_nms_criterion = model.detection_nms_criterion
+        self.detection_nms_distance_exponent = model.detection_nms_distance_exponent
         self.maximum_detections = model.maximum_detections
 
     def forward(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -112,6 +124,8 @@ class InferenceDetector(nn.Module):
                                             detection_boxes=detection_boxes, valid_proposal_mask=valid_proposal_mask,
                                             score_threshold=self.score_threshold,
                                             nms_iou_threshold=self.detection_nms_iou_threshold,
+                                            nms_criterion=self.detection_nms_criterion,
+                                            nms_distance_exponent=self.detection_nms_distance_exponent,
                                             maximum_detections=self.maximum_detections,
                                             input_image_size=self.input_image_size, suppress_candidates_only=False)
         return {"feature_maps": feature_maps, "proposal_levels": filtered_levels, "detections": detections}

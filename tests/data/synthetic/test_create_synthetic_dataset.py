@@ -4,8 +4,9 @@ classification, semantic segmentation, sequence classification, sequence labelli
 selection and self-supervised datasets are valid, load with the datasets of the framework and follow their labels,
 the objects hidden by later ones being left out of the detection and instance segmentation labels. The hard images
 draw log-uniform sizes from the largest shape and keep their small shapes half visible, and their instance segmentation
-dataset loads. The shapes stay inside their square, every hollow shape is its filled shape with one hole cut inside
-it, and the shapes whose class is the label get the minimum size.
+dataset loads. The largest IoU between two objects reaches the placement of every object, 0.3 by default. The shapes
+stay inside their square, every hollow shape is its filled shape with one hole cut inside it, and the shapes whose
+class is the label get the minimum size.
 """
 
 import json
@@ -31,6 +32,7 @@ from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATE
                                                                      HARD_OBJECTS_MINIMUM_SIZE,
                                                                      KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_NAMES,
                                                                      LABELLING_MINIMUM_OBJECTS,
+                                                                     MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
                                                                      MINIMUM_SHAPE_SIZE,
                                                                      MINIMUM_VISIBLE_OBJECT_PIXELS,
                                                                      MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
@@ -584,6 +586,94 @@ def test_created_hard_instance_segmentation_dataset_encodes_small_and_large_visi
     for sample in (dataset[index] for index in range(len(dataset))):
         assert np.array_equal(sample["instance_masks"].numpy(),
                               np.stack(arrays=image_masks[sample["sample_identifiers"]]))
+
+
+def test_overlap_cap_reaches_the_placement_of_every_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the largest IoU between two objects given to generate_image reaches the placement of every object,
+    MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3) by default, with which every dataset was drawn.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the placements.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    assert MAXIMUM_OBJECT_INTERSECTION_OVER_UNION == 0.3
+    for keyword_arguments, expected_cap in [({}, 0.3), ({"maximum_object_intersection_over_union": 0.6}, 0.6)]:
+        placement_recorder = CallRecorder(function=synthetic_dataset_module.place_shape)
+        monkeypatch.setattr(target=synthetic_dataset_module, name="place_shape", value=placement_recorder)
+        generate_image(image_size=IMAGE_SIZE, maximum_objects=12, random_generator=random_generator, hard_objects=True,
+                       **keyword_arguments)
+        assert len(placement_recorder.calls) >= HARD_OBJECTS_MINIMUM_OBJECTS
+        assert all(call["maximum_intersection_over_union"] == expected_cap for call in placement_recorder.calls)
+
+
+def count_overlapping_label_pairs(labels: Dict[str, Any]) -> int:
+    """
+    Counts the pairs of objects of the same image whose boxes in the COCO labels of a detection split overlap, so that
+    a test tells whether the overlap cap of the generator reached the placement of the objects.
+
+    Args:
+        labels (Dict[str, Any]): The COCO labels, with the [x, y, width, height] 'bbox' of every annotation.
+
+    Returns:
+        int: The number of pairs of boxes of an image sharing a positive area.
+    """
+    image_boxes: Dict[int, List[List[float]]] = {}
+    for annotation in labels["annotations"]:
+        image_boxes.setdefault(annotation["image_id"], []).append(annotation["bbox"])
+    overlapping_pairs = 0
+    for boxes in image_boxes.values():
+        for first_index, (first_x, first_y, first_width, first_height) in enumerate(boxes):
+            for second_x, second_y, second_width, second_height in boxes[first_index + 1:]:
+                overlap_width = min(first_x + first_width, second_x + second_width) - max(first_x, second_x)
+                overlap_height = min(first_y + first_height, second_y + second_height) - max(first_y, second_y)
+                overlapping_pairs += overlap_width > 0 and overlap_height > 0
+    return overlapping_pairs
+
+
+def test_created_detection_split_follows_its_overlap_cap(tmp_path: Path) -> None:
+    """
+    Verifies that create_synthetic_dataset passes its largest IoU between two objects down to the worker processes
+    drawing the images: a hard object detection split drawn with a cap of 0 has no two overlapping boxes in its labels,
+    while the same split drawn with the default cap of 0.3 has some.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    overlapping_pairs = {}
+    for overlap_cap in [0.0, MAXIMUM_OBJECT_INTERSECTION_OVER_UNION]:
+        output_folder = tmp_path / f"cap_{overlap_cap}"
+        create_synthetic_dataset(output_folder=str(output_folder), image_size=IMAGE_SIZE, split_sizes={"test": 8},
+                                 maximum_objects=12, minimum_frames=1, maximum_frames=1, number_workers=1,
+                                 task="object_detection", hard_objects=True,
+                                 maximum_object_intersection_over_union=overlap_cap)
+        labels = json.loads((output_folder / "test" / "labels.json").read_text())
+        assert len(labels["annotations"]) >= 8
+        overlapping_pairs[overlap_cap] = count_overlapping_label_pairs(labels=labels)
+    assert overlapping_pairs[0.0] == 0 and overlapping_pairs[MAXIMUM_OBJECT_INTERSECTION_OVER_UNION] > 0
+
+
+@pytest.mark.parametrize(argnames=("task", "overlap_cap", "expected_message"), argvalues=[
+    ("object_detection", 1.5, "must be within \\[0, 1\\], got 1.5"),
+    ("instance_segmentation", float("nan"), "must be within \\[0, 1\\], got nan"),
+    ("sequence_labelling", 0.6, "not those of the 'sequence_labelling' task, got 0.6"),
+    ("self_supervised", 0.0, "not those of the 'self_supervised' task, got 0.0")])
+def test_invalid_overlap_cap_is_refused(tmp_path: Path, task: str, overlap_cap: float, expected_message: str) -> None:
+    """
+    Verifies that the largest IoU between two objects must lie within [0, 1], and that it is refused for the tasks
+    whose shapes are placed apart by other functions than generate_image, on which it would have no effect.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task (str): The task of the refused dataset.
+        overlap_cap (float): The refused largest IoU between two objects.
+        expected_message (str): A pattern of the error message.
+    """
+    with pytest.raises(expected_exception=ValueError, match=expected_message):
+        create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE, split_sizes={"train": 2},
+                                 maximum_objects=6, minimum_frames=2, maximum_frames=3, number_workers=1, task=task,
+                                 maximum_object_intersection_over_union=overlap_cap)
+    assert not any(tmp_path.iterdir())
 
 
 def get_shape_centroid(frame: np.ndarray) -> np.ndarray:

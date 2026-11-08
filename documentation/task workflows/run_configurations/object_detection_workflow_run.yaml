@@ -356,6 +356,11 @@ Detector:
   foreground_iou_threshold: 0.5
   # IoU threshold of the final per-class non-maximum suppression.
   nms_iou_threshold: 0.5
+  # Criterion of the final NMS: "iou", or "distance_iou" (the IoU minus the normalized distance of the centres,
+  # https://arxiv.org/abs/1911.08287), compared with nms_iou_threshold.
+  nms_criterion: "iou"
+  # Exponent of the distance term of "distance_iou": 1.0 as in the paper, 0.6 in YOLOv4 (more boxes kept).
+  nms_distance_exponent: 1.0
   # Most positive proposals sampled per image; the ground truth boxes fill its last proposal slots first, so every
   # object has a positive to sample.
   number_training_positives: 64

@@ -1,7 +1,8 @@
 """
-Bounding box operations of the object detection task: areas, intersection over union, widths, heights and centers,
-decoding of the regression predictions and clamping to the image. Used by the region proposer, the detection heads,
-the postprocessing, the inference detector, the target assignment and the mean average precision evaluation.
+Bounding box operations of the object detection task: areas, intersection over union, the normalized distance of the
+centres and the Distance-IoU, widths, heights and centers, decoding of the regression predictions and clamping to the
+image. Used by the region proposer, the detection heads, the box losses, the postprocessing and its DIoU-NMS, the
+inference detector, the target assignment and the mean average precision evaluation.
 """
 
 import math
@@ -23,6 +24,10 @@ MAXIMUM_LOG_SCALE_OFFSET = math.log(1000.0 / 16)
 # with the smooth L1 beta of 1/9, the (10, 10, 5, 5) of the second stage of torchvision and Detectron2 gave about
 # 2.5 times lower box and mask mAP@0.5 after 2000 iterations. Fixed in the code, without configuration option.
 BOX_REGRESSION_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
+
+# Small value added to the squared diagonal of the smallest box enclosing two boxes, so that two boxes reduced to the
+# same point give a normalized centre distance of 0, as in torchvision (distance_box_iou) and the authors' code
+ENCLOSING_DIAGONAL_EPSILON = 1e-7
 
 
 def get_area(boxes: torch.Tensor) -> torch.Tensor:
@@ -92,6 +97,56 @@ def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) ->
     intersection_over_union = intersection_area / union_area.clamp(min=torch.finfo(union_area.dtype).tiny)
 
     return intersection_over_union
+
+
+def get_normalized_centre_distance(boxes_1: torch.Tensor, boxes_2: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the squared distance between the centres of two boxes over the squared diagonal of the smallest box
+    enclosing both, the distance term of the Distance-IoU (Zheng et al., AAAI 2020, Eq. 6). It is shared by the CIoU
+    box loss of detection_losses.py, which pulls a predicted box towards the centre of its target, and by the DIoU-NMS
+    of postprocessing.py, which keeps two overlapping boxes of a class whose centres are far apart. The term lies
+    within [0, 1] and does not change with the scale of the boxes.
+
+    Args:
+        boxes_1 (torch.Tensor): Boxes [x_min, y_min, x_max, y_max], of shape [..., 4].
+        boxes_2 (torch.Tensor): Boxes of a shape broadcasting with that of boxes_1, paired element by element, e.g.
+            [..., 1, M, 4] against boxes_1 of shape [..., N, 1, 4] for every pair of two sets.
+
+    Returns:
+        torch.Tensor: The normalized centre distance of every pair, of the broadcast shape without its last dimension.
+    """
+    # Squared diagonal of the smallest box enclosing both boxes, increased by the epsilon for boxes reduced to a point
+    enclosing_sizes = (torch.maximum(input=boxes_1[..., 2:], other=boxes_2[..., 2:]) -
+                       torch.minimum(input=boxes_1[..., :2], other=boxes_2[..., :2]))
+    enclosing_diagonal_squared = enclosing_sizes.square().sum(dim=-1) + ENCLOSING_DIAGONAL_EPSILON
+
+    # Squared distance between the centres, from the sums of the corners, which are twice the centres
+    centre_distance_squared = ((boxes_1[..., :2] + boxes_1[..., 2:]) -
+                               (boxes_2[..., :2] + boxes_2[..., 2:])).square().sum(dim=-1) / 4
+    return centre_distance_squared / enclosing_diagonal_squared
+
+
+def get_distance_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor,
+                                         distance_exponent: float) -> torch.Tensor:
+    """
+    Calculates the Distance-IoU matrix between two sets of boxes, the IoU minus the normalized centre distance raised
+    to an exponent: the criterion of the DIoU-NMS of the final detections (postprocessing.py; Zheng et al., AAAI 2020,
+    Eq. 13), the exponent being the beta of the authors' code, 1.0 as in the paper and 0.6 in YOLOv4. Below 1, it
+    enlarges the distance term, so that more overlapping boxes whose centres are apart are kept.
+
+    Args:
+        boxes_1 (torch.Tensor): A tensor of shape (..., N, 4) of boxes [x_min, y_min, x_max, y_max].
+        boxes_2 (torch.Tensor): A tensor of shape (..., M, 4), its leading dimensions broadcasting with those of
+            boxes_1.
+        distance_exponent (float): The positive exponent of the normalized centre distance.
+
+    Returns:
+        torch.Tensor: The Distance-IoU of every pair of boxes, within [-1, 1], of shape (..., N, M).
+    """
+    intersection_over_union = get_intersection_over_union(boxes_1=boxes_1, boxes_2=boxes_2)
+    normalized_centre_distance = get_normalized_centre_distance(boxes_1=boxes_1.unsqueeze(dim=-2),
+                                                                boxes_2=boxes_2.unsqueeze(dim=-3))
+    return intersection_over_union - normalized_centre_distance.pow(exponent=distance_exponent)
 
 
 def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
