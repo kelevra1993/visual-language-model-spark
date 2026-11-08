@@ -159,9 +159,22 @@
       batch normalization standing for group normalization (`detection_neck_design.md`, Path Aggregation Design);
       adaptive feature pooling, the concatenation of YOLOv4 and the weighted fusion of EfficientDet are left for later
       stages.
-38. **DIoU non-maximum suppression**: suppress a box by its IoU minus the centre distance term of DIoU with the kept
-    box, so that two distinct objects overlapping a lot but with distant centres are not merged (occlusions). For
-    the final detections, and possibly the proposals.
+38. **DIoU non-maximum suppression, designed, stage 5b left to run** (`Detector.nms_criterion: "distance_iou"`, code
+    not written), scheduled in `object_detection_experiment_plan.md` after the CIoU box loss:
+    - **Why:** the greedy NMS removes the lower scoring of two boxes of a class whose IoU exceeds the threshold, so
+      two distinct objects overlapping a lot are merged (occlusions). DIoU-NMS suppresses by the IoU minus the squared
+      distance between the centres over the squared diagonal of the enclosing box (AAAI 2020 Eq. 13), keeping the
+      boxes whose centres are far apart.
+    - **Here:** the final per-class NMS of `postprocess_detections` (`Detector.nms_iou_threshold` 0.5) runs in
+      evaluation and inference only, so DIoU-NMS changes no trained weight. The generator places objects overlapping
+      by an IoU of 0.3 at most (`create_synthetic_dataset.py:223`), so on test_10000 no pair of objects is merged by
+      the greedy NMS at 0.5: the synthetic benchmark can show the absence of harm, not the gain on occlusions.
+    - **Change:** an exact batched DIoU-NMS (the Cluster-NMS form of the journal version) for the final detections,
+      with the exponent of the distance term 1.0 (0.6 in YOLOv4), the region proposals keeping the greedy NMS.
+    - **Designed (2026-11-08):** `detection_nms_design.md`, from the AAAI and journal papers, the authors' Faster
+      R-CNN, darknet and YOLACT code, the darknet of YOLOv4, torchvision and mmcv, with a prototype giving the boxes
+      of a greedy loop written from the authors' code; stage 5b evaluates the checkpoints kept by stage 5, without
+      training, on test_10000 and on an occlusion test split added by the user (overlaps up to 0.6).
 39. **Spatial pyramid pooling (SPP) after the backbone**: the last feature map concatenated with its max pools of 5, 9
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
 

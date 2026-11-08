@@ -127,5 +127,5 @@ The launcher writes the setting into the files built from `run-1.yaml` (`run_ben
 To keep the stage to one change, these stay out:
 - **GIoU and DIoU options:** torchvision has both; DIoU is what the CIoU loss computes below an IoU of 0.5.
 - **The IoU loss of the official baseline** and a change of the weights of `BOX_REGRESSION_WEIGHTS`, kept at (1, 1, 1, 1).
-- **DIoU non-maximum suppression and Cluster-NMS** (`suggestions.md` item 38), which change the inference, not the training.
+- **DIoU non-maximum suppression and Cluster-NMS** (`suggestions.md` item 38), which change the inference, not the training: designed for stage 5b in `detection_nms_design.md`.
 - **A box loss for the mask heads**, which have none.
