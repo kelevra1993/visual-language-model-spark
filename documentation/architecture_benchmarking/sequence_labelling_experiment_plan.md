@@ -66,7 +66,7 @@ The direction is written as the flags of the temporal module: unidirectional is 
 
 ## Launches
 
-Every launch gives its test Macro F1 at every evaluation (every 250 iterations up to the last one of its stage) for its trained and averaged weights, all gathered in `hyperparameter_experiments/sequence_labelling/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "sequence_labelling"`), launches and mean rows as in the tables below. The mean row of a setting averages its two launches, and the setting with the highest score of the averaged weights is kept (the mean over all the evaluations up to the direction stage, the value at iteration 6000 from the temporal module stage on).
+Every launch gives its test Macro F1 at every evaluation (every 250 iterations up to the last one of its stage) for its trained and averaged weights, all gathered in `hyperparameter_experiments/sequence_labelling/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results` (`task = "sequence_labelling"`), launches and mean rows as in the tables below. Since that folder is not versioned, a copy is kept next to this plan, `sequence_labelling_results.csv`, and the figure of every stage (`figures/sequence_labelling/`, drawn from it by `scripts/evaluation/plot_experiment_comparisons.py` with the stages of `experiment_comparisons.yaml`) shows the launches and means of the trained and averaged weights, with the gap of every value to the reference below. The mean row of a setting averages its two launches, and the setting with the highest score of the averaged weights is kept (the mean over all the evaluations up to the direction stage, the value at iteration 6000 from the temporal module stage on).
 
 ### Stage 1: Learning Rate (8 launches, 2000 iterations)
 
@@ -91,6 +91,8 @@ Kept: **1e-3** (run_1 and run_2), the highest mean (0.0136 against 0.0117 for 2e
 - 2e-3 gives the best single launch (run_7, 0.0294 at iteration 2000), but run_8 stays at about 0.0068 from iteration 500 to 2000, the score of a model that only learns that the first frame of a sequence is `no_change`: 2e-3 lies at the edge of the usable learning rates.
 - Every launch that learns is still rising at iteration 2000, so the following stages train 6000 iterations.
 
+![Sequence labelling, stage 1: Learning Rate](figures/sequence_labelling/stage_1_learning_rate.png)
+
 ### Stage 2: Class Weighting (4 launches, 6000 iterations)
 
 The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000).
@@ -109,6 +111,8 @@ Kept: **balanced** (run_9 and run_10), the highest mean (0.0645 against 0.0139 f
 - Without class weighting the launches barely learn a change: run_12 stays at 0.0090 from the first to the last evaluation, the score of a model that only predicts `no_change`, and run_11 only starts rising after iteration 1500 (0.0375 at iteration 6000).
 - The two balanced launches part after iteration 3000 (0.0686 and 0.1727 at iteration 6000), run_10 still rising at iteration 6000 while run_9 levels off at about 0.07.
 
+![Sequence labelling, stage 2: Class Weighting](figures/sequence_labelling/stage_2_class_weighting.png)
+
 ### Stage 3: Direction (2 new launches, 6000 iterations)
 
 The unidirectional launches are run_9 and run_10 of the class weighting stage. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000).
@@ -126,6 +130,8 @@ Kept: **bidirectional** (run_13 and run_14), the highest mean (0.0659 against 0.
 
 - The means over all the evaluations lie within the spread of the launches (0.0818 and 0.0500 against 0.0465 and 0.0824), so the gap of 0.0014 alone would not tell the two directions apart.
 - The bidirectional launches end far higher, 0.1936 at iteration 6000 against 0.1207, both still rising at a steeper slope (0.2411 for run_13), the advantage showing after iteration 4500, once every launch has learned to find the changes.
+
+![Sequence labelling, stage 3: Direction](figures/sequence_labelling/stage_3_direction.png)
 
 ### Stage 4: Temporal Module (6 new launches, 6000 iterations)
 
@@ -152,6 +158,8 @@ Kept: **lstm** (run_13 and run_14), the highest value at iteration 6000 (0.1936 
 - The GRU leads the LSTM up to iteration 5000 (0.1373 against 0.1206), then levels off at about 0.15 while the LSTM keeps rising (run_13 at 0.2411).
 - The transformer learns slowest (0.0020 at iteration 1000 against 0.0133 to 0.0205 for the other modules), but is still rising steeply at iteration 6000 (run_18 from 0.1261 to 0.1572 over its last 500 iterations), so it may overtake the GRU with a longer training.
 
+![Sequence labelling, stage 4: Temporal Module](figures/sequence_labelling/stage_4_temporal_module.png)
+
 ### Stage 5: Temporal Layers (2 new launches, 6000 iterations)
 
 The single layer launches are run_13 and run_14 of the direction stage. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
@@ -169,6 +177,8 @@ Kept: **1** layer (run_13 and run_14), the highest value at iteration 6000 (0.19
 
 - The second layer slows the start: run_21 stays at about 0.007, the score of a model that only predicts `no_change`, up to iteration 1750, and only rises from iteration 2000.
 - Both 2 layer launches end at about 0.089 and level off from iteration 5500, while the single layer keeps rising, so the second layer is behind at every evaluation from iteration 2500 and by more than half at iteration 6000.
+
+![Sequence labelling, stage 5: Temporal Layers](figures/sequence_labelling/stage_5_temporal_layers.png)
 
 ### Stage 6: Frame Pooling (4 new launches, 6000 iterations)
 
@@ -191,6 +201,8 @@ Kept: **max** (run_25 and run_26), the highest value at iteration 6000 (0.2147 a
 - The max pooling leads from iteration 1000 to the end, both its launches learning from the start (0.0559 and 0.0416 at iteration 2000 against 0.0243 and 0.0230 for flatten), the maximum of every channel over the frame telling whether a shape is present wherever it lies, in 32 values instead of the 32 x 8 x 8 of the flattened map.
 - run_24 (average) stays at about 0.007, the score of a model that only predicts `no_change`, for all 6000 iterations, while run_23 reaches 0.2197, close to the best flatten launch: the average pooling loses on that collapsed launch. It is the fourth launch held at that score (run_8, run_12, run_21 and run_24), a single collapse deciding a setting of two launches.
 
+![Sequence labelling, stage 6: Frame Pooling](figures/sequence_labelling/stage_6_frame_pooling.png)
+
 ### Stage 7: Feature Map Normalization (2 new launches, 6000 iterations)
 
 The batch normalization launches are run_25 and run_26 of the frame pooling stage. The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
@@ -208,6 +220,8 @@ Kept: **batch** (run_25 and run_26), the highest value at iteration 6000 (0.2147
 
 - The normalization of every sequence by its own frames learns faster up to iteration 1500 (0.0348 against 0.0315), both its launches rising together, but stays behind from iteration 2000 to the end.
 - It is far slower: its two launches took 7 hours 20 minutes side by side against about 3 hours 25 minutes for a batch normalization pair, each using 14.6 Gigabytes of GPU memory against about 9.
+
+![Sequence labelling, stage 7: Feature Map Normalization](figures/sequence_labelling/stage_7_feature_map_normalization.png)
 
 ### Stage 8: Pretraining (4 new launches, 6000 iterations)
 
@@ -233,6 +247,8 @@ Kept: **fine_tuned** (run_29 and run_30), the highest value at iteration 6000 (0
 - Fine-tuning ten times slower stays behind at every evaluation from iteration 750, so adapting the backbone to the sequences matters more than keeping its pretrained features.
 - At iteration 6000 of run_30, the 50 labels of the 25 shapes the classifier recognises reach a mean F1 of 0.982 (0.31 for run_25 from scratch), and the 20 labels of the triangle, parallelogram, rhombus, kite and trapezoid with their hollow versions, which the classifier did not learn, 0.156 (0.026 from scratch): these 10 shapes now bound the score.
 
+![Sequence labelling, stage 8: Pretraining](figures/sequence_labelling/stage_8_pretraining.png)
+
 ### Stage 9: Learning Rate, Pretrained (6 new launches, 4000 iterations)
 
 The settings kept by the 8 stages, the pretrained backbone fine-tuned, with the learning rate changed. The reference 1e-3 is run_29 and run_30 (stage 8) read at iteration 4000. The columns give every second evaluation, the mean is taken over the 16 evaluations from 250 to 4000, and the setting is kept on its value at iteration 4000.
@@ -257,6 +273,8 @@ Kept: **1e-3** (run_29 and run_30), the highest value at iteration 4000 (0.7149 
 - 2e-3 starts close to 1e-3 (0.4762 against 0.5096 at iteration 1000) but its launches spread apart (0.6152 and 0.7024 at iteration 4000) and stay behind.
 - The smaller learning rates, ten and five times lower, learn far slower with the pretrained backbone too, 1e-4 reaching at iteration 4000 less than half of 1e-3.
 
+![Sequence labelling, stage 9: Learning Rate, Pretrained](figures/sequence_labelling/stage_9_learning_rate_pretrained.png)
+
 ### Stage 10: Class Weighting, Pretrained (2 new launches, 6000 iterations)
 
 The settings kept by stage 9, with the class weighting changed. The reference balanced is run_29 and run_30 (stage 8). The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
@@ -273,6 +291,8 @@ The settings kept by stage 9, with the class weighting changed. The reference ba
 Kept: **balanced** (run_29 and run_30), the highest value at iteration 6000 (0.7467 against 0.4094 for none), also the highest mean over all the evaluations (0.6266 against 0.2791).
 
 - Without class weighting, the far more frequent frames without change dominate the loss: the two launches learn slower and spread apart (0.5550 and 0.2638 at iteration 6000), as in stage 2 from scratch (0.0233 against 0.1207 for balanced).
+
+![Sequence labelling, stage 10: Class Weighting, Pretrained](figures/sequence_labelling/stage_10_class_weighting_pretrained.png)
 
 ### Stage 11: Temporal Module, Pretrained (4 new launches, 6000 iterations)
 
@@ -295,6 +315,8 @@ Kept: **lstm** (run_29 and run_30), the highest value at iteration 6000 (0.7467 
 - The three modules end within 0.005, less than the gap between two launches of one setting: with the pretrained backbone, the temporal module barely matters at iteration 6000.
 - The transformer learns fastest (0.6966 at iteration 2000 against 0.6196 for lstm) and has the highest mean over all the evaluations (0.6637 against 0.6266), but flattens from iteration 3000 and is passed by the lstm at iteration 6000.
 
+![Sequence labelling, stage 11: Temporal Module, Pretrained](figures/sequence_labelling/stage_11_temporal_module_pretrained.png)
+
 ### Stage 12: Temporal Layers, Pretrained (2 new launches, 6000 iterations)
 
 The settings kept by stage 11, with the number of layers of the LSTM changed. The reference 1 is run_29 and run_30 (stage 8). The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
@@ -312,6 +334,8 @@ Kept: **2** (run_47 and run_48), the highest value at iteration 6000 (0.7565 aga
 
 - From scratch the second layer halved the score (0.0891 against 0.1936 in stage 5); with the pretrained backbone it is ahead from iteration 1000 to the end, both launches agreeing (0.7564 and 0.7567), but it levels off from iteration 4500.
 
+![Sequence labelling, stage 12: Temporal Layers, Pretrained](figures/sequence_labelling/stage_12_temporal_layers_pretrained.png)
+
 ### Stage 13: Frame Pooling, Pretrained (2 new launches, 6000 iterations)
 
 The settings kept by stage 12 (two LSTM layers), with the frame pooling changed. The reference max is run_47 and run_48 (stage 12). The columns give every second evaluation, the mean is taken over all 24 evaluations (250 to 6000), and the setting is kept on its value at iteration 6000.
@@ -328,6 +352,8 @@ The settings kept by stage 12 (two LSTM layers), with the frame pooling changed.
 Kept: **flatten** (run_49 and run_50), the highest value at iteration 6000 (0.7584 against 0.7565 for max), while max keeps the highest mean over all the evaluations (0.6607 against 0.6450).
 
 - The gap at iteration 6000 (0.0019) is smaller than the gap between the two launches of flatten (0.7562 and 0.7607): both poolings end level, flatten starting slower (0.1764 against 0.3203 at iteration 500) and catching up from iteration 3000.
+
+![Sequence labelling, stage 13: Frame Pooling, Pretrained](figures/sequence_labelling/stage_13_frame_pooling_pretrained.png)
 
 ## Outcome of the Pretrained Rerun
 
