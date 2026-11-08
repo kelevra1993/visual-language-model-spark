@@ -136,9 +136,9 @@
     - **Change:** decode the predicted offsets of the sampled positives into boxes (`apply_regression_predictions`)
       and take 1 - CIoU against their target boxes, for both stages, the smooth L1 staying the other value of the
       setting during the stage.
-37. **Path aggregation after the feature pyramid (PANet), implemented, stage 4 left to run**
-    (`Neck.type: "path_aggregation"`, with item 1, the bottom-up convolutions followed by a ReLU), scheduled in
-    `object_detection_experiment_plan.md`:
+37. **Path aggregation after the feature pyramid (PANet), implemented, checked against the paper and its code,
+    stage 4 left to run** (`Neck.type: "path_aggregation"`, with item 1, the bottom-up convolutions followed by a
+    ReLU), scheduled in `object_detection_experiment_plan.md`:
     - **Why:** the top-down path of the FPN gives the fine levels the context of the deep ones, but the localisation
       detail of the fine levels reaches the coarse ones only through the whole backbone. Path aggregation adds a
       bottom-up path after the top-down one: every finer output, downsampled by a strided 3x3 convolution, is merged
@@ -148,6 +148,10 @@
       common channel count, the top-down path, then optionally the bottom-up one. Blocks 6 and 7 have the same 16 x 16
       resolution at 1024 pixels, so they are merged without resampling. The neck changes the run name, the export and
       the transfer of pretrained components.
+    - **Checked (2026-11-08):** the neck is the bottom-up path of the released PANet model (`lib/modeling/FPN.py`),
+      batch normalization standing for group normalization (`detection_neck_design.md`, Path Aggregation Design);
+      adaptive feature pooling, the concatenation of YOLOv4 and the weighted fusion of EfficientDet are left for later
+      stages.
 38. **DIoU non-maximum suppression**: suppress a box by its IoU minus the centre distance term of DIoU with the kept
     box, so that two distinct objects overlapping a lot but with distant centres are not merged (occlusions). For
     the final detections, and possibly the proposals.

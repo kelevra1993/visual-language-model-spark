@@ -49,7 +49,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1, 0.15 (0.2 dropped) | 15,000 | done, 0.1 kept |
 | 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
 | 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | done, feature_pyramid kept (+0.0096) |
-| 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against feature_pyramid (run_9, run_10) | 15,000 | next, code of stage 3 |
+| 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against feature_pyramid (run_9, run_10) | 15,000 | next, prepared (code of stage 3, launcher dry-run), waiting for the user's go |
 | 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 4, code |
 | 6 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 5 |
 | 7 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 6, code |
@@ -125,6 +125,8 @@ Stage 3 ended on 2026-11-08, both launches with their 15,000 checkpoint. The fea
 A launch with the feature pyramid took 14.45 hours from its first to its last iteration, against 13.85 for run_3 and run_4 (+4.3 %), both pairs trained side by side. Most of that came from the first 4000 iterations, 15 to 20 % slower than the reference while the machine was busier (2.7 seconds per iteration, against 2.4 later in the same launches); from 5000 on an iteration cost 1.5 % more on average (from 2 % less to 4 % more over each 1000 iterations, median 2.39 seconds against 2.37). The two test evaluations of every checkpoint (10,000 images each, trained and averaged weights) took about 4.1 of those hours, 8.3 minutes per checkpoint, the neck adding 2 %.
 
 ![Object detection, stage 3: Neck, Feature Pyramid](figures/object_detection/stage_3_neck_feature_pyramid.png)
+
+Stage 4 is prepared and waits for the user's go. On 2026-11-08 the path aggregation was checked against the PANet paper, its official code, the PAFPN of mmdetection, YOLOv4 and EfficientDet (`../detection_neck_design.md`, Path Aggregation Design): the neck is the bottom-up path of the released PANet model with batch normalization in place of group normalization, so it needs no other code, and `test_path_aggregation_follows_the_panet_building_block` holds its order. The git-ignored launcher `launch_runs_11_and_12_path_aggregation.py` was dry-run the same day, its configuration files differing from those of run_9 and run_10 by `Neck.type: "path_aggregation"` only (run name token `L4567-NPAN32BN`). The published gains of the bottom-up path are about one point of box AP on COCO, largest on the large objects (PANet Table 3: +0.9, large +2.3), so the stage reads mAP@0.75, mAP@0.95 and the large objects beside the decision metric; path aggregation is kept if its pair beats 0.8079 by more than the larger launch gap (0.0038 for run_9 and run_10).
 
 ### Stages 5 To 8: Box Loss, Detector Normalization, Proposal Selection, Anchor Centres
 
