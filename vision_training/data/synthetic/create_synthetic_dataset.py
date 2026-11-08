@@ -5,8 +5,9 @@ selection, self-supervised) with their labels and 'label_mapping.json': trivial 
 configurations and the trainer tests to check that a model learns, the counted shapes images of the self-supervised
 configurations, drawn like the sequence labelling frames so that the self-supervised backbone can initialise the
 sequence labelling model, and the hard object detection and instance segmentation images of the benchmarks (small, low
-contrast, occluded or cut shapes next to very large ones, on textured backgrounds). Run as a script with the task set
-in its main block.
+contrast, occluded or cut shapes next to very large ones, on textured backgrounds), down to the occlusion test split of
+the detection benchmark, whose objects overlap more and partly come in overlapping pairs of a class. Run as a script
+with the task set in its main block.
 """
 
 import json
@@ -224,6 +225,17 @@ KEYPOINT_MAXIMUM_OUTSIDE_FRACTION = 0.3
 # attempts per object
 MAXIMUM_OBJECT_INTERSECTION_OVER_UNION = 0.3
 MAXIMUM_PLACEMENT_ATTEMPTS = 50
+
+# Objects placed next to the object placed before them, with its class (same_class_neighbour_probability, for the
+# occlusion test split of the detection benchmark): their smallest IoU with that object, the NMS threshold of the
+# detector above which the greedy NMS merges the two boxes, their size relative to the size of that object, so that
+# the two boxes can overlap that much, and the number of shapes of the class drawn before the object is placed as any
+# other
+SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION = 0.5
+SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE = (0.8, 1.0)
+SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS = 5
+# Bisection steps of the distance between the centres of such an object and its neighbour giving the IoU drawn for it
+NEIGHBOUR_DISTANCE_BISECTION_STEPS = 40
 
 # Minimum difference (on the most different channel) between an object colour and the background colour
 MINIMUM_COLOUR_DIFFERENCE = 60
@@ -1576,10 +1588,69 @@ def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colou
     return shape_descriptor
 
 
+def get_centred_box(centre: np.ndarray, width: float, height: float) -> List[float]:
+    """
+    Builds the [x1, y1, x2, y2] box of the given width and height centred on a point, in continuous coordinates, so
+    that find_neighbour_centre_distance moves the box of an object along a direction away from its neighbour.
+
+    Args:
+        centre (np.ndarray): The [2] (x, y) centre of the box.
+        width (float): The width of the box.
+        height (float): The height of the box.
+
+    Returns:
+        List[float]: The box centred on the point.
+    """
+    return [float(centre[0] - width / 2), float(centre[1] - height / 2), float(centre[0] + width / 2),
+            float(centre[1] + height / 2)]
+
+
+def find_neighbour_centre_distance(neighbour_box: List[int], shape_width: int, shape_height: int,
+                                   direction: np.ndarray, target_intersection_over_union: float) -> Optional[float]:
+    """
+    Finds, for an object placed next to an object of its class (place_shape with a neighbour box), the distance between
+    the centres of the two boxes along a direction at which their IoU equals the target, by bisection: moving a box away
+    from the centre of its neighbour along a fixed direction never raises their IoU, which is largest when the centres
+    coincide, so that the placed objects overlap their neighbour by the IoU drawn for them.
+
+    Args:
+        neighbour_box (List[int]): The [x1, y1, x2, y2] box of the object of the same class.
+        shape_width (int): The width of the box of the placed shape.
+        shape_height (int): The height of the box of the placed shape.
+        direction (np.ndarray): The [2] unit vector along which the placed box moves away from its neighbour.
+        target_intersection_over_union (float): The IoU wanted between the two boxes.
+
+    Returns:
+        Optional[float]: The distance between the centres, or None when even boxes sharing their centre overlap less
+            than the target.
+    """
+    # Boxes sharing their centre overlap the most, so a target above their IoU is out of reach in every direction
+    neighbour_centre = np.array([(neighbour_box[0] + neighbour_box[2]) / 2, (neighbour_box[1] + neighbour_box[3]) / 2])
+    centred_box = get_centred_box(centre=neighbour_centre, width=shape_width, height=shape_height)
+    if get_intersection_over_union(first_box=centred_box, second_box=neighbour_box) < target_intersection_over_union:
+        return None
+
+    # Bisection between the shared centre and a distance at which the two boxes no longer overlap
+    closest_distance = 0.0
+    farthest_distance = float(neighbour_box[2] - neighbour_box[0] + neighbour_box[3] - neighbour_box[1] + shape_width +
+                              shape_height)
+    for _ in range(NEIGHBOUR_DISTANCE_BISECTION_STEPS):
+        middle_distance = (closest_distance + farthest_distance) / 2
+        moved_box = get_centred_box(centre=neighbour_centre + middle_distance * direction, width=shape_width,
+                                    height=shape_height)
+        if get_intersection_over_union(first_box=moved_box, second_box=neighbour_box) >= \
+                target_intersection_over_union:
+            closest_distance = middle_distance
+        else:
+            farthest_distance = middle_distance
+    return closest_distance
+
+
 def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxes: List[List[int]],
                 maximum_intersection_over_union: float, minimum_gap: int, random_generator: np.random.Generator,
                 class_map: Optional[np.ndarray], instance_map: Optional[np.ndarray] = None,
-                maximum_outside_fraction: float = 0.0) -> Optional[List[int]]:
+                maximum_outside_fraction: float = 0.0,
+                neighbour_box: Optional[List[int]] = None) -> Optional[List[int]]:
     """
     Pastes a synthetic object at a random position of an image where it overlaps every object already placed by at
     most 'maximum_intersection_over_union', its box being grown by 'minimum_gap' pixels on every side for that test,
@@ -1589,7 +1660,10 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
     the class map, so that a later object covering an earlier one covers it in the class map too, and for the instance
     segmentation and keypoint images its index (one more than the number of placed boxes) at the same pixels of the
     instance map, which then gives the visible part of every object. The canvas of a keypoint image object may stick
-    out of the image, so that some of its keypoints fall outside it.
+    out of the image, so that some of its keypoints fall outside it. An object placed next to an object of its class
+    (place_same_class_neighbour) is put at an IoU with the box of that object drawn uniformly between
+    SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION and 'maximum_intersection_over_union', along a random direction
+    (find_neighbour_centre_distance), the IoU of its box clipped to the image being checked against that range.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR image drawn in place.
@@ -1606,6 +1680,9 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
             painted in place, or None for the tasks without instance masks. Defaults to None.
         maximum_outside_fraction (float): The largest part of the canvas width and height that may stick out of the
             image on each side, 0 keeping the whole canvas inside it. Defaults to 0.
+        neighbour_box (Optional[List[int]]): The [x1, y1, x2, y2] box, inside the image, of the object of the same
+            class the object is placed next to, one of the placed boxes, or None for a random position. Defaults to
+            None.
 
     Returns:
         Optional[List[int]]: The tight [x1, y1, x2, y2] box of the pasted object, which sticks out of the image with
@@ -1616,23 +1693,47 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
     image_height, image_width = image.shape[:2]
     shape_box = get_mask_bounding_box(mask=mask)
 
-    # Columns and rows of the canvas that may stick out of the image on every side
+    # Columns and rows of the canvas that may stick out of the image on every side, and the canvas positions allowed
     margin_x = int(round(maximum_outside_fraction * canvas_width))
     margin_y = int(round(maximum_outside_fraction * canvas_height))
+    largest_left, largest_top = image_width - canvas_width + margin_x, image_height - canvas_height + margin_y
+    neighbour_centre = None if neighbour_box is None else np.array([(neighbour_box[0] + neighbour_box[2]) / 2,
+                                                                    (neighbour_box[1] + neighbour_box[3]) / 2])
 
     # Try random positions of the shape canvas until the grown box of the part of the shape inside the image is far
-    # enough from every placed box
+    # enough from every placed box, and close enough to the neighbour box of an object placed next to one of its class
     for _ in range(MAXIMUM_PLACEMENT_ATTEMPTS):
-        left = int(random_generator.integers(low=-margin_x, high=image_width - canvas_width + margin_x + 1))
-        top = int(random_generator.integers(low=-margin_y, high=image_height - canvas_height + margin_y + 1))
+        if neighbour_box is None:
+            left = int(random_generator.integers(low=-margin_x, high=largest_left + 1))
+            top = int(random_generator.integers(low=-margin_y, high=largest_top + 1))
+        else:
+            # Centre of the shape box at the distance from the neighbour centre giving the drawn IoU along a random
+            # direction, then the canvas position putting the shape box there
+            target_intersection_over_union = random_generator.uniform(
+                low=SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION, high=maximum_intersection_over_union)
+            angle = random_generator.uniform(low=0.0, high=2 * np.pi)
+            direction = np.array([np.cos(angle), np.sin(angle)])
+            centre_distance = find_neighbour_centre_distance(
+                neighbour_box=neighbour_box, shape_width=shape_box[2] - shape_box[0],
+                shape_height=shape_box[3] - shape_box[1], direction=direction,
+                target_intersection_over_union=target_intersection_over_union)
+            if centre_distance is None:
+                continue
+            shape_centre = neighbour_centre + centre_distance * direction
+            left = int(round(shape_centre[0] - (shape_box[0] + shape_box[2]) / 2))
+            top = int(round(shape_centre[1] - (shape_box[1] + shape_box[3]) / 2))
+            if not (-margin_x <= left <= largest_left and -margin_y <= top <= largest_top):
+                continue
         box = [left + shape_box[0], top + shape_box[1], left + shape_box[2], top + shape_box[3]]
         clipped_box = [max(0, box[0]), max(0, box[1]), min(image_width, box[2]), min(image_height, box[3])]
         if clipped_box[2] <= clipped_box[0] or clipped_box[3] <= clipped_box[1]:
             continue
         grown_box = [clipped_box[0] - minimum_gap, clipped_box[1] - minimum_gap, clipped_box[2] + minimum_gap,
                      clipped_box[3] + minimum_gap]
-        if all(get_intersection_over_union(first_box=grown_box, second_box=placed_box) <=
-               maximum_intersection_over_union for placed_box in placed_boxes):
+        close_enough = (neighbour_box is None or get_intersection_over_union(
+            first_box=clipped_box, second_box=neighbour_box) >= SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION)
+        if close_enough and all(get_intersection_over_union(first_box=grown_box, second_box=placed_box) <=
+                                maximum_intersection_over_union for placed_box in placed_boxes):
             # Window of the canvas inside the image, and the same window of the image
             canvas_left, canvas_top = max(0, -left), max(0, -top)
             canvas_right, canvas_bottom = min(canvas_width, image_width - left), min(canvas_height, image_height - top)
@@ -1653,10 +1754,62 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
     return None
 
 
+def place_same_class_neighbour(image: np.ndarray, neighbour_shape_descriptor: Dict[str, Any],
+                               placed_boxes: List[List[int]], maximum_intersection_over_union: float,
+                               background_colour: np.ndarray, random_generator: np.random.Generator, keypoints: bool,
+                               low_contrast_range: Optional[Tuple[int, int]], class_map: np.ndarray,
+                               instance_map: np.ndarray, maximum_outside_fraction: float
+                               ) -> Tuple[Optional[List[int]], Optional[Dict[str, Any]]]:
+    """
+    Places an object next to the object placed last in a synthetic image, with its class, so that the greedy NMS of a
+    detector merges their two boxes where DIoU-NMS can keep both (the occlusion test split of stage 5b of the detection
+    benchmark, documentation/detection_nms_design.md): up to SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS shapes of that class,
+    each drawn at SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE of the size of that object, are tried by place_shape at an IoU
+    with its box from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION to 'maximum_intersection_over_union'.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR image drawn in place.
+        neighbour_shape_descriptor (Dict[str, Any]): The shape descriptor of the object placed last, whose box is the
+            last of the placed boxes.
+        placed_boxes (List[List[int]]): The tight [x1, y1, x2, y2] boxes, inside the image, of the objects already in
+            the image.
+        maximum_intersection_over_union (float): The largest overlap allowed with every placed box.
+        background_colour (np.ndarray): The [3] uint8 BGR background colour the object must contrast with.
+        random_generator (np.random.Generator): The random generator of the object.
+        keypoints (bool): True for the objects of the keypoint images.
+        low_contrast_range (Optional[Tuple[int, int]]): The colour difference range of a low contrast object, or None.
+        class_map (np.ndarray): The [H, W] uint8 category identifier of every pixel, painted in place.
+        instance_map (np.ndarray): The [H, W] uint16 object index of every pixel, painted in place.
+        maximum_outside_fraction (float): The largest part of the canvas that may stick out of the image on each side.
+
+    Returns:
+        Tuple[Optional[List[int]], Optional[Dict[str, Any]]]: The tight box and the shape descriptor of the placed
+            object, or None and None when no shape of the class fits next to the object placed last.
+    """
+    neighbour_size = neighbour_shape_descriptor["mask"].shape[0] - 1
+    for _ in range(SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS):
+        # Shape of the class of the neighbour, of a size close to its size so that their boxes can overlap enough
+        size = int(round(neighbour_size * random_generator.uniform(low=SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE[0],
+                                                                   high=SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE[1])))
+        shape_descriptor = draw_shape_descriptor(minimum_size=size, maximum_size=size,
+                                                 background_colour=background_colour,
+                                                 random_generator=random_generator, keypoints=keypoints,
+                                                 shape_name=neighbour_shape_descriptor["shape_name"],
+                                                 low_contrast_range=low_contrast_range)
+        box = place_shape(image=image, shape_descriptor=shape_descriptor, placed_boxes=placed_boxes,
+                          maximum_intersection_over_union=maximum_intersection_over_union, minimum_gap=0,
+                          random_generator=random_generator, class_map=class_map, instance_map=instance_map,
+                          maximum_outside_fraction=maximum_outside_fraction, neighbour_box=placed_boxes[-1])
+        if box is not None:
+            return box, shape_descriptor
+    return None, None
+
+
 def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator,
                    keypoints: bool = False, hard_objects: bool = False,
                    object_pixel_counts: Optional[List[int]] = None,
-                   maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION
+                   maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+                   same_class_neighbour_probability: float = 0.0
                    ) -> Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]:
     """
     Generates one synthetic detection, segmentation, keypoint detection or classification image: a random-colour or
@@ -1669,7 +1822,10 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
     closer to the difficulty of real images, draw HARD_OBJECTS_MINIMUM_OBJECTS to 'maximum_objects' shapes of
     log-uniform sizes from HARD_OBJECTS_MINIMUM_SIZE pixels to HARD_OBJECTS_MAXIMUM_SIZE_FRACTION of the image side,
     from the largest to the smallest so that the small shapes lie over the large ones, some sticking out of the image,
-    on a flat background (where some of them get a colour close to the background) or a textured one.
+    on a flat background (where some of them get a colour close to the background) or a textured one. With a
+    'same_class_neighbour_probability' above 0, every object after the first is placed next to the object placed before
+    it, with its class (place_same_class_neighbour), with that probability, unless that object was itself placed next
+    to one, so that such objects come in pairs, and as any other object when no shape of that class fits there.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
@@ -1682,6 +1838,10 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
             of every object of a hard image, or None. Defaults to None.
         maximum_object_intersection_over_union (float): The largest IoU between the box of an object and the box of
             every object placed before it. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3).
+        same_class_neighbour_probability (float): The probability that an object is placed next to the object placed
+            before it, with its class, at an IoU from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION to
+            'maximum_object_intersection_over_union', when that object was not itself placed next to one, 0 drawing the
+            images as before, without any other random draw. Defaults to 0.
 
     Returns:
         Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]: The [H, W, 3] uint8 BGR image, for every
@@ -1725,20 +1885,40 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
 
     # Place every object at a random position, an object overlapping the placed ones too much at every attempt being
     # left out, part of the objects of the flat background hard images getting a colour close to the background
+    previous_shape_descriptor, previous_object_is_neighbour = None, False
     for object_minimum_size, object_maximum_size in size_ranges:
         low_contrast = (hard_objects and not textured and
                         random_generator.random() < HARD_OBJECTS_LOW_CONTRAST_PROBABILITY)
-        shape_descriptor = draw_shape_descriptor(
-            minimum_size=object_minimum_size, maximum_size=object_maximum_size, background_colour=background_colour,
-            random_generator=random_generator, keypoints=keypoints,
-            low_contrast_range=HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE if low_contrast else None)
-        box = place_shape(image=image, shape_descriptor=shape_descriptor,
-                          placed_boxes=[placed_object[1] for placed_object in objects],
-                          maximum_intersection_over_union=maximum_object_intersection_over_union, minimum_gap=0,
-                          random_generator=random_generator, class_map=class_map, instance_map=instance_map,
-                          maximum_outside_fraction=maximum_outside_fraction)
+        low_contrast_range = HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE if low_contrast else None
+        placed_boxes = [placed_object[1] for placed_object in objects]
+
+        # Part of the objects placed next to the object placed before them, with its class, in pairs, an object placed
+        # that way getting no neighbour of its own, the probability being drawn only when it is above 0 so that the
+        # other images are drawn as before
+        box, object_is_neighbour = None, False
+        if (same_class_neighbour_probability > 0 and previous_shape_descriptor is not None and
+                not previous_object_is_neighbour and random_generator.random() < same_class_neighbour_probability):
+            box, shape_descriptor = place_same_class_neighbour(
+                image=image, neighbour_shape_descriptor=previous_shape_descriptor, placed_boxes=placed_boxes,
+                maximum_intersection_over_union=maximum_object_intersection_over_union,
+                background_colour=background_colour, random_generator=random_generator, keypoints=keypoints,
+                low_contrast_range=low_contrast_range, class_map=class_map, instance_map=instance_map,
+                maximum_outside_fraction=maximum_outside_fraction)
+            object_is_neighbour = box is not None
+
+        # Any other object, or one for which no shape of the class of the previous object fits next to it
+        if box is None:
+            shape_descriptor = draw_shape_descriptor(
+                minimum_size=object_minimum_size, maximum_size=object_maximum_size,
+                background_colour=background_colour, random_generator=random_generator, keypoints=keypoints,
+                low_contrast_range=low_contrast_range)
+            box = place_shape(image=image, shape_descriptor=shape_descriptor, placed_boxes=placed_boxes,
+                              maximum_intersection_over_union=maximum_object_intersection_over_union, minimum_gap=0,
+                              random_generator=random_generator, class_map=class_map, instance_map=instance_map,
+                              maximum_outside_fraction=maximum_outside_fraction)
         if box is None:
             continue
+        previous_shape_descriptor, previous_object_is_neighbour = shape_descriptor, object_is_neighbour
         if object_pixel_counts is not None:
             object_pixel_counts.append(int(np.count_nonzero(shape_descriptor["mask"])))
 
@@ -1878,8 +2058,10 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             'instance_segmentation' (whether the visible parts of the objects are kept), 'keypoints' (whether the
             images are keypoint detection images), 'counted_shapes' (whether the images are self-supervised or
             multi-label classification images, drawn like the sequence labelling frames), 'hard_objects' (whether
-            the images are hard object detection or instance segmentation images, generate_image) and
-            'maximum_object_intersection_over_union' (the largest IoU between two objects of an image, generate_image).
+            the images are hard object detection or instance segmentation images, generate_image),
+            'maximum_object_intersection_over_union' (the largest IoU between two objects of an image, generate_image)
+            and 'same_class_neighbour_probability' (the probability that an object is placed next to the object placed
+            before it, with its class, generate_image).
 
     Returns:
         List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', the
@@ -1911,7 +2093,8 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
         image, objects, class_map, instance_map = generate_image(
             image_size=chunk["image_size"], maximum_objects=chunk["maximum_objects"], random_generator=random_generator,
             keypoints=chunk["keypoints"], hard_objects=chunk["hard_objects"], object_pixel_counts=object_pixel_counts,
-            maximum_object_intersection_over_union=chunk["maximum_object_intersection_over_union"])
+            maximum_object_intersection_over_union=chunk["maximum_object_intersection_over_union"],
+            same_class_neighbour_probability=chunk["same_class_neighbour_probability"])
         file_name = f"{chunk['split_name']}_{image_index:06d}.png"
         cv2.imwrite(filename=os.path.join(chunk["data_folder"], file_name), img=image)
 
@@ -2682,8 +2865,8 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
 def generate_split(split_folder: str, split_name: str, number_samples: int, image_size: int, maximum_objects: int,
                    minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
                    hard_objects: bool = False,
-                   maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION
-                   ) -> Dict[str, int]:
+                   maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+                   same_class_neighbour_probability: float = 0.0) -> Dict[str, int]:
     """
     Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images (or
     the frame folders of the sequences) in '<split_folder>/data', the class masks of the segmentation images in
@@ -2717,6 +2900,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
             Defaults to False.
         maximum_object_intersection_over_union (float): The largest IoU between two objects of an image drawn by
             generate_image. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3).
+        same_class_neighbour_probability (float): The probability that an object of an image drawn by generate_image
+            is placed next to the object placed before it, with its class. Defaults to 0.
 
     Returns:
         Dict[str, int]: The number of labels (objects, images, sequences, frames or pairs) of every class in the split.
@@ -2754,7 +2939,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                    "instance_segmentation": task == "instance_segmentation",
                    "keypoints": task == "keypoint_detection", "counted_shapes": task in COUNTED_SHAPES_TASKS,
                    "hard_objects": hard_objects,
-                   "maximum_object_intersection_over_union": maximum_object_intersection_over_union}
+                   "maximum_object_intersection_over_union": maximum_object_intersection_over_union,
+                   "same_class_neighbour_probability": same_class_neighbour_probability}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             image_records = [record for chunk_records in pool.map(generate_image_chunk, chunks)
@@ -2786,8 +2972,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
 def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: Dict[str, int], maximum_objects: int,
                              minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
                              hard_objects: bool = False,
-                             maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION
-                             ) -> None:
+                             maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+                             same_class_neighbour_probability: float = 0.0) -> None:
     """
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
@@ -2830,12 +3016,19 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
             semantic segmentation, classification), e.g. 0.6 for the occlusion test split of stage 5b of the detection
             benchmark (documentation/detection_nms_design.md). Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3),
             with which every dataset was drawn.
+        same_class_neighbour_probability (float): The probability, within [0, 1], that an object of an object detection
+            or instance segmentation image is placed next to the object placed before it, with its class, at an IoU
+            from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION (0.5) to 'maximum_object_intersection_over_union',
+            which must then be 0.5 at least: the pairs the greedy NMS of a detector merges, for the occlusion test split
+            of stage 5b. Defaults to 0, every dataset being drawn without it.
 
     Raises:
         ValueError: If the frame range of a sequence task starts below 2 (below the number of wanted shapes for the
             frame selection) or is empty, if hard_objects is set for another task than the object detection and the
-            instance segmentation, or if the largest IoU between two objects is not within [0, 1] or is changed for a
-            task whose images are not drawn by generate_image.
+            instance segmentation, if the largest IoU between two objects is not within [0, 1] or is changed for a
+            task whose images are not drawn by generate_image, or if the same-class neighbour probability is not within
+            [0, 1], is set for another task than the object detection and the instance segmentation, or is set with a
+            largest IoU below 0.5.
     """
     # The hard images label the whole box or the visible part of every object, their keypoints not being drawn
     if hard_objects and task not in HARD_OBJECTS_TASKS:
@@ -2851,6 +3044,22 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
             task in SEQUENCE_TASKS + COUNTED_SHAPES_TASKS:
         raise ValueError(f"maximum_object_intersection_over_union only changes the images drawn by generate_image, "
                          f"not those of the '{task}' task, got {maximum_object_intersection_over_union!r}.")
+
+    # Objects placed next to one of their class, for the boxes of the detection and instance segmentation labels, at an
+    # IoU from the NMS threshold to the cap, which must leave that range
+    if not 0.0 <= same_class_neighbour_probability <= 1.0:
+        raise ValueError(f"same_class_neighbour_probability must be within [0, 1], got "
+                         f"{same_class_neighbour_probability!r}.")
+    if same_class_neighbour_probability > 0 and task not in HARD_OBJECTS_TASKS:
+        raise ValueError(f"same_class_neighbour_probability only places the objects of the object detection and "
+                         f"instance segmentation images, got task '{task}'.")
+    if same_class_neighbour_probability > 0 and \
+            maximum_object_intersection_over_union < SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION:
+        raise ValueError(f"same_class_neighbour_probability places objects at an IoU from "
+                         f"{SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION} to "
+                         f"maximum_object_intersection_over_union, which must then be "
+                         f"{SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION} at least, got "
+                         f"{maximum_object_intersection_over_union!r}.")
 
     # A movement, a change of shapes or a comparison needs two frames, a selection one frame per wanted shape, in a
     # range that holds at least one length
@@ -2868,7 +3077,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
                                       image_size=image_size, maximum_objects=maximum_objects,
                                       minimum_frames=minimum_frames, maximum_frames=maximum_frames,
                                       number_workers=number_workers, task=task, hard_objects=hard_objects,
-                                      maximum_object_intersection_over_union=maximum_object_intersection_over_union)
+                                      maximum_object_intersection_over_union=maximum_object_intersection_over_union,
+                                      same_class_neighbour_probability=same_class_neighbour_probability)
         print_color(color="green", output=f"{split_name} split : {format_path_link(path=split_folder)}", indent=1)
         print_color(color="green", output=f"Labels per class : {class_counts}", indent=1)
 
@@ -2976,6 +3186,10 @@ if __name__ == "__main__":
     # Largest IoU between two objects of an image drawn by generate_image: 0.3 for every dataset, 0.6 for the occlusion
     # test split of stage 5b of the detection benchmark (documentation/detection_nms_design.md), in a folder of its own
     maximum_object_intersection_over_union = 0.3
+    # Probability that an object of a detection or instance segmentation image is placed next to the object placed
+    # before it, with its class, at an IoU from 0.5 to the cap above: 0 for every dataset, above 0 for the occlusion
+    # test split, whose cap is 0.6
+    same_class_neighbour_probability = 0.0
     # Number of worker processes generating the images
     number_workers = 8
 
@@ -2990,4 +3204,5 @@ if __name__ == "__main__":
                              split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
                              minimum_frames=minimum_frames[task], maximum_frames=maximum_frames[task],
                              number_workers=number_workers, task=task, hard_objects=task in hard_object_tasks,
-                             maximum_object_intersection_over_union=maximum_object_intersection_over_union)
+                             maximum_object_intersection_over_union=maximum_object_intersection_over_union,
+                             same_class_neighbour_probability=same_class_neighbour_probability)

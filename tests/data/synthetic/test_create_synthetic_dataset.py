@@ -4,11 +4,14 @@ classification, semantic segmentation, sequence classification, sequence labelli
 selection and self-supervised datasets are valid, load with the datasets of the framework and follow their labels,
 the objects hidden by later ones being left out of the detection and instance segmentation labels. The hard images
 draw log-uniform sizes from the largest shape and keep their small shapes half visible, and their instance segmentation
-dataset loads. The largest IoU between two objects reaches the placement of every object, 0.3 by default. The shapes
-stay inside their square, every hollow shape is its filled shape with one hole cut inside it, and the shapes whose
-class is the label get the minimum size.
+dataset loads. The largest IoU between two objects reaches the placement of every object, 0.3 by default. The objects
+placed next to one of their class for the occlusion test split of stage 5b overlap the object placed before them by an
+IoU from 0.5 to that cap, with its class and a close size, in pairs, and that placement is refused where it would have
+no effect. The shapes stay inside their square, every hollow shape is its filled shape with one hole cut inside it, and
+the shapes whose class is the label get the minimum size.
 """
 
+import itertools
 import json
 import cv2
 import numpy as np
@@ -23,28 +26,15 @@ from vision_training.data.detection.coco_masks import decode_run_length_encoding
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
-from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATEGORIES,
-                                                                     HOLLOW_CLASS_NAMES, HOLLOW_DISTRACTOR_SHAPE_NAMES,
-                                                                     HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
-                                                                     HOLLOW_MINIMUM_SIZE,
-                                                                     HARD_OBJECTS_MAXIMUM_SIZE_FRACTION,
-                                                                     HARD_OBJECTS_MINIMUM_OBJECTS,
-                                                                     HARD_OBJECTS_MINIMUM_SIZE,
-                                                                     KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_NAMES,
-                                                                     LABELLING_MINIMUM_OBJECTS,
-                                                                     MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
-                                                                     MINIMUM_SHAPE_SIZE,
-                                                                     MINIMUM_VISIBLE_OBJECT_PIXELS,
-                                                                     MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
-                                                                     PAIR_CATEGORIES,
-                                                                     SELECTION_CATEGORIES, SHAPE_CATEGORIES,
-                                                                     SHAPE_COUNT_CATEGORIES,
-                                                                     SHAPE_DRAWING_FUNCTIONS,
-                                                                     create_synthetic_dataset, draw_shape_descriptor,
-                                                                     generate_counted_shapes_image,
-                                                                     generate_shape_change_sequence,
-                                                                     generate_image, get_mask_bounding_box,
-                                                                     keep_visible_objects)
+from vision_training.data.synthetic.create_synthetic_dataset import (
+    CHANGE_CATEGORIES, HOLLOW_CLASS_NAMES, HOLLOW_DISTRACTOR_SHAPE_NAMES, HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
+    HOLLOW_MINIMUM_SIZE, HARD_OBJECTS_MAXIMUM_SIZE_FRACTION, HARD_OBJECTS_MINIMUM_OBJECTS, HARD_OBJECTS_MINIMUM_SIZE,
+    KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_NAMES, LABELLING_MINIMUM_OBJECTS, MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+    MINIMUM_SHAPE_SIZE, MINIMUM_VISIBLE_OBJECT_PIXELS, MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS, PAIR_CATEGORIES,
+    SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION, SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE, SELECTION_CATEGORIES,
+    SHAPE_CATEGORIES, SHAPE_COUNT_CATEGORIES, SHAPE_DRAWING_FUNCTIONS, create_synthetic_dataset, draw_shape_descriptor,
+    find_neighbour_centre_distance, generate_counted_shapes_image, generate_shape_change_sequence, generate_image,
+    get_intersection_over_union, get_mask_bounding_box, keep_visible_objects)
 
 IMAGE_SIZE = 256
 
@@ -52,7 +42,8 @@ IMAGE_SIZE = 256
 class CallRecorder:
     """
     Wraps a function called with keyword arguments only and records the arguments of every call before running it,
-    so that a test can read the sizes and vertices the generator draws its shapes with.
+    then its result, so that a test can read the sizes and vertices the generator draws its shapes with and the
+    placements that put an object in the image.
     """
 
     def __init__(self, function: Callable[..., Any]) -> None:
@@ -64,10 +55,11 @@ class CallRecorder:
         """
         self.function = function
         self.calls: List[Dict[str, Any]] = []
+        self.results: List[Any] = []
 
     def __call__(self, **keyword_arguments: Any) -> Any:
         """
-        Records the arguments of the call, then runs the wrapped function with them.
+        Records the arguments of the call, then runs the wrapped function with them and records its result.
 
         Args:
             **keyword_arguments (Any): The arguments of the call.
@@ -76,7 +68,9 @@ class CallRecorder:
             Any: The result of the wrapped function.
         """
         self.calls.append(keyword_arguments)
-        return self.function(**keyword_arguments)
+        result = self.function(**keyword_arguments)
+        self.results.append(result)
+        return result
 
 
 @pytest.mark.parametrize(argnames="shape_name", argvalues=["triangle"])
@@ -607,27 +601,35 @@ def test_overlap_cap_reaches_the_placement_of_every_object(monkeypatch: pytest.M
         assert all(call["maximum_intersection_over_union"] == expected_cap for call in placement_recorder.calls)
 
 
-def count_overlapping_label_pairs(labels: Dict[str, Any]) -> int:
+def count_overlapping_label_pairs(labels: Dict[str, Any], minimum_intersection_over_union: float = 0.0,
+                                  same_class: bool = False) -> int:
     """
-    Counts the pairs of objects of the same image whose boxes in the COCO labels of a detection split overlap, so that
-    a test tells whether the overlap cap of the generator reached the placement of the objects.
+    Counts the pairs of objects of the same image whose boxes in the COCO labels of a detection split overlap by more
+    than an IoU, of any classes or of one class, so that a test tells whether the overlap cap of the generator reached
+    the placement of the objects, or how many pairs of objects of one class the greedy NMS of a detector would merge.
 
     Args:
-        labels (Dict[str, Any]): The COCO labels, with the [x, y, width, height] 'bbox' of every annotation.
+        labels (Dict[str, Any]): The COCO labels, with the 'category_id' and the [x, y, width, height] 'bbox' of every
+            annotation.
+        minimum_intersection_over_union (float): The IoU a pair must exceed, 0 counting the boxes sharing a positive
+            area. Defaults to 0.
+        same_class (bool): True to count the pairs of objects of one class only. Defaults to False.
 
     Returns:
-        int: The number of pairs of boxes of an image sharing a positive area.
+        int: The number of pairs of boxes of an image whose IoU exceeds the minimum.
     """
-    image_boxes: Dict[int, List[List[float]]] = {}
+    image_objects: Dict[int, List[Tuple[int, List[float]]]] = {}
     for annotation in labels["annotations"]:
-        image_boxes.setdefault(annotation["image_id"], []).append(annotation["bbox"])
+        x, y, width, height = annotation["bbox"]
+        image_objects.setdefault(annotation["image_id"], []).append((annotation["category_id"],
+                                                                     [x, y, x + width, y + height]))
+
+    # Pairs of every image overlapping by more than the minimum, of one class when asked
     overlapping_pairs = 0
-    for boxes in image_boxes.values():
-        for first_index, (first_x, first_y, first_width, first_height) in enumerate(boxes):
-            for second_x, second_y, second_width, second_height in boxes[first_index + 1:]:
-                overlap_width = min(first_x + first_width, second_x + second_width) - max(first_x, second_x)
-                overlap_height = min(first_y + first_height, second_y + second_height) - max(first_y, second_y)
-                overlapping_pairs += overlap_width > 0 and overlap_height > 0
+    for objects in image_objects.values():
+        for (first_category, first_box), (second_category, second_box) in itertools.combinations(objects, 2):
+            overlapping_pairs += ((not same_class or first_category == second_category) and get_intersection_over_union(
+                first_box=first_box, second_box=second_box) > minimum_intersection_over_union)
     return overlapping_pairs
 
 
@@ -673,6 +675,147 @@ def test_invalid_overlap_cap_is_refused(tmp_path: Path, task: str, overlap_cap: 
         create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE, split_sizes={"train": 2},
                                  maximum_objects=6, minimum_frames=2, maximum_frames=3, number_workers=1, task=task,
                                  maximum_object_intersection_over_union=overlap_cap)
+    assert not any(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(argnames="target_intersection_over_union", argvalues=[0.1, 0.55])
+def test_neighbour_centre_distance_gives_the_target_overlap(target_intersection_over_union: float) -> None:
+    """
+    Verifies that find_neighbour_centre_distance gives, along every direction, the distance between the centre of a
+    box and the centre of its neighbour at which their IoU is the target, down to a small target far from the centre,
+    and None when even a box sharing the centre of its neighbour overlaps it by less than the target.
+
+    Args:
+        target_intersection_over_union (float): The IoU wanted between the two boxes.
+    """
+    neighbour_box, shape_width, shape_height = [100, 100, 200, 160], 90, 54
+    for angle in np.linspace(start=0.0, stop=2 * np.pi, num=16, endpoint=False):
+        # Box moved from the centre of its neighbour by the distance found, built here from its centre and its sides
+        direction = np.array([np.cos(angle), np.sin(angle)])
+        centre_distance = find_neighbour_centre_distance(
+            neighbour_box=neighbour_box, shape_width=shape_width, shape_height=shape_height, direction=direction,
+            target_intersection_over_union=target_intersection_over_union)
+        centre_x, centre_y = np.array([150.0, 130.0]) + centre_distance * direction
+        moved_box = [centre_x - shape_width / 2, centre_y - shape_height / 2, centre_x + shape_width / 2,
+                     centre_y + shape_height / 2]
+        assert get_intersection_over_union(first_box=moved_box, second_box=neighbour_box) == pytest.approx(
+            expected=target_intersection_over_union, abs=1e-6)
+
+    # A box of 30 x 18 pixels inside its 100 x 60 neighbour overlaps it by an IoU of 0.09 at most
+    assert find_neighbour_centre_distance(neighbour_box=neighbour_box, shape_width=30, shape_height=18,
+                                          direction=np.array([1.0, 0.0]),
+                                          target_intersection_over_union=target_intersection_over_union) is None
+
+
+def test_same_class_neighbours_overlap_the_object_placed_before_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the same-class placement of the occlusion test split of stage 5b on hard images drawn with the cap 0.6 and
+    a probability of 1: about half of the objects are placed next to the object placed just before them, every one with
+    the class of that object, a size from 0.8 to 1 times its size and an IoU with its box from 0.5 to 0.6, in pairs (an
+    object placed that way never getting a neighbour of its own), no two objects of an image overlap by more than the
+    cap, and the pixel counts that keep_visible_objects reads are those of the shapes placed.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the placements.
+    """
+    overlap_cap, number_objects, number_neighbours = 0.6, 0, 0
+    for seed in range(8):
+        placement_recorder = CallRecorder(function=synthetic_dataset_module.place_shape)
+        monkeypatch.setattr(target=synthetic_dataset_module, name="place_shape", value=placement_recorder)
+        object_pixel_counts: List[int] = []
+        _, objects, _, _ = generate_image(image_size=IMAGE_SIZE, maximum_objects=12,
+                                          random_generator=np.random.default_rng(seed=seed), hard_objects=True,
+                                          object_pixel_counts=object_pixel_counts,
+                                          maximum_object_intersection_over_union=overlap_cap,
+                                          same_class_neighbour_probability=1.0)
+
+        # Placements that put an object in the image, in the order of the objects, given the boxes placed before and
+        # counted with the pixels of their shape
+        placed_calls = [call for call, box in zip(placement_recorder.calls, placement_recorder.results, strict=True)
+                        if box is not None]
+        assert len(placed_calls) == len(objects)
+        assert all(call["placed_boxes"] == [box for _, box in objects[:object_index]]
+                   for object_index, call in enumerate(placed_calls))
+        assert object_pixel_counts == [int(np.count_nonzero(call["shape_descriptor"]["mask"])) for call in placed_calls]
+
+        # Every attempt next to a neighbour aims at the object placed last, itself placed as any other object
+        for call in placement_recorder.calls:
+            if "neighbour_box" in call:
+                assert len(call["placed_boxes"]) >= 1 and call["neighbour_box"] == call["placed_boxes"][-1]
+                assert "neighbour_box" not in placed_calls[len(call["placed_boxes"]) - 1]
+
+        # Every object placed next to a neighbour has its class, a close size and an IoU with it from 0.5 to the cap
+        for object_index, call in enumerate(placed_calls):
+            if "neighbour_box" not in call:
+                continue
+            number_neighbours += 1
+            assert object_index >= 1 and objects[object_index][0] == objects[object_index - 1][0]
+            neighbour_size = placed_calls[object_index - 1]["shape_descriptor"]["mask"].shape[0] - 1
+            size = call["shape_descriptor"]["mask"].shape[0] - 1
+            assert round(SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE[0] * neighbour_size) <= size <= neighbour_size
+            assert SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION <= get_intersection_over_union(
+                first_box=objects[object_index][1], second_box=objects[object_index - 1][1]) <= overlap_cap
+
+        # No two objects of the image overlap by more than the cap
+        assert all(get_intersection_over_union(first_box=first_box, second_box=second_box) <= overlap_cap
+                   for (_, first_box), (_, second_box) in itertools.combinations(objects, 2))
+        number_objects += len(objects)
+
+    # Close to one object in two placed next to a neighbour, the most that pairs allow
+    assert number_neighbours >= 0.4 * number_objects
+
+
+def test_created_detection_split_holds_same_class_pairs_above_the_nms_threshold(tmp_path: Path) -> None:
+    """
+    Verifies that create_synthetic_dataset passes the same-class neighbour probability down to the worker processes
+    drawing the images: a hard object detection split drawn with the cap 0.6 and a probability of 1 holds about four
+    pairs of objects of one class per image whose IoU exceeds the NMS threshold 0.5, the pairs the greedy NMS of a
+    detector merges (18 at least over 8 images in 100,000 draws), while the same split drawn without it holds almost
+    none (0.01 per image), and no two objects of either split overlap by more than the cap.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    same_class_pairs = {}
+    for probability in [0.0, 1.0]:
+        output_folder = tmp_path / f"probability_{probability}"
+        create_synthetic_dataset(output_folder=str(output_folder), image_size=IMAGE_SIZE, split_sizes={"test": 8},
+                                 maximum_objects=12, minimum_frames=1, maximum_frames=1, number_workers=1,
+                                 task="object_detection", hard_objects=True,
+                                 maximum_object_intersection_over_union=0.6,
+                                 same_class_neighbour_probability=probability)
+        labels = json.loads((output_folder / "test" / "labels.json").read_text())
+        assert count_overlapping_label_pairs(labels=labels, minimum_intersection_over_union=0.6) == 0
+        same_class_pairs[probability] = count_overlapping_label_pairs(
+            labels=labels, minimum_intersection_over_union=SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION,
+            same_class=True)
+    assert same_class_pairs[1.0] >= 8 > same_class_pairs[0.0]
+
+
+@pytest.mark.parametrize(argnames=("task", "overlap_cap", "probability", "expected_message"), argvalues=[
+    ("object_detection", 0.6, 1.5, "same_class_neighbour_probability must be within \\[0, 1\\], got 1.5"),
+    ("instance_segmentation", 0.6, float("nan"), "same_class_neighbour_probability must be within \\[0, 1\\], got nan"),
+    ("keypoint_detection", 0.6, 0.3, "instance segmentation images, got task 'keypoint_detection'"),
+    ("object_detection", MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, 0.3, "must then be 0.5 at least, got 0.3")])
+def test_invalid_same_class_neighbour_probability_is_refused(tmp_path: Path, task: str, overlap_cap: float,
+                                                             probability: float, expected_message: str) -> None:
+    """
+    Verifies that the same-class neighbour probability must lie within [0, 1], that it is refused for the tasks whose
+    labels are not the boxes or the visible parts of the objects, and that it needs a largest IoU between two objects of
+    0.5 at least, the IoU at which it places the objects starting at the NMS threshold 0.5.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task (str): The task of the refused dataset.
+        overlap_cap (float): The largest IoU between two objects.
+        probability (float): The refused same-class neighbour probability.
+        expected_message (str): A pattern of the error message.
+    """
+    with pytest.raises(expected_exception=ValueError, match=expected_message):
+        create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE, split_sizes={"train": 2},
+                                 maximum_objects=6, minimum_frames=1, maximum_frames=1, number_workers=1, task=task,
+                                 maximum_object_intersection_over_union=overlap_cap,
+                                 same_class_neighbour_probability=probability)
     assert not any(tmp_path.iterdir())
 
 
