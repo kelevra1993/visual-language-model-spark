@@ -137,7 +137,8 @@ def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = tor
 
 def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
                      mask_head_settings: Optional[Dict[str, Any]] = None, neck_type: str = "none",
-                     box_loss: str = "smooth_l1") -> TwoStageDetector:
+                     box_loss: str = "smooth_l1", nms_criterion: str = "iou",
+                     nms_distance_exponent: float = 1.0) -> TwoStageDetector:
     """
     Builds a small untrained detector from the debug configuration, shared by the detector tests (export path and
     behaviour baseline), with 512 pixel inputs (the smallest size fitting its 9 pooling blocks) and a score threshold
@@ -157,6 +158,9 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
             reading the blocks, as in the behaviour baseline.
         box_loss (str): The 'box_loss' of the region proposal and detector losses. Defaults to "smooth_l1", as in the
             behaviour baseline.
+        nms_criterion (str): The 'Detector.nms_criterion' of the final NMS. Defaults to "iou", the greedy NMS of the
+            behaviour baseline.
+        nms_distance_exponent (float): The 'Detector.nms_distance_exponent' of "distance_iou". Defaults to 1.0.
 
     Returns:
         TwoStageDetector: The detector (or instance segmenter) in evaluation mode, on the CPU.
@@ -167,6 +171,7 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
     configuration: Dict[str, Any] = copy.deepcopy(x=configuration)
     configuration["Data"]["image_settings"]["size"] = 512
     configuration["Detector"]["inference"]["score_threshold"] = 0.0
+    configuration["Detector"].update({"nms_criterion": nms_criterion, "nms_distance_exponent": nms_distance_exponent})
     # Replace the mask geometry of the fixture: the settings shared by the levels and the mask head of every level
     if mask_head_settings is not None:
         configuration["MaskHead"].update(mask_head_settings["MaskHead"])

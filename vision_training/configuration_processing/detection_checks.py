@@ -1,9 +1,9 @@
 """
 Checks of the configuration sections specific to the object detection task: the detection levels (anchors, region
 proposal and detection heads of every level), the neck, the region proposal network, the detector heads, the proposal
-and anchor sampling, the box losses, the weights of the losses and the evaluation settings. Run by
-configuration_checker.py for the object_detection task, and by instance_segmentation_checks.py for the instance
-segmentation task, which adds its mask heads to the detector.
+and anchor sampling, the box losses, the final non-maximum suppression, the weights of the losses and the evaluation
+settings. Run by configuration_checker.py for the object_detection task, and by instance_segmentation_checks.py for
+the instance segmentation task, which adds its mask heads to the detector.
 """
 
 import math
@@ -20,9 +20,10 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_intersection_over_union_value,
                                                                            check_positive_integers,
                                                                            check_probability_value,
-                                                                           get_configuration_value)
+                                                                           get_configuration_value, is_number)
 from vision_training.losses.detection_losses import BOX_LOSSES
 from vision_training.models.detection.feature_neck import NECK_TYPES
+from vision_training.models.detection.postprocessing import NMS_CRITERIA
 from vision_training.utilities.os_utilities import print_color
 
 
@@ -289,8 +290,9 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
     """
     Verifies the 'Detector' section, the settings shared by the detection heads of every level (their pool size,
     convolutions and fully connected layers being checked with the levels): the normalization, the modules, the IoU
-    thresholds, that the proposal sampling budget fits within the proposals kept by the Region Proposal stage during
-    training, the box loss, and the 'pretrained' settings initialising the heads with those of another run.
+    thresholds, the criterion of the final non-maximum suppression, that the proposal sampling budget fits within the
+    proposals kept by the Region Proposal stage during training, the box loss, and the 'pretrained' settings
+    initialising the heads with those of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Detector' section.
@@ -314,6 +316,9 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
     for key_path in ["Detector.foreground_iou_threshold", "Detector.nms_iou_threshold"]:
         errors += check_intersection_over_union_value(
             value=get_configuration_value(configuration=model_configuration, key_path=key_path), key_path=key_path)
+
+    # Criterion and distance exponent of the final per-class non-maximum suppression
+    errors += check_nms_criterion_configuration(model_configuration=model_configuration)
 
     # Final detection post-processing: score threshold and fixed number of detections per image
     errors += check_probability_value(
@@ -405,6 +410,34 @@ def check_box_loss_configuration(model_configuration: Dict[str, Any], section_ke
     if box_loss not in BOX_LOSSES:
         return [f"'{section_key}.box_loss' must be one of {BOX_LOSSES}, got {box_loss!r}."]
     return []
+
+
+def check_nms_criterion_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the criterion of the final per-class non-maximum suppression of the detector, the IoU of the greedy NMS or
+    the Distance-IoU of DIoU-NMS (models/detection/postprocessing.py), and the exponent of its distance term, a finite
+    positive number, checked whatever the criterion since every detection file holds it. Also run by
+    scripts/evaluation/evaluate_checkpoint.py on the NMS it evaluates in place of the one of the run.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Detector' section.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    nms_criterion = get_configuration_value(configuration=model_configuration, key_path="Detector.nms_criterion")
+    if nms_criterion not in NMS_CRITERIA:
+        errors.append(f"'Detector.nms_criterion' must be one of {NMS_CRITERIA}, got {nms_criterion!r}.")
+
+    # Exponent of the normalized centre distance, 1.0 in the paper and 0.6 in YOLOv4
+    nms_distance_exponent = get_configuration_value(configuration=model_configuration,
+                                                    key_path="Detector.nms_distance_exponent")
+    if not is_number(value=nms_distance_exponent) or not math.isfinite(nms_distance_exponent) or \
+            nms_distance_exponent <= 0:
+        errors.append(f"'Detector.nms_distance_exponent' must be a finite positive number, got "
+                      f"{nms_distance_exponent!r}.")
+    return errors
 
 
 def check_detection_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:

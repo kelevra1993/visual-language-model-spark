@@ -10,7 +10,8 @@ import torch
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from vision_training.models.detection.box_operations import apply_regression_predictions
+from vision_training.models.detection.box_operations import (apply_regression_predictions,
+                                                             get_normalized_centre_distance)
 from vision_training.models.detection.target_assignment import (batch_assign_targets_to_anchors,
                                                                 sample_positive_and_negative_training_targets,
                                                                 turn_boxes_to_transformation_targets)
@@ -23,8 +24,9 @@ LOCALISATION_LOSS_BETA = 1 / 9
 # between the decoded boxes and their targets (documentation/detection_box_loss_design.md)
 BOX_LOSSES = ["smooth_l1", "complete_iou"]
 
-# Small value added to the union, to the squared diagonal of the enclosing box and to the heights of the aspect ratios
-# of the CIoU loss, so that empty or flat boxes give finite values, as in torchvision and mmdetection
+# Small value added to the union and to the heights of the aspect ratios of the CIoU loss, so that empty or flat boxes
+# give finite values, as in torchvision and mmdetection, the squared diagonal of the enclosing box getting the
+# ENCLOSING_DIAGONAL_EPSILON of the same value of models/detection/box_operations.py
 COMPLETE_IOU_EPSILON = 1e-7
 
 # IoU from which the CIoU loss weighs the consistency of the aspect ratios, below which it is the DIoU loss
@@ -62,12 +64,9 @@ def compute_complete_iou_loss(predicted_boxes: torch.Tensor, target_boxes: torch
     union = predicted_widths * predicted_heights + target_widths * target_heights - intersection + COMPLETE_IOU_EPSILON
     intersection_over_union = intersection / union
 
-    # Distance term: the squared distance between the centres over the squared diagonal of the smallest enclosing box
-    enclosing_sizes = (torch.maximum(input=predicted_boxes[..., 2:], other=target_boxes[..., 2:]) -
-                       torch.minimum(input=predicted_boxes[..., :2], other=target_boxes[..., :2]))
-    enclosing_diagonal_squared = enclosing_sizes.square().sum(dim=-1) + COMPLETE_IOU_EPSILON
-    centre_distance_squared = ((predicted_boxes[..., :2] + predicted_boxes[..., 2:]) -
-                               (target_boxes[..., :2] + target_boxes[..., 2:])).square().sum(dim=-1) / 4
+    # Distance term: the squared distance between the centres over the squared diagonal of the smallest enclosing box,
+    # shared with the DIoU-NMS of the final detections
+    normalized_centre_distance = get_normalized_centre_distance(boxes_1=predicted_boxes, boxes_2=target_boxes)
 
     # Aspect ratio term: the consistency of the width over height ratios, the heights increased by the epsilon
     aspect_ratio_consistency = (4 / math.pi ** 2) * (
@@ -80,8 +79,7 @@ def compute_complete_iou_loss(predicted_boxes: torch.Tensor, target_boxes: torch
         trade_off = matched_boxes * aspect_ratio_consistency / (
             (1 - intersection_over_union) + aspect_ratio_consistency + COMPLETE_IOU_EPSILON)
 
-    return (1 - intersection_over_union + centre_distance_squared / enclosing_diagonal_squared +
-            trade_off * aspect_ratio_consistency)
+    return 1 - intersection_over_union + normalized_centre_distance + trade_off * aspect_ratio_consistency
 
 
 def compute_localisation_loss(box_loss: str, regression_predictions: torch.Tensor, regression_targets: torch.Tensor,

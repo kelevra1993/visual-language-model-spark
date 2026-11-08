@@ -159,15 +159,15 @@
       batch normalization standing for group normalization (`detection_neck_design.md`, Path Aggregation Design);
       adaptive feature pooling, the concatenation of YOLOv4 and the weighted fusion of EfficientDet are left for later
       stages.
-38. **DIoU non-maximum suppression, designed, stage 5b left to run** (`Detector.nms_criterion: "distance_iou"`, code
-    not written), scheduled in `object_detection_experiment_plan.md` after the CIoU box loss:
+38. **DIoU non-maximum suppression, implemented, stage 5b left to run** (`Detector.nms_criterion: "distance_iou"`, off
+    in every configuration), scheduled in `object_detection_experiment_plan.md` after the CIoU box loss:
     - **Why:** the greedy NMS removes the lower scoring of two boxes of a class whose IoU exceeds the threshold, so
       two distinct objects overlapping a lot are merged (occlusions). DIoU-NMS suppresses by the IoU minus the squared
       distance between the centres over the squared diagonal of the enclosing box (AAAI 2020 Eq. 13), keeping the
       boxes whose centres are far apart.
     - **Here:** the final per-class NMS of `postprocess_detections` (`Detector.nms_iou_threshold` 0.5) runs in
       evaluation and inference only, so DIoU-NMS changes no trained weight. The generator places objects overlapping
-      by an IoU of 0.3 at most (`create_synthetic_dataset.py:223`), so on test_10000 no pair of objects is merged by
+      by an IoU of 0.3 at most (`create_synthetic_dataset.py:225`), so on test_10000 no pair of objects is merged by
       the greedy NMS at 0.5: the synthetic benchmark can show the absence of harm, not the gain on occlusions.
     - **Change:** an exact batched DIoU-NMS (the Cluster-NMS form of the journal version) for the final detections,
       with the exponent of the distance term 1.0 (0.6 in YOLOv4), the region proposals keeping the greedy NMS.
@@ -175,6 +175,12 @@
       R-CNN, darknet and YOLACT code, the darknet of YOLOv4, torchvision and mmcv, with a prototype giving the boxes
       of a greedy loop written from the authors' code; stage 5b evaluates the checkpoints kept by stage 5, without
       training, on test_10000 and on an occlusion test split added by the user (overlaps up to 0.6).
+    - **Implemented (2026-11-08):** Part A of the design, `batched_distance_nms` in `postprocessing.py`, the two
+      settings checked and added to the saved runs by the converter, `evaluate_checkpoint.py` evaluating another NMS
+      in a folder of its own, and the overlap cap of the generator as an argument. At the threshold 0.5 the distance
+      term keeps apart only pairs below an IoU of 0.5505 (exponent 1.0) or 0.6314 (0.6), and random placements with
+      the cap 0.6 give one such pair of a class per 300 images, so the occlusion split needs objects placed next to
+      one of their class first.
 39. **Spatial pyramid pooling (SPP) after the backbone**: the last feature map concatenated with its max pools of 5, 9
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
 

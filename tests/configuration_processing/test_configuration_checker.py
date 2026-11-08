@@ -117,6 +117,29 @@ def set_unknown_box_losses(configuration: Dict[str, Any]) -> None:
     configuration["Detector"]["box_loss"] = "iou"
 
 
+def set_invalid_final_nms_settings(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the final non-maximum suppression of the detector a criterion the code does not compute and a distance
+    exponent of zero.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Detector"]["nms_criterion"] = "soft_nms"
+    configuration["Detector"]["nms_distance_exponent"] = 0
+
+
+def set_infinite_nms_distance_exponent(configuration: Dict[str, Any]) -> None:
+    """
+    Turns DIoU-NMS on with an infinite exponent of its distance term, which would reduce it to the greedy NMS.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Detector"]["nms_criterion"] = "distance_iou"
+    configuration["Detector"]["nms_distance_exponent"] = float("inf")
+
+
 def set_invalid_detection_level_settings(configuration: Dict[str, Any]) -> None:
     """
     Gives the fifth detection level an anchor scale of zero, a negative aspect ratio, region proposal convolutions
@@ -241,6 +264,11 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
     (set_unknown_box_losses, ["'RegionProposal.box_loss' must be one of ['smooth_l1', 'complete_iou'], got "
                               "'generalized_iou'.",
                               "'Detector.box_loss' must be one of ['smooth_l1', 'complete_iou'], got 'iou'."]),
+    (set_invalid_final_nms_settings, ["'Detector.nms_criterion' must be one of ['iou', 'distance_iou'], got "
+                                      "'soft_nms'.",
+                                      "'Detector.nms_distance_exponent' must be a finite positive number, got 0."]),
+    (set_infinite_nms_distance_exponent, ["'Detector.nms_distance_exponent' must be a finite positive number, got "
+                                          "inf."]),
     (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
                                             "got [0, 64].",
                                             "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "

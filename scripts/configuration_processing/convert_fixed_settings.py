@@ -5,9 +5,10 @@ vision_training/configuration_processing/common_checks.py: the settings of the f
 normalization momentums of the task heads, the strict fallback assignment and the localisation loss beta of the
 detection tasks), and adds the sections and the settings a task now requires with the values reproducing the runs
 written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss'
-of their 'RegionProposal' and 'Detector' sections, the smooth L1), so that the training_configuration.yaml of the
-saved runs, reloaded to resume a run, by scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch
-files of vision_training/main.py load again.
+of their 'RegionProposal' and 'Detector' sections, the smooth L1, and the 'nms_criterion' and 'nms_distance_exponent'
+of their 'Detector' section, the greedy NMS), so that the training_configuration.yaml of the saved runs, reloaded to
+resume a run, by scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of
+vision_training/main.py load again.
 The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
 sections left empty are removed, and the settings still held by some tasks are kept in their files (the sequence
 settings of the sequence tasks, the number of candidate frames of the frame selection). Every converted file is first
@@ -86,14 +87,29 @@ DETECTOR_BOX_LOSS_LINES = [
     '# Box loss of the positive proposals: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the',
     '# decoded boxes, https://arxiv.org/abs/2005.03572).', 'box_loss: "smooth_l1"']
 
+# Lines of the final NMS settings added to the 'Detector' section of the detection runs written before DIoU-NMS, which
+# were evaluated with the greedy NMS: the comment lines, then the setting
+DETECTOR_NMS_CRITERION_LINES = [
+    '# Criterion of the final NMS: "iou", or "distance_iou" (the IoU minus the normalized distance of the centres,',
+    '# https://arxiv.org/abs/1911.08287), compared with nms_iou_threshold.', 'nms_criterion: "iou"']
+DETECTOR_NMS_DISTANCE_EXPONENT_LINES = [
+    '# Exponent of the distance term of "distance_iou": 1.0 as in the paper, 0.6 in YOLOv4 (more boxes kept).',
+    'nms_distance_exponent: 1.0']
+
 # Settings a task now requires inside sections its files hold, added to the files of its runs written before them: the
 # tasks holding the setting, the setting it is written after (at its indentation), and its lines, whose value
-# reproduces those runs
+# reproduces those runs. They are added in this order, so that a setting can follow one added before it
 ADDED_SETTINGS = {"RegionProposal.box_loss": {"tasks": ["object_detection", "instance_segmentation"],
                                               "after": "RegionProposal.total_training_samples",
                                               "lines": REGION_PROPOSAL_BOX_LOSS_LINES},
                   "Detector.box_loss": {"tasks": ["object_detection", "instance_segmentation"],
-                                        "after": "Detector.total_training_samples", "lines": DETECTOR_BOX_LOSS_LINES}}
+                                        "after": "Detector.total_training_samples", "lines": DETECTOR_BOX_LOSS_LINES},
+                  "Detector.nms_criterion": {"tasks": ["object_detection", "instance_segmentation"],
+                                             "after": "Detector.nms_iou_threshold",
+                                             "lines": DETECTOR_NMS_CRITERION_LINES},
+                  "Detector.nms_distance_exponent": {"tasks": ["object_detection", "instance_segmentation"],
+                                                     "after": "Detector.nms_criterion",
+                                                     "lines": DETECTOR_NMS_DISTANCE_EXPONENT_LINES}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -555,9 +571,9 @@ if __name__ == "__main__":
     # False to only list the files holding fixed settings or lacking an added section or setting, True to convert them
     write_files = False
     # Suffix of the backups of this conversion: '_before_fixed_settings' (2026-10-29), '_before_fixed_head_settings'
-    # (2026-11-05), '_before_neck' for the 'Neck' section added on 2026-11-07, then '_before_box_loss' for the
-    # 'box_loss' settings added on 2026-11-08
-    backup_suffix = "_before_box_loss"
+    # (2026-11-05), '_before_neck' for the 'Neck' section added on 2026-11-07, '_before_box_loss' for the 'box_loss'
+    # settings added on 2026-11-08, then '_before_nms_criterion' for the final NMS settings added on 2026-11-08
+    backup_suffix = "_before_nms_criterion"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)
