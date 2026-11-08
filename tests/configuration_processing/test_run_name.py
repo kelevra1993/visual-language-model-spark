@@ -76,6 +76,10 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
                                                        "inception": False})
     model_configuration["Detector"]["normalization"]["feature_map_normalization"] = "batch"
 
+    # Smooth L1 box losses of both stages, which give no token
+    model_configuration["RegionProposal"]["box_loss"] = "smooth_l1"
+    model_configuration["Detector"]["box_loss"] = "smooth_l1"
+
     # Classes, augmentation, batch size and learning rate
     model_configuration["Data"]["label_mode"] = "binary"
     model_configuration["Data"]["label_dictionary"] = {"background": 0, "foreground": 1}
@@ -131,6 +135,31 @@ def add_path_aggregation(experiment_configuration: Dict[str, Any], model_configu
                                    "normalization": {"feature_map_normalization": "layer"}}
 
 
+def use_complete_iou_box_losses(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Trains the box regression of the region proposal and detection heads with the CIoU loss.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["RegionProposal"]["box_loss"] = "complete_iou"
+    model_configuration["Detector"]["box_loss"] = "complete_iou"
+
+
+def use_complete_iou_detector_box_loss(experiment_configuration: Dict[str, Any],
+                                       model_configuration: Dict[str, Any]) -> None:
+    """
+    Trains the box regression of the detection heads only with the CIoU loss, the region proposal heads keeping the
+    smooth L1, as in the Faster R-CNN experiments of the CIoU paper.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Detector"]["box_loss"] = "complete_iou"
+
+
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
@@ -173,7 +202,10 @@ def test_reference_run_name() -> None:
         "DSE-DRES-DBN", "DSE-DRES-DINC-DBN")),
     (change_detection_levels, REFERENCE_RUN_NAME.replace("_L567_A9.32-512.598295_", "_L67_A9.64-512.169502_")),
     (add_feature_pyramid, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NFPN32BN_")),
-    (add_path_aggregation, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NPAN64LN_"))])
+    (add_path_aggregation, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NPAN64LN_")),
+    (use_complete_iou_box_losses, REFERENCE_RUN_NAME.replace("_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_",
+                                                             "_RBN-R2x64-RCIOU_DSE-DRES-DBN-D7.2x64.256.128-DCIOU_")),
+    (use_complete_iou_detector_box_loss, REFERENCE_RUN_NAME.replace("-D7.2x64.256.128_", "-D7.2x64.256.128-DCIOU_"))])
 def test_changed_settings_change_run_name(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None],
                                           expected_run_name: str) -> None:
     """

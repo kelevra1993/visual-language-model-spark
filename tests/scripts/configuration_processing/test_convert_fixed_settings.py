@@ -1,7 +1,8 @@
 """
 Tests of scripts/configuration_processing/convert_fixed_settings.py, the conversion of the configuration files written
-before the fixed settings and the added sections: the values changed by a conversion, the neck section added to the
-detection files, and the refusals of a conversion changing another setting or the backbone.
+before the fixed settings and the added sections and settings: the values changed by a conversion, the neck section
+added to the detection files and the box losses added to their region proposal and detector sections, and the
+refusals of a conversion changing another setting or the backbone.
 """
 
 import pytest
@@ -9,7 +10,8 @@ import pytest
 from pathlib import Path
 
 from scripts.configuration_processing.convert_fixed_settings import (NECK_SECTION_TEXT, add_required_sections,
-                                                                      check_conversion, remove_fixed_settings)
+                                                                      add_required_settings, check_conversion,
+                                                                      remove_fixed_settings)
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 
@@ -103,12 +105,14 @@ RegionProposal:
   # Assigns the best-overlapping anchors as foreground even below the minimum threshold.
   strict_fallback_assignment: True
   number_training_positives: 128
+  total_training_samples: 256
   # Smooth L1 beta of the box regression loss.
   localisation_loss_beta: 1/9
 Detector:
   normalization:
     feature_map_normalization: "batch"
     batch_normalization_momentum: 0.1
+  total_training_samples: 128
   localisation_loss_beta: 1/9
 """
 
@@ -119,17 +123,20 @@ RegionProposal:
   normalization:
     feature_map_normalization: "batch"
   number_training_positives: 128
+  total_training_samples: 256
 Detector:
   normalization:
     feature_map_normalization: "batch"
+  total_training_samples: 128
 """
 
 
 def test_conversion_removes_the_fixed_head_settings(tmp_path: Path) -> None:
     """
     Verifies that the conversion removes the batch normalization momentums of the detection heads, the strict fallback
-    assignment and the localisation loss betas with their comments, listing the strict assignment turned on as a value
-    its runs change to, the momentums of 0.1 and the betas of 1/9 being those of the code.
+    assignment and the localisation loss betas with their comments, the check of the whole conversion listing the
+    strict assignment turned on as a value its runs change to, the momentums of 0.1 and the betas of 1/9 being those
+    of the code.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -137,6 +144,8 @@ def test_conversion_removes_the_fixed_head_settings(tmp_path: Path) -> None:
     converted_text = remove_fixed_settings(configuration_text=DETECTION_CONFIGURATION_TEXT, task="object_detection")
     assert converted_text == CONVERTED_DETECTION_TEXT
     converted_text = add_required_sections(configuration_text=converted_text, task="object_detection",
+                                           configuration_path=tmp_path / "configuration.yaml")
+    converted_text = add_required_settings(configuration_text=converted_text, task="object_detection",
                                            configuration_path=tmp_path / "configuration.yaml")
     changed_values = check_conversion(original_text=DETECTION_CONFIGURATION_TEXT, converted_text=converted_text,
                                       task="object_detection", configuration_path=tmp_path / "configuration.yaml")
@@ -163,6 +172,8 @@ def test_conversion_adds_the_neck_to_the_detection_files(tmp_path: Path) -> None
     converted_text = add_required_sections(configuration_text=original_text, task="object_detection",
                                            configuration_path=configuration_path)
     assert converted_text == CONVERTED_DETECTION_TEXT_WITH_NECK
+    converted_text = add_required_settings(configuration_text=converted_text, task="object_detection",
+                                           configuration_path=configuration_path)
     assert check_conversion(original_text=original_text, converted_text=converted_text, task="object_detection",
                             configuration_path=configuration_path) == []
 
@@ -178,8 +189,63 @@ def test_conversion_adds_the_neck_to_the_detection_files(tmp_path: Path) -> None
         add_required_sections(configuration_text="ExperimentConfiguration:\n  task: object_detection\n",
                               task="object_detection", configuration_path=configuration_path)
     with pytest.raises(expected_exception=ValueError, match="Neck.type"):
-        check_conversion(original_text=original_text, converted_text=original_text, task="object_detection",
-                         configuration_path=configuration_path)
+        check_conversion(original_text=original_text, task="object_detection", configuration_path=configuration_path,
+                         converted_text=add_required_settings(configuration_text=original_text, task="object_detection",
+                                                              configuration_path=configuration_path))
     with pytest.raises(expected_exception=ValueError, match="Neck.type"):
         check_conversion(original_text=original_text, task="object_detection", configuration_path=configuration_path,
                          converted_text=converted_text.replace('type: "none"', 'type: "feature_pyramid"'))
+
+
+# Lines the conversion writes after the sampling budget of the region proposal and of the detector sections
+REGION_PROPOSAL_BOX_LOSS_TEXT = (
+    '  # Box loss of the positive anchors: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the\n'
+    '  # decoded boxes, https://arxiv.org/abs/2005.03572).\n'
+    '  box_loss: "smooth_l1"\n')
+DETECTOR_BOX_LOSS_TEXT = REGION_PROPOSAL_BOX_LOSS_TEXT.replace("positive anchors", "positive proposals")
+
+# The converted detection sections with the neck, once the box losses are added after their sampling budgets
+CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES = CONVERTED_DETECTION_TEXT_WITH_NECK.replace(
+    "  total_training_samples: 256\n", f"  total_training_samples: 256\n{REGION_PROPOSAL_BOX_LOSS_TEXT}").replace(
+    "  total_training_samples: 128\n", f"  total_training_samples: 128\n{DETECTOR_BOX_LOSS_TEXT}")
+
+
+def test_conversion_adds_the_box_losses_to_the_detection_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the smooth L1 box loss of the runs written before the CIoU loss, with its
+    comment lines, right after the sampling budget of the region proposal and of the detector sections of the detection
+    and instance segmentation files, and only there: a classification file and a file holding the box losses are left
+    as they are, a file without sampling budget is refused, and the check refuses a converted file lacking a box loss
+    or holding the CIoU loss, which would change its runs.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    for task in ["object_detection", "instance_segmentation"]:
+        original_text = CONVERTED_DETECTION_TEXT_WITH_NECK.replace("task: object_detection", f"task: {task}")
+        converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                               configuration_path=configuration_path)
+        assert converted_text == CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES.replace("task: object_detection",
+                                                                                  f"task: {task}")
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+    # Files of another task or already holding the box losses are left as they are
+    assert add_required_settings(configuration_text=CONVERTED_CLASSIFICATION_TEXT, task="classification",
+                                 configuration_path=configuration_path) == CONVERTED_CLASSIFICATION_TEXT
+    assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES, task="object_detection",
+                                 configuration_path=configuration_path) == CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES
+
+    # A detector section without sampling budget, and conversions without a box loss or with the CIoU loss
+    with pytest.raises(expected_exception=ValueError, match="has no 'Detector.total_training_samples' setting"):
+        add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_NECK.replace(
+            "  total_training_samples: 128\n", ""), task="object_detection", configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError, match="Detector.box_loss, RegionProposal.box_loss"):
+        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NECK, task="object_detection",
+                         converted_text=CONVERTED_DETECTION_TEXT_WITH_NECK, configuration_path=configuration_path)
+    complete_iou_text = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES.replace(
+        DETECTOR_BOX_LOSS_TEXT, DETECTOR_BOX_LOSS_TEXT.replace('box_loss: "smooth_l1"', 'box_loss: "complete_iou"'))
+    with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.box_loss\.$"):
+        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NECK, converted_text=complete_iou_text,
+                         task="object_detection", configuration_path=configuration_path)

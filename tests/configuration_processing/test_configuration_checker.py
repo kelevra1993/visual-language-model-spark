@@ -106,6 +106,17 @@ def set_invalid_neck_settings(configuration: Dict[str, Any]) -> None:
                              "normalization": {"feature_map_normalization": "group"}}
 
 
+def set_unknown_box_losses(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the region proposal and detector sections box losses the code does not compute.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["RegionProposal"]["box_loss"] = "generalized_iou"
+    configuration["Detector"]["box_loss"] = "iou"
+
+
 def set_invalid_detection_level_settings(configuration: Dict[str, Any]) -> None:
     """
     Gives the fifth detection level an anchor scale of zero, a negative aspect ratio, region proposal convolutions
@@ -227,6 +238,9 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                  "'bidirectional_pyramid'.", "'Neck.output_channels'",
                                  "'Neck.normalization.feature_map_normalization' must be one of ['batch', 'layer', "
                                  "'none'], got 'group'."]),
+    (set_unknown_box_losses, ["'RegionProposal.box_loss' must be one of ['smooth_l1', 'complete_iou'], got "
+                              "'generalized_iou'.",
+                              "'Detector.box_loss' must be one of ['smooth_l1', 'complete_iou'], got 'iou'."]),
     (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
                                             "got [0, 64].",
                                             "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "

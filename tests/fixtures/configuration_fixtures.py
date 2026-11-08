@@ -10,8 +10,8 @@ import torch
 from typing import Any, Dict, Tuple
 
 
-def get_detection_model_configuration(mask_head: bool = False,
-                                      neck_type: str = "none") -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+def get_detection_model_configuration(mask_head: bool = False, neck_type: str = "none",
+                                      box_loss: str = "smooth_l1") -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
     """
     Supplies a small detector configuration dictionary, with its device and dtype, shared by the detector tests:
     9 backbone blocks, levels 5 to 7, no neck by default and 5 foreground classes. With mask_head, the 'MaskHead'
@@ -22,6 +22,8 @@ def get_detection_model_configuration(mask_head: bool = False,
         mask_head (bool): Whether to add the 'MaskHead' section of the instance segmentation task. Defaults to False.
         neck_type (str): The 'Neck.type' between the backbone blocks and the heads, 32 channels with batch
             normalization. Defaults to "none", the heads reading the blocks.
+        box_loss (str): The 'box_loss' of both the 'RegionProposal' and 'Detector' sections. Defaults to
+            "smooth_l1", the loss of the recorded baselines.
 
     Returns:
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and
@@ -72,7 +74,8 @@ def get_detection_model_configuration(mask_head: bool = False,
                          'foreground_iou_threshold': {"min": 0.35, "max": 1.0},
                          'background_iou_threshold': {"min": 0.2, "max": 0.3},
                          'number_training_positives': 128,
-                         'total_training_samples': 256
+                         'total_training_samples': 256,
+                         'box_loss': box_loss
                      },
                      # Proposal sampling, losses and postprocessing of the detection heads
                      'Detector': {
@@ -80,6 +83,7 @@ def get_detection_model_configuration(mask_head: bool = False,
                          'foreground_iou_threshold': 0.3,
                          'number_training_positives': 128,
                          'total_training_samples': 256,
+                         'box_loss': box_loss,
                          'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False},
                          'nms_iou_threshold': 0.5,
                          'inference': {'score_threshold': 0.5, 'maximum_detections': 100},

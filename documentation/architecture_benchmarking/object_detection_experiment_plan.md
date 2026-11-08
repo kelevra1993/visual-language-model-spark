@@ -38,7 +38,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | `Detector.normalization.feature_map_normalization` | batch |
 | Anchor centres | cell corners (audit L1 open) |
 | Proposal selection | one top-k and one NMS over every level (audit M3 open), zero-area boxes kept (audit L7 open) |
-| Box loss | smooth L1 on the offsets, beta 1/9 |
+| Box loss | smooth L1 on the offsets, beta 1/9 (`box_loss: "smooth_l1"` in both stages) |
 | Neck | none |
 
 ## Stages
@@ -50,7 +50,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
 | 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | done, feature_pyramid kept (+0.0096) |
 | 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against feature_pyramid (run_9, run_10) | 15,000 | next, prepared (code of stage 3, launcher dry-run), waiting for the user's go |
-| 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 4, code |
+| 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 4, code merged (off in every configuration) |
 | 6 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 5 |
 | 7 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 6, code |
 | 8 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | after stage 7, code |
@@ -132,7 +132,7 @@ Stage 4 is prepared and waits for the user's go. On 2026-11-08 the path aggregat
 
 Each pair trains against the reference kept so far, the detector normalization needing no code:
 
-- **Stage 5, CIoU box loss (`suggestions.md` item 36):** 1 - CIoU between the decoded boxes of the sampled positives and their targets, in both stages, against the smooth L1 on the offsets; aimed at the mAP@0.75 to @0.95.
+- **Stage 5, CIoU box loss (`suggestions.md` item 36):** 1 - CIoU between the decoded boxes of the sampled positives and their targets, in both stages, against the smooth L1 on the offsets; aimed at the mAP@0.75 to @0.95. The loss is merged since 2026-11-08 (`RegionProposal.box_loss` and `Detector.box_loss`, `"smooth_l1"` in every configuration, stage 4 included), checked against the papers and their code in `detection_box_loss_design.md`. The published Faster R-CNN applies it to the detection heads only, with a loss weight of 12 (`detection_box_loss_design.md`, Stage 5 Pair): the stages and the weight are decided before the launch.
 - **Stage 6, detector normalization:** the normalization of the convolutions of the detection heads, batch (the reference) then layer then none, layer clearly worse than batch ending the search.
 - **Stage 7, proposal selection per level (audit M3 with L7, `suggestions.md` item 3):** the pre-NMS top-k taken per level, `batched_nms` grouped by level, then the global top `post_nms`, in the proposal filter and in `InferenceDetector`, the zero-area proposals and detections removed. Level 7 had the lowest proposal recall at 0.5 of stage 1 (0.29, against 0.37 to 0.43 for levels 4 to 6).
 - **Stage 8, anchor centres (audit L1, `suggestions.md`):** the anchors are centred on the cell corners (`anchors.py`, `shifts = arange(F) * stride`) while RoIAlign and the convolutions place the cells at their centres, a constant half-stride offset the regressor has to learn: `(arange(F) + 0.5) * stride`, in the training and in the export.
