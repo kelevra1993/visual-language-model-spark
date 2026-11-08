@@ -48,8 +48,8 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 1 | `learning_rate` | 1e-3, 2e-3, 2e-4 (1e-4 not needed) | 15,000 | done, 1e-3 kept |
 | 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1, 0.15 (0.2 dropped) | 15,000 | done, 0.1 kept |
 | 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
-| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | code merged (main 35aa62a), run_9 and run_10 running since 2026-11-07 14:51 |
-| 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against the better of stage 3 | 15,000 | after stage 3, code of stage 3 |
+| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | done, feature_pyramid kept (+0.0096) |
+| 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against feature_pyramid (run_9, run_10) | 15,000 | next, code of stage 3 |
 | 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU | 15,000 | after stage 4, code |
 | 6 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 5 |
 | 7 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 6, code |
@@ -104,9 +104,19 @@ Until now every detection level has its own region proposal and detection heads 
 |---|---|---|---|
 | 3 | reference | none | run_3, run_4 |
 | 3 | 1 | feature_pyramid | run_9, run_10 |
+| 4 | reference | feature_pyramid | run_9, run_10 |
 | 4 | 1 | path_aggregation | run_11, run_12 |
 
 The neck was merged on 2026-11-07 (main 35aa62a), and run_9 and run_10 were launched by hand at 14:51:40 and 14:52:10 with the settings of run_3 and run_4 (background IoU minimum 0.1, detector batch normalization, learning rate 1e-3, 15,000 iterations, 1 loader worker), their configuration files differing from those of run_3 and run_4 only by `Neck.type: "feature_pyramid"` (run name token `L4567-NFPN32BN`). Before the launch, 40 iterations of the same configuration on the Spark gave 43.5 and 43.7 images per second alone without neck at iterations 20 and 40, 41.0 and 45.2 with the feature pyramid, 41.6 and 42.6 with path aggregation (no measurable cost over so few iterations), and a peak GPU memory of 17.2 GB without neck against 17.3 GB with either neck, whose 41,728 parameters (feature pyramid) add 0.17 MB to the model.
+
+Stage 3 ended on 2026-11-08, both launches with their 15,000 checkpoint. The feature pyramid beat no neck by +0.0096, more than twice the launch gaps (0.0038 for run_9 and run_10, 0.0037 for run_3 and run_4), and was kept: it gained most on the tight boxes (mAP@0.75 +0.008, mAP@0.95 +0.018) and on the medium and large objects (+0.012, +0.013), the small ones about even (+0.002) and mAP@0.5 +0.001. Its lead peaked at +0.039 at 3500 and held at +0.0096 from 14,000 on; the trained weights led as well, with more noise (0.727 against 0.714 at 15,000).
+
+| Value | Launches | Test_EMA mAP@[0.5:0.95] at 15,000 | Pair | mAP@0.95 pair | Test (trained) pair |
+|---|---|---|---|---|---|
+| none | run_3, run_4 | 0.7964, 0.8001 | 0.7983 | 0.108 | 0.714 |
+| feature_pyramid | run_9, run_10 | 0.8098, 0.8060 | 0.8079 | 0.126 | 0.727 |
+
+A launch with the feature pyramid took 14.45 hours from its first to its last iteration, against 13.85 for run_3 and run_4 (+4.3 %), both pairs trained side by side. Most of that came from the first 4000 iterations, 15 to 20 % slower than the reference while the machine was busier (2.7 seconds per iteration, against 2.4 later in the same launches); from 5000 on an iteration cost 1.5 % more on average (from 2 % less to 4 % more over each 1000 iterations, median 2.39 seconds against 2.37). The two test evaluations of every checkpoint (10,000 images each, trained and averaged weights) took about 4.1 of those hours, 8.3 minutes per checkpoint, the neck adding 2 %.
 
 ### Stages 5 To 8: Box Loss, Detector Normalization, Proposal Selection, Anchor Centres
 

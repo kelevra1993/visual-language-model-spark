@@ -115,4 +115,4 @@ After stage 2b, the neck goes in on its own branch:
 2. The detector, export and instance segmenter wiring, with the baseline test unchanged under `none`.
 3. The configuration section, its checks, the configuration files, the fixture and the converter of the saved runs.
 4. The run name and the transfer comparison, with their tests.
-5. The full suite against the baseline, then the stage 3 launches (the feature pyramid against run_3 and run_4), then stage 4 (path aggregation against the better of the two).
+5. The full suite against the baseline, then the stage 3 launches (the feature pyramid against run_3 and run_4), then stage 4 (path aggregation against the better of the two). Stage 3 kept the feature pyramid on 2026-11-08 (+0.0096 mAP@[0.5:0.95]), so stage 4 trains path aggregation against run_9 and run_10.
