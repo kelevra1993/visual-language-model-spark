@@ -2,7 +2,8 @@
 Tests of the FeatureNeck of vision_training/models/detection/feature_neck.py, applied by the two-stage detector between
 the backbone blocks of the detection levels and the heads: the levels and sizes are kept with the output channels, the
 'none' neck is a parameter-free identity so that the runs written before the neck are unchanged, the feature pyramid
-carries the coarse levels to the fine ones only, and path aggregation also carries the fine levels to the coarse ones.
+carries the coarse levels to the fine ones only, and path aggregation also carries the fine levels to the coarse ones,
+through the building block of PANet (documentation/detection_neck_design.md, Path Aggregation Design).
 """
 
 import pytest
@@ -160,3 +161,41 @@ def test_path_aggregation_strides_and_gradients() -> None:
     sum(output_map.square().mean() for output_map in output_maps.values()).backward()
     for parameter_name, parameter in neck.named_parameters():
         assert parameter.grad is not None and parameter.grad.abs().sum() > 0, parameter_name
+
+
+def test_path_aggregation_follows_the_panet_building_block() -> None:
+    """
+    Verifies that path aggregation is the bottom-up path of PANet (Liu et al. 2018, Section 3.1, and FPN.py of its
+    official code) on top of the feature pyramid: the finest output is the finest pyramid map without processing
+    (N2 = P2), and every coarser output is N_{i+1} = ReLU(BN(conv3x3(P_{i+1} + ReLU(BN(strided conv3x3(N_i)))))), the
+    downsampling reading the previous output N_i and not the sum before its 3x3 convolution (the order of the PAFPN of
+    mmdetection), and the pyramid maps P staying without activation as in the feature pyramid network.
+    """
+    feature_pyramid_neck = build_test_neck(neck_type="feature_pyramid", dtype=torch.float64).eval()
+    path_aggregation_neck = build_test_neck(neck_type="path_aggregation", dtype=torch.float64).eval()
+
+    # Both necks draw their laterals and pyramid outputs first under the same seed, so that they share the pyramid
+    path_aggregation_state = path_aggregation_neck.state_dict()
+    for state_name, state_tensor in feature_pyramid_neck.state_dict().items():
+        assert torch.equal(path_aggregation_state[state_name], state_tensor), state_name
+
+    feature_maps = draw_feature_maps(batch_size=2, dtype=torch.float64, seed=5)
+    level_names = list(LEVEL_INFORMATION)
+    with torch.no_grad():
+        pyramid_maps = feature_pyramid_neck(feature_maps=feature_maps)
+        aggregated_maps = path_aggregation_neck(feature_maps=feature_maps)
+
+        # N2 = P2: the finest level leaves the bottom-up path unprocessed
+        assert torch.equal(aggregated_maps[level_names[0]], pyramid_maps[level_names[0]])
+
+        # Every coarser output from its pyramid map and the previous output, through the two convolutions of its step
+        for finer_name, level_name in zip(level_names[:-1], level_names[1:]):
+            downsampled_map = path_aggregation_neck.downsampling_convolutions[level_name](
+                input_tensor=aggregated_maps[finer_name])
+            expected_map = path_aggregation_neck.smoothing_convolutions[level_name](
+                input_tensor=pyramid_maps[level_name] + downsampled_map)
+            torch.testing.assert_close(actual=aggregated_maps[level_name], expected=expected_map)
+
+            # The convolutions of the bottom-up path end with a ReLU, the pyramid outputs have no activation
+            assert (aggregated_maps[level_name] >= 0).all()
+            assert (pyramid_maps[level_name] < 0).any()
