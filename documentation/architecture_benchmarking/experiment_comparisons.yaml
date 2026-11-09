@@ -419,7 +419,7 @@ comparisons:
     results_file: object_detection_learning_rate_stage_results.csv
     stage: "1"
     title: Learning Rate
-    plan_lines: "64-74"
+    plan_lines: "65-77"
     last_iteration: 15000
     compared_weights: ema
     arms:
@@ -434,7 +434,7 @@ comparisons:
     results_file: object_detection_results.csv
     stage: "2"
     title: Background IoU Minimum
-    plan_lines: "76-86"
+    plan_lines: "79-91"
     last_iteration: 15000
     compared_weights: ema
     arms:
@@ -449,7 +449,7 @@ comparisons:
     results_file: object_detection_results.csv
     stage: "2b"
     title: Easy Negatives Mixed With The Hard Ones
-    plan_lines: "88-97"
+    plan_lines: "93-104"
     last_iteration: 12500
     compared_weights: ema
     arms:
@@ -463,7 +463,7 @@ comparisons:
     results_file: object_detection_results.csv
     stage: "3"
     title: Neck, Feature Pyramid
-    plan_lines: "99-119"
+    plan_lines: "106-128"
     last_iteration: 15000
     compared_weights: ema
     arms:
@@ -471,4 +471,18 @@ comparisons:
       - {label: "feature_pyramid", launches: [run_9, run_10], reference: false, trained_as_averaged: false}
     kept: "feature_pyramid"
     verdict: "feature_pyramid kept: 0.8079 against 0.7983 for none (+0.0096, more than twice the launch gaps 0.0038 and 0.0037), gaining most on the tight boxes (mAP@0.95 pair 0.126 against 0.108); its lead peaked at +0.039 at 3500 and held at +0.0096 from 14,000 on."
-    notes: "The section heading covers stages 3 and 4; stage 4 (path_aggregation in run_11 and run_12, against feature_pyramid in run_9 and run_10) is not trained and left out. The mAP@0.95, mAP@0.75, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
+    notes: "The section heading covers stages 3 and 4, stage 4 having an entry of its own (plan_lines up to the stage 3 figure here). The mAP@0.95, mAP@0.75, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "4"
+    title: Neck, Path Aggregation
+    plan_lines: "106-141"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "feature_pyramid", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
+      - {label: "path_aggregation", launches: [run_11, run_12], reference: false, trained_as_averaged: false}
+    kept: "feature_pyramid"
+    verdict: "feature_pyramid kept (tie): path_aggregation 0.8038 against 0.8079 (-0.0042, within the launch gap 0.0094 of run_11 and run_12), behind at every evaluation (most at 3500, -0.022), ahead on the small objects (+0.020 at 15,000) and behind on the large ones (-0.021); its code stays for projects with very small objects, as the user decided."
+    notes: "run_9 and run_10, the feature pyramid kept by stage 3, are the reference, reused without training. The section heading covers stages 3 and 4 (plan_lines from it to the stage 4 figure). The object size, mAP@0.75, mAP@0.95 and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
