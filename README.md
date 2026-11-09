@@ -38,6 +38,7 @@
 - [Clustering Image Embeddings](#clustering-image-embeddings)
 - [Deployment](#deployment)
   - [Export](#export)
+  - [Input Contract](#input-contract)
   - [Triton Server](#triton-server)
   - [Throughput Measurement](#throughput-measurement)
 - [Configurations](#configurations)
@@ -447,7 +448,34 @@ The models are written to `vision_training/deployment/triton/served_models/<mode
 | CMP | `sequence_comparator` | `before_images`, `after_images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
 | SEL | `frame_selector` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 
-S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, T the number of frames (1 to `maximum_sequence_length`, the CMP members may differ), C the heatmap channels and N the candidates of every channel (`KeypointHead.inference.maximum_candidates`). The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do; the input normalization is part of the exported model. The post-processing run by the client (SEG at the original resolution, INS masks, KPT grouping) and the SEL decoder and ensembles are in the [tools reference](documentation/reference/tools_reference.md#export).
+S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, T the number of frames (1 to `maximum_sequence_length`, the CMP members may differ), C the heatmap channels and N the candidates of every channel (`KeypointHead.inference.maximum_candidates`). The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do, as the [input contract](#input-contract) of every model states; the input normalization is part of the exported model. The post-processing run by the client (SEG at the original resolution, INS masks, KPT grouping) and the SEL decoder and ensembles are in the [tools reference](documentation/reference/tools_reference.md#export).
+
+### Input Contract
+Should a server need to build the input of an exported model from a photo, it reads the input contract written with the model instead of assuming a resize or a channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to the model of both formats (`<model name>_<format>/<version>/`), with the keys and values defined in `vision_training/deployment/input_contract.py`:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `input_contract_version` | `1` | Version of the keys and values; a server refuses a version it does not know. |
+| `input_color_order` | `BGR` | Channel order of the photo decoded as `cv2.imread` (`read_image`) decodes it: 3 channels of 8 bits, rotated by its EXIF orientation. |
+| `input_resize` | `stretch`, `keep_ratio` | `Data.image_settings.keep_ratio` False: both sides resized to the input size. True: the longest side resized to the input size and the other one to `round(side * size / longest side)` (Python `round`, half to even), then padded to the square. |
+| `input_size` | a positive integer | Side of the square input in pixels, `Data.image_settings.size`. |
+| `input_interpolation` | `linear` | OpenCV's bilinear resize, `cv2.resize` with `cv2.INTER_LINEAR`, of the uint8 photo. The bilinear resize of Pillow gives other pixels (58 % of them, by up to 49 levels, for a 600 x 400 photo resized to 384 x 256). |
+| `input_padding_value` | `0` | Value of every channel of the padding pixels (`keep_ratio` only). |
+| `input_padding_placement` | `centred` | Resized photo at the row `(size - resized height) // 2` and the column `(size - resized width) // 2`, an odd padding pixel going to the bottom or the right (`keep_ratio` only). |
+| `input_layout` | `NCHW`, `NTCHW` | Batch, channels, height and width, the frames coming after the batch for the sequence tasks (M2O, M2M, CMP, SEL). |
+| `input_value_range` | `0-255` | The uint8 pixels cast to float32 without scaling. |
+
+Every value is read from the configuration of the run or from the preprocessing code of the data loaders, never written by hand. In case a run uses an input the contract cannot describe, the export stops before writing any file and names the setting: a segmenter trained on tiles (`Data.tiling.activated`), or a change to `vision_training/data/preprocessing.py` (another default interpolation or padding value of `preprocess_image`, photos read as RGB by `read_image`, another placement in `compute_letterbox_region`).
+
+To read the contract of an ONNX model, ONNX Runtime gives its entries as the custom metadata of the model, and `check_input_contract` refuses a missing key, an unknown key or a value the version does not allow:
+
+```python
+session = onnxruntime.InferenceSession("model.onnx", providers=["CPUExecutionProvider"])
+input_contract = session.get_modelmeta().custom_metadata_map
+check_input_contract(input_contract=input_contract)
+```
+
+If you are looking for a server-side implementation, `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds the input of a photo from the contract alone, and the test checks it against `preprocess_image` pixel for pixel on a landscape and a portrait photo, for both resizes.
 
 ### Triton Server
 Start the Triton server from the folder of its compose file, and keep it running:
@@ -555,7 +583,7 @@ tutorials/build_tutorials.sh --check-references
 │   ├── trainers/                      # Base trainer, trainer of every task, checkpoints, metric tracking, moving average of the weights
 │   ├── evaluation/                    # Metrics, reports and checkpoint evaluation
 │   ├── tracking/                      # MLflow tracking
-│   ├── deployment/                    # Export, Triton configuration and server, frame selection decoder, throughput measurement
+│   ├── deployment/                    # Export, input contract, Triton configuration and server, frame selection decoder, throughput measurement
 │   └── utilities/                     # File, tensor, mask morphology and visualization helpers
 ├── scripts/                           # Checkpoint evaluation, launch comparison and image embedding clustering scripts
 │   ├── configuration_processing/      # Removal of the fixed settings from the configuration files written before
