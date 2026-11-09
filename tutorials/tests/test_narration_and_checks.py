@@ -74,6 +74,20 @@ def test_spoken_form_replaces_whole_words_only() -> None:
     assert convert_to_spoken_text(sentence="ONNXRuntime stays.") == "ONNXRuntime stays."
 
 
+def test_spoken_form_reads_the_decimals_digit_by_digit() -> None:
+    """
+    Verifies that the text given to the voice writes the decimal part of every number as words after "point", since
+    espeak-ng reads "0.5" of a sentence ending with a period as "zero. five", the voice then pausing as at the end of a
+    sentence, while versions, words holding digits and integers are left as they are.
+    """
+    assert (convert_to_spoken_text(sentence="A probability of 0.5, then 0.837 and 1,234.25.")
+            == "A probability of 0 point five, then 0 point eight three seven and 1,234 point two five.")
+    assert convert_to_spoken_text(sentence="It changes 35.3% of them, -0.5 below.") == ("It changes 35 point three% of "
+                                                                                       "them, -0 point five below.")
+    assert convert_to_spoken_text(sentence="Version 2.1.319 of x1.05, 1500 iterations.") == ("Version 2.1.319 of "
+                                                                                           "x1.05, 1500 iterations.")
+
+
 def test_transcription_comparison_counts_numbers_apart() -> None:
     """
     Verifies that the comparison of the transcription with the script counts every different word, and counts apart a
