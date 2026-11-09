@@ -286,7 +286,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
         ValueError: If use_saved_temperature is set for another task than the classification, or the saved
             thresholds are ambiguous or do not belong to the exported checkpoint, or the input contract cannot describe
-            the input of the run (a segmenter trained on tiles, or another interpolation, padding or channel order).
+            the input of the run (another interpolation, padding, placement or channel order).
     """
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
     # while ONNX Runtime computes the exported model in exact FP32, so the two differ by about 1e-3 on scores even
@@ -314,7 +314,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         # file is written, so that a run whose input the contract cannot describe stops here
         input_contract = build_input_contract(task=experiment_configuration["task"],
                                               model_configuration=model_configuration, specification=specification)
-        print_color(color="blue", output=f"Input Contract : {input_contract['input_resize']} to "
+        print_color(color="blue", output=f"Input Contract : {input_contract['input_resize']}, "
                                          f"{input_contract['input_size']} pixels, {input_contract['input_color_order']}"
                                          f" {input_contract['input_layout']}", indent=1)
 

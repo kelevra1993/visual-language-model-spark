@@ -455,17 +455,19 @@ Should a server need to build the input of an exported model from a photo, it re
 
 | Key | Values | Meaning |
 |---|---|---|
-| `input_contract_version` | `1` | Version of the keys and values; a server refuses a version it does not know. |
+| `input_contract_version` | `2` | Version of the keys and values; a server refuses a version it does not know. |
 | `input_color_order` | `BGR` | Channel order of the photo decoded as `cv2.imread` (`read_image`) decodes it: 3 channels of 8 bits, rotated by its EXIF orientation. |
-| `input_resize` | `stretch`, `keep_ratio` | `Data.image_settings.keep_ratio` False: both sides resized to the input size. True: the longest side resized to the input size and the other one to `round(side * size / longest side)` (Python `round`, half to even), then padded to the square. |
-| `input_size` | a positive integer | Side of the square input in pixels, `Data.image_settings.size`. |
-| `input_interpolation` | `linear` | OpenCV's bilinear resize, `cv2.resize` with `cv2.INTER_LINEAR`, of the uint8 photo. The bilinear resize of Pillow gives other pixels (58 % of them, by up to 49 levels, for a 600 x 400 photo resized to 384 x 256). |
-| `input_padding_value` | `0` | Value of every channel of the padding pixels (`keep_ratio` only). |
-| `input_padding_placement` | `centred` | Resized photo at the row `(size - resized height) // 2` and the column `(size - resized width) // 2`, an odd padding pixel going to the bottom or the right (`keep_ratio` only). |
-| `input_layout` | `NCHW`, `NTCHW` | Batch, channels, height and width, the frames coming after the batch for the sequence tasks (M2O, M2M, CMP, SEL). |
+| `input_resize` | `stretch`, `keep_ratio`, `tiles` | `stretch` (`Data.image_settings.keep_ratio` False): both sides resized to the input size. `keep_ratio` (True): the longest side resized to the input size and the other one to `round(side * size / longest side)` (Python `round`, half to even), then padded to the square. `tiles` (SEG with `Data.tiling.activated`): the photo scaled by `input_tile_scale`, padded to at least a tile, then cut into overlapping tiles of the input size, one input per tile. |
+| `input_size` | a positive integer | Side of the square input in pixels, the side of a tile for `tiles`, `Data.image_settings.size`. |
+| `input_interpolation` | `linear`, `area`, `none` | OpenCV resize of the uint8 photo: `cv2.INTER_LINEAR` (`stretch` and `keep_ratio`, `tiles` enlarged), `cv2.INTER_AREA` (`tiles` shrunk), or no resize (`tiles` at the scale 1). The bilinear resize of Pillow gives other pixels (58 % of them, by up to 49 levels, for a 600 x 400 photo resized to 384 x 256). |
+| `input_padding_value` | `0` | Value of every channel of the padding pixels (`keep_ratio` and `tiles`). |
+| `input_padding_placement` | `centred`, `bottom_right` | `centred` (`keep_ratio`): resized photo at the row `(size - resized height) // 2` and the column `(size - resized width) // 2`, an odd padding pixel going to the bottom or the right. `bottom_right` (`tiles`): the scaled photo padded on its bottom and right sides to at least a tile. |
+| `input_tile_scale` | a positive number, `none` | `Data.tiling.scale`: every side of the photo scaled to `max(1, round(side * scale))`, half to even (`tiles` only). |
+| `input_tile_overlap` | a non-negative integer, `none` | `Data.tiling.overlap`, the pixels shared by two neighbouring tiles: along a padded side of length L, the tiles start at 0, size - overlap, 2 (size - overlap)... below L - size, then at L - size, cut row by row (`tiles` only). |
+| `input_layout` | `NCHW`, `NTCHW` | Batch, channels, height and width, the frames coming after the batch for the sequence tasks (M2O, M2M, CMP, SEL); the tiles of a photo form the batch. |
 | `input_value_range` | `0-255` | The uint8 pixels cast to float32 without scaling. |
 
-Every value is read from the configuration of the run or from the preprocessing code of the data loaders, never written by hand. In case a run uses an input the contract cannot describe, the export stops before writing any file and names the setting: a segmenter trained on tiles (`Data.tiling.activated`), or a change to `vision_training/data/preprocessing.py` (another default interpolation or padding value of `preprocess_image`, photos read as RGB by `read_image`, another placement in `compute_letterbox_region`).
+Every value is read from the configuration of the run or from the preprocessing code of the data loaders (`SegmentationDataset.cut_tile` and `segment_image_by_tiles` for the tiles), never written by hand. In case a run uses an input the contract cannot describe, the export stops before writing any file and names the setting: a change to `vision_training/data/preprocessing.py` (another default interpolation or padding value of `preprocess_image`, photos read as RGB by `read_image`, another placement in `compute_letterbox_region`), or to the scaling or padding of the tiles. The probabilities of the tiles are put back together by the client, averaged where tiles overlap ([tools reference](documentation/reference/tools_reference.md#export)).
 
 To read the contract of an ONNX model, ONNX Runtime gives its entries as the custom metadata of the model, and `check_input_contract` refuses a missing key, an unknown key or a value the version does not allow:
 
@@ -475,7 +477,7 @@ input_contract = session.get_modelmeta().custom_metadata_map
 check_input_contract(input_contract=input_contract)
 ```
 
-If you are looking for a server-side implementation, `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds the input of a photo from the contract alone, and the test checks it against `preprocess_image` pixel for pixel on a landscape and a portrait photo, for both resizes.
+If you are looking for a server-side implementation, `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds the inputs of a photo from the contract alone, and the tests check them pixel for pixel against `preprocess_image` on a landscape and a portrait photo for both resizes, and against the tiles of the evaluation of a segmenter trained on tiles.
 
 ### Triton Server
 Start the Triton server from the folder of its compose file, and keep it running:
