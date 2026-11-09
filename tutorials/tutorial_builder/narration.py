@@ -31,6 +31,14 @@ from tutorial_builder.model_files import MODEL_FILES
 # word is checked by synthesizing it alone and transcribing it back before it is added here
 SPOKEN_FORMS = {"ONNX": "onyx"}
 
+# Decimal number of a sentence (0.5, 1,234.25, the 35.3 of 35.3%), neither inside a word (x1.05) nor part of a version
+# (2.1.319): espeak-ng reads "0.5" of a sentence ending with a period as "zero. five", the voice pausing at that dot
+DECIMAL_NUMBER_PATTERN = re.compile(r"(?<![\w.])(\d[\d,]*)\.(\d+)(?!\w|\.\d)")
+
+# Words of the digits read one by one after the decimal point, as English reads 0.837 "zero point eight three seven"
+DIGIT_WORDS = {"0": "zero", "1": "one", "2": "two", "3": "three", "4": "four", "5": "five", "6": "six", "7": "seven",
+               "8": "eight", "9": "nine"}
+
 # Pauses of the narration at a pace of 1, divided by the pace of the storyboard: before the first sentence of a scene,
 # between two sentences and after the last one
 SCENE_LEAD_SECONDS = 0.6
@@ -94,7 +102,8 @@ def load_kokoro_voice(kokoro_folder: Path, espeak_data_folder: Path, thread_coun
 def convert_to_spoken_text(sentence: str) -> str:
     """
     Gives the text the voice reads for a sentence of the narration: the sentence with every word of SPOKEN_FORMS
-    replaced by its spoken form, the captions and the narration check keeping the written sentence.
+    replaced by its spoken form and the decimal part of every number written as words after "point" (0.5 read "0 point
+    five"), the captions and the narration check keeping the written sentence.
 
     Args:
         sentence (str): The sentence, with its facts already filled in.
@@ -105,7 +114,25 @@ def convert_to_spoken_text(sentence: str) -> str:
     spoken_text = sentence
     for written_word, spoken_word in SPOKEN_FORMS.items():
         spoken_text = re.sub(pattern=rf"\b{re.escape(written_word)}\b", repl=spoken_word, string=spoken_text)
-    return spoken_text
+
+    # Write the digits after the decimal point as words, so that no dot is left inside a number for espeak-ng to take
+    # for the end of a sentence; the integer part stays in digits, which espeak-ng reads right
+    return DECIMAL_NUMBER_PATTERN.sub(repl=spell_decimal_part, string=spoken_text)
+
+
+def spell_decimal_part(match: re.Match) -> str:
+    """
+    Gives the spoken form of one decimal number of the narration for convert_to_spoken_text: its integer part in digits,
+    then "point" and every digit of its decimal part as a word, so that the voice reads 0.837 "zero point eight three
+    seven" without the pause espeak-ng puts at the dot of a sentence ending with a period.
+
+    Args:
+        match (re.Match): The number matched by DECIMAL_NUMBER_PATTERN, its integer and decimal parts as groups 1 and 2.
+
+    Returns:
+        str: The spoken form, e.g. "0 point eight three seven".
+    """
+    return f"{match.group(1)} point {' '.join(DIGIT_WORDS[digit] for digit in match.group(2))}"
 
 
 def compute_sentence_key(text: str, voice_settings: Dict[str, Any], pace: float) -> str:
