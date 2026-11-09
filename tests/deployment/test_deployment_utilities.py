@@ -14,7 +14,7 @@ import tritonclient.utils.shared_memory as shared_memory
 import yaml
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from vision_training.data.synthetic.create_synthetic_dataset import build_keypoint_label_mapping, build_keypoint_labels
 from vision_training.deployment.deployment_utilities import load_inference_inputs, run_triton_inference
@@ -84,10 +84,12 @@ class RecordingClient:
 
 
 def write_test_experiment(experiment_folder: Path, task: str,
-                          maximum_sequence_length: int = TEST_MAXIMUM_SEQUENCE_LENGTH) -> None:
+                          maximum_sequence_length: int = TEST_MAXIMUM_SEQUENCE_LENGTH,
+                          keep_ratio: Optional[bool] = None,
+                          tiling_configuration: Optional[Dict[str, Any]] = None) -> None:
     """
-    Writes the training configuration of a trained experiment of a task, as read by the deployment client: the
-    synthetic configuration of the task with 32 pixel inputs, sequences of at most 5 frames, and a label
+    Writes the training configuration of a trained experiment of a task, as read by the deployment client and the
+    export: the synthetic configuration of the task with 32 pixel inputs, sequences of at most 5 frames, and a label
     mapping of 3 classes. The keypoint detection gets the training labels of the synthetic shapes whose keypoint
     definitions the configuration loader reads, with the label mapping of the synthetic dataset.
 
@@ -96,14 +98,22 @@ def write_test_experiment(experiment_folder: Path, task: str,
         task (str): The task of the experiment, a key of TASK_CONFIGURATION_FILES.
         maximum_sequence_length (int): The maximum sequence length of the sequence tasks. Defaults to
             TEST_MAXIMUM_SEQUENCE_LENGTH.
+        keep_ratio (Optional[bool]): The 'Data.image_settings.keep_ratio' of the experiment, None to keep the one of
+            the synthetic configuration. Defaults to None.
+        tiling_configuration (Optional[Dict[str, Any]]): The 'Data.tiling' section of a segmentation experiment, None
+            to keep the one of the synthetic configuration. Defaults to None.
     """
     experiment_folder.mkdir(parents=True)
     mapping_path = experiment_folder / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2}))
 
-    # Small inputs, short sequences and the written label mapping
+    # Small inputs, the resize and tiling asked for, short sequences and the written label mapping
     configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / TASK_CONFIGURATION_FILES[task]).read_text())
     configuration["Data"]["image_settings"]["size"] = TEST_IMAGE_SIZE
+    if keep_ratio is not None:
+        configuration["Data"]["image_settings"]["keep_ratio"] = keep_ratio
+    if tiling_configuration is not None:
+        configuration["Data"]["tiling"] = tiling_configuration
     if "sequence_settings" in configuration["Data"]:
         configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = maximum_sequence_length
 

@@ -2,7 +2,9 @@
 Exports a trained experiment of any task to the Triton model repository as TorchScript and ONNX (optionally run with
 TensorRT), writes the Triton configurations and checks every export against the eager inference model, adding for the
 frame selection the decoder and the ensembles returning the chosen frames, and for the classification the logit
-temperature and the class thresholds saved from the temperature explorer of the exported checkpoint. Run as a script
+temperature and the class thresholds saved from the temperature explorer of the exported checkpoint. Every exported
+model carries the input contract of the run (deployment/input_contract.py), in the metadata of the ONNX file and in
+'preprocessing.json' next to it, so that a server builds the input from a photo as the training did. Run as a script
 with the experiment, iteration and formats set in its main block.
 """
 
@@ -23,6 +25,8 @@ from vision_training.deployment.export_specifications import (build_inference_mo
                                                               create_random_inputs, get_export_specification)
 from vision_training.deployment.frame_selection_deployment import (build_decoding_settings,
                                                                    export_frame_selection_decoding)
+from vision_training.deployment.input_contract import (build_input_contract, write_onnx_input_contract,
+                                                       write_preprocessing_file)
 from vision_training.deployment.triton_configuration import write_triton_configuration
 from vision_training.evaluation.checkpoint_evaluation import EVALUATIONS_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
@@ -258,7 +262,10 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     the confidence thresholds of the evaluation of the exported checkpoint. With use_saved_temperature, a classifier
     divides its class logits by the temperature saved from the temperature explorer of the exported checkpoint
     (find_saved_thresholds_path, read_saved_temperature), the saved thresholds being copied next to every exported
-    model as 'class_thresholds.json'; without it, by 1, without thresholds.
+    model as 'class_thresholds.json'; without it, by 1, without thresholds. Every exported model carries the input
+    contract of the run (build_input_contract), written into the 'metadata_props' of the ONNX file and as
+    'preprocessing.json' next to the model of every format, the export stopping before any file is written when the
+    contract cannot describe the input of the run.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -278,7 +285,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         RuntimeError: If an exported model does not reproduce the eager outputs.
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
         ValueError: If use_saved_temperature is set for another task than the classification, or the saved
-            thresholds are ambiguous or do not belong to the exported checkpoint.
+            thresholds are ambiguous or do not belong to the exported checkpoint, or the input contract cannot describe
+            the input of the run (another interpolation, padding, placement or channel order).
     """
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
     # while ONNX Runtime computes the exported model in exact FP32, so the two differ by about 1e-3 on scores even
@@ -301,6 +309,14 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         weights_description = " (EMA Weights)" if use_averaged_weights else ""
         print_color(color="blue", output=f"Exporting Checkpoint{weights_description} : "
                                          f"{format_path_link(path=checkpoint_path)}", add_separators=True)
+
+        # Input contract of every exported model, read from the configuration and the preprocessing code before any
+        # file is written, so that a run whose input the contract cannot describe stops here
+        input_contract = build_input_contract(task=experiment_configuration["task"],
+                                              model_configuration=model_configuration, specification=specification)
+        print_color(color="blue", output=f"Input Contract : {input_contract['input_resize']}, "
+                                         f"{input_contract['input_size']} pixels, {input_contract['input_color_order']}"
+                                         f" {input_contract['input_layout']}", indent=1)
 
         # Logit temperature of the classifier, from the thresholds saved from its temperature explorer and deployed
         # with it, set before the reference outputs so that the comparison checks the exported temperature too
@@ -346,6 +362,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                 model_path = model_directory / str(model_version) / "model.onnx"
                 export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=model_path,
                             specification=specification, maximum_batch_size=maximum_batch_size)
+                write_onnx_input_contract(model_path=model_path, input_contract=input_contract)
                 session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
                 exported_outputs = session.run(None, {input_name: input_batch.cpu().numpy()
                                                       for input_name, input_batch in check_inputs.items()})
@@ -354,6 +371,9 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                                        model_version=model_version, export_format=export_format,
                                        specification=specification, maximum_batch_size=maximum_batch_size,
                                        tensorrt_precision=tensorrt_precision)
+
+            # Input contract next to the model of every format, with the values of the metadata of the ONNX file
+            write_preprocessing_file(model_folder=model_path.parent, input_contract=input_contract)
 
             # Class thresholds of the classifier next to the model, found at the temperature built into it, the copy of
             # an earlier export being removed without them, so that no thresholds of another temperature stay there
