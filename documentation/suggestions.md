@@ -51,7 +51,8 @@
 > - the ImageNet-22k download (`imagenet_22k_download.py`, which replaced the Tencent ML-Images downloader) and its
 >   merge with ImageNet-1k (`merge_imagenet_manifests.py`, `~/Data/classifier_data/imagenet-merged`), on 2026-11-06;
 > - the neck of DET and INS (`Neck.type`: `feature_pyramid`, `path_aggregation`, items 1 and 37, `none` in every
->   configuration), on 2026-11-07, the feature pyramid kept by stage 3 on 2026-11-08, stage 4 left to run.
+>   configuration), on 2026-11-07, the feature pyramid kept by stage 3 on 2026-11-08, path aggregation tied with it
+>   by stage 4 on 2026-11-09 and kept in the code for projects with very small objects.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -141,11 +142,13 @@
     - **Implemented (2026-11-08):** `compute_complete_iou_loss` of `detection_losses.py`, checked against the CIoU
       papers, their official Faster R-CNN code, darknet, torchvision and mmdetection (`detection_box_loss_design.md`):
       boxes in image pixels, alpha 0 below an IoU of 0.5 (journal Eq. 10) and constant in the gradient, one setting
-      per stage. The published Faster R-CNN applies it to the detection heads only, with a loss weight of 12; both
-      are left to decide for stage 5.
-37. **Path aggregation after the feature pyramid (PANet), implemented, checked against the paper and its code,
-    stage 4 left to run** (`Neck.type: "path_aggregation"`, with item 1, the bottom-up convolutions followed by a
-    ReLU), scheduled in `object_detection_experiment_plan.md`:
+      per stage. The published Faster R-CNN applies it to the detection heads only, with a loss weight of 12; for
+      stage 5 the user chose a weight of about 6 on 2026-11-09 (that balance under the normalization here), the
+      stages left open.
+37. **Path aggregation after the feature pyramid (PANet), implemented, checked against the paper and its code, tied
+    with the feature pyramid by stage 4 (-0.0042 mAP@[0.5:0.95], 2026-11-09), kept in the code** (`Neck.type:
+    "path_aggregation"`, with item 1, the bottom-up convolutions followed by a ReLU), stage 4 of
+    `object_detection_experiment_plan.md`:
     - **Why:** the top-down path of the FPN gives the fine levels the context of the deep ones, but the localisation
       detail of the fine levels reaches the coarse ones only through the whole backbone. Path aggregation adds a
       bottom-up path after the top-down one: every finer output, downsampled by a strided 3x3 convolution, is merged
@@ -159,6 +162,11 @@
       batch normalization standing for group normalization (`detection_neck_design.md`, Path Aggregation Design);
       adaptive feature pooling, the concatenation of YOLOv4 and the weighted fusion of EfficientDet are left for later
       stages.
+    - **Stage 4 (2026-11-09):** 0.8038 Test_EMA mAP@[0.5:0.95] against 0.8079 for the feature pyramid (run_9 and
+      run_10), a tie within the launch gap 0.0094 of run_11 and run_12, behind at every evaluation. Unlike the
+      published gain, it lost on the large objects (-0.021) and the tight boxes (mAP@0.95 -0.007) and led on the small
+      ones (+0.020). The feature pyramid stays the reference of the later stages; the code stays for projects with very
+      small objects, as the user decided before the end of the stage.
 38. **DIoU non-maximum suppression, implemented, stage 5b left to run** (`Detector.nms_criterion: "distance_iou"`, off
     in every configuration), scheduled in `object_detection_experiment_plan.md` after the CIoU box loss:
     - **Why:** the greedy NMS removes the lower scoring of two boxes of a class whose IoU exceeds the threshold, so

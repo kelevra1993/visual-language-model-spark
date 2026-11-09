@@ -117,9 +117,9 @@ In case the stage needs a reference, the published effects are:
 The gains come at the high IoU thresholds (AP75) and on the large objects, where this detector loses most (0.126 mAP@0.95). A small loss on the small objects is possible, as in Table 3.
 
 ## Stage 5 Pair
-Before stage 5 is launched, the reference is the neck kept by stage 4 (path aggregation, run_11 and run_12, or the feature pyramid, run_9 and run_10), and the new pair takes the same settings with the CIoU loss. Two choices are left to the user:
-- **Stages:** the detection heads only (`Detector.box_loss`, the published Faster R-CNN, run name `DCIOU`), or both stages (the plan of 2026-11-07, `RCIOU` and `DCIOU`).
-- **Weight:** 1.0, the weight of the smooth L1 runs, which measures the loss alone, or a larger `detection_regression_loss` weight closer to the published balance (12 x positives / sampled, about 6 for 64 positives of 128).
+Before stage 5 is launched, the reference is the feature pyramid (run_9 and run_10), stage 4 having tied on 2026-11-09 (path aggregation 0.8038 against 0.8079), and the new pair takes the same settings with the CIoU loss. Of the two choices of the stage, the user made one on 2026-11-09 and left the other open until they had seen the comparison of stage 4:
+- **Stages, open:** the detection heads only (`Detector.box_loss`, the published Faster R-CNN, run name `DCIOU`), or both stages (the plan of 2026-11-07, `RCIOU` and `DCIOU`).
+- **Weight, about 6:** a `detection_regression_loss` weight at the published balance (12 x positives / sampled, about 6 for 64 positives of 128), chosen by the user against 1.0, the weight of the smooth L1 runs, which would measure the loss alone.
 
 The launcher writes the setting into the files built from `run-1.yaml` (`run_benchmark_stages.py`, `SETTING_KEYS`), whose `box_loss` lines were added after the merge.
 
