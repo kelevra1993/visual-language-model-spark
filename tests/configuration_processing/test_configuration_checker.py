@@ -106,14 +106,13 @@ def set_invalid_neck_settings(configuration: Dict[str, Any]) -> None:
                              "normalization": {"feature_map_normalization": "group"}}
 
 
-def set_unknown_box_losses(configuration: Dict[str, Any]) -> None:
+def set_unknown_box_loss(configuration: Dict[str, Any]) -> None:
     """
-    Gives the region proposal and detector sections box losses the code does not compute.
+    Gives the detector section a box loss the code does not compute.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
-    configuration["RegionProposal"]["box_loss"] = "generalized_iou"
     configuration["Detector"]["box_loss"] = "iou"
 
 
@@ -261,9 +260,7 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                  "'bidirectional_pyramid'.", "'Neck.output_channels'",
                                  "'Neck.normalization.feature_map_normalization' must be one of ['batch', 'layer', "
                                  "'none'], got 'group'."]),
-    (set_unknown_box_losses, ["'RegionProposal.box_loss' must be one of ['smooth_l1', 'complete_iou'], got "
-                              "'generalized_iou'.",
-                              "'Detector.box_loss' must be one of ['smooth_l1', 'complete_iou'], got 'iou'."]),
+    (set_unknown_box_loss, ["'Detector.box_loss' must be one of ['smooth_l1', 'complete_iou'], got 'iou'."]),
     (set_invalid_final_nms_settings, ["'Detector.nms_criterion' must be one of ['iou', 'distance_iou'], got "
                                       "'soft_nms'.",
                                       "'Detector.nms_distance_exponent' must be a finite positive number, got 0."]),
@@ -666,7 +663,8 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
     """
     Keeps the settings of the task heads removed from the configuration files for their fixed value, the batch
     normalization momentum of every head the configuration holds, and for the detection tasks the strict fallback
-    assignment and the localisation loss betas, next to an unknown optimizer.
+    assignment, the localisation loss betas and the box loss of the region proposal network, next to an unknown
+    optimizer.
 
     Args:
         configuration (Dict[str, Any]): The raw configuration of a task with heads, modified in place.
@@ -684,6 +682,7 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
         configuration["RegionProposal"]["strict_fallback_assignment"] = False
         configuration["RegionProposal"]["localisation_loss_beta"] = "1/9"
         configuration["Detector"]["localisation_loss_beta"] = "1/9"
+        configuration["RegionProposal"]["box_loss"] = "smooth_l1"
     configuration["Optimization"]["optimizer"] = "lion"
 
 
@@ -698,7 +697,7 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
      ["RegionProposal.normalization.batch_normalization_momentum",
       "Detector.normalization.batch_normalization_momentum", "MaskHead.normalization.batch_normalization_momentum",
       "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
-      "Detector.localisation_loss_beta"], "'Optimization.optimizer' must be one of"),
+      "Detector.localisation_loss_beta", "RegionProposal.box_loss"], "'Optimization.optimizer' must be one of"),
     ("semantic_segmentation", keep_the_fixed_head_settings, ["SegmentationDecoder.batch_normalization_momentum"],
      "'Optimization.optimizer' must be one of"),
     ("self_supervised", keep_the_fixed_head_settings, ["ProjectionHead.batch_normalization_momentum"],

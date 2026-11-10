@@ -95,6 +95,9 @@ REMOVED_SETTINGS = {
                                                   f"(LOCALISATION_LOSS_BETA of "
                                                   f"vision_training/losses/detection_losses.py)", [])
        for section_name in ["RegionProposal", "Detector"]},
+    "RegionProposal.box_loss": ("the region proposal network always uses the smooth L1 box loss on the offsets "
+                                "(REGION_PROPOSAL_BOX_LOSS of vision_training/losses/detection_losses.py), the CIoU "
+                                "box loss being an option of the detection heads only ('Detector.box_loss')", []),
     "Data.data_augmentation.independent_frames": ("only the sequence tasks draw the photometric augmentation types "
                                                   "frame by frame, the other tasks having no frames", SEQUENCE_TASKS),
     "Data.data_augmentation.shuffle_frames": ("only the sequence tasks shuffle the frames of their samples, the other "

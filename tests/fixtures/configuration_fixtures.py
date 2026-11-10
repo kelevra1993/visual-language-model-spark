@@ -22,8 +22,8 @@ def get_detection_model_configuration(mask_head: bool = False, neck_type: str = 
         mask_head (bool): Whether to add the 'MaskHead' section of the instance segmentation task. Defaults to False.
         neck_type (str): The 'Neck.type' between the backbone blocks and the heads, 32 channels with batch
             normalization. Defaults to "none", the heads reading the blocks.
-        box_loss (str): The 'box_loss' of both the 'RegionProposal' and 'Detector' sections. Defaults to
-            "smooth_l1", the loss of the recorded baselines.
+        box_loss (str): The 'box_loss' of the 'Detector' section, the region proposal network always using the
+            smooth L1. Defaults to "smooth_l1", the loss of the recorded baselines.
 
     Returns:
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and
@@ -74,8 +74,7 @@ def get_detection_model_configuration(mask_head: bool = False, neck_type: str = 
                          'foreground_iou_threshold': {"min": 0.35, "max": 1.0},
                          'background_iou_threshold': {"min": 0.2, "max": 0.3},
                          'number_training_positives': 128,
-                         'total_training_samples': 256,
-                         'box_loss': box_loss
+                         'total_training_samples': 256
                      },
                      # Proposal sampling, losses and postprocessing of the detection heads
                      'Detector': {

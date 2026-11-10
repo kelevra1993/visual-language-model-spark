@@ -105,7 +105,7 @@ Optimization:
   loss_weights:
     # Objectness of the sampled region proposal anchors.
     region_proposal_classification_loss: 1.0
-    # Box loss of the positive region proposal anchors (RegionProposal.box_loss).
+    # Smooth L1 box loss of the positive region proposal anchors.
     region_proposal_localisation_loss: 1.0
     # Class of the sampled detection proposals, background included.
     detection_classification_loss: 1.0
@@ -325,9 +325,6 @@ RegionProposal:
   number_training_positives: 128
   # Positive and negative anchors sampled per image.
   total_training_samples: 256
-  # Box loss of the positive anchors: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the
-  # decoded boxes, https://arxiv.org/abs/2005.03572).
-  box_loss: "smooth_l1"
   # Region proposal heads of another DET or INS run initialising this one; levels, per-level region_proposal, anchors
   # per position, normalization and backbone channels must match (other scales or ratios only reported).
   pretrained:

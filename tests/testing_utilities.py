@@ -156,8 +156,8 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
             detection level under 'level_mask_heads', None to keep them. Defaults to None.
         neck_type (str): The 'Neck.type' between the backbone blocks and the heads. Defaults to "none", the heads
             reading the blocks, as in the behaviour baseline.
-        box_loss (str): The 'box_loss' of the region proposal and detector losses. Defaults to "smooth_l1", as in the
-            behaviour baseline.
+        box_loss (str): The 'Detector.box_loss' of the detector loss, the region proposal network always using the
+            smooth L1. Defaults to "smooth_l1", as in the behaviour baseline.
         nms_criterion (str): The 'Detector.nms_criterion' of the final NMS. Defaults to "iou", the greedy NMS of the
             behaviour baseline.
         nms_distance_exponent (float): The 'Detector.nms_distance_exponent' of "distance_iou". Defaults to 1.0.
