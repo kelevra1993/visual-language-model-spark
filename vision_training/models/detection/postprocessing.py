@@ -1,7 +1,7 @@
 """
 Final postprocessing of the object detector: class probabilities, background removal, score threshold, per-class
 batched non-maximum suppression, greedy on the IoU or DIoU-NMS ('Detector.nms_criterion'), and a fixed number of
-detections per image, vectorised so that the greedy one exports. Shared by the TwoStageDetector at inference and by
+detections per image, vectorised so that both suppressions export. Shared by the TwoStageDetector at inference and by
 the InferenceDetector of the deployment.
 """
 
@@ -167,6 +167,71 @@ def suppress_overlapping_detections(boxes: torch.Tensor, scores: torch.Tensor, g
     raise ValueError(f"Unknown NMS criterion {nms_criterion!r}, expected one of {NMS_CRITERIA}.")
 
 
+def suppress_every_pair_by_distance(boxes: torch.Tensor, scores: torch.Tensor, candidate_mask: torch.Tensor,
+                                    iou_threshold: float, distance_exponent: float) -> torch.Tensor:
+    """
+    Runs DIoU-NMS on every (proposal, foreground class) pair of the exported detector, the form of batched_distance_nms
+    that the TorchScript trace and the dynamo ONNX export keep (documentation/detection_nms_design.md, Part B), so that
+    a deployed model with 'Detector.nms_criterion' "distance_iou" keeps the detections of its eager evaluation. Every
+    group of an image and a class holds exactly the P pairs of its proposals, so the criterion matrix has the static
+    shape [B, C - 1, P, P] without padding, and the greedy suppression is the exact scan of the P ranks by decreasing
+    score, P steps of operations over all the groups at once, without control flow depending on the data. As in
+    batched_distance_nms, only the candidates suppress or are suppressed, a box is suppressed when its criterion with a
+    better kept box exceeds the threshold strictly, equal scores keep the proposal order, and the criterion is computed
+    in float32 at least.
+
+    Args:
+        boxes (torch.Tensor): The [B, P, C - 1, 4] boxes of every proposal and foreground class, clipped to the image.
+        scores (torch.Tensor): Their [B, P, C - 1] class probabilities.
+        candidate_mask (torch.Tensor): The [B, P, C - 1] boolean mask of the pairs of valid proposals reaching the
+            score threshold.
+        iou_threshold (float): The Distance-IoU above which the lower scoring box of a pair is suppressed.
+        distance_exponent (float): The positive exponent of the normalized centre distance.
+
+    Returns:
+        torch.Tensor: The [B, P, C - 1] boolean mask of the kept candidates, False for the other pairs.
+    """
+    # Groups of image and class first, as [B, C - 1, P] scores and candidates
+    group_scores, group_candidates = scores.transpose(dim0=1, dim1=2), candidate_mask.transpose(dim0=1, dim1=2)
+    number_proposals = scores.shape[1]
+    proposal_indices = torch.arange(end=number_proposals, device=boxes.device)
+    earlier_first = proposal_indices.unsqueeze(dim=1) < proposal_indices.unsqueeze(dim=0)
+
+    # Rank of every proposal in its group: the number of proposals with a higher score, or the same score and an
+    # earlier index, which is the order of the stable sort of batched_distance_nms. It is computed from comparisons
+    # rather than with a stable sort, which the dynamo ONNX export does not translate
+    row_scores, column_scores = group_scores.unsqueeze(dim=-1), group_scores.unsqueeze(dim=-2)
+    better_mask = (row_scores > column_scores) | ((row_scores == column_scores) & earlier_first)
+    proposal_ranks = better_mask.sum(dim=-2)
+    score_order = torch.zeros_like(input=proposal_ranks).scatter(dim=-1, index=proposal_ranks,
+                                                                 src=proposal_indices.expand_as(proposal_ranks))
+
+    # Boxes and candidates of every group by decreasing score
+    sorted_boxes = torch.gather(input=boxes.transpose(dim0=1, dim1=2), dim=2,
+                                index=score_order.unsqueeze(dim=-1).expand(-1, -1, -1, 4))
+    sorted_candidates = torch.gather(input=group_candidates, dim=2, index=score_order)
+
+    # Pairs whose better candidate suppresses the lower one when kept: the criterion computed in float32 at least and
+    # strictly above the threshold, between two candidates of the group, the better one first
+    sorted_boxes = sorted_boxes.to(dtype=torch.promote_types(boxes.dtype, torch.float32))
+    criterion = get_distance_intersection_over_union(boxes_1=sorted_boxes, boxes_2=sorted_boxes,
+                                                     distance_exponent=distance_exponent)
+    suppression_mask = ((criterion > iou_threshold) & earlier_first & sorted_candidates.unsqueeze(dim=-1) &
+                        sorted_candidates.unsqueeze(dim=-2))
+
+    # Greedy scan of the ranks: the candidate of every rank is kept unless a better kept candidate suppressed it, and
+    # then suppresses the lower ones of its row, the strict upper triangle leaving the better ranks unchanged
+    suppressed_mask = torch.zeros_like(input=sorted_candidates)
+    for rank in range(number_proposals):
+        rank_kept = sorted_candidates[..., rank] & ~suppressed_mask[..., rank]
+        suppressed_mask = suppressed_mask | (suppression_mask[..., rank, :] & rank_kept.unsqueeze(dim=-1))
+
+    # Kept candidates put back in the proposal order of every group, then in the [B, P, C - 1] layout of the pairs
+    sorted_kept_mask = sorted_candidates & ~suppressed_mask
+    kept_mask = torch.zeros_like(input=sorted_kept_mask).scatter(dim=-1, index=score_order, src=sorted_kept_mask)
+    return kept_mask.transpose(dim0=1, dim1=2)
+
+
 def postprocess_detections(classification_scores: torch.Tensor, detection_boxes: torch.Tensor,
                            valid_proposal_mask: torch.Tensor, score_threshold: float, nms_iou_threshold: float,
                            nms_criterion: str, nms_distance_exponent: float, maximum_detections: int,
@@ -178,11 +243,11 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
 
     Every step is vectorised over the whole batch (a single batched NMS call grouped by image and class, then a fixed
     top-k). The eager training and evaluation give the NMS the pairs reaching the score threshold only, with the greedy
-    NMS or DIoU-NMS of 'Detector.nms_criterion', while the deployed detector gives every pair to the greedy NMS,
-    without data-dependent Python control flow nor data-dependent sizes, so that the same code can be exported to
-    TorchScript and ONNX. Both keep the same detections with the greedy NMS, DIoU-NMS being refused by the exports until
-    a stage of the detection benchmark keeps it (documentation/detection_nms_design.md, Part B). The outputs have a
-    fixed size; padded entries have a score of 0, a label of 0 and an empty box.
+    NMS or DIoU-NMS of 'Detector.nms_criterion', while the deployed detector gives every pair to the same NMS (the
+    greedy one of torchvision, or suppress_every_pair_by_distance for DIoU-NMS), without data-dependent Python control
+    flow nor data-dependent sizes, so that the same code can be exported to TorchScript and ONNX. Both paths keep the
+    same detections with either criterion (documentation/detection_nms_design.md, Part B for DIoU-NMS). The outputs
+    have a fixed size; padded entries have a score of 0, a label of 0 and an empty box.
 
     Args:
         classification_scores (torch.Tensor): The class logits of every proposal, shape [B, P, C] (C includes the
@@ -194,7 +259,7 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
         nms_iou_threshold (float): The criterion above which a lower scoring box of the same class is suppressed: the
             IoU, or the Distance-IoU of "distance_iou".
         nms_criterion (str): One of NMS_CRITERIA, "iou" for the greedy NMS of torchvision or "distance_iou" for
-            DIoU-NMS (batched_distance_nms), in the eager path only.
+            DIoU-NMS (batched_distance_nms in the eager path, suppress_every_pair_by_distance in the export path).
         nms_distance_exponent (float): The exponent of the distance term of "distance_iou", unused by "iou".
         maximum_detections (int): The fixed number K of detections returned per image, padded when the image has
             fewer (proposal, foreground class) pairs, as in the validation, which classifies the sampled proposals only.
@@ -213,7 +278,7 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
               the mask head of the level of that proposal.
 
     Raises:
-        ValueError: If the criterion is not one of NMS_CRITERIA, or is not "iou" in the export path.
+        ValueError: If the criterion is not one of NMS_CRITERIA.
     """
     batch_size, number_proposals, number_classes = classification_scores.shape
 
@@ -235,25 +300,30 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     # Suppress overlapping boxes of the same class and image with a single NMS call over the whole batch. The eager
     # path only gives it the candidates: a box below the threshold never suppresses a higher scoring one, so the
     # detections are the same, without the per-group NMS loop torchvision runs on the hundreds of thousands of pairs
-    # of a whole batch. The exports give every pair to the greedy NMS, the dynamo ONNX export refusing a
-    # data-dependent number of boxes, and refuse DIoU-NMS, whose exportable form is not written yet
+    # of a whole batch. The exports give every pair to the NMS, the dynamo ONNX export refusing a data-dependent number
+    # of boxes: the greedy NMS of torchvision, or DIoU-NMS on the static [B, C - 1, P, P] matrix of the groups
+    kept_mask = torch.zeros_like(input=probabilities.reshape(-1), dtype=torch.bool)
     if suppress_candidates_only:
         candidate_indices = torch.nonzero(input=candidate_mask.reshape(-1)).flatten()
         kept_indices = candidate_indices[suppress_overlapping_detections(
             boxes=boxes.reshape(-1, 4)[candidate_indices], scores=probabilities.reshape(-1)[candidate_indices],
             group_indices=group_indices.reshape(-1)[candidate_indices], iou_threshold=nms_iou_threshold,
             nms_criterion=nms_criterion, nms_distance_exponent=nms_distance_exponent)]
-    else:
-        if nms_criterion != "iou":
-            raise ValueError(f"The NMS on every pair of the exports is the greedy NMS ('iou') only, got "
-                             f"{nms_criterion!r}: DIoU-NMS runs in the eager evaluation, its exportable form being "
-                             f"Part B of documentation/detection_nms_design.md.")
+        kept_mask[kept_indices] = True
+    elif nms_criterion == "iou":
         kept_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=probabilities.reshape(-1),
                                    idxs=group_indices.reshape(-1), iou_threshold=nms_iou_threshold)
+        kept_mask[kept_indices] = True
+    elif nms_criterion == "distance_iou":
+        kept_mask = suppress_every_pair_by_distance(
+            boxes=boxes.reshape(batch_size, number_proposals, number_classes - 1, 4),
+            scores=probabilities.reshape(batch_size, number_proposals, number_classes - 1),
+            candidate_mask=candidate_mask.reshape(batch_size, number_proposals, number_classes - 1),
+            iou_threshold=nms_iou_threshold, distance_exponent=nms_distance_exponent)
+    else:
+        raise ValueError(f"Unknown NMS criterion {nms_criterion!r}, expected one of {NMS_CRITERIA}.")
 
     # Keep the NMS survivors among the candidates, the other pairs get a score below any valid one
-    kept_mask = torch.zeros_like(input=probabilities.reshape(-1), dtype=torch.bool)
-    kept_mask[kept_indices] = True
     kept_mask = kept_mask.reshape(batch_size, -1) & candidate_mask
     candidate_scores = torch.where(kept_mask, probabilities, torch.full_like(input=probabilities, fill_value=-1.0))
 

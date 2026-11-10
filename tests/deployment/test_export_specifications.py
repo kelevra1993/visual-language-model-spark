@@ -2,8 +2,9 @@
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
 and ONNX exports of the recurrent comparison model and of the comparison model with sequence normalization match the
 eager model, a second recurrent export keeps its dynamic frames, the comparisons of the segmenter and keypoint detector
-outputs report their differences, the inference models match the training path on full sequences, and the logit
-temperature of the classifier softens its probabilities in the eager model and both exports.
+outputs report their differences, the inference models match the training path on full sequences, the logit
+temperature of the classifier softens its probabilities in the eager model and both exports, and the exports of the
+detector keep its DIoU-NMS.
 """
 
 import numpy as np
@@ -25,6 +26,7 @@ from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS
                                                               get_export_specification)
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
+from tests.testing_utilities import build_test_model as build_test_detector
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_keypoint_model_configuration,
                                                    get_segmentation_model_configuration,
@@ -230,6 +232,54 @@ def test_classifier_exports_divide_the_logits_by_the_logit_temperature(tmp_path:
     with pytest.raises(expected_exception=ValueError, match="must be above 0"):
         inference_model.set_logit_temperature(logit_temperature=0.0)
     assert float(inference_model.logit_temperature) == 3.0
+
+
+def test_detector_exports_keep_the_distance_nms(tmp_path: Path) -> None:
+    """
+    Verifies the TorchScript and ONNX exports of the inference detector whose final NMS is DIoU-NMS
+    ('Detector.nms_criterion' "distance_iou" with the exponent 0.6, documentation/detection_nms_design.md, Part B):
+    both reproduce the detections of the eager inference detector on a batch of another size than the traced one, and
+    these detections differ from those of the greedy NMS on the same weights, so that the exported graphs run DIoU-NMS.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    inference_models = {nms_criterion: build_inference_model(task="object_detection", model=build_test_detector(
+        dtype=torch.float32, nms_criterion=nms_criterion, nms_distance_exponent=0.6))
+        for nms_criterion in ["iou", "distance_iou"]}
+    inference_model = inference_models["distance_iou"]
+    specification = get_export_specification(task="object_detection", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                        generator=torch.Generator().manual_seed(2))
+
+    # Detections of DIoU-NMS, different from those of the greedy NMS of the same detector
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+        greedy_outputs = convert_outputs_to_numpy(outputs=inference_models["iou"](**check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=greedy_outputs,
+                                            **specification["comparison_tolerances"]) != []
+
+    # TorchScript export, traced on the example batch and run on the check batch
+    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    with torch.no_grad():
+        torchscript_outputs = convert_outputs_to_numpy(outputs=torch.jit.load(str(tmp_path / "model.pt"))(
+            **check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=torchscript_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+    # Dynamo ONNX export with a dynamic batch, run by ONNX Runtime on the check batch
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
 
 
 def test_segmentation_comparison_reports_the_differences() -> None:

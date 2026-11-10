@@ -22,7 +22,8 @@ class InferenceDetector(nn.Module):
     It reuses the submodules of the trained TwoStageDetector (no weight is duplicated) but replaces the
     data-dependent parts of its forward pass by batched, fixed-shape operations: proposals are filtered for the whole
     batch at once, padding proposals are masked instead of randomly duplicated, and no ground truth, target or loss
-    code is involved. It returns a fixed number of detections per image.
+    code is involved. It returns a fixed number of detections per image, suppressed by the final NMS of the
+    configuration of the detector, greedy or DIoU-NMS ('Detector.nms_criterion'), as in its evaluation.
     """
 
     def __init__(self, model: TwoStageDetector) -> None:
@@ -31,18 +32,8 @@ class InferenceDetector(nn.Module):
 
         Args:
             model (TwoStageDetector): The trained detector, whose submodules and configuration are reused.
-
-        Raises:
-            ValueError: If the final NMS of the detector is not the greedy NMS ('Detector.nms_criterion' "iou"), the
-                only one the exports run.
         """
         super(InferenceDetector, self).__init__()
-
-        # The exports run the greedy NMS on every pair, DIoU-NMS having no exportable form until a stage keeps it
-        # (documentation/detection_nms_design.md, Part B), so that a deployed model suppresses as in its evaluation
-        if model.detection_nms_criterion != "iou":
-            raise ValueError(f"The deployed detector runs the greedy NMS only: 'Detector.nms_criterion' is "
-                             f"{model.detection_nms_criterion!r}, set it to 'iou' to export or deploy the model.")
 
         self.backbone = model.backbone
         self.neck = model.neck
@@ -119,7 +110,8 @@ class InferenceDetector(nn.Module):
         classification_scores, detection_boxes = self.detect(feature_maps=feature_maps, proposal_boxes=filtered_boxes,
                                                              proposal_levels=filtered_levels)
 
-        # Final detections with the NMS on every pair, the form the TorchScript and ONNX exports keep
+        # Final detections with the NMS of 'Detector.nms_criterion' on every pair, greedy or DIoU-NMS, the form the
+        # TorchScript and ONNX exports keep
         detections = postprocess_detections(classification_scores=classification_scores,
                                             detection_boxes=detection_boxes, valid_proposal_mask=valid_proposal_mask,
                                             score_threshold=self.score_threshold,

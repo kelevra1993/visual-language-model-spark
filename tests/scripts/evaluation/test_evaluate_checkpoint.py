@@ -8,13 +8,28 @@ from the one of the run, invalid settings being refused and the tasks without de
 
 import pytest
 
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from scripts.evaluation.evaluate_checkpoint import apply_nms_criterion, apply_target_precisions
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
-# Detection configuration whose greedy final NMS ("iou", exponent 1.0) is replaced
+# Detection configuration of the run whose final NMS is replaced, set to the greedy NMS ("iou", exponent 1.0) of the
+# runs trained before DIoU-NMS was kept
 DETECTION_CONFIGURATION_PATH = "vision_training/configurations/object_detection/configuration_example.yaml"
+
+
+def load_greedy_detection_configuration() -> Dict[str, Any]:
+    """
+    Loads the model configuration of the example detection run with the greedy final NMS ("iou", exponent 1.0), the
+    one of the runs trained before stage 5b of the detection benchmark kept DIoU-NMS, so that the tests replace the
+    NMS of such a run whatever the example configuration holds.
+
+    Returns:
+        Dict[str, Any]: The model configuration, its 'Detector' section with the greedy NMS.
+    """
+    _, model_configuration = load_experiment_configuration(configuration_path=DETECTION_CONFIGURATION_PATH)
+    model_configuration["Detector"].update({"nms_criterion": "iou", "nms_distance_exponent": 1.0})
+    return model_configuration
 
 
 @pytest.mark.parametrize(argnames=("configuration_name", "target_precisions"),
@@ -68,7 +83,7 @@ def test_nms_criterion_replaces_the_run_one(nms_criterion: Optional[str], nms_di
         expected_suffix (str): The expected suffix of the output subfolder.
         expected_settings (Tuple[str, float]): The criterion and exponent of the evaluation.
     """
-    _, model_configuration = load_experiment_configuration(configuration_path=DETECTION_CONFIGURATION_PATH)
+    model_configuration = load_greedy_detection_configuration()
     assert apply_nms_criterion(model_configuration=model_configuration, task="object_detection",
                                nms_criterion=nms_criterion, nms_distance_exponent=nms_distance_exponent) == \
         expected_suffix
@@ -85,7 +100,7 @@ def test_invalid_or_skipped_nms_criterion(capsys: pytest.CaptureFixture) -> None
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warning.
     """
-    _, model_configuration = load_experiment_configuration(configuration_path=DETECTION_CONFIGURATION_PATH)
+    model_configuration = load_greedy_detection_configuration()
     for nms_criterion, nms_distance_exponent, expected_message in [
             ("soft_nms", None, "'Detector.nms_criterion' must be one of"),
             (None, -1.0, "'Detector.nms_distance_exponent' must be a finite positive number")]:
