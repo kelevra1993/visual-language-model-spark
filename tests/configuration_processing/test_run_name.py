@@ -197,19 +197,20 @@ def test_reference_run_name() -> None:
                           model_configuration=model_configuration) == run_name
 
 
-@pytest.mark.parametrize(argnames="nms_distance_exponent", argvalues=[1.0, 0.6])
-def test_final_nms_settings_keep_the_run_name(nms_distance_exponent: float) -> None:
+@pytest.mark.parametrize(argnames=("nms_criterion", "nms_distance_exponent"),
+                         argvalues=[("iou", 1.0), ("distance_iou", 1.0), ("distance_iou", 0.6)])
+def test_final_nms_settings_keep_the_run_name(nms_criterion: str, nms_distance_exponent: float) -> None:
     """
-    Verifies that DIoU-NMS and the exponent of its distance term give no token of the run name, the final
-    non-maximum suppression running in evaluation and inference only, without changing any trained weight, so that a
-    run keeps its folder whatever its final NMS.
+    Verifies that the greedy NMS, DIoU-NMS and the exponent of its distance term give no token of the run name, the
+    final non-maximum suppression running in evaluation and inference only, without changing any trained weight, so
+    that a run keeps its folder whatever its final NMS.
 
     Args:
+        nms_criterion (str): The 'Detector.nms_criterion' of the final NMS.
         nms_distance_exponent (float): The 'Detector.nms_distance_exponent' of DIoU-NMS.
     """
     experiment_configuration, model_configuration = get_reference_configurations()
-    assert model_configuration["Detector"]["nms_criterion"] == "iou"
-    model_configuration["Detector"].update({"nms_criterion": "distance_iou",
+    model_configuration["Detector"].update({"nms_criterion": nms_criterion,
                                             "nms_distance_exponent": nms_distance_exponent})
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == REFERENCE_RUN_NAME

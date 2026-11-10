@@ -52,7 +52,9 @@
 >   merge with ImageNet-1k (`merge_imagenet_manifests.py`, `~/Data/classifier_data/imagenet-merged`), on 2026-11-06;
 > - the neck of DET and INS (`Neck.type`: `feature_pyramid`, `path_aggregation`, items 1 and 37, `none` in every
 >   configuration), on 2026-11-07, the feature pyramid kept by stage 3 on 2026-11-08, path aggregation tied with it
->   by stage 4 on 2026-11-09 and kept in the code for projects with very small objects.
+>   by stage 4 on 2026-11-09 and kept in the code for projects with very small objects;
+> - DIoU-NMS of the final detections (item 38), kept by stage 5b with the exponent 0.6 and set in the object
+>   detection configurations on 2026-11-10, the exports running it too.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -167,8 +169,9 @@
       published gain, it lost on the large objects (-0.021) and the tight boxes (mAP@0.95 -0.007) and led on the small
       ones (+0.020). The feature pyramid stays the reference of the later stages; the code stays for projects with very
       small objects, as the user decided before the end of the stage.
-38. **DIoU non-maximum suppression, implemented, stage 5b left to run** (`Detector.nms_criterion: "distance_iou"`, off
-    in every configuration), scheduled in `object_detection_experiment_plan.md` after the CIoU box loss:
+38. **DIoU non-maximum suppression, kept by stage 5b with the exponent 0.6 and exported** (`Detector.nms_criterion:
+    "distance_iou"`, `nms_distance_exponent: 0.6` in the object detection configurations since 2026-11-10), scheduled
+    in `object_detection_experiment_plan.md` after the CIoU box loss:
     - **Why:** the greedy NMS removes the lower scoring of two boxes of a class whose IoU exceeds the threshold, so
       two distinct objects overlapping a lot are merged (occlusions). DIoU-NMS suppresses by the IoU minus the squared
       distance between the centres over the squared diagonal of the enclosing box (AAAI 2020 Eq. 13), keeping the
@@ -193,6 +196,13 @@
       objects next to the object placed before them, with its class, at an IoU drawn between 0.5 and the cap, in
       pairs. The split, generated with 0.3 and the cap 0.6 (5,000 images, `synthetic_hard_shapes_occlusion/test`),
       holds 8,675 pairs of a class above 0.5, 1,728 and 7,079 of which the exponents 1.0 and 0.6 can keep apart.
+    - **Stage 5b (2026-11-10):** on the occlusion split, the exponent 0.6 raises the Test_EMA mAP@[0.5:0.95] of the
+      reference pair run_9 and run_10 from 0.5649 to 0.5683 (+0.0034, each launch gaining) and 1.0 to 0.5656, with
+      test_10000 unchanged (0.8079, 0.8078 with 0.6); the CIoU pair gains the same. The user chose 0.6.
+    - **Exported (2026-11-10):** Part B of the design, `suppress_every_pair_by_distance` in `postprocessing.py`, the
+      exact DIoU-NMS on every pair with static shapes, so that the `InferenceDetector`, its TorchScript and ONNX
+      exports and the instance segmenter run the NMS of their configuration; the instance segmentation
+      configurations keep the greedy NMS, no stage having measured DIoU-NMS on masks.
 39. **Spatial pyramid pooling (SPP) after the backbone**: the last feature map concatenated with its max pools of 5, 9
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
 
@@ -607,7 +617,8 @@ committed): every image can be taken again from them without training, except wh
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.
 3. **The rest when the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
-   items 8, 9 and 10 depending on the datasets, and items 38 and 39 once the detection stages are done.
+   items 8, 9 and 10 depending on the datasets, and item 39 once the detection stages are done (item 38 being kept
+   on 2026-11-10).
 
 ## Repository Audit For Instance Segmentation
 
