@@ -2,8 +2,8 @@
 Tests of the intermediate results of vision_training/models/detection/two_stage_detector.py read by the instance
 segmenter: the level and matched ground truth of the sampled proposals and the proposal of every final detection
 carried through forward_detection_stages, and the filtered proposals and the anchors of every level read by the anchor
-and proposal recall of the detection trainers. The box loss of the configuration trains both stages, and the criterion
-of its final NMS suppresses the detections of the evaluation.
+and proposal recall of the detection trainers. The box loss of the configuration trains the detection heads, and the
+criterion of its final NMS suppresses the detections of the evaluation.
 """
 
 import pytest
@@ -89,12 +89,13 @@ def test_detection_stages_carry_levels_and_matched_ground_truths(neck_type: str)
                                                                                              detection_index])
 
 
-def test_complete_iou_box_loss_trains_both_detection_stages() -> None:
+def test_complete_iou_box_loss_trains_the_detection_heads_only() -> None:
     """
-    Verifies that the 'box_loss' of 'RegionProposal' and 'Detector' set to "complete_iou" changes the localisation
-    losses of both stages and nothing else, the same seed sampling the same positives with both box losses so that the
-    classification losses are equal, and that the CIoU losses are finite and backpropagate to the box regression
-    layers of the region proposal and detection heads.
+    Verifies that the 'Detector.box_loss' set to "complete_iou" changes the localisation loss of the detection heads
+    and nothing else, the region proposal network keeping its smooth L1 loss: the same seed sampling the same positives
+    with both box losses, the classification losses and the region proposal localisation loss are equal, while the
+    detection CIoU loss is finite, different from the smooth L1 one and backpropagates to the box regression layers of
+    the detection heads.
     """
     images, boxes, labels = get_fixed_batch()
     losses = {}
@@ -104,25 +105,22 @@ def test_complete_iou_box_loss_trains_both_detection_stages() -> None:
         outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
         losses[box_loss] = {key: value for key, value in outputs.items() if key.endswith("_loss")}
 
-    # Classification losses unchanged, localisation losses of both stages changed and finite
-    for loss_name in ["region_proposal_classification_loss", "detection_classification_loss"]:
+    # Classification losses and the region proposal localisation loss unchanged, the detection one changed and finite
+    for loss_name in ["region_proposal_classification_loss", "detection_classification_loss",
+                      "region_proposal_localisation_loss"]:
         assert torch.equal(input=losses["complete_iou"][loss_name], other=losses["smooth_l1"][loss_name])
-    for loss_name in ["region_proposal_localisation_loss", "detection_regression_loss"]:
-        complete_iou_loss = losses["complete_iou"][loss_name].detach()
-        assert bool(torch.isfinite(input=complete_iou_loss)) and 0 < float(complete_iou_loss) < 2
-        assert not torch.isclose(input=complete_iou_loss, other=losses["smooth_l1"][loss_name].detach())
+    complete_iou_loss = losses["complete_iou"]["detection_regression_loss"].detach()
+    assert bool(torch.isfinite(input=complete_iou_loss)) and 0 < float(complete_iou_loss) < 2
+    assert not torch.isclose(input=complete_iou_loss, other=losses["smooth_l1"]["detection_regression_loss"].detach())
 
-    # Gradients of the CIoU losses reaching the box regression layers of both stages, the last model built
+    # Gradients of the CIoU loss reaching the box regression layers of the detection heads, the last model built
     model.zero_grad()
-    (losses["complete_iou"]["region_proposal_localisation_loss"] +
-     losses["complete_iou"]["detection_regression_loss"]).backward()
-    for regressor_prefix, regressor_name in [("region_proposer_dictionary", "region_proposal_bounding_box_regressor"),
-                                             ("detector_heads_dictionary", "bounding_box_regressor")]:
-        regressor_gradients = [parameter.grad for name, parameter in model.named_parameters()
-                               if name.startswith(regressor_prefix) and f".{regressor_name}." in name]
-        assert regressor_gradients and all(gradient is not None and bool(torch.isfinite(input=gradient).all())
-                                           for gradient in regressor_gradients)
-        assert any(float(gradient.abs().sum()) > 0 for gradient in regressor_gradients)
+    losses["complete_iou"]["detection_regression_loss"].backward()
+    regressor_gradients = [parameter.grad for name, parameter in model.named_parameters()
+                           if name.startswith("detector_heads_dictionary") and ".bounding_box_regressor." in name]
+    assert regressor_gradients and all(gradient is not None and bool(torch.isfinite(input=gradient).all())
+                                       for gradient in regressor_gradients)
+    assert any(float(gradient.abs().sum()) > 0 for gradient in regressor_gradients)
 
 
 def test_final_nms_criterion_of_the_configuration_suppresses_the_evaluated_detections() -> None:

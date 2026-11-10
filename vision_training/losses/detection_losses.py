@@ -1,8 +1,8 @@
 """
 Losses of the two-stage detector: the classification and localisation losses of the region proposal network and of
-the detection head, the localisation losses being the smooth L1 on the regression offsets or the Complete-IoU loss on
-the boxes they decode to ('box_loss' of 'RegionProposal' and 'Detector'). Called by the forward pass of
-models/detection/two_stage_detector.py during training.
+the detection head, the localisation loss of the region proposal network being the smooth L1 on the regression offsets
+and that of the detection head the smooth L1 or the Complete-IoU loss on the boxes they decode to ('Detector.box_loss').
+Called by the forward pass of models/detection/two_stage_detector.py during training.
 """
 
 import math
@@ -20,9 +20,13 @@ from vision_training.models.detection.target_assignment import (batch_assign_tar
 # between their quadratic and linear parts, that of the Faster R-CNN implementations of Detectron and torchvision
 LOCALISATION_LOSS_BETA = 1 / 9
 
-# Localisation losses of 'RegionProposal.box_loss' and 'Detector.box_loss': the smooth L1 on the offsets, or 1 - CIoU
-# between the decoded boxes and their targets (documentation/detection_box_loss_design.md)
+# Localisation losses of 'Detector.box_loss': the smooth L1 on the offsets, or 1 - CIoU between the decoded boxes and
+# their targets (documentation/detection_box_loss_design.md)
 BOX_LOSSES = ["smooth_l1", "complete_iou"]
+
+# Localisation loss of the region proposal network, always the smooth L1 on the offsets: the CIoU loss is an option of
+# the detection heads only, as in the published Faster R-CNN (documentation/detection_box_loss_design.md)
+REGION_PROPOSAL_BOX_LOSS = "smooth_l1"
 
 # Small value added to the union and to the heights of the aspect ratios of the CIoU loss, so that empty or flat boxes
 # give finite values, as in torchvision and mmdetection, the squared diagonal of the enclosing box getting the
@@ -37,9 +41,9 @@ ASPECT_RATIO_IOU_THRESHOLD = 0.5
 def compute_complete_iou_loss(predicted_boxes: torch.Tensor, target_boxes: torch.Tensor) -> torch.Tensor:
     """
     Computes the Complete-IoU (CIoU) loss of every predicted box against its target box, the localisation loss of the
-    region proposal network or of the detection heads when their 'box_loss' is "complete_iou" (Zheng et al., AAAI
-    2020, Eq. 10, and their journal version, Eq. 9 and 10): 1 - IoU, plus the squared distance between the centres
-    over the squared diagonal of the smallest box enclosing both, plus alpha times the consistency of the aspect ratios
+    detection heads when 'Detector.box_loss' is "complete_iou" (Zheng et al., AAAI 2020, Eq. 10, and their journal
+    version, Eq. 9 and 10): 1 - IoU, plus the squared distance between the centres over the squared diagonal of the
+    smallest box enclosing both, plus alpha times the consistency of the aspect ratios
     v = 4 / pi^2 (arctan(w_gt / h_gt) - arctan(w / h))^2, with alpha = v / ((1 - IoU) + v) from an IoU of 0.5 and 0
     below it, where the loss is the DIoU loss. Alpha is a constant of the gradient, as in the official code,
     torchvision and mmdetection. The three terms do not change with the scale of the boxes, given in image pixels.
@@ -91,7 +95,8 @@ def compute_localisation_loss(box_loss: str, regression_predictions: torch.Tenso
     proposals, the target offsets decoding back to the matched ground truth boxes.
 
     Args:
-        box_loss (str): One of BOX_LOSSES, the 'box_loss' of 'RegionProposal' or 'Detector'.
+        box_loss (str): One of BOX_LOSSES, REGION_PROPOSAL_BOX_LOSS for the region proposal network or the
+            'Detector.box_loss' for the detection heads.
         regression_predictions (torch.Tensor): The predicted offsets [dx, dy, dw, dh] of the positives, of shape [P, 4].
         regression_targets (torch.Tensor): Their target offsets, of shape [P, 4].
         reference_boxes (torch.Tensor): Their anchors or proposals [x_min, y_min, x_max, y_max], of shape [P, 4].
@@ -132,7 +137,7 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
         ground_truth_bounding_boxes (List[torch.Tensor]): The batched ground truth boxes.
         aggregated_proposals_dictionary (Dict[str, torch.Tensor]): The aggregated anchor and prediction tensor.
         region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' configuration section, giving the
-            anchor IoU thresholds, the sampling counts and the box loss.
+            anchor IoU thresholds and the sampling counts.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
@@ -165,13 +170,12 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
         input=aggregated_proposals_dictionary["classification_scores"][sampled_mask],
         target=region_proposal_anchor_labels[sampled_mask], reduction="mean")
 
-    # Compute the localization loss of 'RegionProposal.box_loss' (smooth L1 on the offsets, or 1 - CIoU between the
-    # boxes decoded from the anchors and their ground truth boxes) on the positively sampled anchors only, background
-    # anchors having no target. It is summed and divided by the number of positive anchors, so that it is averaged per
-    # box rather than per coordinate, the count clamped to 1 so that a batch without any positive anchor (e.g. images
-    # without ground truth boxes) yields a zero loss instead of a NaN from a 0/0 division.
+    # Compute the localization loss (smooth L1 on the offsets, REGION_PROPOSAL_BOX_LOSS) on the positively sampled
+    # anchors only, background anchors having no target. It is summed and divided by the number of positive anchors, so
+    # that it is averaged per box rather than per coordinate, the count clamped to 1 so that a batch without any
+    # positive anchor (e.g. images without ground truth boxes) yields a zero loss instead of a NaN from a 0/0 division.
     region_proposal_localisation_loss = compute_localisation_loss(
-        box_loss=region_proposal_configuration["box_loss"],
+        box_loss=REGION_PROPOSAL_BOX_LOSS,
         regression_predictions=aggregated_proposals_dictionary["bounding_box_regressions"][sampled_positive_mask],
         regression_targets=region_proposal_regression_targets[sampled_positive_mask],
         reference_boxes=aggregated_proposals_dictionary["anchors"][sampled_positive_mask]

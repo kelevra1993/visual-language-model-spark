@@ -1,8 +1,8 @@
 """
 Tests of vision_training/losses/detection_losses.py: the Complete-IoU loss against the CIoU and DIoU losses of
 torchvision on both sides of the IoU of 0.5 from which it weighs the aspect ratios, its values for equal, scaled and
-degenerate boxes, and the localisation loss of the region proposal and detection heads, the smooth L1 on the offsets
-or the CIoU loss on the boxes they decode to.
+degenerate boxes, and the localisation losses: the smooth L1 on the offsets of the region proposal network, and the
+smooth L1 or the CIoU loss on the boxes they decode to of the detection heads ('Detector.box_loss').
 """
 
 import math
@@ -113,12 +113,12 @@ def test_complete_iou_loss_of_equal_scaled_and_degenerate_boxes() -> None:
 
 def test_localisation_loss_reads_the_box_loss_of_its_section() -> None:
     """
-    Verifies that the localisation loss of the region proposal and detection heads is the summed smooth L1 of the
-    offsets with "smooth_l1", unchanged by the CIoU loss, and the summed CIoU loss of the boxes the predicted and
-    target offsets decode to from their anchors with "complete_iou": the CIoU loss of the anchors themselves for zero
-    offsets, zero for the target offsets, decreasing after a gradient step on the offsets, and computed in the float32
-    of the anchors from bfloat16 offsets, as under the mixed precision of the trainers. Both losses are zero without
-    positive, and an unknown loss is refused.
+    Verifies that the localisation loss shared by the region proposal network and the detection heads is the summed
+    smooth L1 of the offsets with "smooth_l1", unchanged by the CIoU loss, and the summed CIoU loss of the boxes the
+    predicted and target offsets decode to from their anchors with "complete_iou": the CIoU loss of the anchors
+    themselves for zero offsets, zero for the target offsets, decreasing after a gradient step on the offsets, and
+    computed in the float32 of the anchors from bfloat16 offsets, as under the mixed precision of the trainers. Both
+    losses are zero without positive, and an unknown loss is refused.
     """
     predicted_boxes, target_boxes = draw_box_pairs(number_pairs=64, seed=2)
     anchors, target_boxes = predicted_boxes.to(dtype=torch.float32), target_boxes.to(dtype=torch.float32)
@@ -169,12 +169,13 @@ def test_localisation_loss_reads_the_box_loss_of_its_section() -> None:
                                   regression_targets=regression_targets, reference_boxes=anchors)
 
 
-def test_region_proposal_complete_iou_loss_decodes_from_the_anchors_of_every_image() -> None:
+def test_region_proposal_localisation_loss_is_the_smooth_l1_of_the_offsets() -> None:
     """
-    Verifies that the CIoU loss of the region proposal network decodes the offsets of every sampled positive anchor
-    from that anchor and averages over the positives of the batch: zero offsets give the mean CIoU loss of the
-    positive anchors against the ground truth box of their image, and the target offsets give zero. Each image has
-    one ground truth box overlapping two of the four anchors, the other two not overlapping it.
+    Verifies that the localisation loss of the region proposal network is always the smooth L1 of the offsets of the
+    sampled positive anchors, averaged over the positives of the batch, its 'RegionProposal' section holding no box
+    loss: zero offsets give the mean summed smooth L1 of the target offsets of the positive anchors, which differs from
+    their CIoU loss, and the target offsets give zero. Each image has one ground truth box overlapping two of the four
+    anchors, the other two not overlapping it.
     """
     anchors = torch.tensor(data=[[104, 96, 196, 186], [90, 110, 220, 170], [310, 250, 350, 410], [280, 280, 380, 380]],
                            dtype=torch.float32).expand(size=(2, -1, -1))
@@ -183,27 +184,29 @@ def test_region_proposal_complete_iou_loss_decodes_from_the_anchors_of_every_ima
     positive_anchors = torch.cat(tensors=[anchors[0, :2], anchors[1, 2:]])
     matched_boxes = torch.cat(tensors=[ground_truth_boxes[0].expand(size=(2, -1)),
                                        ground_truth_boxes[1].expand(size=(2, -1))])
-    configuration = {**REGION_PROPOSAL_CONFIGURATION, "box_loss": "complete_iou"}
+    target_offsets = turn_boxes_to_transformation_targets(ground_truth_boxes=matched_boxes,
+                                                          predicted_boxes=positive_anchors)
 
-    # Zero offsets: the positive anchors themselves against their ground truth boxes
+    # Zero offsets: the smooth L1 of the target offsets, summed over the coordinates and averaged over the positives
     proposals_dictionary = {"anchors": anchors, "classification_scores": torch.zeros(size=(2, 4)),
                             "bounding_box_regressions": torch.zeros(size=(2, 4, 4))}
     _, localisation_loss = compute_region_proposal_losses(ground_truth_bounding_boxes=ground_truth_boxes,
                                                           aggregated_proposals_dictionary=proposals_dictionary,
-                                                          region_proposal_configuration=configuration)
-    expected_loss = compute_complete_iou_loss(predicted_boxes=positive_anchors, target_boxes=matched_boxes).mean()
-    assert float(expected_loss) > 0.1 and torch.allclose(input=localisation_loss, other=expected_loss, rtol=1e-4)
+                                                          region_proposal_configuration=REGION_PROPOSAL_CONFIGURATION)
+    expected_loss = torch.nn.functional.smooth_l1_loss(input=torch.zeros_like(input=target_offsets),
+                                                       target=target_offsets, beta=LOCALISATION_LOSS_BETA,
+                                                       reduction="sum") / len(positive_anchors)
+    complete_iou_loss = compute_complete_iou_loss(predicted_boxes=positive_anchors, target_boxes=matched_boxes).mean()
+    assert float(expected_loss) > 0.01 and torch.allclose(input=localisation_loss, other=expected_loss, rtol=1e-4)
+    assert not torch.allclose(input=localisation_loss, other=complete_iou_loss, rtol=1e-2)
 
     # Target offsets of the positive anchors, decoding to their ground truth boxes
     regressions = torch.zeros(size=(2, 4, 4))
-    regressions[0, :2] = turn_boxes_to_transformation_targets(ground_truth_boxes=matched_boxes[:2],
-                                                              predicted_boxes=positive_anchors[:2])
-    regressions[1, 2:] = turn_boxes_to_transformation_targets(ground_truth_boxes=matched_boxes[2:],
-                                                              predicted_boxes=positive_anchors[2:])
+    regressions[0, :2], regressions[1, 2:] = target_offsets[:2], target_offsets[2:]
     _, localisation_loss = compute_region_proposal_losses(
-        ground_truth_bounding_boxes=ground_truth_boxes, region_proposal_configuration=configuration,
+        ground_truth_bounding_boxes=ground_truth_boxes, region_proposal_configuration=REGION_PROPOSAL_CONFIGURATION,
         aggregated_proposals_dictionary={**proposals_dictionary, "bounding_box_regressions": regressions})
-    assert float(localisation_loss) < 1e-4
+    assert float(localisation_loss) < 1e-6
 
 
 def test_detection_complete_iou_loss_decodes_the_offsets_of_the_ground_truth_class() -> None:

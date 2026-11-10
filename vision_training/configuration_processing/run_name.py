@@ -18,8 +18,8 @@ NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "
 # Run name code of every neck of the detection tasks, written after the levels (no token without neck)
 NECK_TYPE_CODES = {"feature_pyramid": "FPN", "path_aggregation": "PAN"}
 
-# Code of the box loss of the region proposal and detection heads (RCIOU, DCIOU), without token for the smooth L1 so
-# that the runs written before the CIoU loss keep their names
+# Code of the box loss of the detection heads (DCIOU), without token for the smooth L1 so that the runs written before
+# the CIoU loss keep their names
 BOX_LOSS_CODES = {"complete_iou": "CIOU"}
 
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
@@ -243,8 +243,8 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     the runs written before the neck keep their names), the anchors A<anchors per position>.<smallest scale>-<largest
     scale>.<hash of every scale and aspect ratio of every level> (build_anchors_hash), so that other ratios or middle
     scales start a new run, the region proposal heads
-    (R<normalization>, R<layers>x<filters>, RCIOU with the CIoU box loss, then RPT and RFRZ when they are transferred
-    and frozen), the detector heads (modules DSE, DRES, DINC, D<normalization>,
+    (R<normalization>, R<layers>x<filters>, then RPT and RFRZ when they are transferred and frozen), the detector
+    heads (modules DSE, DRES, DINC, D<normalization>,
     D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, DCIOU with the CIoU box loss, then DPT and DFRZ
     when they are transferred and frozen) and the classes (BIN or MC<foreground classes>, the categories
     merged into one class counting once). The levels are the keys of 'DetectionLevels', whose anchor counts, region
@@ -279,15 +279,13 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     anchors_token = (f"A{join_level_tokens(level_tokens=anchor_counts)}.{min(anchor_scales)}-{max(anchor_scales)}."
                      f"{anchors_hash}")
 
-    # Region proposal heads: normalization, the layers and filters of the head of every level, then the CIoU box loss
+    # Region proposal heads: normalization, then the layers and filters of the head of every level
     region_proposal_heads = {level: detection_levels[level]["region_proposal"]["convolutions"] for level in level_names}
     region_proposal_tokens = [
         "R" + NORMALIZATION_CODES[
             str(region_proposal_configuration["normalization"]["feature_map_normalization"]).lower().strip()],
         "R" + join_level_tokens(level_tokens=[f"{region_proposal_heads[level][0]}x{region_proposal_heads[level][1]}"
                                               for level in level_names])]
-    if region_proposal_configuration["box_loss"] != "smooth_l1":
-        region_proposal_tokens.append("R" + BOX_LOSS_CODES[region_proposal_configuration["box_loss"]])
     region_proposal_tokens += build_pretrained_tokens(model_configuration=model_configuration,
                                                       section_name="RegionProposal")
 

@@ -69,14 +69,14 @@ scenes:
     code_reference: "vision_training/losses/detection_losses.py · compute_region_proposal_losses"
     source:
       file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
-      keys: [RegionProposal.foreground_iou_threshold, RegionProposal.background_iou_threshold, RegionProposal.number_training_positives, RegionProposal.total_training_samples, RegionProposal.box_loss]
+      keys: [RegionProposal.foreground_iou_threshold, RegionProposal.background_iou_threshold, RegionProposal.number_training_positives, RegionProposal.total_training_samples]
       comments: false
     highlights:
       - {match: "foreground_iou_threshold:|background_iou_threshold:", sentences: [0]}
-      - {match: "number_training_positives|total_training_samples|box_loss", sentences: [1]}
+      - {match: "number_training_positives|total_training_samples", sentences: [1]}
     narration:
       - "The thresholds live in the Region Proposal section: foreground from 0.5, its maximum being unused, and background from 0 to 0.3, so that the anchors overlapping nothing are sampled too."
-      - "Then the sampling counts and the box loss, the smooth L1, whose beta is not a setting, the code fixing it at a ninth."
+      - "Then the sampling counts; the box loss is not a setting, the code always taking the smooth L1 with a beta of a ninth."
 
   - kind: html
     page: diagram
@@ -89,7 +89,7 @@ scenes:
         source: {file: vision_training/losses/detection_losses.py, function: compute_region_proposal_losses, start: "region_proposal_classification_loss = torch", end: "\\) / torch.sum\\(input=sampled_positive_mask\\)"}
         highlights:
           - {match: "binary_cross_entropy_with_logits|reduction=\"mean\"", sentences: [0]}
-          - {match: "compute_localisation_loss\\(|box_loss=region_proposal_configuration|\\) / torch.sum", sentences: [1]}
+          - {match: "compute_localisation_loss\\(|box_loss=REGION_PROPOSAL_BOX_LOSS|\\) / torch.sum", sentences: [1]}
       - type: listing
         box: [20, 580, 1740, 725]
         font: diagram_monospace_tiny

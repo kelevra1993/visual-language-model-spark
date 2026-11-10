@@ -128,8 +128,7 @@
    NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level) are
    the reference.
 36. **A box loss on the overlap (CIoU), implemented, off in every configuration, stage 5 left to run**
-    (`RegionProposal.box_loss` and `Detector.box_loss`: `"complete_iou"`), scheduled in
-    `object_detection_experiment_plan.md`:
+    (`Detector.box_loss`: `"complete_iou"`), scheduled in `object_detection_experiment_plan.md`:
     - **Why:** the smooth L1 on the offsets gives the same loss to predictions of very different overlap and shrinks
       with the size of the boxes, while 1 - IoU is flat for every box that does not overlap. GIoU adds the empty area of
       the smallest enclosing box, but falls back to the IoU when one box contains the other; DIoU adds the squared
@@ -147,6 +146,9 @@
       per stage. The published Faster R-CNN applies it to the detection heads only, with a loss weight of 12; for
       stage 5 the user chose a weight of about 6 on 2026-11-09 (that balance under the normalization here), the
       stages left open.
+    - **One option (2026-11-10):** stage 5 trained the loss in both stages and on the detection heads only, and the
+      user kept the detection heads only (`Detector.box_loss`, off by default), so that the repository has a single
+      CIoU setting: `RegionProposal.box_loss` was removed, the region proposal network always using the smooth L1.
 37. **Path aggregation after the feature pyramid (PANet), implemented, checked against the paper and its code, tied
     with the feature pyramid by stage 4 (-0.0042 mAP@[0.5:0.95], 2026-11-09), kept in the code** (`Neck.type:
     "path_aggregation"`, with item 1, the bottom-up convolutions followed by a ReLU), stage 4 of

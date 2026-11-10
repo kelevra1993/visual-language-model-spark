@@ -1,8 +1,9 @@
 """
 Tests of scripts/configuration_processing/convert_fixed_settings.py, the conversion of the configuration files written
 before the fixed settings and the added sections and settings: the values changed by a conversion, the neck section
-added to the detection files, the box losses added to their region proposal and detector sections and the final NMS
-settings added to their detector section, and the refusals of a conversion changing another setting or the backbone.
+added to the detection files, the box loss added to their detector section, the box loss of their region proposal
+section removed (a CIoU one leaving the file as it is), the final NMS settings added to their detector section, and the
+refusals of a conversion changing another setting or the backbone.
 """
 
 import pytest
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from scripts.configuration_processing.convert_fixed_settings import (NECK_SECTION_TEXT, add_required_sections,
                                                                       add_required_settings, check_conversion,
-                                                                      remove_fixed_settings)
+                                                                      convert_fixed_settings, remove_fixed_settings)
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 
@@ -199,17 +200,17 @@ def test_conversion_adds_the_neck_to_the_detection_files(tmp_path: Path) -> None
                          converted_text=converted_text.replace('type: "none"', 'type: "feature_pyramid"'))
 
 
-# Lines the conversion writes after the sampling budget of the region proposal and of the detector sections
+# Lines the conversion of 2026-11-08 wrote after the sampling budget of the region proposal section, removed since the
+# region proposal network always uses the smooth L1, and the lines it writes after that of the detector section
 REGION_PROPOSAL_BOX_LOSS_TEXT = (
     '  # Box loss of the positive anchors: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the\n'
     '  # decoded boxes, https://arxiv.org/abs/2005.03572).\n'
     '  box_loss: "smooth_l1"\n')
 DETECTOR_BOX_LOSS_TEXT = REGION_PROPOSAL_BOX_LOSS_TEXT.replace("positive anchors", "positive proposals")
 
-# The converted detection sections with the neck, once the box losses are added after their sampling budgets, as the
-# runs converted for the CIoU loss, before the final NMS settings
-CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES = CONVERTED_DETECTION_TEXT_WITH_NECK.replace(
-    "  total_training_samples: 256\n", f"  total_training_samples: 256\n{REGION_PROPOSAL_BOX_LOSS_TEXT}").replace(
+# The converted detection sections with the neck, once the box loss is added after the sampling budget of the
+# detector, before the final NMS settings
+CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS = CONVERTED_DETECTION_TEXT_WITH_NECK.replace(
     "  total_training_samples: 128\n", f"  total_training_samples: 128\n{DETECTOR_BOX_LOSS_TEXT}")
 
 # Lines the conversion writes after the IoU threshold of the final NMS of the detector section
@@ -220,21 +221,26 @@ DETECTOR_NMS_TEXT = (
     '  # Exponent of the distance term of "distance_iou": 1.0 as in the paper, 0.6 in YOLOv4 (more boxes kept).\n'
     '  nms_distance_exponent: 1.0\n')
 
-# The converted detection sections with the neck and the final NMS settings, without and with the box losses, the
+# The converted detection sections with the neck and the final NMS settings, without and with the box loss, the
 # latter holding every added setting
 CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS = CONVERTED_DETECTION_TEXT_WITH_NECK.replace(
     "  nms_iou_threshold: 0.5\n", f"  nms_iou_threshold: 0.5\n{DETECTOR_NMS_TEXT}")
-CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES.replace(
+CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS.replace(
     "  nms_iou_threshold: 0.5\n", f"  nms_iou_threshold: 0.5\n{DETECTOR_NMS_TEXT}")
 
+# The detection sections of the files converted between 2026-11-08 and 2026-11-10, holding the box loss of the region
+# proposal section as well
+DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
+    "  total_training_samples: 256\n", f"  total_training_samples: 256\n{REGION_PROPOSAL_BOX_LOSS_TEXT}")
 
-def test_conversion_adds_the_box_losses_to_the_detection_files(tmp_path: Path) -> None:
+
+def test_conversion_adds_the_box_loss_to_the_detection_files(tmp_path: Path) -> None:
     """
     Verifies that the conversion writes the smooth L1 box loss of the runs written before the CIoU loss, with its
-    comment lines, right after the sampling budget of the region proposal and of the detector sections of the detection
-    and instance segmentation files holding the final NMS settings, and only there: a classification file and a file
-    holding the box losses are left as they are, a file without sampling budget is refused, and the check refuses a
-    converted file lacking a box loss or holding the CIoU loss, which would change its runs.
+    comment lines, right after the sampling budget of the detector section of the detection and instance segmentation
+    files holding the final NMS settings, and only there, the region proposal section getting none: a classification
+    file and a file holding the box loss are left as they are, a file without sampling budget is refused, and the check
+    refuses a converted file lacking the box loss or holding the CIoU loss, which would change its runs.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -249,18 +255,18 @@ def test_conversion_adds_the_box_losses_to_the_detection_files(tmp_path: Path) -
         assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
                                 configuration_path=configuration_path) == []
 
-    # Files of another task or already holding the box losses are left as they are
+    # Files of another task or already holding the box loss are left as they are
     assert add_required_settings(configuration_text=CONVERTED_CLASSIFICATION_TEXT, task="classification",
                                  configuration_path=configuration_path) == CONVERTED_CLASSIFICATION_TEXT
     assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
                                  task="object_detection", configuration_path=configuration_path) == \
         CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
 
-    # A detector section without sampling budget, and conversions without a box loss or with the CIoU loss
+    # A detector section without sampling budget, and conversions without the box loss or with the CIoU loss
     with pytest.raises(expected_exception=ValueError, match="has no 'Detector.total_training_samples' setting"):
         add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS.replace(
             "  total_training_samples: 128\n", ""), task="object_detection", configuration_path=configuration_path)
-    with pytest.raises(expected_exception=ValueError, match="Detector.box_loss, RegionProposal.box_loss"):
+    with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.box_loss\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS, task="object_detection",
                          converted_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS,
                          configuration_path=configuration_path)
@@ -271,11 +277,58 @@ def test_conversion_adds_the_box_losses_to_the_detection_files(tmp_path: Path) -
                          task="object_detection", configuration_path=configuration_path)
 
 
+def test_conversion_removes_the_box_loss_of_the_region_proposal_section(tmp_path: Path,
+                                                                        capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the conversion removes the smooth L1 box loss of the region proposal section, with its comment lines,
+    from the detection and instance segmentation files written between the CIoU loss and its removal from the region
+    proposal network, the detector keeping its box loss, and that convert_fixed_settings converts such a launch file
+    with its backup while it reports and leaves untouched a file whose region proposal section holds the CIoU loss, its
+    runs staying as records, without stopping on it.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    for task in ["object_detection", "instance_segmentation"]:
+        original_text = DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS.replace("task: object_detection", f"task: {task}")
+        converted_text = remove_fixed_settings(configuration_text=original_text, task=task)
+        assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
+                                                                                      f"task: {task}")
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+    # A launch folder holding a file of each region proposal box loss, the CIoU one listed first
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    complete_iou_text = DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS.replace(
+        REGION_PROPOSAL_BOX_LOSS_TEXT, REGION_PROPOSAL_BOX_LOSS_TEXT.replace('"smooth_l1"', '"complete_iou"'))
+    (configuration_folder / "run-1.yaml").write_text(data=complete_iou_text, encoding="utf-8")
+    (configuration_folder / "run-2.yaml").write_text(data=DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS,
+                                                     encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_region_proposal_box_loss")
+
+    # The smooth L1 file converted with its backup, the CIoU file reported and left as it was
+    assert converted_paths == [configuration_folder / "run-2.yaml"]
+    assert (configuration_folder / "run-2.yaml").read_text(encoding="utf-8") == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    assert (configuration_folder / "previous_configurations" / "run-2_before_region_proposal_box_loss.yaml").read_text(
+        encoding="utf-8") == DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == complete_iou_text
+    backup_folder = configuration_folder / "previous_configurations"
+    assert not (backup_folder / "run-1_before_region_proposal_box_loss.yaml").exists()
+    printed_output = capsys.readouterr().out
+    assert "Not converted, its runs staying as records" in printed_output
+    assert "RegionProposal.box_loss 'complete_iou'" in printed_output
+
+
 def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path: Path) -> None:
     """
     Verifies that the conversion writes the greedy final NMS of the runs written before DIoU-NMS, the criterion "iou"
     and the exponent 1.0 with their comment lines, right after the IoU threshold of the final NMS of the detector
-    section of the detection and instance segmentation files converted for the box losses, and only there: a
+    section of the detection and instance segmentation files converted for the box loss, and only there: a
     classification file and a file holding the settings are left as they are, a detector section without IoU threshold
     is refused, and the check refuses a converted file lacking the settings or holding DIoU-NMS, which would change the
     evaluations of its runs.
@@ -285,7 +338,7 @@ def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path:
     """
     configuration_path = tmp_path / "configuration.yaml"
     for task in ["object_detection", "instance_segmentation"]:
-        original_text = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES.replace("task: object_detection", f"task: {task}")
+        original_text = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS.replace("task: object_detection", f"task: {task}")
         converted_text = add_required_settings(configuration_text=original_text, task=task,
                                                configuration_path=configuration_path)
         assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
@@ -302,14 +355,14 @@ def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path:
 
     # A detector section without IoU threshold, and conversions without the settings or with DIoU-NMS
     with pytest.raises(expected_exception=ValueError, match="has no 'Detector.nms_iou_threshold' setting"):
-        add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES.replace(
+        add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS.replace(
             "  nms_iou_threshold: 0.5\n", ""), task="object_detection", configuration_path=configuration_path)
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: Detector\.nms_criterion, Detector\.nms_distance_exponent\.$"):
-        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES, task="object_detection",
-                         converted_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES, configuration_path=configuration_path)
+        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, task="object_detection",
+                         converted_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, configuration_path=configuration_path)
     distance_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace('nms_criterion: "iou"',
                                                                          'nms_criterion: "distance_iou"')
     with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.nms_criterion\.$"):
-        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSSES, converted_text=distance_text,
+        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, converted_text=distance_text,
                          task="object_detection", configuration_path=configuration_path)

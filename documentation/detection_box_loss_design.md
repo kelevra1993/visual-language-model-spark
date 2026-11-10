@@ -18,6 +18,8 @@ This design is for whoever runs stage 5 of `architecture_benchmarking/object_det
 
 The user asked on 2026-11-08 for the loss without turning it on ("Implement Ciou loss as well but it will not be activated for the next run"). Every configuration keeps `box_loss: "smooth_l1"` in both stages, so stage 4 (run_11 and run_12) trains as stages 1 to 3 did.
 
+On 2026-11-10, after stage 5 had trained the loss in both stages (run_15 and run_16) and on the detection heads only (run_17 and run_18), the user kept a single option to lighten the settings ("only keep one of them because i want to reduce mental charge for people using the repository"): `Detector.box_loss`, the published form, off by default. `RegionProposal.box_loss` was removed, the region proposal network always using the smooth L1 (see [Configuration And Run Names](#configuration-and-run-names)).
+
 ## Sources Read
 To check every step of the implementation, these sources were read in full on 2026-11-08:
 - **Zheng et al., "Distance-IoU Loss: Faster and Better Learning for Bounding Box Regression", AAAI 2020** (arXiv 1911.08287): section "Complete IoU Loss" (Eq. 8 to 12) and Table 3 (Faster R-CNN on MS COCO 2017).
@@ -41,9 +43,9 @@ alpha  = 0                          if IoU < 0.5
 
 The AAAI version (Eq. 10 and 11) has the same loss without the condition on alpha. The journal adds it because "when two boxes are not well matched, the consistency of aspect ratio is less important" (Section III-B), the loss becoming the DIoU loss below an IoU of 0.5. The three terms are ratios of areas or lengths, so the loss does not change with the scale of the boxes, and it stays below 2: below an IoU of 0.5 it is 1 - IoU plus a distance term below 1, and from 0.5 the aspect ratio term alpha * v stays below 0.0071, the width over height ratios of two boxes overlapping that much differing by a factor of 2.25 at most (two boxes crossing at their centres; a random search of 20 million pairs found 0.0070).
 
-`compute_complete_iou_loss` of `vision_training/losses/detection_losses.py` computes this loss for boxes given as `[x_min, y_min, x_max, y_max]`, and `compute_localisation_loss` chooses between the two box losses for both stages:
+`compute_complete_iou_loss` of `vision_training/losses/detection_losses.py` computes this loss for boxes given as `[x_min, y_min, x_max, y_max]`, and `compute_localisation_loss` chooses between the two box losses, the region proposal network always taking the smooth L1 since 2026-11-10:
 - **`smooth_l1`:** the smooth L1 (beta 1/9) between the predicted and target offsets, summed, the code of every run so far.
-- **`complete_iou`:** the predicted and target offsets of the sampled positives are both decoded from their anchors (region proposal network) or proposals (detection heads, the offsets of the true class) by `apply_regression_predictions`, the target offsets giving back the matched ground truth boxes, then 1 - CIoU is summed over the positives.
+- **`complete_iou`:** the predicted and target offsets of the sampled positive proposals (the offsets of the true class) are both decoded from their proposals by `apply_regression_predictions`, the target offsets giving back the matched ground truth boxes, then 1 - CIoU is summed over the positives.
 
 Both callers divide the sum by the number of positives, as before.
 
@@ -59,7 +61,7 @@ Before choosing, compare every step with the five implementations read:
 | Alpha in the gradient | | constant (`torch.no_grad`) | constant (hand-written gradient) | constant (`torch.no_grad`) | constant (`torch.no_grad`) | constant (`torch.no_grad`) |
 | Gradient of v | 1 / (w^2 + h^2) dropped for coordinates in [0, 1] (AAAI, after Eq. 12) | autograd, exact | dropped (`box.c:435-436`) | autograd | autograd | autograd, through the log offsets |
 | Clamp | | | | | CIoU within [-1, 1] | none, the loss staying below 2 |
-| Stages | | detection heads only, the region proposal network keeping the smooth L1 (`FPN.py:455-458`, README "only on final bounding box refinement layer") | | | detection heads only (`roi_head`) | `RegionProposal.box_loss` and `Detector.box_loss` set apart |
+| Stages | | detection heads only, the region proposal network keeping the smooth L1 (`FPN.py:455-458`, README "only on final bounding box refinement layer") | | | detection heads only (`roi_head`) | detection heads only (`Detector.box_loss`) since 2026-11-10, both stages set apart before |
 | Normalization and weight | | summed over the positives, divided by all sampled RoIs (`net.py:126`), weight 12 (`ciou_1x.yaml:6`, README) | | | weight 12 | summed over the positives, divided by their number, weight of `Optimization.loss_weights` (1.0) |
 
 The official code computes the loss in the frame of each proposal, which stretches its width and height to 1. The IoU does not change, but the distance and aspect ratio terms then compare the boxes relative to the proposal: a box of the proposal's shape counts as square. The paper defines the loss on the boxes themselves, as mmdetection, torchvision and detectron2 compute it.
@@ -73,38 +75,34 @@ Should you need to change one of these, the reasons were:
 - **Alpha a constant of the gradient:** as in every implementation read.
 - **No change of the gradient of v:** the paper drops the factor 1 / (w^2 + h^2) because it explodes for coordinates in [0, 1]. Here the gradient reaches the offsets through w = w_anchor * exp(dw), so the derivative of arctan(w / h) with respect to dw is w h / (w^2 + h^2), at most 1/2 whatever the size of the box.
 - **Epsilon 1e-7** on the union, on the squared diagonal, on the heights and in alpha: finite values and gradients for flat or empty boxes (tested), as in torchvision.
-- **Target boxes decoded from the target offsets:** the matched ground truth boxes within the 1e-6 guards of `turn_boxes_to_transformation_targets`, as the official code does, so both stages share one function.
+- **Target boxes decoded from the target offsets:** the matched ground truth boxes within the 1e-6 guards of `turn_boxes_to_transformation_targets`, as the official code does, so the smooth L1 and the CIoU loss share one function.
 - **Float32 decoding:** the offsets of the heads, in bfloat16 under the mixed precision of the trainers, are cast to the float32 of the anchors and proposals before decoding.
 - **Normalization and weight unchanged:** the sum over the positives divided by their number, as the smooth L1 here, so that a launch changes the loss only. The literature weighs it 12 with a normalization by all sampled RoIs, which comes to 12 x positives / sampled per positive, at most 6 for the half of positives of `Detector` (64 of 128 in `run-1.yaml`); a weight can be given by `Optimization.loss_weights` (see [Stage 5 Pair](#stage-5-pair)).
-- **One setting per stage:** the published Faster R-CNN changes the detection heads only, while the plan of 2026-11-07 said both stages; both are possible.
+- **Detection heads only:** the published Faster R-CNN changes the detection heads only, while the plan of 2026-11-07 said both stages; both were possible until 2026-11-10, when the user kept the detection heads only, `RegionProposal.box_loss` being removed.
 - **The predicted box clamp:** `apply_regression_predictions` clamps dw and dh at log(1000 / 16) before the exponential, as torchvision and Detectron, so a prediction beyond it gets no gradient on that offset.
 
 ## Configuration And Run Names
-For a launch to use the loss, set the `box_loss` of either section, after its `total_training_samples`:
+For a launch to use the loss, set the `box_loss` of the `Detector` section, after its `total_training_samples`; the region proposal network always uses the smooth L1 (`REGION_PROPOSAL_BOX_LOSS` of `detection_losses.py`):
 
 ```yaml
-RegionProposal:
-  # Box loss of the positive anchors: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the
-  # decoded boxes, https://arxiv.org/abs/2005.03572).
-  box_loss: "smooth_l1"
 Detector:
   # Box loss of the positive proposals: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the
   # decoded boxes, https://arxiv.org/abs/2005.03572).
   box_loss: "smooth_l1"
 ```
 
-- **Checks:** `check_box_loss_configuration` of `detection_checks.py` refuses any other value; a file without the setting is refused with the missing key.
-- **Run names:** `complete_iou` adds `RCIOU` after the region proposal layers and `DCIOU` after the detector layers (`BOX_LOSS_CODES` of `run_name.py`); `smooth_l1` adds nothing, so every earlier run keeps its folder.
-- **Saved runs:** `scripts/configuration_processing/convert_fixed_settings.py` writes `box_loss: "smooth_l1"` with its comment after the `total_training_samples` of both sections of the saved runs and launch files, which trained with it (`ADDED_SETTINGS`, backups `_before_box_loss`).
+- **Checks:** `check_box_loss_configuration` of `detection_checks.py` refuses any other value of `Detector.box_loss`; a file without the setting is refused with the missing key. A file still holding `RegionProposal.box_loss` is refused alone, the message saying the setting was removed (`REMOVED_SETTINGS` of `common_checks.py`).
+- **Run names:** `complete_iou` adds `DCIOU` after the detector layers (`BOX_LOSS_CODES` of `run_name.py`); `smooth_l1` adds nothing, so every earlier run keeps its folder. The `RCIOU` token of the region proposal layers went with its setting: the folders of run_13 to run_16 keep it in their names.
+- **Saved runs:** `scripts/configuration_processing/convert_fixed_settings.py` writes `box_loss: "smooth_l1"` with its comment after the `total_training_samples` of the `Detector` section of the saved runs and launch files, which trained with it (`ADDED_SETTINGS`, backups `_before_box_loss`). It removes `RegionProposal.box_loss: "smooth_l1"` with its comment, a fixed setting since 2026-11-10 (`FIXED_SETTINGS`, backups `_before_region_proposal_box_loss`), and reports and leaves as they are the files holding `"complete_iou"` there (`RECORD_ONLY_SETTINGS`): run_13 to run_16 stay as records, their numbers kept in the results files.
 - **Loss names:** the curves keep `region_proposal_localisation_loss` and `detection_regression_loss`, whatever the box loss.
 
 ## Tests
 So that the comparison with the sources stays checked, the tests are:
-- `tests/losses/test_detection_losses.py`: the values and gradients against torchvision on both sides of an IoU of 0.5; zero for equal boxes, the same for scaled and translated boxes, below 2, finite for flat, empty and distant boxes; `compute_localisation_loss` (smooth L1 unchanged, the CIoU of the anchors for zero offsets, zero for the target offsets, lower after a gradient step, float32 from bfloat16 offsets, unknown losses refused); the region proposal loss decoding from the anchors of every image, and the detection loss reading the offsets of the true class from the proposals without their batch index.
-- `tests/models/detection/test_two_stage_detector.py::test_complete_iou_box_loss_trains_both_detection_stages`: with the same seed the classification losses do not change while the box losses of both stages do, and their gradients reach the box regression layers of both stages.
+- `tests/losses/test_detection_losses.py`: the values and gradients against torchvision on both sides of an IoU of 0.5; zero for equal boxes, the same for scaled and translated boxes, below 2, finite for flat, empty and distant boxes; `compute_localisation_loss` (smooth L1 unchanged, the CIoU of the anchors for zero offsets, zero for the target offsets, lower after a gradient step, float32 from bfloat16 offsets, unknown losses refused); the region proposal loss always the smooth L1 of the offsets of the positive anchors, and the detection loss reading the offsets of the true class from the proposals without their batch index.
+- `tests/models/detection/test_two_stage_detector.py::test_complete_iou_box_loss_trains_the_detection_heads_only`: with the same seed the classification losses and the region proposal box loss do not change while the detection box loss does, and its gradients reach the box regression layers of the detection heads.
 - The configuration checker, the run names and the conversion of the saved runs have their own cases.
 
-Each of 13 mutations of the code (no condition on alpha, alpha in the gradient, the centre distance without its quarter, another beta, either stage ignoring its setting, the batch index read as a coordinate, another normalization, no check, no run name token, the conversion writing elsewhere or for another task) makes at least one of them fail.
+On 2026-11-08, before the region proposal setting was removed, each of 13 mutations of the code (no condition on alpha, alpha in the gradient, the centre distance without its quarter, another beta, either stage ignoring its setting, the batch index read as a coordinate, another normalization, no check, no run name token, the conversion writing elsewhere or for another task) made at least one of them fail.
 
 ## Cost
 To weigh the loss against the training time, it was timed on the CPU for 2048 positives, forward and backward: 0.63 ms against 0.018 ms for the smooth L1, a few elementwise operations on the sampled positives only. A training iteration of the benchmark takes about 3.5 seconds (15,000 iterations in 14.45 hours in stage 3), so the loss costs nothing measurable; it adds no parameter, and the exported model does not change.
@@ -118,7 +116,7 @@ The gains come at the high IoU thresholds (AP75) and on the large objects, where
 
 ## Stage 5 Pair
 Before stage 5 is launched, the reference is the feature pyramid (run_9 and run_10), stage 4 having tied on 2026-11-09 (path aggregation 0.8038 against 0.8079), and the new pair takes the same settings with the CIoU loss. Of the two choices of the stage, the user made one on 2026-11-09 and left the other open until they had seen the comparison of stage 4:
-- **Stages, open:** the detection heads only (`Detector.box_loss`, the published Faster R-CNN, run name `DCIOU`), or both stages (the plan of 2026-11-07, `RCIOU` and `DCIOU`).
+- **Stages, open:** the detection heads only (`Detector.box_loss`, the published Faster R-CNN, run name `DCIOU`), or both stages (the plan of 2026-11-07, `RCIOU` and `DCIOU`). Both were trained, and on 2026-11-10 the user kept the detection heads only, `RegionProposal.box_loss` being removed.
 - **Weight, about 6:** a `detection_regression_loss` weight at the published balance (12 x positives / sampled, about 6 for 64 positives of 128), chosen by the user against 1.0, the weight of the smooth L1 runs, which would measure the loss alone.
 
 The launcher writes the setting into the files built from `run-1.yaml` (`run_benchmark_stages.py`, `SETTING_KEYS`), whose `box_loss` lines were added after the merge.
