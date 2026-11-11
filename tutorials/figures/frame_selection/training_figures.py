@@ -5,7 +5,8 @@ classification loss and the selection loss of the training batches on a logarith
 logits (ln 4 for the per-frame loss over four classes, the mean ln T of the training sequences for the selection loss),
 and the frame accuracy of the training and validation batches with the share of unselected frames. Two PNG files are
 written, the empty panels with the references (the base image of the scene) and the whole chart (its overlay), with the
-boxes of the panels and the values of the curves as facts.
+boxes of the panels, the values of the curves and the median throughput of the training (from the wall times of the
+logs) as facts.
 """
 
 import matplotlib
@@ -14,6 +15,7 @@ import numpy
 from matplotlib import pyplot
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict, Tuple
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
@@ -22,6 +24,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from tutorials.figures.foundations.training_curves import read_scalars, smooth_values
+from tutorials.figures.sequence_labelling.sequence_utilities import read_run_sections
 
 # Name of the figures of the training curves
 FIGURE_NAME = "training_curves"
@@ -39,6 +42,40 @@ REFERENCE_COLOUR = SERIES_COLOURS[3]
 
 # Iterations at which the facts give the smoothed training curves
 FACT_ITERATIONS = [100, 500, 1000, 2000]
+
+# Scalar of the training batches, written at every iteration, whose wall times give the throughput of the run
+THROUGHPUT_TAG = "Total Loss"
+
+
+def compute_training_throughput(log_folder: Path, batch_size: int) -> float:
+    """
+    Measures the throughput of the training of the run from the wall times TensorBoard recorded with its scalar of
+    every iteration: the sequences of a batch over the time between two consecutive iterations, the median over the
+    run, so that the evaluations, the validation batches and the start of the run do not weigh on it. The narration
+    of the commands quotes it next to the iterations of the run.
+
+    Args:
+        log_folder (Path): The Train folder of the TensorBoard logs of the run.
+        batch_size (int): The sequences of a training batch of the run.
+
+    Returns:
+        float: The median number of training sequences per second.
+
+    Raises:
+        ValueError: If the scalar is not written at consecutive iterations, the time between two events then not
+            being the time of one iteration.
+    """
+    accumulator = EventAccumulator(path=str(log_folder), size_guidance={"scalars": 0})
+    accumulator.Reload()
+    events = accumulator.Scalars(THROUGHPUT_TAG)
+    iterations = numpy.array([event.step for event in events])
+    wall_times = numpy.array([event.wall_time for event in events])
+
+    # Time of every iteration, from the scalars of two consecutive iterations
+    if not numpy.all(numpy.diff(iterations) == 1):
+        raise ValueError(f"The '{THROUGHPUT_TAG}' scalar of {log_folder} is not written at every iteration, so the "
+                         f"time between two of its events is not the time of one iteration.")
+    return float(numpy.median(batch_size / numpy.diff(wall_times)))
 
 
 def style_curve_panel(axes: matplotlib.axes.Axes, title: str, y_label: str, last_iteration: int) -> None:
@@ -164,8 +201,12 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
                                                                           with_labels=False, margin=REVEAL_MARGIN)
     pyplot.close(fig=figure)
 
-    # First and last values of every curve, and the smoothed training curves at a few iterations
+    # First and last values of every curve, the smoothed training curves at a few iterations, and the throughput
+    experiment_configuration, _ = read_run_sections(run_folder=run_folder)
     facts["training.last_iteration"] = last_iteration
+    facts["training.fact_iterations"] = FACT_ITERATIONS
+    facts["training.median_sequences_per_second"] = round_fact(value=compute_training_throughput(
+        log_folder=run_folder / "Tensorboard" / "Train", batch_size=int(experiment_configuration["batch_size"])))
     for (split, tag), (iterations, values) in curves.items():
         curve_name = f"training.{split.lower()}_{tag.lower().replace(' ', '_')}"
         facts[f"{curve_name}.first"] = round_fact(value=values[0])
