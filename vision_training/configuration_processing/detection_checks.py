@@ -24,6 +24,7 @@ from vision_training.configuration_processing.configuration_values import (VALID
 from vision_training.losses.detection_losses import BOX_LOSSES
 from vision_training.models.detection.feature_neck import NECK_TYPES
 from vision_training.models.detection.postprocessing import NMS_CRITERIA
+from vision_training.models.detection.region_proposer import PROPOSAL_SELECTIONS
 from vision_training.utilities.os_utilities import print_color
 
 
@@ -208,10 +209,11 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     """
     Verifies the 'RegionProposal' section, the settings shared by the region proposal heads of every level (their
     convolutions being checked with the levels): the normalization, the IoU thresholds used to label anchors, the
-    proposal counts kept around non-maximum suppression, the anchor sampling budget of the proposal losses, and the
-    'pretrained' settings initialising the heads with those of another run. A background range starting
-    above 0.0 is allowed but printed as a yellow warning, since the anchors overlapping no object are then never
-    sampled as background, only the hard negatives touching an object.
+    selection of the proposals over all the levels or level by level, the proposal counts kept around non-maximum
+    suppression, the anchor sampling budget of the proposal losses, and the 'pretrained' settings initialising the
+    heads with those of another run. A background range starting above 0.0 is allowed but printed as a yellow warning,
+    since the anchors overlapping no object are then never sampled as background, only the hard negatives touching an
+    object.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -261,7 +263,15 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
                                f"{background_threshold['min']}, above 0.0: the anchors whose best IoU is below it "
                                f"are ignored, only the hard negatives being sampled as background.")
 
-    # Proposal counts kept before and after non-maximum suppression
+    # Selection of the proposals over all the levels at once or level by level
+    proposal_selection = get_configuration_value(configuration=model_configuration,
+                                                 key_path="RegionProposal.proposal_selection")
+    if proposal_selection not in PROPOSAL_SELECTIONS:
+        errors.append(f"'RegionProposal.proposal_selection' must be one of {PROPOSAL_SELECTIONS}, got "
+                      f"{proposal_selection!r}.")
+
+    # Proposal counts kept before and after non-maximum suppression, the pre-NMS count being per level with
+    # "per_level"
     for phase in ["training", "inference"]:
         count_errors = check_positive_integers(configuration=model_configuration,
                                                key_paths=[f"RegionProposal.{phase}.pre_nms_proposals",

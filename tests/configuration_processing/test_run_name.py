@@ -72,6 +72,8 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     model_configuration["Neck"] = {"type": "none", "output_channels": 32,
                                    "normalization": {"feature_map_normalization": "batch"}}
     model_configuration["RegionProposal"]["normalization"]["feature_map_normalization"] = "batch"
+    # Proposals selected over all the levels at once, which gives no token
+    model_configuration["RegionProposal"]["proposal_selection"] = "joint"
     model_configuration["Detector"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
                                                        "inception": False})
     model_configuration["Detector"]["normalization"]["feature_map_normalization"] = "batch"
@@ -147,6 +149,18 @@ def use_complete_iou_detector_box_loss(experiment_configuration: Dict[str, Any],
     model_configuration["Detector"]["box_loss"] = "complete_iou"
 
 
+def select_proposals_per_level(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Selects the region proposals level by level, a top-k and a suppression for every level, as torchvision and
+    Detectron2.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["RegionProposal"]["proposal_selection"] = "per_level"
+
+
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
@@ -208,7 +222,8 @@ def test_final_nms_settings_keep_the_run_name(nms_criterion: str, nms_distance_e
     (change_detection_levels, REFERENCE_RUN_NAME.replace("_L567_A9.32-512.598295_", "_L67_A9.64-512.169502_")),
     (add_feature_pyramid, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NFPN32BN_")),
     (add_path_aggregation, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NPAN64LN_")),
-    (use_complete_iou_detector_box_loss, REFERENCE_RUN_NAME.replace("-D7.2x64.256.128_", "-D7.2x64.256.128-DCIOU_"))])
+    (use_complete_iou_detector_box_loss, REFERENCE_RUN_NAME.replace("-D7.2x64.256.128_", "-D7.2x64.256.128-DCIOU_")),
+    (select_proposals_per_level, REFERENCE_RUN_NAME.replace("_RBN-R2x64_", "_RBN-R2x64-RPL_"))])
 def test_changed_settings_change_run_name(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None],
                                           expected_run_name: str) -> None:
     """

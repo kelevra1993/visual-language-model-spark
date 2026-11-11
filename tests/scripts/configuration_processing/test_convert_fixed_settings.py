@@ -3,8 +3,8 @@ Tests of scripts/configuration_processing/convert_fixed_settings.py, the convers
 before the fixed settings and the added sections and settings: the values changed by a conversion, the neck section
 added to the detection files, the box loss added to their detector section, the box loss of their region proposal
 section removed (a CIoU one leaving the file as it is), the turned off gradient clipping norm removed (a clipping file
-left as it is), the final NMS settings added to their detector section, and the refusals of a conversion changing
-another setting or the backbone.
+left as it is), the final NMS settings added to their detector section, the proposal selection added to their region
+proposal section, and the refusals of a conversion changing another setting or the backbone.
 """
 
 import pytest
@@ -226,8 +226,38 @@ DETECTOR_NMS_TEXT = (
 # latter holding every added setting
 CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS = CONVERTED_DETECTION_TEXT_WITH_NECK.replace(
     "  nms_iou_threshold: 0.5\n", f"  nms_iou_threshold: 0.5\n{DETECTOR_NMS_TEXT}")
-CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS.replace(
+CONVERTED_DETECTION_TEXT_WITH_NMS = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS.replace(
     "  nms_iou_threshold: 0.5\n", f"  nms_iou_threshold: 0.5\n{DETECTOR_NMS_TEXT}")
+
+# Lines the conversion writes after the normalization of the region proposal section, the selection of the proposals
+# over all the levels at once, and the region proposal section the text of every file starts with
+REGION_PROPOSAL_SELECTION_TEXT = (
+    '  # "joint" (one top-k and NMS over all the levels) or "per_level" (top-k and NMS of every level, then the best\n'
+    '  # over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per '
+    'level.\n'
+    '  proposal_selection: "joint"\n')
+REGION_PROPOSAL_START_TEXT = 'RegionProposal:\n  normalization:\n    feature_map_normalization: "batch"\n'
+
+
+def add_proposal_selection_text(configuration_text: str) -> str:
+    """
+    Writes the lines of the proposal selection after the normalization of the region proposal section of a detection
+    text, as the conversion does, for the texts of the files converted after 2026-11-11.
+
+    Args:
+        configuration_text (str): The detection text, holding the region proposal section of the texts above.
+
+    Returns:
+        str: The text with the proposal selection.
+    """
+    return configuration_text.replace(REGION_PROPOSAL_START_TEXT,
+                                      f"{REGION_PROPOSAL_START_TEXT}{REGION_PROPOSAL_SELECTION_TEXT}")
+
+
+# The converted detection sections holding every added setting: the neck, the box loss, the final NMS settings and the
+# proposal selection
+CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = add_proposal_selection_text(
+    configuration_text=CONVERTED_DETECTION_TEXT_WITH_NMS)
 
 # The detection sections of the files converted between 2026-11-08 and 2026-11-10, holding the box loss of the region
 # proposal section as well
@@ -269,7 +299,8 @@ def test_conversion_adds_the_box_loss_to_the_detection_files(tmp_path: Path) -> 
             "  total_training_samples: 128\n", ""), task="object_detection", configuration_path=configuration_path)
     with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.box_loss\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS, task="object_detection",
-                         converted_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS,
+                         converted_text=add_proposal_selection_text(
+                             configuration_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS),
                          configuration_path=configuration_path)
     complete_iou_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
         DETECTOR_BOX_LOSS_TEXT, DETECTOR_BOX_LOSS_TEXT.replace('box_loss: "smooth_l1"', 'box_loss: "complete_iou"'))
@@ -431,9 +462,68 @@ def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path:
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: Detector\.nms_criterion, Detector\.nms_distance_exponent\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, task="object_detection",
-                         converted_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, configuration_path=configuration_path)
+                         converted_text=add_proposal_selection_text(
+                             configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS),
+                         configuration_path=configuration_path)
     distance_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace('nms_criterion: "iou"',
                                                                          'nms_criterion: "distance_iou"')
     with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.nms_criterion\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, converted_text=distance_text,
                          task="object_detection", configuration_path=configuration_path)
+
+
+def test_conversion_adds_the_proposal_selection_to_the_detection_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the selection of the proposals over all the levels at once of the runs written
+    before the selection level by level, "joint" with its comment lines, right after the normalization of the region
+    proposal section of the detection and instance segmentation files, and only there: a classification file and a
+    file holding the selection are left as they are, a region proposal section without normalization is refused, the
+    check refuses a converted file lacking the selection or selecting level by level, which would change its runs, and
+    convert_fixed_settings converts a launch file with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    for task in ["object_detection", "instance_segmentation"]:
+        original_text = CONVERTED_DETECTION_TEXT_WITH_NMS.replace("task: object_detection", f"task: {task}")
+        converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                               configuration_path=configuration_path)
+        assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
+                                                                                      f"task: {task}")
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+    # Files of another task or already holding the selection are left as they are
+    assert add_required_settings(configuration_text=CONVERTED_CLASSIFICATION_TEXT, task="classification",
+                                 configuration_path=configuration_path) == CONVERTED_CLASSIFICATION_TEXT
+    per_level_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace('proposal_selection: "joint"',
+                                                                          'proposal_selection: "per_level"')
+    assert add_required_settings(configuration_text=per_level_text, task="object_detection",
+                                 configuration_path=configuration_path) == per_level_text
+
+    # A region proposal section without normalization, and conversions without the selection or level by level
+    with pytest.raises(expected_exception=ValueError, match="has no 'RegionProposal.normalization' setting"):
+        add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_NMS.replace(
+            REGION_PROPOSAL_START_TEXT, "RegionProposal:\n"), task="object_detection",
+            configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: RegionProposal\.proposal_selection\.$"):
+        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NMS, task="object_detection",
+                         converted_text=CONVERTED_DETECTION_TEXT_WITH_NMS, configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: RegionProposal\.proposal_selection\.$"):
+        check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NMS, converted_text=per_level_text,
+                         task="object_detection", configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=CONVERTED_DETECTION_TEXT_WITH_NMS, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_proposal_selection")
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    assert (configuration_folder / "previous_configurations" / "run-1_before_proposal_selection.yaml").read_text(
+        encoding="utf-8") == CONVERTED_DETECTION_TEXT_WITH_NMS

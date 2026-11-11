@@ -22,6 +22,10 @@ NECK_TYPE_CODES = {"feature_pyramid": "FPN", "path_aggregation": "PAN"}
 # the CIoU loss keep their names
 BOX_LOSS_CODES = {"complete_iou": "CIOU"}
 
+# Code of the selection of the region proposals level by level (RPL), without token for the selection over all the
+# levels at once ("joint") so that the runs written before the setting keep their names
+PROPOSAL_SELECTION_CODES = {"per_level": "PL"}
+
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "instance_segmentation": "INS", "classification": "CLS",
               "sequence_classification": "M2O", "sequence_labelling": "M2M", "sequence_comparison": "CMP",
@@ -243,7 +247,8 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     the runs written before the neck keep their names), the anchors A<anchors per position>.<smallest scale>-<largest
     scale>.<hash of every scale and aspect ratio of every level> (build_anchors_hash), so that other ratios or middle
     scales start a new run, the region proposal heads
-    (R<normalization>, R<layers>x<filters>, then RPT and RFRZ when they are transferred and frozen), the detector
+    (R<normalization>, R<layers>x<filters>, RPL with the selection of the proposals level by level, then RPT and RFRZ
+    when they are transferred and frozen), the detector
     heads (modules DSE, DRES, DINC, D<normalization>,
     D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, DCIOU with the CIoU box loss, then DPT and DFRZ
     when they are transferred and frozen) and the classes (BIN or MC<foreground classes>, the categories
@@ -279,13 +284,17 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     anchors_token = (f"A{join_level_tokens(level_tokens=anchor_counts)}.{min(anchor_scales)}-{max(anchor_scales)}."
                      f"{anchors_hash}")
 
-    # Region proposal heads: normalization, then the layers and filters of the head of every level
+    # Region proposal heads: normalization, then the layers and filters of the head of every level, then the selection
+    # level by level
     region_proposal_heads = {level: detection_levels[level]["region_proposal"]["convolutions"] for level in level_names}
     region_proposal_tokens = [
         "R" + NORMALIZATION_CODES[
             str(region_proposal_configuration["normalization"]["feature_map_normalization"]).lower().strip()],
         "R" + join_level_tokens(level_tokens=[f"{region_proposal_heads[level][0]}x{region_proposal_heads[level][1]}"
                                               for level in level_names])]
+    proposal_selection = region_proposal_configuration["proposal_selection"]
+    if proposal_selection != "joint":
+        region_proposal_tokens.append("R" + PROPOSAL_SELECTION_CODES[proposal_selection])
     region_proposal_tokens += build_pretrained_tokens(model_configuration=model_configuration,
                                                       section_name="RegionProposal")
 
