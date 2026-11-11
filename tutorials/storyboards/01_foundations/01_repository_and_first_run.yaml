@@ -19,15 +19,17 @@ references:
 scenes:
   - kind: title_card
     heading: "The repository and a first run"
-    subheading: "Ten tasks, one backbone, one training loop"
+    subheading: "{{foundations.repository.task_count}} tasks, one backbone, one training loop"
     footnote: "Foundations · chapter 1"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["1"]
     narration:
       - "This series is for engineers who know deep learning and need to know this repository: what it decides for you, where the code lives, and which settings matter."
-      - "This first chapter maps the ten tasks, installs the environment, and follows one synthetic run from its configuration file to its run folder."
+      - "This first chapter maps the {{foundations.repository.task_count:words}} tasks, installs the environment, and follows one synthetic run from its configuration file to its run folder."
 
   - kind: html
     page: diagram
-    title: "Ten tasks on one backbone"
+    title: "{{foundations.repository.task_count}} tasks on one backbone"
     code_reference: "vision_training/models/backbones/backbone.py · Backbone"
     elements:
       # Inputs on the left, the image from the start, the sequences and pairs with the sequence tasks
@@ -124,6 +126,8 @@ scenes:
       - {match: "^(ExperimentConfiguration|Optimization|Data|Backbone|ClassificationHead):", sentences: [0]}
       - {match: "task:", sentences: [0, 2]}
       - {match: "number_iterations|weight_saving_iterations|validation_iteration_ratio", sentences: [3]}
+    # The three keys forgotten in the situation of the third sentence
+    literal_numbers: [three]
     narration:
       - "A configuration has one section for the experiment, one for the optimization, one for the data, one for the backbone, and the sections of the task, here the classification head."
       - "Detection and instance segmentation also have a Neck section between the backbone and their heads, whose type is none in every configuration of the repository."
@@ -139,19 +143,19 @@ scenes:
       - {type: arrow, points: [[293, 130], [158, 240]], appear: 1}
       - {type: box, box: [0, 245, 316, 445], text: "CLS\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[410, 130], [519, 240]], appear: 1}
-      - {type: box, box: [361, 245, 677, 445], text: "IN-KAR-512\n\ninput normalization,\nkept aspect ratio,\n512 pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [361, 245, 677, 445], text: "IN-KAR-512\n\ninput normalization,\nkept aspect ratio,\n{{foundations.listings.input_size}} pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[825, 130], [880, 240]], appear: 2}
       - {type: box, box: [722, 245, 1038, 445], text: "SE-RES-BN-B...\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
       - {type: arrow, points: [[1295, 130], [1241, 240]], appear: 3}
-      - {type: box, box: [1083, 245, 1399, 445], text: "HFLAT.128-HLN-CWB\n\nflatten pooling,\n128 hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: box, box: [1083, 245, 1399, 445], text: "HFLAT.128-HLN-CWB\n\nflatten pooling,\n{{foundations.run.hidden_units}} hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
       - {type: arrow, points: [[1467, 130], [1602, 240]], appear: 3}
-      - {type: box, box: [1444, 245, 1760, 445], text: "MC9\n\nmulti-class output,\n9 classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [1444, 245, 1760, 445], text: "MC9\n\nmulti-class output,\n{{foundations.run.class_count}} classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: box, box: [130, 520, 1630, 700], text: "No token: batch size, learning rate and its schedule, augmentation, dropout,\nmoving average of the weights\nrun_name_suffix: \"v1\"  →  <run name>_v1, a new run of the same settings", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
     narration:
       - "The run folder is named after the settings that shape the model, so that the same settings resume in the same folder and changed ones start a new run."
-      - "Here: the task, then the input, normalized, with its aspect ratio kept, at five hundred and twelve pixels."
-      - "Then the backbone, with squeeze and excitation, residual shortcuts and batch normalization, and the layers by channels of its six blocks."
-      - "Then the head: flattened features, a hidden layer of a hundred and twenty eight units with layer normalization, balanced class weights, and nine classes."
+      - "Here: the task, then the input, normalized, with its aspect ratio kept, at {{foundations.listings.input_size}} pixels."
+      - "Then the backbone, with squeeze and excitation, residual shortcuts and batch normalization, and the layers by channels of its {{foundations.listings.block_count:words}} blocks."
+      - "Then the head: flattened features, a hidden layer of {{foundations.run.hidden_units}} units with layer normalization, balanced class weights, and {{foundations.run.class_count:words}} classes."
       - "Settings that may change when a run resumes, like the learning rate, the augmentation or the moving average, leave no token; should you need a second run of the same settings, a run name suffix starts it."
 
   - kind: image
@@ -176,6 +180,8 @@ scenes:
     page: diagram
     title: "The run folder"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.setup_training_paths"
+    # The three splits of every run: training, validation and test
+    literal_numbers: [three]
     elements:
       - type: listing
         box: [40, 22, 1040, 720]
@@ -208,6 +214,8 @@ scenes:
     title: "MLflow"
     code_reference: "vision_training/tracking"
     image: "repository:README/mlflow_runs.png"
+    # The four launches of the situation, those of the screenshot
+    literal_numbers: [four]
     views:
       - {box: [470, 95, 1500, 265], from_sentence: 0}
     narration:
@@ -216,7 +224,7 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Ten tasks: one backbone, one loop, one configuration format, one report"}
+      - {text: "{{foundations.repository.task_count}} tasks: one backbone, one loop, one configuration format, one report"}
       - {text: "uv sync, then every script as a module from the repository root"}
       - {text: "One YAML file per run: every key required, all checked at launch"}
       - {text: "Iterations, not epochs"}

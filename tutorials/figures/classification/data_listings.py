@@ -4,8 +4,9 @@ tutorials/figures/classification/figures.py from the real files of the classific
 tutorials/tutorial_sources.yaml: the start of the labels.json manifest of its training split (its categories and
 first samples), its label mapping file, and the classes of its data.json, one compact line per class with its
 category and its image count in every split. The listings are text files drawn by the listing element of the diagram
-scenes; the facts give the counts the narration quotes, with the number of shape classes the synthetic dataset
-generator of the repository draws now.
+scenes; the facts give the counts the narration quotes, the category and class of the first sample of the manifest
+(the one the scene follows through the mapping), and the number of shape classes, the image size and the most shapes
+of a multi-label image of the synthetic dataset generator of the repository as it draws them now.
 """
 
 import json
@@ -14,7 +15,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import read_run_configuration
+from tutorials.figures.foundations.code_values import read_main_block_value
+from tutorial_builder.figure_context import find_repository_root
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES
+
+# Synthetic dataset script, whose main block sets the image size and the most shapes of every task
+SYNTHETIC_DATASET_SCRIPT = Path("vision_training") / "data" / "synthetic" / "create_synthetic_dataset.py"
 
 # Samples of the training manifest shown in the labels.json listing
 LISTED_SAMPLE_COUNT = 3
@@ -64,7 +70,10 @@ def make_data_listings(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
         run_folder (Path): The folder of the classification run of tutorial_sources.yaml.
 
     Returns:
-        Dict[str, Any]: The facts, named data.*.
+        Dict[str, Any]: The facts, named data.* and generator.*.
+
+    Raises:
+        ValueError: If the category of the first training sample is not in the label mapping of the run.
     """
     run_configuration = read_run_configuration(run_folder=run_folder)
     listings_folder = output_folder / "listings"
@@ -93,4 +102,22 @@ def make_data_listings(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
              "data.generator_class_count": len(SHAPE_CATEGORIES)}
     for split in ["train", "validation", "test"]:
         facts[f"data.{split}_images"] = sum(record["images"][split] for record in classes)
+
+    # Category of the first training sample, highlighted in the manifest, and the class index the mapping gives it
+    manifest = json.loads(labels_path.read_text(encoding="utf-8"))
+    first_category_id = manifest["samples"][0]["category_id"]
+    category_names = {category["id"]: category["name"] for category in manifest["categories"]}
+    if str(first_category_id) not in mapping:
+        raise ValueError(f"The category {first_category_id} of the first sample of {labels_path} is not in the label "
+                         f"mapping {mapping_path}.")
+    facts.update({"data.first_sample.category_id": first_category_id,
+                  "data.first_sample.category_name": category_names[first_category_id],
+                  "data.first_sample.class_index": mapping[str(first_category_id)]})
+
+    # Image size of the classification images and most shapes of a multi-label image drawn by the generator now
+    script_path = find_repository_root() / SYNTHETIC_DATASET_SCRIPT
+    image_sizes = read_main_block_value(script_path=script_path, variable_name="image_sizes")
+    maximum_objects = read_main_block_value(script_path=script_path, variable_name="maximum_objects")
+    facts.update({"generator.image_size": image_sizes["classification"],
+                  "generator.multi_label_maximum_objects": maximum_objects["multi_label_classification"]})
     return facts

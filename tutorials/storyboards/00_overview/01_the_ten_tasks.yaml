@@ -19,10 +19,10 @@ references:
 scenes:
   - kind: title_card
     heading: "What the repository does"
-    subheading: "Ten tasks, each told by the problem it solves"
+    subheading: "{{foundations.repository.task_count}} tasks, each told by the problem it solves"
     footnote: "Overview"
     narration:
-      - "This video gives the whole picture in one go: the ten tasks the repository trains, the question each one answers, and what sets it apart from the others."
+      - "This video gives the whole picture in one go: the {{foundations.repository.task_count:words}} tasks the repository trains, the question each one answers, and what sets it apart from the others."
       - "Every task comes with a situation you might meet, so that you know which one to reach for before opening a single configuration file."
 
   - kind: image
@@ -41,8 +41,10 @@ scenes:
       - {box: [2192, 41, 3231, 720], sentences: [3]}
       - {box: [41, 761, 1080, 1440], sentences: [4]}
       - {box: [1116, 761, 2155, 1440], sentences: [5]}
+    # The two shapes of the same class that semantic segmentation does not tell apart, a situation of the prose
+    literal_numbers: [two]
     narration:
-      - "Here is one output of nine of the tasks, all trained on synthetic shapes; let's take them one situation at a time, starting with the five that read a single image."
+      - "Here is one output of {{foundations.repository.labelled_task_count:words}} of the tasks, all trained on synthetic shapes; let's take them one situation at a time, starting with the {{foundations.repository.image_task_count:words}} that read a single image."
       - "Suppose you want to sort images by what they show, a hexagon or a pentagon, a cat or a dog, or tag each one with several labels: classification gives one class per image, or several with the multi-label output."
       - "Now say you need to know where every object is, for instance to count the shapes of an image or the parcels on a shelf: object detection draws a box around each object, with its class and a score."
       - "If a box is too coarse, because objects overlap or you want to measure their area, instance segmentation adds a mask to every box, the exact outline of each object."
@@ -64,7 +66,7 @@ scenes:
       - {box: [1116, 1481, 2155, 2160], sentences: [3]}
       - {box: [2192, 1481, 3231, 2160], sentences: [4]}
     narration:
-      - "Some questions cannot be answered from one picture: the next four tasks read a sequence of frames, run the same backbone on every frame, then a temporal module across them."
+      - "Some questions cannot be answered from one picture: the next {{foundations.repository.sequence_task_count:words}} tasks read a sequence of frames, run the same backbone on every frame, then a temporal module across them."
       - "Picture a short clip of an object: is it moving up or down? A single frame cannot tell, so sequence classification reads all the frames and gives one class for the whole sequence."
       - "Say you also need to know when something happens, the frame where an object appears or disappears: sequence labelling gives one class per frame."
       - "Suppose you film the same scene before and after an event and want to know what changed, for instance whether an object went missing: sequence comparison reads both sequences and gives one class per pair."
@@ -73,6 +75,8 @@ scenes:
   - kind: html
     page: diagram
     title: "Self-supervised: learning without labels"
+    # The million images of the situation, and the two views of every image the self-supervised methods compare
+    literal_numbers: [million, two, "1", "2"]
     elements:
       - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.original_box}}", box: [20, 250, 260, 490], caption: "one image, no label"}
       - {type: arrow, points: [[270, 330], [370, 175]], colour: violet}
@@ -93,6 +97,8 @@ scenes:
   - kind: html
     page: diagram
     title: "Which task answers your question"
+    # The two sequences of a pair, and the three letters of every code of TASK_CODES (run_name.py)
+    literal_numbers: [two, three]
     elements:
       # Starting point: the data, then whether it is labelled, then whether one input is an image or a sequence
       - {type: box, box: [20, 300, 300, 440], text: "your data", font: diagram_bold, outline: border}
