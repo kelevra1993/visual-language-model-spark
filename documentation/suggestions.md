@@ -48,8 +48,9 @@
 >   COCO is left);
 > - the objects without labelled keypoint left out of the keypoint heatmap loss
 >   (`KeypointHead.ignore_unlabelled_objects`, item 16, whose experiment is left);
-> - the ImageNet-22k download (`imagenet_22k_download.py`, which replaced the Tencent ML-Images downloader) and its
->   merge with ImageNet-1k (`merge_imagenet_manifests.py`, `~/Data/classifier_data/imagenet-merged`), on 2026-11-06;
+> - the ImageNet-22k download, which replaced the Tencent ML-Images downloader on 2026-11-06, the only ImageNet script
+>   since 2026-11-11 (`imagenet_download.py`: every shard in train, one held-out image per class as validation and
+>   test; the ImageNet-1k download and the merge of both datasets removed);
 > - the neck of DET and INS (`Neck.type`: `feature_pyramid`, `path_aggregation`, items 1 and 37, `none` in every
 >   configuration), on 2026-11-07, the feature pyramid kept by stage 3 on 2026-11-08, path aggregation tied with it
 >   by stage 4 on 2026-11-09 and kept in the code for projects with very small objects;

@@ -781,7 +781,8 @@ the README screenshots, was done on 2026-10-23.
     failing training iteration is printed and skipped, the training stopping after 5 in a row.
 - **The 4 tests without `assert`:** they assert through `check_nn_module_method` (`torch.allclose` against the `.pt`
   references) or through the `SystemExit` of the checker.
-- **`imagenet_download.py:289`:** prints a count, not a path.
+- **`imagenet_download.py:474`** (`check_split_sizes`, moved from the ImageNet-1k download on 2026-11-11): prints a
+  count, not a path.
 
 ## Suggested Order
 

@@ -1,9 +1,9 @@
 """
 Converts a classification dataset stored as one folder of images per class into the split layout read by
 ClassificationDataset ('data/' symbolic link and 'labels.json' manifest) and its 'label_mapping.json', without
-copying any image. A split can also gather several class-folder datasets (e.g. ImageNet-1k and ImageNet-22k), each
-linked under its own name in 'data/'. Run from the classification example configuration instructions, by the ImageNet
-downloads and by the merge of the ImageNet manifests.
+copying any image. A split can also gather several class-folder datasets (e.g. two collections of the same classes),
+each linked under its own name in 'data/', and one image folder can serve two splits. Run by the ImageNet-22k download
+(imagenet_download.py), whose validation and test splits read the same folder, or as a script with its main block.
 """
 
 import json
@@ -22,7 +22,7 @@ def get_split_sources(split_folder: Union[str, Dict[str, str]]) -> Dict[str, Pat
 
     Args:
         split_folder (Union[str, Dict[str, str]]): The folder holding one subfolder of images per class, or the folders
-            of several such datasets keyed by source name (e.g. "imagenet-1k-train" and "imagenet-22k-train").
+            of several such datasets keyed by source name (e.g. "first-collection" and "second-collection").
 
     Returns:
         Dict[str, Path]: The folder of every source, keyed by source name ("" for a single folder).
@@ -73,7 +73,7 @@ def create_class_folder_manifests(split_folders: Dict[str, Union[str, Dict[str, 
     'multi_class' label mapping mode of the configuration. The categories are the class folders found in any split,
     numbered from 1 in alphabetical order, so that every split uses the same category identifiers. A split given
     several named source folders gets one link per source in its 'data' folder, its file names starting with the
-    source name, so that datasets such as ImageNet-1k and ImageNet-22k are merged without copying an image.
+    source name, so that several datasets of the same classes are merged without copying an image.
 
     Args:
         split_folders (Dict[str, Union[str, Dict[str, str]]]): For every split name (e.g. 'train', 'validation'), the
@@ -81,7 +81,7 @@ def create_class_folder_manifests(split_folders: Dict[str, Union[str, Dict[str, 
             source name.
         output_folder (str): The root folder of the created splits.
         excluded_file_names (Optional[Dict[str, Set[str]]]): For a split name, the file names (as written in its
-            manifest, e.g. 'imagenet-22k-train/n01440764/n01440764_10025.jpg') left out of it, or None to keep every
+            manifest, e.g. 'first-collection/n01440764/n01440764_10025.jpg') left out of it, or None to keep every
             image.
 
     Raises:
@@ -138,8 +138,8 @@ if __name__ == "__main__":
     # Folder of every split, holding one subfolder of images per class
     split_folders = {"train": "/home/robert_kelevra/Data/classifier_data/training_data",
                      "validation": "/home/robert_kelevra/Data/classifier_data/validation_data"}
-    # Root folder of the created splits, the one expected by
-    # vision_training/configurations/classification/configuration_example.yaml. Existing manifests are overwritten
+    # Root folder of the created splits, whose split folders and label_mapping.json a classification configuration
+    # reads. Existing manifests are overwritten
     output_folder = "/home/robert_kelevra/Data/classifier_data/manifests"
 
     create_class_folder_manifests(split_folders=split_folders, output_folder=output_folder, excluded_file_names=None)
