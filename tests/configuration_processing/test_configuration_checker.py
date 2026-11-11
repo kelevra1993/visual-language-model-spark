@@ -980,6 +980,49 @@ def test_inconsistent_sequence_labelling_configuration_is_rejected(
     assert "'TemporalModel.causal' must be False" not in printed_output
 
 
+def use_causal_transformer(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the temporal module into a causal transformer reading the frames forwards only, the online setting of the
+    sequence labelling task in which every frame only sees the earlier frames, which no shipped sequence labelling
+    configuration holds since the example one uses a bidirectional LSTM.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence labelling configuration, modified in place.
+    """
+    configuration["TemporalModel"].update({"type": "transformer", "causal": True, "bidirectional": False})
+
+
+def test_causal_transformer_is_accepted_for_sequence_labelling(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a sequence labelling (M2M) configuration with a causal, unidirectional transformer passes the loader
+    and every consistency check, the many to many task being the only one allowed causal modules, and that the same
+    configuration made bidirectional is refused, a causal module never reading the sequence backwards.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    # The causal transformer built from the example configuration is loaded without any consistency error
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_labelling",
+                                                  configuration_name="configuration_example.yaml",
+                                                  modify_function=use_causal_transformer)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "sequence_labelling"
+    assert {key: model_configuration["TemporalModel"][key] for key in ["type", "causal", "bidirectional"]} == \
+        {"type": "transformer", "causal": True, "bidirectional": False}
+    assert "'TemporalModel." not in capsys.readouterr().out
+
+    # The same configuration reading the sequence both ways is refused with the message of the causal flag
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["TemporalModel"]["bidirectional"] = True
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+    assert ("'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True"
+            in capsys.readouterr().out)
+
+
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_frame_selection_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
