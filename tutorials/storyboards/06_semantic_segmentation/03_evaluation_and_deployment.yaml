@@ -172,12 +172,13 @@ scenes:
       - {type: arrow, points: [[840, 180], [890, 180]], colour: violet}
       - {type: text, position: [905, 150], text: "class_map            [B, 512, 512]  int64\nclass_probabilities  [B, 10, 512, 512]", font: diagram_monospace}
       - {type: box, box: [40, 350, 860, 500], text: "client: restore_prediction_to_original_image\ncuts the letterbox, resizes back to the image", font: diagram_text, outline: aqua, appear: 1, highlight: [1]}
-      - {type: box, box: [900, 350, 1720, 500], text: "a run trained on tiles: the client tiles the image\nwith segment_image_by_tiles", font: diagram_text, outline: yellow, appear: 2, highlight: [2]}
-      - {type: box, box: [40, 560, 1720, 680], text: "export check: compare_segmentations, every probability within 1e-4\nand the same class on 99.9 % of the pixels, a near tie may flip", font: diagram_text, outline: border, appear: 3, highlight: [3]}
+      - {type: box, box: [900, 350, 1720, 500], text: "a run trained on tiles: the client tiles the image\nwith segment_image_by_tiles", font: diagram_text, outline: yellow, appear: 2, highlight: [2, 3]}
+      - {type: box, box: [40, 560, 1720, 680], text: "export check: compare_segmentations, every probability within 1e-4\nand the same class on 99.9 % of the pixels, a near tie may flip", font: diagram_text, outline: border, appear: 4, highlight: [4]}
     narration:
       - "The exported segmenter takes letterboxed images and gives the class map and the probabilities of every class at the network resolution, without the deep supervision heads."
       - "The client brings them back to its image with restore prediction to original image, which cuts the letterbox and resizes."
-      - "Let's consider a run trained on tiles: it is exported with one tile as input, the client scaling and tiling its images itself, while the throughput script times one letterboxed image per request."
+      - "Let's consider a run trained on tiles: it is exported with one tile as input, and the client scales and tiles its images itself, with the tile scale and overlap that the export writes next to the model."
+      - "The throughput script, by contrast, times one letterboxed image per request."
       - "The export check wants every probability within 10 to the minus 4 and the same class on 99.9% of the pixels, since a pixel whose two best classes are tied may flip."
 
   - kind: summary
