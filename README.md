@@ -9,6 +9,7 @@
 - [Prerequisites](#prerequisites)
   - [Package Requirements](#package-requirements)
   - [Data Requirements](#data-requirements)
+  - [ImageNet-22k](#imagenet-22k)
 - [Quick Start With Synthetic Data](#quick-start-with-synthetic-data)
 - [Training](#training)
   - [Launching A Run](#launching-a-run)
@@ -98,6 +99,35 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 
 ### Data Requirements
 Every task reads a train, a validation and a test split folder, each holding its images in `data/` and their labels in a `labels.json` manifest, and a `label_mapping.json` file giving the class of every category ([Tasks](#tasks)). To try the repository without a dataset, generate a synthetic one.
+
+### ImageNet-22k
+If you wish to train the classification configurations (`configuration_example.yaml` and the `*_model.yaml` files of `vision_training/configurations/classification/`) or the self-supervised example, whose backbones initialise the other tasks, download ImageNet-22k with `vision_training/data/classification/imagenet_download.py`. It reads the Hugging Face dataset `timm/imagenet-22k-wds` at a pinned revision: the ImageNet fall11 release, 21,841 WordNet classes in 4,608 shards of about 0.29 GB.
+
+Before the first run:
+1. Accept the terms of [timm/imagenet-22k-wds](https://huggingface.co/datasets/timm/imagenet-22k-wds) with your Hugging Face account. The ImageNet licence allows non-commercial research and education only.
+2. Log in on the machine with `uv run hf auth login`.
+3. Keep about 1.3 TB free on the disk of the dataset folder: 1.2 TB of images (1,100 GiB measured), the download stopping when less than 100 GB is left (`minimum_free_gigabytes`).
+
+Once the account and the disk are ready, set `dataset_folder` in the main block of the script (`~/Data/classifier_data/imagenet-22k` by default, the folder of the configurations), then run:
+
+```bash
+# Download every shard, hold out the evaluation images and write the manifests, resuming where an earlier run stopped
+uv run python -m vision_training.data.classification.imagenet_download
+```
+
+The download takes hours: 16 workers stored about 1,500 shards an hour (about 120 MB/s) on a DGX Spark. Each shard is stored, recorded in `progress/shards/`, then deleted, so an interrupted run resumes shard by shard. A shard whose download fails on a network error is tried again for about one hour, with a 60-second read timeout and plain HTTP instead of the Xet client, which hung on a dropped Wi-Fi connection.
+
+After the last shard, the script splits the images and writes `manifests/` and its `label_mapping.json`:
+
+| Split | Images (fresh download) | Content |
+|---|---|---|
+| `train` | 14,127,545 | every image of the 4,096 training and the 512 published validation shards, except the held-out ones |
+| `test` | 18,846 | one image per class of at least 50 images, the one whose file name has the smallest MD5 hash |
+| `validation` | 18,846 | the `test` images: `manifests/validation` and `manifests/test` both read `images/test` |
+
+The validation split is the test split, so a setting or a checkpoint chosen on the validation curves is chosen on the test images. The split moves the images from wherever they sit, so running the script on a folder split another way re-splits it without downloading anything.
+
+Compared with ImageNet-1k, the images have their shorter side resized to at most 600 pixels by the source, the fall11 release still holds the person classes removed from later releases, and the held-out images are no standard benchmark: their scores can't be compared with published ImageNet-1k accuracies.
 
 ## Quick Start With Synthetic Data
 Every task has a synthetic shapes dataset, generated and learned within minutes, to check the installation and a configuration before training on real data.
@@ -241,7 +271,7 @@ A dataset is a folder per split, each holding its images in `data/` and a `label
 CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1; DET, INS, KPT and SEG predict 1 to K, class 0 being their background. Categories mapped to the same class are merged into it, and a category missing from the mapping is left out. The manifest format, converters, losses and metrics of every task are in the [tasks reference](documentation/reference/tasks_reference.md), and one run of every task is followed function by function in its [task workflow](documentation/task%20workflows/).
 
 ### Classification (CLS)
-Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`, softmax) or every class present in it (`"multi_label"`, sigmoid). The manifest lists every image with its `category_id` (or `category_ids`). `vision_training/data/classification/class_folder_manifests.py` converts one folder of images per class without copying them, and `imagenet_download.py` downloads ImageNet-1k.
+Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`, softmax) or every class present in it (`"multi_label"`, sigmoid). The manifest lists every image with its `category_id` (or `category_ids`). `vision_training/data/classification/class_folder_manifests.py` converts one folder of images per class without copying them, and `imagenet_download.py` downloads ImageNet-22k ([ImageNet-22k](#imagenet-22k)).
 - **Configuration**: `classification/configuration_example.yaml`, with `ClassificationHead` (global pooling, fully connected layers and their normalization, label smoothing, class weighting, decorrelation of the hidden features) and the evaluation keys `target_precision`, `save_predictions` and `error_dumps`.
 - **Evaluation**: accuracy, balanced accuracy, macro F1, top-5 accuracy, the precision, recall, F1, ROC AUC and average precision of every class, the confusion matrix, the score threshold of every class reaching `target_precision` (a number, or a list such as `[0.99, 0.95, 0.90]` giving the threshold and recall of every class at each precision, written on `precision_recall_thresholds.png`), and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/`.
 
@@ -573,7 +603,7 @@ tutorials/build_tutorials.sh --check-references
 │   ├── configuration_processing/      # Loading, checks, run names and comparison of the configurations
 │   ├── core/                          # Task registry and contracts shared by the tasks
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
-│   │   ├── classification/            # Classification dataset (every image kept for the self-supervised task), class folder converter, ImageNet download
+│   │   ├── classification/            # Classification dataset (every image kept for the self-supervised task), class folder converter, ImageNet-22k download
 │   │   ├── detection/                 # COCO dataset, decoding of the COCO segmentations into instance masks
 │   │   ├── keypoints/                 # Keypoint categories, heatmap and tag targets
 │   │   ├── segmentation/              # Segmentation dataset

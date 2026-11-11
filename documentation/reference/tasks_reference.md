@@ -95,9 +95,8 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 
 **Converting a dataset**
 - One folder of images per class: `vision_training/data/classification/class_folder_manifests.py` writes the manifests and the label mapping, `data/` linking to the class folders without copying them. Set `split_folders` and `output_folder` in its main block, then run `uv run python -m vision_training.data.classification.class_folder_manifests`.
-- ImageNet-1k: `imagenet_download.py` downloads it from Hugging Face (about 310 GB).
-- ImageNet-22k (14.1M images, 21,841 classes, about 1.15 TB), to pre-train the backbones: `imagenet_22k_download.py` downloads it from Hugging Face, leaving out the copies of the ImageNet-1k test images.
-- ImageNet-1k and ImageNet-22k merged: `merge_imagenet_manifests.py` writes `~/Data/classifier_data/imagenet-merged` without copying an image (`data/` holds one link per source dataset): train gathers every ImageNet-22k split and the ImageNet-1k train split, without the ImageNet-22k copies of the ImageNet-1k validation images; validation and test are those of ImageNet-1k. `create_class_folder_manifests` takes several named source folders per split and the file names to leave out.
+- ImageNet-22k (14.1M images, 21,841 classes, about 1.2 TB), to pre-train the backbones: `imagenet_download.py` downloads it from Hugging Face (`timm/imagenet-22k-wds` at a pinned revision), every shard going to train but one held-out image per class of at least 50 images (18,846 images), which is both the validation and the test split (`manifests/validation` and `manifests/test` read `images/test`). The steps, disk space and splits are in the [README](../../README.md#imagenet-22k).
+- Several class-folder datasets in one split: `create_class_folder_manifests` takes several named source folders per split (`data/` then holds one link per source) and the file names to leave out.
 
 **Configuration** (`ClassificationHead`)
 - `global_pooling`: `average`, `max` or `flatten`.

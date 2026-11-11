@@ -47,7 +47,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 
 - **Checkpoints**: one every `intermediate_weight_saving_iterations` iterations (0 for none), and one evaluated on the test split every `weight_saving_iterations`. `Iteration_<n>` holds n training steps, and its evaluation runs last in the iteration. The evaluation files are listed in [Evaluation Outputs](configuration_reference.md#evaluation-outputs).
 - **`label_dictionary.json`**: the class index of every category, also stored in every checkpoint. The evaluation, export and model loading tools read it instead of the mapping file, so editing or moving that file never changes the classes of a run.
-- **`data.json`**: written at the start of the run and sent to MLflow (about 1.5 seconds and 70 MB for ImageNet-1k). For every split, it holds the data folder, the SHA-256 of `labels.json` and the images in manifest order. Its `classes` are listed in class index order, the background first for DET, INS and SEG, each with its mapped categories and its count in every split (`null` for an SSL dataset without categories).
+- **`data.json`**: written at the start of the run and sent to MLflow (about 1.5 seconds and 70 MB for the 1.3M images of ImageNet-1k, measured before the configurations moved to ImageNet-22k). For every split, it holds the data folder, the SHA-256 of `labels.json` and the images in manifest order. Its `classes` are listed in class index order, the background first for DET, INS and SEG, each with its mapped categories and its count in every split (`null` for an SSL dataset without categories).
 
 ```json
 "classes": [
