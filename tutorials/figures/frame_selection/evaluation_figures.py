@@ -23,7 +23,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
 from tutorials.figures.frame_selection.selection_figures import read_selection_rows
 from tutorials.figures.sequence_labelling.sequence_utilities import (parse_block_metrics, read_results_block,
                                                                      write_listing)
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 
 # Iterations of the evaluations compared, the one with wrong choices and the last one
 THRESHOLD_ITERATIONS = [1000, 2000]

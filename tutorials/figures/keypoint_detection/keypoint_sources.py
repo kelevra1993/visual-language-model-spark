@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import SERIES_COLOURS
-from tutorials.tutorial_builder.settings import REPOSITORY_ROOT
+from tutorial_builder.figure_context import find_repository_root
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
@@ -28,7 +28,7 @@ from vision_training.trainers.checkpointing import get_checkpoint_path
 
 # Configuration of the repository the synthetic keypoint run was trained with, and the sections that define its model,
 # compared with the configuration saved in the run folder before the model is rebuilt from it
-REPOSITORY_CONFIGURATION_PATH = (REPOSITORY_ROOT / "vision_training" / "configurations" / "keypoint_detection" /
+REPOSITORY_CONFIGURATION_PATH = (find_repository_root() / "vision_training" / "configurations" / "keypoint_detection" /
                                  "configuration_synthetic_shapes.yaml")
 MODEL_SECTIONS = ["Backbone", "HRNet", "KeypointHead"]
 TASK_NAME = "keypoint_detection"

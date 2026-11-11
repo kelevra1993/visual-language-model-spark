@@ -20,7 +20,7 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (STAR_IMAGE_NAME, find_star_image, load_classification_model,
                                                 read_network_input, read_reused_facts, read_run_configuration,
                                                 round_fact, write_network_input, write_reused_facts)
-from tutorials.tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
+from tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
 
 # Blocks whose output feature maps are drawn, with the most active channels of each laid out on a grid of tiles
 SHOWN_BLOCK_NUMBERS = [1, 3, 6]

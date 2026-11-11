@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import read_reused_facts, round_fact, write_reused_facts
 from tutorials.figures.keypoint_detection.keypoint_sources import (CHECKPOINT_ITERATION, REPOSITORY_CONFIGURATION_PATH,
                                                                   describe_sample_objects)
-from tutorials.tutorial_builder.settings import THREAD_COUNT
+from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.keypoints.heatmap_targets import build_keypoint_targets
 from vision_training.losses.keypoint_losses import compute_heatmap_loss, compute_tag_losses
 from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE, extract_keypoint_candidates
@@ -211,7 +211,7 @@ def run_keypoint_inference(output_folder: Path, run_folder: Path, sample_record:
         return reused_facts
 
     # Trained detector of the checkpoint on the CPU, its threads limited so that the trainings keep the processors
-    torch.set_num_threads(THREAD_COUNT)
+    torch.set_num_threads(read_thread_count())
     checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=CHECKPOINT_ITERATION)
     model = load_trained_model(configuration_path=REPOSITORY_CONFIGURATION_PATH, checkpoint_path=checkpoint_path,
                                device=torch.device("cpu"), use_averaged_weights=False)

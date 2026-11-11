@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import read_network_input, read_run_configuration
-from tutorials.tutorial_builder.settings import THREAD_COUNT
+from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.augmentations import AugmentationReport, DataAugmenter
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.model_loading import load_trained_model
@@ -123,7 +123,7 @@ def load_self_supervised_model(run_folder: Path, iteration: int) -> SelfSupervis
     Returns:
         SelfSupervisedModel: The model in evaluation mode.
     """
-    torch.set_num_threads(THREAD_COUNT)
+    torch.set_num_threads(read_thread_count())
     checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=iteration)
     return load_trained_model(configuration_path=run_folder / "training_configuration.yaml",
                               checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)

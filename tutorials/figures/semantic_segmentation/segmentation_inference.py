@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import read_reused_facts, round_fact, write_reused_facts
 from tutorials.figures.semantic_segmentation.segmentation_sources import CHECKPOINT_ITERATION
-from tutorials.tutorial_builder.settings import THREAD_COUNT
+from tutorial_builder.figure_context import read_thread_count
 from vision_training.models.model_loading import load_trained_model
 from vision_training.trainers.checkpointing import get_checkpoint_path
 
@@ -109,7 +109,7 @@ def run_segmentation_inference(output_folder: Path, run_folder: Path, sample_rec
         return reused_facts
 
     # Trained segmenter of the checkpoint on the CPU, its threads limited so that the trainings keep the processors
-    torch.set_num_threads(THREAD_COUNT)
+    torch.set_num_threads(read_thread_count())
     checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=CHECKPOINT_ITERATION)
     model = load_trained_model(configuration_path=run_folder / "training_configuration.yaml",
                                checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)

@@ -24,7 +24,7 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, SERIES_COLOURS, S
                                                 read_network_input, read_reused_facts, read_run_configuration,
                                                 register_fonts, round_fact, save_figure, write_network_input,
                                                 write_reused_facts)
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.losses.classification_losses import (compute_balanced_class_weights,
                                                           compute_decorrelation_loss)
 from vision_training.losses.self_supervised_losses import compute_feature_cross_correlation

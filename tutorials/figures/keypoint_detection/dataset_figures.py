@@ -22,7 +22,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 register_fonts, round_fact, save_figure)
 from tutorials.figures.keypoint_detection.keypoint_inference import build_sample_targets
 from tutorials.figures.keypoint_detection.keypoint_sources import OBJECT_COLOURS, write_json
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 
 # Size of the labelled test image of the labels.json scene, the image element of the diagram
 LABELLED_IMAGE_SIZE = 660

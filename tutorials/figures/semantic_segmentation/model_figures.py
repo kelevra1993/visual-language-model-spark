@@ -22,7 +22,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 register_fonts, round_fact, save_figure)
 from tutorials.figures.semantic_segmentation.segmentation_inference import INFERENCE_ARRAYS_NAME
 from tutorials.figures.semantic_segmentation.segmentation_sources import build_class_palette
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.segmentation.segmentation_decoder import SegmentationDecoder
 

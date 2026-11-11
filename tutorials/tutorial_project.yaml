@@ -1,0 +1,17 @@
+# Project file of the tutorial videos of visual-language-model-spark, read by tutorial-video-builder (build-tutorials
+# --project tutorials, passed by build_tutorials.sh); every path can be overridden by a TUTORIAL_BUILDER_* variable
+# Name of the project, in the title of the index page
+name: "Visual Language Model Spark"
+# Repository whose code and configurations the storyboards quote, relative to this file
+repository_root: ..
+# Title bar of the terminal windows of the terminal scenes, the folder the commands seem to run from
+terminal_title: "bash — ~/Projects/visual-language-model-spark"
+# Module of the repository making the figures and facts of one series (tutorials/figures/make_figures.py), run from its root
+figures_module: tutorials.figures.make_figures
+# Videos, subtitles and index page, outside the repository (the folder of the builds made before the builder moved out)
+output_folder: ~/Data/tutorial_videos
+# Voice and speech recognition models, narration of every sentence, figures and previews, kept between builds
+cache_folder: ~/.cache/vlms_tutorials
+# Real runs read by the figure scripts, and Python of the repository environment running them, relative to the repository
+experiments_folder: experiments
+repository_python: .venv/bin/python

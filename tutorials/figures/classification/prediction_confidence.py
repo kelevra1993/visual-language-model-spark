@@ -20,7 +20,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 compute_pixel_box, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 
 # Evaluated checkpoint whose predictions are drawn
 PREDICTIONS_ITERATION = 1500

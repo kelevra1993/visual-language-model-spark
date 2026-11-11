@@ -21,8 +21,8 @@ from PIL import ImageDraw, ImageFont
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict, List, Tuple
 
-from tutorials.tutorial_builder.layout import MONOSPACE_FONT_PATH, SANS_SEMIBOLD_FONT_PATH
-from tutorials.tutorial_builder.settings import THREAD_COUNT
+from tutorial_builder.layout import MONOSPACE_FONT_PATH, SANS_SEMIBOLD_FONT_PATH
+from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.preprocessing import read_image
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
@@ -150,7 +150,7 @@ def load_run_model(run_folder: Path, iteration: int) -> TaskModel:
     Returns:
         TaskModel: The TwoStageDetector or InstanceSegmenter of the run.
     """
-    torch.set_num_threads(THREAD_COUNT)
+    torch.set_num_threads(read_thread_count())
     checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=iteration)
     return load_trained_model(configuration_path=run_folder / "training_configuration.yaml",
                               checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)

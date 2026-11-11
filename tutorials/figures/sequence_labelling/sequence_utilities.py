@@ -18,9 +18,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Optional, Tuple
 
-from tutorials.tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_FONT_PATH,
-                                               SANS_SEMIBOLD_FONT_PATH)
-from tutorials.tutorial_builder.settings import THREAD_COUNT
+from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_FONT_PATH,
+                                     SANS_SEMIBOLD_FONT_PATH)
+from tutorial_builder.figure_context import read_thread_count
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.models.model_loading import load_trained_model
@@ -107,7 +107,7 @@ def load_sequence_model(run_folder: Path, iteration: int) -> TaskModel:
     Returns:
         TaskModel: The model.
     """
-    torch.set_num_threads(THREAD_COUNT)
+    torch.set_num_threads(read_thread_count())
     checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=iteration)
     return load_trained_model(configuration_path=run_folder / "training_configuration.yaml",
                               checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)

@@ -25,8 +25,8 @@ from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WI
                                                                   hexadecimal_to_rgb, load_caption_fonts,
                                                                   load_run_model, read_category_names,
                                                                   read_image_annotations, read_network_image)
-from tutorials.tutorial_builder.layout import BACKGROUND_COLOUR as FRAME_BACKGROUND_COLOUR
-from tutorials.tutorial_builder.layout import CARD_COLOUR, DIM_TEXT_COLOUR, TEXT_COLOUR
+from tutorial_builder.layout import BACKGROUND_COLOUR as FRAME_BACKGROUND_COLOUR
+from tutorial_builder.layout import CARD_COLOUR, DIM_TEXT_COLOUR, TEXT_COLOUR
 from vision_training.models.detection.box_operations import (clamp_boxes_to_image_boundaries,
                                                              get_intersection_over_union)
 from vision_training.models.detection.region_proposer import select_best_proposals, suppress_overlapping_proposals

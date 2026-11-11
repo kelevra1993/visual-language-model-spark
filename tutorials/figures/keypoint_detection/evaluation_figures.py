@@ -29,7 +29,7 @@ from tutorials.figures.keypoint_detection.keypoint_inference import INFERENCE_AR
 from tutorials.figures.keypoint_detection.keypoint_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
                                                                   OBJECT_COLOURS, SAMPLE_IMAGE_NAME, write_json)
 from tutorials.figures.keypoint_detection.scalar_logs import read_scalar_values
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.evaluation.keypoints.object_keypoint_similarity import (CORRECT_KEYPOINT_FRACTION,
                                                                              compute_object_keypoint_similarity)

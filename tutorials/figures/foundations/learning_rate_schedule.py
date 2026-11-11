@@ -21,7 +21,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 POINTS_PER_PIXEL, REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR,
                                                 TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR, compute_pixel_box,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
-from tutorials.tutorial_builder.settings import REPOSITORY_ROOT
+from tutorial_builder.figure_context import find_repository_root
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 
@@ -231,8 +231,8 @@ def make_learning_rate_schedule_figure(output_folder: Path, configuration_path: 
     figure.subplots_adjust(left=0.075, right=0.975, top=0.735, bottom=0.12, wspace=0.12)
 
     # Header: the configuration file, then the schedule settings drawn on two lines, in the notation of the file
-    figure.text(x=0.012, y=0.957, s=str(configuration_path.relative_to(REPOSITORY_ROOT)), color=TEXT_SECONDARY_COLOUR,
-                fontsize=19 * POINTS_PER_PIXEL, va="center", family=MONOSPACE_FONT_FAMILY)
+    figure.text(x=0.012, y=0.957, s=str(configuration_path.relative_to(find_repository_root())),
+                color=TEXT_SECONDARY_COLOUR, fontsize=19 * POINTS_PER_PIXEL, va="center", family=MONOSPACE_FONT_FAMILY)
     figure.text(x=0.012, y=0.905, s=f"learning_rate: {format_learning_rate(value=learning_rate, position=0)}   "
                                     f"learning_rate_schedule: \"cosine\"   warmup_iterations: {warmup_iterations}",
                 color=TEXT_PRIMARY_COLOUR, fontsize=20 * POINTS_PER_PIXEL, va="center", family=MONOSPACE_FONT_FAMILY)

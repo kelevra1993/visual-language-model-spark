@@ -19,7 +19,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 POINTS_PER_PIXEL, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, register_fonts, round_fact, save_figure)
 from tutorials.figures.semantic_segmentation.segmentation_sources import build_class_palette
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE, build_class_lookup_table
 
 # Layout of the mask figure: two square panels and the table of the values, under their titles

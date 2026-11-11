@@ -21,10 +21,10 @@ from PIL import Image, ImageDraw, ImageFont
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict, List, Optional, Tuple
 
-from tutorials.figures.figure_utilities import SOURCES_FILE, read_tutorial_sources, round_fact
-from tutorials.tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, NAMED_COLOURS,
-                                               SANS_BOLD_FONT_PATH, SANS_FONT_PATH, TERMINAL_COLOUR, TEXT_COLOUR)
-from tutorials.tutorial_builder.settings import THREAD_COUNT
+from tutorials.figures.figure_utilities import read_tutorial_sources, round_fact
+from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, NAMED_COLOURS,
+                                     SANS_BOLD_FONT_PATH, SANS_FONT_PATH, TERMINAL_COLOUR, TEXT_COLOUR)
+from tutorial_builder.figure_context import find_sources_file, read_thread_count
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
 
@@ -65,12 +65,12 @@ def find_comparison_run_folder(experiments_folder: Path, run_key: str, compariso
     """
     comparison_runs = read_tutorial_sources()["runs"].get(run_key, {}).get("comparison_runs", {})
     if comparison_key not in comparison_runs:
-        raise KeyError(f"No comparison run {comparison_key} under the run {run_key} of {SOURCES_FILE}, whose "
+        raise KeyError(f"No comparison run {comparison_key} under the run {run_key} of {find_sources_file()}, whose "
                        f"comparison runs are {sorted(comparison_runs)}.")
     run_folder = experiments_folder / comparison_runs[comparison_key]["folder"]
     if not run_folder.is_dir():
         raise FileNotFoundError(f"No run folder {run_folder} for the comparison run {comparison_key} of {run_key} in "
-                                f"{SOURCES_FILE}: make it again with "
+                                f"{find_sources_file()}: make it again with "
                                 f"{comparison_runs[comparison_key]['trained_with']}.")
     return run_folder
 
@@ -96,11 +96,12 @@ def find_console_log(experiments_folder: Path, run_key: str, comparison_key: Opt
     if comparison_key is not None:
         run_entry = run_entry["comparison_runs"][comparison_key]
     if "console_log" not in run_entry:
-        raise KeyError(f"No console_log for the run {run_key} {comparison_key or ''} in {SOURCES_FILE}.")
+        raise KeyError(f"No console_log for the run {run_key} {comparison_key or ''} in {find_sources_file()}.")
     log_path = experiments_folder / run_entry["console_log"]
     if not log_path.exists():
         raise FileNotFoundError(f"No console log {log_path} for the run {run_key} {comparison_key or ''} of "
-                                f"{SOURCES_FILE}: it is the output of the training, redirected to that file.")
+                                f"{find_sources_file()}: it is the output of the training, redirected to that "
+                                f"file.")
     return log_path
 
 
@@ -120,7 +121,7 @@ def load_sequence_model(run_folder: Path, iteration: int) -> TaskModel:
     Raises:
         FileNotFoundError: If the checkpoint is missing.
     """
-    torch.set_num_threads(THREAD_COUNT)
+    torch.set_num_threads(read_thread_count())
     checkpoint_path = run_folder / "Weights" / f"Iteration_{iteration}" / f"model_{iteration:06d}.pt"
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"No checkpoint {checkpoint_path} in the run {run_folder.name}.")
