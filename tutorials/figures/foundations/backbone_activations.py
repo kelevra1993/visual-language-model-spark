@@ -125,7 +125,8 @@ def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) ->
         force (bool): Whether the checkpoint is run again even when the previous build left the figures.
 
     Returns:
-        Dict[str, Any]: The facts of the figures, named feature_maps.* and squeeze_excitation.*.
+        Dict[str, Any]: The facts of the figures, named feature_maps.* (with the shown blocks and the number of channels
+            drawn for each) and squeeze_excitation.*.
 
     Raises:
         RuntimeError: If the squeeze-and-excitation layer is not called once by the forward pass.
@@ -165,10 +166,12 @@ def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) ->
         block_outputs = {block_number: model.backbone.convolution_blocks[block_number - 1].apply_pooling(
             input_tensor=pre_pooling_outputs[str(block_number)])[0].numpy() for block_number in SHOWN_BLOCK_NUMBERS}
 
-    # Input of the network and the feature maps of the shown blocks, with their shapes and values
+    # Input of the network and the feature maps of the shown blocks, with their shapes and values, the blocks shown
+    # and the number of channels drawn for each being those the scene names
     write_network_input(input_tensor=star_tensor, output_path=model_folder / "input_star.png")
     facts = {"feature_maps.checkpoint_iteration": checkpoint_iteration, "feature_maps.input_image": STAR_IMAGE_NAME,
-             "feature_maps.input_size": image_settings["size"]}
+             "feature_maps.input_size": image_settings["size"], "feature_maps.input_channels": star_tensor.shape[1],
+             "feature_maps.shown_blocks": SHOWN_BLOCK_NUMBERS, "feature_maps.shown_channel_count": SHOWN_CHANNEL_COUNT}
     for block_number in SHOWN_BLOCK_NUMBERS:
         block_output = block_outputs[block_number]
         shown_channels = draw_feature_map_grid(block_output=block_output,

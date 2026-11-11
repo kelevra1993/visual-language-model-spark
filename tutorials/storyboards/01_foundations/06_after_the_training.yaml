@@ -25,6 +25,8 @@ scenes:
     heading: "After the training"
     subheading: "Evaluating, comparing, clustering, exporting"
     footnote: "Foundations · chapter 6"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["6"]
     narration:
       - "Every task shares the tools that come after a training: the evaluation of checkpoints, the comparison of launches and runs, the clustering of image embeddings and the export to Triton."
       - "This last foundations chapter covers them, then the tests and the map of the repository."
@@ -87,10 +89,12 @@ scenes:
       - {match: "^    experiments_root_folder = ", sentences: [0]}
       - {match: "^    metrics = |^    number_last_evaluations = ", sentences: [1]}
       - {match: "^    output_path = ", sentences: [1]}
+    # The folder names run_2 and run_23b read aloud, and the advice of two launches per setting
+    literal_numbers: [two, twenty three]
     narration:
       - "To compare settings, train every launch in its own run folder of one experiment folder, run one, run two, and run twenty three b for a repeat launch of the same settings, then run the collect experiment results script."
       - "It writes one row per launch with the test metric at every evaluation, its mean and the mean of the last evaluations, then a mean row for the launches of the same settings."
-      - "Compare settings by the mean of the last evaluations, with at least two launches each: in the benchmark, six launches of the same settings spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.3f}} in mean test accuracy."
+      - "Compare settings by the mean of the last evaluations, with at least two launches each: in the benchmark, {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of the same settings spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.1%}} in mean test accuracy."
 
   - kind: code
     title: "Comparing runs"
@@ -117,7 +121,7 @@ scenes:
       - {type: arrow, points: [[568, 205], [612, 205]], appear: 0}
       - {type: box, box: [620, 140, 880, 270], text: "features of a block\nor a hidden layer", font: diagram_small, outline: blue, appear: 0, highlight: [0]}
       - {type: arrow, points: [[888, 205], [932, 205]], appear: 1}
-      - {type: box, box: [940, 140, 1130, 270], text: "PCA\n200 dimensions", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [940, 140, 1130, 270], text: "PCA\n{{foundations.scripts.cluster_pca_dimensions}} dimensions", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1138, 205], [1182, 205]], appear: 1}
       - {type: box, box: [1190, 140, 1460, 270], text: "HDBSCAN, DBSCAN\nor k-means,\nper category", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1468, 205], [1512, 205]], appear: 1}
@@ -158,6 +162,8 @@ scenes:
       function: TASK_MODEL_NAMES
     highlights:
       - {match: "image_classifier|object_detector", sentences: [0]}
+    # The range of the raw 8-bit pixels the models take
+    literal_numbers: [zero, two hundred and fifty five]
     narration:
       - "Every task is exported under its own model name, followed by its format in the model repository, each in a folder with its Triton configuration and its version."
       - "The models take float32 BGR images, or the frames of a sequence, in the zero to two hundred and fifty five range, resized and padded like the data loaders, the input normalization being part of the model."
@@ -169,12 +175,12 @@ scenes:
     lines:
       - {role: command, text: "cd vision_training/deployment/triton"}
       - {role: command, text: "docker compose up"}
-      - {role: comment, text: "# serves every model of served_models/: HTTP on port 8000, gRPC on 8001, metrics on 8002"}
+      - {role: comment, text: "# serves every model of served_models/: HTTP on port {{foundations.triton.http_port}}, gRPC on {{foundations.triton.grpc_port}}, metrics on {{foundations.triton.metrics_port}}"}
       - {role: command, text: "curl localhost:8000/v2/health/ready"}
       - {role: comment, text: "# in another terminal, from the repository root"}
       - {role: command, text: "uv run python -m vision_training.deployment.run_inference"}
     narration:
-      - "Start Triton with docker compose up in its folder and keep it running: it serves every exported model, HTTP on port eight thousand and gRPC on eight thousand and one."
+      - "Start Triton with docker compose up in its folder and keep it running: it serves every exported model, HTTP on port {{foundations.triton.http_port}} and gRPC on {{foundations.triton.grpc_port}}."
       - "The run inference script then measures the throughput of a model in this process, then through Triton, in TorchScript and in ONNX with TensorRT."
 
   - kind: terminal

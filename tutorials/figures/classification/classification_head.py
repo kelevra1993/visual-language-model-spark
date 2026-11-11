@@ -172,10 +172,11 @@ def count_parameters(module: torch.nn.Module) -> int:
 def describe_head_layers(model: TaskModel, head_configuration: Dict[str, Any], image_size: int) -> Dict[str, Any]:
     """
     Gives the shapes and parameters of the layers of the trained head, the numbers of the pooling and head scenes: the
-    final feature map of the backbone and the vector the pooling makes of it, the parameters of the first hidden
-    layer, of its normalization and of the class layer, the parameters the same head would hold after an average
-    pooling (built here with the head settings of the run, never trained), and the size of the flattened vector at
-    half the image size.
+    image size and channels of the input, the final feature map of the backbone and the vector the pooling makes of
+    it, the dropout rate, the parameters of the first hidden layer, of its normalization and of the class layer, the
+    parameters the same head would hold after an average pooling (built here with the head settings of the run, never
+    trained), the side of the final map and the size of the flattened vector at half the image size, and the cross
+    entropy of an untrained network, which gives every class the same probability.
 
     Args:
         model (TaskModel): The trained classifier.
@@ -204,7 +205,11 @@ def describe_head_layers(model: TaskModel, head_configuration: Dict[str, Any], i
 
     # The last map shrinks with the image, its side being the image side over the stride of the backbone
     half_size_map = map_size * (image_size // 2) // image_size
-    return {"head.final_map_channels": channels, "head.final_map_size": map_size,
+    return {"head.image_size": image_size, "head.input_channels": int(model.backbone.input_channels),
+            "head.dropout_rate": head_configuration["dropout_rate"],
+            "head.half_image_final_map_size": half_size_map,
+            "head.untrained_cross_entropy": round_fact(value=numpy.log(model.number_classes)),
+            "head.final_map_channels": channels, "head.final_map_size": map_size,
             "head.input_features": head.input_features, "head.hidden_units": first_linear.out_features,
             "head.number_classes": model.number_classes,
             "head.first_linear_parameters": count_parameters(module=first_linear),

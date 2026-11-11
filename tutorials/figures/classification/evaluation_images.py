@@ -110,7 +110,7 @@ def draw_sample_figure(run_folder: Path, output_path: Path) -> Dict[str, Any]:
         output_path (Path): The PNG file of the figure.
 
     Returns:
-        Dict[str, Any]: The boxes, named evaluation.samples.*.
+        Dict[str, Any]: The boxes and the iterations of the grids, named evaluation.samples.*.
 
     Raises:
         ValueError: If the two evaluations do not hold the same sample images.
@@ -130,7 +130,7 @@ def draw_sample_figure(run_folder: Path, output_path: Path) -> Dict[str, Any]:
     # Every grid under its iteration, then the boxes of the grid and of its images
     heading_font = ImageFont.truetype(font=str(SANS_BOLD_FONT_PATH), size=HEADING_FONT_SIZE)
     facts = {"evaluation.samples.figure_box": [0, 0, canvas.width, canvas.height],
-             "evaluation.samples.image_count": len(sample_names[0])}
+             "evaluation.samples.image_count": len(sample_names[0]), "evaluation.samples.iterations": SAMPLE_ITERATIONS}
     for grid_index, (iteration, images) in enumerate(zip(SAMPLE_ITERATIONS, sample_grids)):
         grid_left = grid_index * (grid_width + GRID_GAP)
         image_boxes = paste_grid(canvas=canvas, images=images, left=grid_left, heading=f"Iteration {iteration}",
@@ -153,7 +153,8 @@ def draw_error_figure(evaluation_folder: Path, output_path: Path) -> Dict[str, A
         output_path (Path): The PNG file of the figure.
 
     Returns:
-        Dict[str, Any]: The boxes, named evaluation.errors.*.
+        Dict[str, Any]: The boxes, the probabilities of the shown errors, the counts of the error folders and images and
+            the iteration evaluated, named evaluation.errors.*.
     """
     errors_folder = evaluation_folder / "Evaluation" / f"Iteration_{ERROR_ITERATION}" / "Errors"
     images = load_images(image_paths=[errors_folder / folder / file_name for folder, file_name in ERROR_IMAGES])
@@ -164,7 +165,8 @@ def draw_error_figure(evaluation_folder: Path, output_path: Path) -> Dict[str, A
 
     # Every image under its folder name and its file name, ending with the probability of the wrong class
     label_font = ImageFont.truetype(font=str(MONOSPACE_FONT_PATH), size=LABEL_FONT_SIZE)
-    facts = {"evaluation.errors.figure_box": [0, 0, canvas.width, canvas.height]}
+    facts = {"evaluation.errors.figure_box": [0, 0, canvas.width, canvas.height],
+             "evaluation.errors.iteration": ERROR_ITERATION}
     for image_index, ((folder, file_name), image) in enumerate(zip(ERROR_IMAGES, images)):
         image_left = image_index * (image_width + IMAGE_GAP * 2)
         draw.text(xy=(image_left, HEADER_HEIGHT // 2), text=f"{folder}/", fill=TEXT_COLOUR, font=label_font,

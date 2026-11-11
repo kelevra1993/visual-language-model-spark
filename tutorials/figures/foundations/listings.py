@@ -7,8 +7,9 @@ code of the repository on the CPU from the saved configuration of the run, witho
 them as text excerpts (source file figures:foundations/listings/...). It also gives the facts of the chapter on the
 backbone read from that model (the receptive field, parameters and residual pairs of every block), those of the chapter
 on the data pipeline read from the configuration file that chapter shows (the augmentation types activated and the
-share of the training images they change), and the counts of the repository quoted by the closing chapter (tasks, test
-files), so that their narration and drawings follow the run and the repository when they change.
+share of the training images they change), and the counts of the repository quoted by the overview and the closing
+chapter (tasks, image and sequence tasks, test files), so that their narration and drawings follow the run and the
+repository when they change.
 """
 
 import contextlib
@@ -20,6 +21,7 @@ from typing import Any, Dict, List, Tuple
 
 import torch
 
+from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.configuration_processing.configuration_loader import (load_configuration,
                                                                           load_experiment_configuration)
 from vision_training.core.task_registry import TASK_TRAINER_CLASSES
@@ -29,6 +31,9 @@ from vision_training.models.classification.image_classifier import ImageClassifi
 
 # Colour codes of the terminal removed from the captured text
 TERMINAL_CODE_PATTERN = re.compile(pattern=r"\x1b\[[0-9;]*[A-Za-z]")
+
+# Task learning its backbone without labels, the one task neither an image task nor a sequence task
+SELF_SUPERVISED_TASK = "self_supervised"
 
 def read_iteration_number(folder_name: str) -> int:
     """
@@ -156,9 +161,10 @@ def join_numbers(values: List[int]) -> str:
 
 def describe_repository(repository_folder: Path) -> Dict[str, Any]:
     """
-    Gives the facts of the closing chapter of the foundations series read from the repository itself, so that its
-    narration follows the repository: the number of tasks of the task registry and the number of test files of the
-    tests folder.
+    Gives the facts of the overview and of the foundations series read from the repository itself, so that their
+    narration follows the repository: the number of tasks of the task registry, of its sequence tasks (SEQUENCE_TASKS
+    of the configuration checks), of its image tasks (the others but the self-supervised task) and of its tasks
+    trained with labels, and the number of test files of the tests folder.
 
     Args:
         repository_folder (Path): The root folder of the repository.
@@ -172,7 +178,12 @@ def describe_repository(repository_folder: Path) -> Dict[str, Any]:
     tests_folder = repository_folder / "tests"
     if not tests_folder.is_dir():
         raise FileNotFoundError(f"No tests folder {tests_folder} in the repository.")
+    # Tasks of the registry split into the sequence tasks, the image tasks and the self-supervised task
+    sequence_tasks = [task for task in TASK_TRAINER_CLASSES if task in SEQUENCE_TASKS]
+    image_tasks = [task for task in TASK_TRAINER_CLASSES if task not in SEQUENCE_TASKS and task != SELF_SUPERVISED_TASK]
     return {"repository.task_count": len(TASK_TRAINER_CLASSES),
+            "repository.sequence_task_count": len(sequence_tasks), "repository.image_task_count": len(image_tasks),
+            "repository.labelled_task_count": len(sequence_tasks) + len(image_tasks),
             "repository.test_file_count": len(list(tests_folder.rglob("test_*.py")))}
 
 
@@ -221,7 +232,8 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
     Gives the facts of the backbone chapter of the foundations series, read from the model of the classification run
     so that the narration follows the configuration when the run is trained again: the receptive field and stride
     after the last convolution of every block, the parameters of every block and of the Squeeze-and-Excitation modules,
-    the blocks adding a residual shortcut, and the shapes of the block drawn layer by layer.
+    the blocks adding a residual shortcut, the shapes of the block drawn layer by layer, the input channels of the
+    backbone, and the side of the convolution kernels and of the max pooling of its blocks.
 
     Args:
         model (ImageClassifier): The model of the classification run, built on the CPU.
@@ -268,6 +280,15 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
                             "input_channels": block.input_channels, "output_channels": block.output_channels,
                             "pairs": [[closing_layer - 1, closing_layer] for closing_layer in closing_layers]})
 
+    # Side of the convolution kernels of the blocks and of the max pooling closing the first block
+    kernel_sizes = {int(block.kernel_size) for block in blocks}
+    if len(kernel_sizes) != 1:
+        raise ValueError(f"The blocks of the backbone have convolution kernels of several sizes {kernel_sizes}.")
+    kernel_size = kernel_sizes.pop()
+    if blocks[0].pooling_index is None:
+        raise ValueError("The first block of the backbone has no max pooling.")
+    pooling_size = int(blocks[0].block[blocks[0].pooling_index].kernel_size)
+
     # Shapes of the block drawn layer by layer: its input is the output of the previous block
     example_block = blocks[example_block_number - 1]
     example_input_size = block_output_sizes[example_block_number - 2] if example_block_number > 1 else \
@@ -277,6 +298,8 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
             "listings.final_receptive_field": receptive_fields[-1],
             "listings.final_stride": int(receptive_field_layers[-1]["stride"]),
             "listings.input_size": int(backbone.input_image_size),
+            "listings.input_channels": int(backbone.input_channels),
+            "listings.kernel_size": kernel_size, "listings.pooling_size": pooling_size,
             "listings.block_parameter_counts": block_parameter_counts,
             "listings.backbone_parameter_count": backbone_parameter_count,
             "listings.head_parameter_count": model_parameter_count - backbone_parameter_count,
@@ -296,7 +319,7 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
             "listings.example_block.output_channels": example_block.output_channels,
             "listings.example_block.input_size": example_input_size,
             "listings.example_block.output_size": block_output_sizes[example_block_number - 1],
-            "listings.example_block.layer_weight_count": 9 * example_block.output_channels ** 2,
+            "listings.example_block.layer_weight_count": kernel_size ** 2 * example_block.output_channels ** 2,
             "listings.example_block.residual_additions": example_block.count_residual_additions()}
 
 
@@ -314,8 +337,8 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
     Returns:
         Dict[str, Any]: The facts: the number of checkpoints and evaluations of the run, the parameters of its model,
             the schedule of its training (batch size, summaries, checkpoints, evaluations, validation, iterations),
-            the facts of its backbone blocks and data pipeline (describe_backbone_blocks, describe_data_pipeline) and
-            those of the repository (describe_repository).
+            the hidden units and classes of its head, the facts of its backbone blocks and data pipeline
+            (describe_backbone_blocks, describe_data_pipeline) and those of the repository (describe_repository).
     """
     listings_folder = output_folder / "listings"
     listings_folder.mkdir(parents=True, exist_ok=True)
@@ -349,6 +372,12 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
     data_facts = describe_data_pipeline(
         data_configuration=load_configuration(configuration_path=data_configuration_path)["Data"])
     repository_facts = describe_repository(repository_folder=Path(__file__).absolute().parents[3])
+
+    # Units of the first hidden layer of the head and classes of the run, read by the run name scene
+    head_linear_layers = [layer for layer in model.classification_head.fully_connected_block
+                          if isinstance(layer, torch.nn.Linear)]
+    if not head_linear_layers:
+        raise ValueError(f"The classification head of {run_folder} has no hidden layer.")
     return {**backbone_facts, **data_facts, **repository_facts,
             "listings.checkpoint_count": len(checkpoint_names), "listings.evaluation_count": len(evaluation_names),
             "listings.run_name": run_folder.name, "listings.last_evaluation": evaluation_names[-1],
@@ -361,4 +390,5 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
             "run.weight_saving_iterations": int(experiment_configuration["weight_saving_iterations"]),
             "run.validation_iteration_ratio": int(experiment_configuration["validation_iteration_ratio"]),
             "run.number_iterations": int(experiment_configuration["number_iterations"]),
-            "run.learning_rate": float(experiment_configuration["learning_rate"])}
+            "run.learning_rate": float(experiment_configuration["learning_rate"]),
+            "run.hidden_units": int(head_linear_layers[0].out_features), "run.class_count": int(model.number_classes)}

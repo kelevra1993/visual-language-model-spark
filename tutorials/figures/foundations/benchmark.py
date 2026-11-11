@@ -7,10 +7,13 @@ rates and the moving average of the weights of the optimization chapter, and the
 settings of the evaluation chapter. Every launch is drawn faintly under the mean of the launches of its setting, and
 every chart is written twice, its empty axes with the legend (the base image of the scene) and the whole chart (its
 overlay, whose curves the scene uncovers while they are explained); the boxes of the panels and the means of the
-launches are the facts of the storyboards.
+launches are the facts of the storyboards, with the launches counted per setting, the evaluated iterations, and the
+image size, layers and classes of the benchmark read from the run names of results.csv (describe_benchmark_run_name,
+also used by the classification figures).
 """
 
 import csv
+import re
 
 import matplotlib
 import numpy
@@ -46,6 +49,13 @@ MOVING_AVERAGE_LAUNCHES = ["run_37", "run_38"]
 LAUNCH_NOISE_LAUNCHES = {"squeeze-and-excitation off": ["run_23", "run_23b", "run_23c", "run_24", "run_24b", "run_24c"],
                          "squeeze-and-excitation on": ["run_13", "run_13b", "run_13c", "run_14", "run_14b", "run_14c"]}
 
+# Parts of a run name of the benchmark, its sections joined by "_": the image size ending the input section
+# (IN-KAR-256), the layers and filters of every block after the B of the backbone section (B1x64.2x64...), and the
+# classes of the output section closing the name (MC9, or ML for multi-label)
+RUN_NAME_IMAGE_SIZE_PATTERN = re.compile(pattern=r"(\d+)$")
+RUN_NAME_BLOCKS_PATTERN = re.compile(pattern=r"(?:^|-)B(\d+x\d+(?:\.\d+x\d+)*)$")
+RUN_NAME_CLASSES_PATTERN = re.compile(pattern=r"M[CL](\d+)")
+
 
 def read_launches(results_path: Path) -> Dict[Tuple[str, str], List[float]]:
     """
@@ -68,6 +78,81 @@ def read_launches(results_path: Path) -> Dict[Tuple[str, str], List[float]]:
                 float(row[f"accuracy_{iteration}"]) if row[f"accuracy_{iteration}"] else numpy.nan
                 for iteration in EVALUATED_ITERATIONS]
     return launches
+
+
+def describe_benchmark_run_name(run_name: str) -> Dict[str, int]:
+    """
+    Reads the settings of a benchmark launch from its run name in results.csv, since the benchmark keeps no
+    configuration file: the image size, the convolution layers of the backbone (the layers of every block summed) and
+    the number of classes, quoted by the backbone, optimization and classification chapters.
+
+    Args:
+        run_name (str): The run folder name, e.g. CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64_HFLAT.256.128-CWB_MC9.
+
+    Returns:
+        Dict[str, int]: The "image_size", the "layer_count" and the "class_count".
+
+    Raises:
+        ValueError: If the name has no image size, no blocks or no classes where its sections hold them.
+    """
+    sections = run_name.split("_")
+    image_size_match = RUN_NAME_IMAGE_SIZE_PATTERN.search(string=sections[1]) if len(sections) > 1 else None
+    blocks_matches = [RUN_NAME_BLOCKS_PATTERN.search(string=section) for section in sections]
+    blocks_matches = [match for match in blocks_matches if match is not None]
+    classes_match = RUN_NAME_CLASSES_PATTERN.fullmatch(string=sections[-1])
+    if image_size_match is None or len(blocks_matches) != 1 or classes_match is None:
+        raise ValueError(f"The run name {run_name} has no image size, single backbone section or classes where "
+                         f"expected.")
+
+    # Layers of every block, the first number of every layers x filters pair
+    layer_count = sum(int(block.split("x")[0]) for block in blocks_matches[0].group(1).split("."))
+    return {"image_size": int(image_size_match.group(1)), "layer_count": layer_count,
+            "class_count": int(classes_match.group(1))}
+
+
+def read_launch_run_names(results_path: Path, launch_names: List[str]) -> List[str]:
+    """
+    Reads the run folder names of launches of the benchmark, whose settings describe_benchmark_run_name gives.
+
+    Args:
+        results_path (Path): The results.csv of the benchmark.
+        launch_names (List[str]): The launches, as named in results.csv.
+
+    Returns:
+        List[str]: The run folder name of every launch, in the order of the names.
+
+    Raises:
+        ValueError: If a launch is not in results.csv.
+    """
+    run_names = {}
+    with results_path.open(encoding="utf-8", newline="") as results_file:
+        for row in csv.DictReader(results_file):
+            if row["launch"] in launch_names:
+                run_names[row["launch"]] = row["run_folder"]
+    missing_launches = [name for name in launch_names if name not in run_names]
+    if missing_launches:
+        raise ValueError(f"Launches missing from {results_path}: {missing_launches}")
+    return [run_names[name] for name in launch_names]
+
+
+def count_launches_per_setting(launch_lists: List[List[str]]) -> int:
+    """
+    Gives the number of launches of every setting of a chart, which the narration quotes once for all its settings,
+    refusing settings launched a different number of times.
+
+    Args:
+        launch_lists (List[List[str]]): The launches of every setting of the chart.
+
+    Returns:
+        int: The number of launches of each setting.
+
+    Raises:
+        ValueError: If the settings do not have the same number of launches.
+    """
+    launch_counts = {len(launch_names) for launch_names in launch_lists}
+    if len(launch_counts) != 1:
+        raise ValueError(f"The settings of a benchmark chart have different numbers of launches {launch_counts}.")
+    return launch_counts.pop()
 
 
 def select_launches(launches: Dict[Tuple[str, str], List[float]], launch_names: List[str],
@@ -305,6 +390,11 @@ def draw_model_settings_chart(output_folder: Path, launches: Dict[Tuple[str, str
     facts.update(name_curve_values(fact_prefix="benchmark.model_settings.residual_on", curve=kept_mean))
     facts.update(name_curve_values(fact_prefix="benchmark.model_settings.residual_off", curve=off_mean))
     facts.update(name_curve_values(fact_prefix="benchmark.model_settings.layer_normalization", curve=layer_mean))
+
+    # Last evaluation the layer normalization launches reached before they were stopped
+    reached_iterations = [iteration for iteration, value in zip(EVALUATED_ITERATIONS, layer_mean)
+                          if not numpy.isnan(value)]
+    facts["benchmark.model_settings.layer_normalization_last_iteration"] = reached_iterations[-1]
     return facts
 
 
@@ -337,6 +427,11 @@ def draw_learning_rate_chart(output_folder: Path, launches: Dict[Tuple[str, str]
     for learning_rate, mean_curve in mean_curves.items():
         facts.update(name_curve_values(fact_prefix=f"benchmark.learning_rate.learning_rate_"
                                                    f"{learning_rate.replace('-', '_')}", curve=mean_curve))
+
+    # Number of learning rates tried and of launches of each
+    facts.update({"benchmark.learning_rate.value_count": len(LEARNING_RATE_LAUNCHES),
+                  "benchmark.learning_rate.launches_per_value": count_launches_per_setting(
+                      launch_lists=list(LEARNING_RATE_LAUNCHES.values()))})
     return facts
 
 
@@ -378,6 +473,7 @@ def draw_moving_average_chart(output_folder: Path, launches: Dict[Tuple[str, str
     pyplot.close(fig=figure)
     facts.update(name_curve_values(fact_prefix="benchmark.moving_average.trained_weights", curve=trained_mean))
     facts.update(name_curve_values(fact_prefix="benchmark.moving_average.averaged_weights", curve=averaged_mean))
+    facts["benchmark.moving_average.launch_count"] = len(MOVING_AVERAGE_LAUNCHES)
     return facts
 
 
@@ -524,13 +620,16 @@ def draw_launch_noise_chart(output_folder: Path, results_path: Path) -> Dict[str
                                             launch_means=whole_means[setting]))
         facts.update(summarize_launch_means(setting_name=setting_name, panel_name="last", launch_names=launch_names,
                                             launch_means=last_means[setting]))
+    facts["benchmark.launch_noise.launches_per_setting"] = count_launches_per_setting(
+        launch_lists=list(LAUNCH_NOISE_LAUNCHES.values()))
     return facts
 
 
 def make_benchmark_figures(output_folder: Path, results_path: Path) -> Dict[str, Any]:
     """
     Draws the four benchmark charts into the benchmark folder of the series, from the launches of results.csv, and
-    gives their facts.
+    gives their facts, with the settings shared by the launches of the model chart (image size, layers, classes), the
+    fewest launches of a setting of the model, learning rate and moving average charts, and the evaluated iterations.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -538,6 +637,9 @@ def make_benchmark_figures(output_folder: Path, results_path: Path) -> Dict[str,
 
     Returns:
         Dict[str, Any]: The facts of the charts, named benchmark.*.
+
+    Raises:
+        ValueError: If the launches of the model chart differ in image size, layers or classes.
     """
     benchmark_folder = output_folder / "benchmark"
     launches = read_launches(results_path=results_path)
@@ -545,4 +647,22 @@ def make_benchmark_figures(output_folder: Path, results_path: Path) -> Dict[str,
     facts.update(draw_learning_rate_chart(output_folder=benchmark_folder, launches=launches))
     facts.update(draw_moving_average_chart(output_folder=benchmark_folder, launches=launches))
     facts.update(draw_launch_noise_chart(output_folder=benchmark_folder, results_path=results_path))
+
+    # Image size, layers and classes shared by the launches of the model chart, read from their run names
+    model_launches = KEPT_LAUNCHES + RESIDUAL_OFF_LAUNCHES + LAYER_NORMALIZATION_LAUNCHES
+    run_settings = [describe_benchmark_run_name(run_name=run_name) for run_name in
+                    read_launch_run_names(results_path=results_path, launch_names=model_launches)]
+    if any(settings != run_settings[0] for settings in run_settings):
+        raise ValueError(f"The launches {model_launches} of the model chart differ in image size, layers or classes.")
+
+    # Fewest launches of a setting over the charts comparing settings, and the evaluated iterations of every launch
+    compared_launch_lists = [KEPT_LAUNCHES, RESIDUAL_OFF_LAUNCHES, LAYER_NORMALIZATION_LAUNCHES,
+                             MOVING_AVERAGE_LAUNCHES] + list(LEARNING_RATE_LAUNCHES.values())
+    facts.update({"benchmark.image_size": run_settings[0]["image_size"],
+                  "benchmark.backbone_layer_count": run_settings[0]["layer_count"],
+                  "benchmark.class_count": run_settings[0]["class_count"],
+                  "benchmark.minimum_launches_per_setting": min(len(launch_names) for launch_names in
+                                                                compared_launch_lists),
+                  "benchmark.evaluation_count": len(EVALUATED_ITERATIONS),
+                  "benchmark.last_iteration": EVALUATED_ITERATIONS[-1]})
     return facts

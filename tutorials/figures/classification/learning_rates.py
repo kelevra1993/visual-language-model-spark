@@ -87,8 +87,9 @@ def describe_run(run_folder: Path) -> Dict[str, Any]:
 
 def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
-    Draws the learning rate figure and gives its facts: for every learning rate, the mean validation accuracy of the
-    last iterations, the test accuracy of the first evaluation and its iteration, and the boxes of both panels.
+    Draws the learning rate figure and gives its facts: the number of runs compared and, for every learning rate, its
+    value, the mean validation accuracy of the last iterations, the test accuracy of the first evaluation and its
+    iteration, and the boxes of both panels.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -154,13 +155,15 @@ def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run
              "learning_rates.bar_panel_box": compute_pixel_box(figure=figure, axes=bar_axes, with_labels=True,
                                                                margin=8),
              "learning_rates.compared_iterations": COMPARED_ITERATIONS,
-             "learning_rates.averaged_last_iterations": AVERAGED_LAST_ITERATIONS}
+             "learning_rates.averaged_last_iterations": AVERAGED_LAST_ITERATIONS,
+             "learning_rates.run_count": len(runs)}
     pyplot.close(fig=figure)
 
     # Numbers of every run, named after its learning rate (0.0002 -> lr_0_0002)
     for run in runs:
         run_name = "learning_rates.lr_" + f"{run['learning_rate']:g}".replace(".", "_").replace("-", "_")
-        facts.update({f"{run_name}.validation_last_mean": round_fact(value=run["last_mean"]),
+        facts.update({f"{run_name}.learning_rate": run["learning_rate"],
+                      f"{run_name}.validation_last_mean": round_fact(value=run["last_mean"]),
                       f"{run_name}.test_accuracy": round_fact(value=run["test_accuracy"]),
                       f"{run_name}.test_iteration": run["test_iteration"]})
     return facts

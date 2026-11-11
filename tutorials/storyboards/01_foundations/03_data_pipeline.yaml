@@ -25,6 +25,8 @@ scenes:
     heading: "The data pipeline"
     subheading: "Loading, image size, normalization, augmentation"
     footnote: "Foundations · chapter 3"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["3"]
     narration:
       - "Every task reads its images through the same loaders and the same augmentation code; only the targets travelling with the images differ."
       - "This chapter follows the images from the disk to the batch the network sees: the loading, the image size, the normalization and the augmentation."
@@ -37,10 +39,10 @@ scenes:
       - {type: box, box: [30, 290, 290, 450], text: "images\n+ labels.json\nof the split", font: diagram_small}
       - {type: arrow, points: [[300, 370], [380, 370]], appear: 0}
       - {type: box, box: [390, 180, 760, 500], outline: blue, appear: 0, highlight: [0]}
-      - {type: text, position: [575, 215], text: "1 worker process", font: diagram_small, colour: dim, anchor: mm, appear: 0}
+      - {type: text, position: [575, 215], text: "{{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}} worker process", font: diagram_small, colour: dim, anchor: mm, appear: 0}
       - {type: box, box: [410, 340, 740, 400], text: "worker · read, resize", font: diagram_small, appear: 0}
       - {type: arrow, points: [[770, 370], [860, 370]], appear: 1}
-      - {type: box, box: [870, 290, 1130, 450], text: "2 batches\nready in advance", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [870, 290, 1130, 450], text: "{{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}} batches\nready in advance", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1140, 370], [1220, 370]], appear: 2, flow: true, highlight: [2]}
       - {type: box, box: [1230, 100, 1740, 640], outline: aqua, appear: 2, highlight: [2]}
       - {type: text, position: [1485, 140], text: "GPU", font: diagram_bold, anchor: mm, appear: 2}
@@ -49,12 +51,12 @@ scenes:
       - {type: box, box: [1270, 340, 1700, 440], text: "input normalization\nfirst layer of the model", font: diagram_small, outline: violet, appear: 2}
       - {type: arrow, points: [[1485, 445], [1485, 485]], appear: 2}
       - {type: box, box: [1270, 490, 1700, 590], text: "backbone\nand head of the task", font: diagram_small, outline: blue, appear: 2}
-      - {type: text, position: [575, 565], text: "fixed in the code: 1 worker, 2 batches ahead", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+      - {type: text, position: [575, 565], text: "fixed in the code: {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}} worker, {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}} batches ahead", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
     narration:
       - "A loader worker reads the images listed in the labels file and resizes them to the input size, decoding with a single OpenCV thread."
-      - "The worker keeps two batches ready in advance, and the training, validation and test loaders each have their own worker, alive for the whole run."
+      - "The worker keeps {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches ready in advance, and the training, validation and test loaders each have their own worker, alive for the whole run."
       - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
-      - "The single worker and its two batches in advance are fixed in the code, the same for every task, so no configuration file sets them."
+      - "The single worker and its {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches in advance are fixed in the code, the same for every task, so no configuration file sets them."
 
   - kind: yaml
     title: "Image size and pixel range"
@@ -67,6 +69,8 @@ scenes:
       - {match: "image_settings:", sentences: [0]}
       - {match: "size:|keep_ratio", sentences: [1]}
       - {match: "input_normalization|per_sample_normalization", sentences: [2]}
+    # The range of the raw 8-bit pixels the data loaders deliver
+    literal_numbers: [zero, two hundred and fifty five]
     narration:
       - "In the data section, the image settings tell the loaders how to prepare every image for the network."
       - "The image settings give the square input size of the network, and whether the images keep their aspect ratio."
@@ -113,7 +117,7 @@ scenes:
       - {match: "crop_side_range|brightness_maximum_delta|noise_standard_deviation", sentences: [1]}
     narration:
       - "The strengths of the types are fixed in the code, so that a configuration file only switches the types on and sets their probabilities."
-      - "The supervised tasks take slight changes that keep every object recognisable: the crop keeps three quarters or more of each side, the brightness moves by up to forty levels, and the noise has a standard deviation of twenty levels."
+      - "The supervised tasks take slight changes that keep every object recognisable: the crop keeps {{foundations.data.supervised_strengths.crop_side_minimum:.0%}} or more of each side, the brightness moves by up to {{foundations.data.supervised_strengths.brightness_maximum_delta:words}} levels, and the noise has a standard deviation of {{foundations.data.supervised_strengths.noise_standard_deviation:words}} levels."
       - "The self-supervised task takes stronger strengths of its own, the views of SimCLR toned down for the images of the project, and every augmenter takes the set of its task."
 
   - kind: html
@@ -143,6 +147,8 @@ scenes:
     page: diagram
     title: "Two strengths"
     code_reference: "vision_training/data/augmentations.py · SELF_SUPERVISED_AUGMENTATION_STRENGTHS"
+    # The two strength sets of the code and the two views of the self-supervised task, and the three types drawn here
+    literal_numbers: [two, three]
     elements:
       - {type: text, position: [620, 22], text: "original", font: diagram_small, colour: dim, anchor: ma}
       - {type: text, position: [890, 22], text: "supervised", font: diagram_small, colour: dim, anchor: ma}
@@ -171,6 +177,8 @@ scenes:
     page: diagram
     title: "The geometric types"
     code_reference: "vision_training/data/augmentations.py · GEOMETRIC_AUGMENTATION_TYPES"
+    # The two crops, flips and rotations drawn in the scene
+    literal_numbers: [two]
     elements:
       - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.supervised_box}}", box: [61, 20, 291, 250], caption: "random_crop", appear: 0, highlight: [0]}
       - {type: image, path: "figures:foundations/augmentation_examples/random_aspect_crop.png", crop: "{{foundations.augmentation_examples.random_aspect_crop.image_1.supervised_box}}", box: [413, 20, 643, 250], caption: "random_aspect_crop", appear: 0, highlight: [0]}
@@ -184,12 +192,14 @@ scenes:
       - {type: image, path: "figures:foundations/augmentation_examples/random_jigsaw.png", crop: "{{foundations.augmentation_examples.random_jigsaw.image_1.supervised_box}}", box: [1469, 360, 1699, 590], caption: "random_jigsaw", appear: 1, highlight: [1]}
     narration:
       - "The geometric types change the framing: the two crops, a zoom out on a black canvas, a shift, the two flips and the two rotations."
-      - "The perspective moves the corners and the jigsaw puts the four quarters back in a random order; both move the image only, so the tasks with boxes, masks or keypoints refuse them at launch."
+      - "The perspective moves the corners and the jigsaw puts the {{foundations.data.supervised_strengths.jigsaw_cell_count:words}} cells of its grid back in a random order; both move the image only, so the tasks with boxes, masks or keypoints refuse them at launch."
 
   - kind: html
     page: diagram
     title: "The photometric types"
     code_reference: "vision_training/data/augmentations.py · PHOTOMETRIC_AUGMENTATION_TYPES"
+    # The two histogram equalizations and the two blurs drawn in the scene
+    literal_numbers: [two]
     elements:
       - {type: image, path: "figures:foundations/augmentation_examples/brightness_contrast_saturation.png", crop: "{{foundations.augmentation_examples.brightness_contrast_saturation.image_1.supervised_box}}", box: [65, 8, 225, 168], caption: "brightness_contrast_\nsaturation", appear: 0, highlight: [0]}
       - {type: image, path: "figures:foundations/augmentation_examples/random_hue.png", crop: "{{foundations.augmentation_examples.random_hue.image_1.supervised_box}}", box: [355, 8, 515, 168], caption: "random_hue", appear: 0, highlight: [0]}
@@ -218,6 +228,8 @@ scenes:
     title: "Checking the inputs"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.show_input_samples"
     image: "repository:README/input_viewer.png"
+    # The brightness shift written by the viewer on the screenshot README/input_viewer.png
+    literal_numbers: [seventeen]
     views:
       - {box: [0, 0, 3056, 512], from_sentence: 0}
       - {box: [40, 0, 1480, 512], from_sentence: 1}
@@ -238,7 +250,7 @@ scenes:
     items:
       - {text: "Loader workers read and resize the images, every split with its own"}
       - {text: "Square input: keep_ratio pads with black bands, otherwise stretches"}
-      - {text: "Pixels mapped to -0.5 to 0.5 by the first layer of the model"}
+      - {text: "Pixels mapped to {{foundations.data.normalized_pixel_minimum}} to {{foundations.data.normalized_pixel_maximum}} by the first layer of the model"}
       - {text: "Augmentation: one draw per image, then one per activated type"}
       - {text: "Strengths in the code, switches and probabilities in the file"}
       - {text: "Validation and test images are never augmented"}
