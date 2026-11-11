@@ -8,7 +8,7 @@
 
 One parameter changes at a time. The best value of a stage is kept for all the following stages, and its launches serve as the reference of the next stage, reused when an earlier stage trained launches with the same settings for as many iterations (or more, under the constant learning rate schedule).
 
-Every setting is launched twice, A and B, to smooth out the noise of a single training. Two launches train at the same time, the next launch starting as soon as one ends, the kernels of the two launches sharing the GPU through the MPS daemon. The training sets no random seed, so the two launches start from different weights, data order and augmentations.
+Every setting is launched twice, A and B, to smooth out the noise of a single training (stage 6 added a third launch to each of its two values, the stages after it going back to two). Two launches train at the same time, the next launch starting as soon as one ends, the kernels of the two launches sharing the GPU through the MPS daemon. The training sets no random seed, so the two launches start from different weights, data order and augmentations.
 
 Every launch keeps a moving average of its weights, and the settings are compared on the averaged weights (`Tensorboard/Test_EMA`): the score of a setting is the test mean average precision over the intersection over union thresholds 0.5 to 0.95 (`mAP@[0.5:0.95]/area`, the area under the precision recall curves) at the last iteration of the stage, averaged over its two launches. The mean average precision by object size (small, medium, large) and the proposal recall by detection level are read next to it.
 
@@ -52,7 +52,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 4 | `Neck.type`, path aggregation (`suggestions.md` item 37) | path_aggregation against feature_pyramid (run_9, run_10) | 15,000 | done, tie (-0.0042), feature_pyramid kept, path aggregation code kept for very small objects |
 | 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU in both stages, CIoU on the detection heads only | 15,000 | done, smooth L1 kept (CIoU -0.0092 and -0.0105), CIoU kept as the `Detector.box_loss` option |
 | 5b | Final NMS (`suggestions.md` item 38) | greedy, DIoU-NMS with the exponents 1.0 and 0.6, on test_10000 and an occlusion split | none, evaluation of the checkpoints of stage 5 | done, DIoU-NMS 0.6 kept (occlusion split +0.0034), exported and set in the object detection configurations |
-| 6 | `Detector.normalization.feature_map_normalization` | batch, layer, none | 15,000 | after stage 5 |
+| 6 | `Detector.normalization.feature_map_normalization` | batch, layer (none not trained) | 15,000, the third launches 8000 | done, tie, batch kept (layer -0.0110 at 15,000, -0.0041 for the best two of three launches at 8000, its launches far more spread) |
 | 7 | Proposal selection (audit M3, with L7) | over every level, per level | 15,000 | after stage 6, code |
 | 8 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | after stage 7, code |
 
@@ -153,6 +153,8 @@ The CIoU loss (`suggestions.md` item 36) takes 1 - CIoU between the decoded boxe
 
 Both CIoU pairs ended below the smooth L1, by more than their launch gaps (0.0048 and 0.0090), so the smooth L1 stays the reference of the later stages. On 2026-11-10 the user kept a single CIoU option, on the detection heads only as in the published Faster R-CNN (`Detector.box_loss: "complete_iou"`, off in every configuration): `RegionProposal.box_loss` was removed, the region proposal network always using the smooth L1, and run_13 to run_16 stay as records, their folders keeping the `RCIOU` token.
 
+![Object detection, stage 5: Box Loss](figures/object_detection/stage_5_box_loss.png)
+
 ### Stage 5b: DIoU-NMS (24 evaluations, done)
 
 DIoU-NMS (`suggestions.md` item 38) suppresses by the IoU minus the squared distance of the centres over the squared diagonal of the enclosing box, to the power of `Detector.nms_distance_exponent` (AAAI 2020 Eq. 13; 1.0 in the paper, 0.6 in YOLOv4), instead of the IoU, at the same threshold (0.5), the region proposals keeping the greedy NMS. The final NMS runs in evaluation and inference only, so the stage trains nothing: `evaluate_checkpoint.py` evaluated the 15,000 checkpoints of run_9 and run_10 (smooth L1) and run_15 and run_16 (CIoU in both stages) again with the exponents 1.0 and 0.6 and with the greedy NMS, each NMS in a folder of its own.
@@ -174,12 +176,28 @@ Its 5,000 images hold 42,151 objects and 8,675 pairs of a class above an IoU of 
 
 Both exponents raised every launch on the occlusion split (0.6: run_9 +0.0030, run_10 +0.0038, run_15 +0.0031, run_16 +0.0039) and lowered none on test_10000 by more than 0.0004, so the rule kept both; 0.6 gained the most (mAP@0.5 on the occlusion split from 0.7229 to 0.7284 for the reference pair), and the user chose it on 2026-11-10. The object detection configurations hold `nms_criterion: "distance_iou"` and `nms_distance_exponent: 0.6` since, while the instance segmentation configurations (DIoU-NMS never measured on masks) and `run-1.yaml` keep the greedy NMS. The `InferenceDetector` and the TorchScript and ONNX exports run the same suppression with static shapes (`suppress_every_pair_by_distance`), checked against the evaluation path on the averaged weights of run_9.
 
-### Stages 6 To 8: Detector Normalization, Proposal Selection, Anchor Centres
+### Stage 6: Detector Normalization (4 launches, done)
 
-Each pair trains against the reference kept so far, the detector normalization needing no code:
+`Detector.normalization.feature_map_normalization` sets the normalization of the convolutions of the detection heads (run name token `DBN` for batch, `DLN` for layer), batch being the reference (run_9 and run_10) and the search of the stage going from batch to layer, then to none unless layer were clearly worse. `stage_6_detector_normalization_chain.py` started run_19 and run_20 (layer, every other setting of run_9 and run_10) on 2026-11-10 at 16:20:57 and 16:21:27, right after run_17 and run_18. On 2026-11-11 at 03:30 the user held the none pair ("No need to chain 21 and 22 yet", `stage_6_chain.log`), so run_21 and run_22 were never trained with none.
 
-- **Stage 6, detector normalization:** the normalization of the convolutions of the detection heads, batch (the reference) then layer then none, layer clearly worse than batch ending the search.
+Layer tied with batch at 15,000: 0.7969 against 0.8079 (-0.0110, within the launch gap 0.0284 of run_19 and run_20), run_19 reaching 0.8111, the best single launch of the benchmark at 15,000, and run_20 0.7827. Layer was behind on the large objects (-0.030) and the tight boxes (mAP@0.75 -0.013, mAP@0.95 -0.005), the small and medium objects about even (+0.006, +0.005), and its trained weights tied as well (0.7205 against 0.7269). Its two launches lay far apart where those of batch did not: 0.0855 apart at 2000 and still 0.0284 at 15,000, against 0.0062 and 0.0038 for run_9 and run_10.
+
+So that the tie did not rest on one launch of each, the user asked on 2026-11-11 for a third launch of each value trained side by side ("Stop 21 I want it called 20b and a run with batch norm both in parallel ... 3 for each comparison", `launch_runs_20b_and_10b_third_launches.py`): a third layer launch started alone at 07:02 as run_21 was stopped and its folder removed, and run_20b (layer) and run_10b (batch) started at 07:06:02 and 07:06:32 with 15,000 iterations, each value then scored by the mean of its best two launches of three. The user closed the stage the same day at 8000 on batch ("cut it at 8000 iteration, and keep the batch, it has the advantage of being more stable"): at 8000 the best two layer launches (run_19, run_20b) were 0.0041 behind the best two batch launches (run_9, run_10b), within their launch gap 0.0064, as at 5000, 6000 and 7000 (-0.0046 at each), a tie, while the three layer launches spread 0.0814 at 3000 and 0.0338 at 8000, against 0.0139 and 0.0122 for batch. run_20b and run_10b were still training towards their 15,000 iterations when the results were copied next to this plan (the trained weights of run_20b evaluated at 8500), and are read at 8000 only.
+
+| Value | Launches | Test_EMA mAP@[0.5:0.95] at 15,000 | Pair | At 8000 | Best two of three at 8000 | Spread of the three at 3000, 8000 | Test (trained) pair at 15,000 |
+|---|---|---|---|---|---|---|---|
+| batch | run_9, run_10, run_10b | 0.8098, 0.8060 | 0.8079 | 0.7599, 0.7478, 0.7571 | 0.7585 | 0.0139, 0.0122 | 0.7269 |
+| layer | run_19, run_20, run_20b | 0.8111, 0.7827 | 0.7969 (-0.0110) | 0.7577, 0.7239, 0.7512 | 0.7545 (-0.0041) | 0.0814, 0.0338 | 0.7205 |
+
+Layer normalization cost no measurable time: run_19 and run_20 took 14.20 and 14.33 hours from their first to their last iteration, against 14.43 and 14.48 for run_9 and run_10, and from 5000 on an iteration took the same time (median 2.39 and 2.40 seconds, against 2.39 for both batch launches); run_20b and run_10b, trained side by side, reached 8000 in 8.01 and 8.07 hours.
+
+![Object detection, stage 6: Detector Normalization](figures/object_detection/stage_6_detector_normalization.png)
+
+### Stages 7 And 8: Proposal Selection, Anchor Centres
+
+Each pair trains against the reference kept so far (run_9 and run_10, batch normalization in the detection heads), two launches per value as before stage 6:
+
 - **Stage 7, proposal selection per level (audit M3 with L7, `suggestions.md` item 3):** the pre-NMS top-k taken per level, `batched_nms` grouped by level, then the global top `post_nms`, in the proposal filter and in `InferenceDetector`, the zero-area proposals and detections removed. Level 7 had the lowest proposal recall at 0.5 of stage 1 (0.29, against 0.37 to 0.43 for levels 4 to 6).
 - **Stage 8, anchor centres (audit L1, `suggestions.md`):** the anchors are centred on the cell corners (`anchors.py`, `shifts = arange(F) * stride`) while RoIAlign and the convolutions place the cells at their centres, a constant half-stride offset the regressor has to learn: `(arange(F) + 0.5) * stride`, in the training and in the export.
 
-A pair trains in about 15 hours at 15,000 iterations (two launches side by side, test evaluations included), so stages 3 to 8 take six or seven pairs (3.5 to 4 days of training), stage 5b adding about 75 minutes of evaluation.
+A pair trains in about 14.5 hours at 15,000 iterations (two launches side by side, test evaluations included), so stages 7 and 8 take two pairs, about 29 hours of training.

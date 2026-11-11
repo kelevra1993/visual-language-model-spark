@@ -486,3 +486,32 @@ comparisons:
     kept: "feature_pyramid"
     verdict: "feature_pyramid kept (tie): path_aggregation 0.8038 against 0.8079 (-0.0042, within the launch gap 0.0094 of run_11 and run_12), behind at every evaluation (most at 3500, -0.022), ahead on the small objects (+0.020 at 15,000) and behind on the large ones (-0.021); its code stays for projects with very small objects, as the user decided."
     notes: "run_9 and run_10, the feature pyramid kept by stage 3, are the reference, reused without training. The section heading covers stages 3 and 4 (plan_lines from it to the stage 4 figure). The object size, mAP@0.75, mAP@0.95 and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "5"
+    title: Box Loss
+    plan_lines: "143-156"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "smooth_l1", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
+      - {label: "CIoU both stages", launches: [run_15, run_16], reference: false, trained_as_averaged: false}
+      - {label: "CIoU detection heads", launches: [run_17, run_18], reference: false, trained_as_averaged: false}
+    kept: "smooth_l1"
+    verdict: "smooth_l1 kept: CIoU in both stages at weight 1 0.7988 (-0.0092, beyond the launch gap 0.0048 of run_15 and run_16) and on the detection heads only 0.7974 (-0.0105, beyond the launch gap 0.0090 of run_17 and run_18) against 0.8079; at weight 6 run_13 and run_14 stalled (0.0008 and 0.0000 at 500) and were stopped; CIoU stays as the Detector.box_loss option, off in every configuration."
+    notes: "run_9 and run_10 are the reference, reused without training. The CSV has no region_proposal_box_loss column (RegionProposal.box_loss removed on 2026-11-10): run_15 to run_18 share their setting columns and one mean row, the arms told apart by launch name only (the run folders of run_13 to run_16 keep the RCIOU token). Both CIoU arms train at the loss weight 1; run_13 and run_14 (CIoU in both stages at the weight 6) hold only their 500 evaluation and are left out of the arms, their single point drawing nothing but a label over the legend. Stage 5b (DIoU-NMS) evaluates the 15,000 checkpoints of run_9, run_10, run_15 and run_16 again without training, so it has no entry nor figure."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "6"
+    title: Detector Normalization
+    plan_lines: "179-194"
+    last_iteration: 8000
+    compared_weights: ema
+    arms:
+      - {label: "batch", launches: [run_9, run_10, run_10b], reference: true, trained_as_averaged: false}
+      - {label: "layer", launches: [run_19, run_20, run_20b], reference: false, trained_as_averaged: false}
+    kept: "batch"
+    verdict: "batch kept (tie): layer 0.7969 against 0.8079 at 15,000 (-0.0110, within the launch gap 0.0284 of run_19 and run_20); with a third launch of each, the best two layer launches 0.7545 against 0.7585 at 8000 (-0.0041, within the launch gap 0.0064), the three layer launches spreading 0.0814 at 3000 and 0.0338 at 8000 against 0.0139 and 0.0122 for batch; the user closed the stage at 8000 on batch for its stability, none not trained."
+    notes: "run_9 and run_10 are the reference, reused without training; run_10b and run_20b, third launches started on 2026-11-11, were still training towards 15,000 when the CSV was copied (evaluations up to 8000, 8500 for the trained weights of run_20b), so the stage is compared at 8000 and the mean curves of the figure end there. run_10b shares the setting columns of run_9 and run_10, whose mean rows therefore average run_10b in up to 8000. The figure shows the mean of the three launches; the plan compares the mean of the best two of three (run_9 and run_10b, run_19 and run_20b at 8000). The mAP@0.75, mAP@0.95, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
