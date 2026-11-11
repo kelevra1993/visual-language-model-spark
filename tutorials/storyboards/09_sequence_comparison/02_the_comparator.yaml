@@ -11,6 +11,8 @@ output_name: sequence_comparison_02_the_comparator
 pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_comparison]
+# The two members of a pair and the 2B sequences of a batch of B pairs, inherent to the comparison of two sequences
+literal_numbers: [two, 2B]
 references:
   - "vision_training/models/sequence/sequence_comparator.py · SequenceComparator"
   - "vision_training/models/sequence/member_fusion.py · MemberFusion"
@@ -20,15 +22,17 @@ references:
 scenes:
   - kind: title_card
     heading: "The comparator"
-    subheading: "Two members, one encoder, three fusions"
-    footnote: "Sequence Comparison (CMP) · chapter 2"
+    subheading: "Two members, one encoder, {{sequence_comparison.code.fusion_type_count_words}} fusions"
+    footnote: "Sequence Comparison (CMP) · the second chapter"
     narration:
       - "The comparator encodes both members with the same backbone, pooling and temporal module, so that their vectors are comparable, then fuses the two vectors for the head."
-      - "This chapter follows the batch of the first chapter through it, with the weights of the trained run at 512 pixels."
+      - "This chapter follows the batch of the first chapter through it, with the weights of the trained run at {{sequence_comparison.run.image_size}} pixels."
 
   - kind: code
     title: "Five steps"
     code_reference: "vision_training/models/sequence/sequence_comparator.py · SequenceComparator.forward"
+    # The steps of SequenceComparator.forward highlighted in the excerpt, which no value of the code counts
+    literal_numbers: [five]
     source:
       file: vision_training/models/sequence/sequence_comparator.py
       function: SequenceComparator.forward
@@ -65,18 +69,18 @@ scenes:
 
   - kind: html
     page: 09_sequence_comparison/pair_batches
-    title: "2 B sequences"
+    title: "2B sequences"
     code_reference: "vision_training/models/sequence/sequence_comparator.py · SequenceComparator.encode_members"
     data:
       layout: "figures:sequence_comparison/animations/pair_batch.json"
       phases: [{name: split, sentence: -1}, {name: stack, sentence: 1}, {name: encode, sentence: 2}]
     elements:
-      - {type: text, position: [880, 700], text: "The squares: the real frame vectors of the trained comparator, 64 average pooled channels on a mosaic", font: diagram_small, colour: dim, anchor: ma, appear: 2}
+      - {type: text, position: [880, 700], text: "The squares: the real frame vectors of the trained comparator, {{sequence_comparison.batch.frame_features}} average pooled channels on a mosaic", font: diagram_small, colour: dim, anchor: ma, appear: 2}
     narration:
       - "The batch of the first chapter, split into its before and after members of {{sequence_comparison.batch.pair_count_words}} by {{sequence_comparison.batch.longest_member_words}} frames."
       - "Stacked along the batch axis, they form {{sequence_comparison.batch.stacked_count_words}} sequences of {{sequence_comparison.batch.longest_member_words}} frames, for one call to encode frames."
-      - "Its {{sequence_comparison.batch.real_frames}} real frames go through the backbone at 512 pixels, 64 channels at 32 by 32 after the last block, and the average pooling gives {{sequence_comparison.batch.frame_features}} features per frame: these squares are their real vectors."
-      - "The padding frames, {{sequence_comparison.batch.padding_frames_words}} of them here, get zero vectors without reaching the backbone."
+      - "Its {{sequence_comparison.batch.real_frames}} real frames go through the backbone at {{sequence_comparison.run.image_size}} pixels, {{sequence_comparison.backbone.channels}} channels at {{sequence_comparison.backbone.map_size}} by {{sequence_comparison.backbone.map_size}} after the last block, and the average pooling gives {{sequence_comparison.batch.frame_features}} features per frame: these squares are their real vectors."
+      - "The padding frames, {{sequence_comparison.batch.padding_frames_words}} of them here, get vectors of zeros without reaching the backbone."
 
   - kind: code
     title: "One temporal module for both members"
@@ -89,54 +93,54 @@ scenes:
       - {match: "if before_mask is None|self.temporal_module\\(frame_features=before_features", sentences: [1]}
     narration:
       - "The temporal module, shared by both members, also summarizes the 2B sequences in one call, then the result is cut back into the before and after vectors: here a mean pooling, {{sequence_comparison.features.member}} features per member and no weights."
-      - "Without masks, every member is summarised on its own; any of the seven temporal modules works, but never a causal one."
+      - "Without masks, every member is summarised on its own; any of the {{sequence_comparison.code.temporal_type_count_words}} temporal modules works, but never a causal one."
 
   - kind: html
     page: diagram
-    title: "Three fusions"
+    title: "The {{sequence_comparison.code.fusion_type_count_words}} fusions"
     code_reference: "vision_training/models/sequence/member_fusion.py · MemberFusion.combine_member_vectors"
     elements:
       - {type: text, position: [40, 40], text: "before vector b, after vector a: {{sequence_comparison.features.member}} features each", font: diagram_bold}
       # Concatenation
       - {type: text, position: [40, 150], text: "concatenation · FCAT", font: diagram_bold, appear: 1, highlight: [1]}
-      - {type: box, box: [500, 120, 760, 190], text: "b · 64", font: diagram_small, fill: "#1b3f32", outline: aqua, appear: 1}
-      - {type: box, box: [770, 120, 1030, 190], text: "a · 64", font: diagram_small, fill: "#4a2233", outline: magenta, appear: 1}
-      - {type: text, position: [1600, 155], text: "128 features", font: diagram_text, anchor: rm, appear: 1}
+      - {type: box, box: [500, 120, 760, 190], text: "b · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#1b3f32", outline: aqua, appear: 1}
+      - {type: box, box: [770, 120, 1030, 190], text: "a · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#4a2233", outline: magenta, appear: 1}
+      - {type: text, position: [1600, 155], text: "{{sequence_comparison.features.concatenation}} features", font: diagram_text, anchor: rm, appear: 1}
       # Difference
       - {type: text, position: [40, 300], text: "difference · FDIF (this run)", font: diagram_bold, appear: 2, highlight: [2]}
-      - {type: box, box: [500, 270, 760, 340], text: "b · 64", font: diagram_small, fill: "#1b3f32", outline: aqua, appear: 2}
-      - {type: box, box: [770, 270, 1030, 340], text: "a · 64", font: diagram_small, fill: "#4a2233", outline: magenta, appear: 2}
-      - {type: box, box: [1040, 270, 1300, 340], text: "a − b · 64", font: diagram_small, fill: "#4a3a10", outline: yellow, appear: 2}
-      - {type: text, position: [1600, 305], text: "192 features", font: diagram_text, anchor: rm, appear: 2}
+      - {type: box, box: [500, 270, 760, 340], text: "b · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#1b3f32", outline: aqua, appear: 2}
+      - {type: box, box: [770, 270, 1030, 340], text: "a · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#4a2233", outline: magenta, appear: 2}
+      - {type: box, box: [1040, 270, 1300, 340], text: "a − b · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#4a3a10", outline: yellow, appear: 2}
+      - {type: text, position: [1600, 305], text: "{{sequence_comparison.features.difference}} features", font: diagram_text, anchor: rm, appear: 2}
       # Cross attention
       - {type: text, position: [40, 450], text: "cross_attention · FXA4", font: diagram_bold, appear: 3, highlight: [3]}
       - {type: box, box: [500, 410, 1300, 490], text: "every frame attends to the real frames of the other member:\none MultiheadAttention and LayerNorm for both directions", font: diagram_small, outline: violet, appear: 3}
-      - {type: box, box: [500, 520, 760, 590], text: "b · 64", font: diagram_small, fill: "#1b3f32", outline: aqua, appear: 3}
-      - {type: box, box: [770, 520, 1030, 590], text: "a · 64", font: diagram_small, fill: "#4a2233", outline: magenta, appear: 3}
-      - {type: box, box: [1040, 520, 1300, 590], text: "a − b · 64", font: diagram_small, fill: "#4a3a10", outline: yellow, appear: 3}
-      - {type: text, position: [1600, 555], text: "192 features", font: diagram_text, anchor: rm, appear: 3}
-      - {type: text, position: [40, 650], text: "Fusion.number_heads must divide the 64 channels of the last backbone block", font: diagram_small, colour: dim, appear: 4}
+      - {type: box, box: [500, 520, 760, 590], text: "b · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#1b3f32", outline: aqua, appear: 3}
+      - {type: box, box: [770, 520, 1030, 590], text: "a · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#4a2233", outline: magenta, appear: 3}
+      - {type: box, box: [1040, 520, 1300, 590], text: "a − b · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#4a3a10", outline: yellow, appear: 3}
+      - {type: text, position: [1600, 555], text: "{{sequence_comparison.features.cross_attention}} features", font: diagram_text, anchor: rm, appear: 3}
+      - {type: text, position: [40, 650], text: "Fusion.number_heads must divide the {{sequence_comparison.backbone.channels}} channels of the last backbone block", font: diagram_small, colour: dim, appear: 4}
     narration:
       - "The fusion combines the two member vectors into the input of the head."
-      - "Concatenation puts the before and after vectors side by side, 128 features, the FCAT token."
+      - "Concatenation puts the before and after vectors side by side, {{sequence_comparison.features.concatenation}} features, the FCAT token."
       - "Difference adds the after vector minus the before vector, {{sequence_comparison.features.pair}} features, the FDIF of this run: the change between the two members made explicit, so that the head does not have to learn the subtraction."
-      - "Cross attention first lets every frame of a member attend to the real frames of the other member, with one attention layer and one layer normalization shared by both directions, the padding reset to zero, then gives the same 192 features, FXA followed by the number of heads."
-      - "Suppose you change the number of heads: the channels of the last backbone block must stay a multiple of it, 64 here, for four heads."
+      - "Cross attention first lets every frame of a member attend to the real frames of the other member, with one attention layer and one layer normalization shared by both directions, the padding reset to zeros, then gives the same {{sequence_comparison.features.cross_attention}} features, FXA followed by the number of heads."
+      - "Suppose you change the number of heads: the channels of the last backbone block must stay a multiple of it, {{sequence_comparison.backbone.channels}} here, for {{sequence_comparison.run.fusion_number_heads_words}} heads."
 
   - kind: html
     page: diagram
     title: "The head and the weights"
     code_reference: "vision_training/models/classification/classification_head.py · ClassificationHead"
     elements:
-      - {type: box, box: [20, 50, 360, 170], text: "pair vector\n[16, 192]", font: diagram_small, outline: yellow}
+      - {type: box, box: [20, 50, 360, 170], text: "pair vector\n[{{sequence_comparison.run.batch_size}}, {{sequence_comparison.features.pair}}]", font: diagram_small, outline: yellow}
       - {type: arrow, points: [[360, 110], [420, 110]]}
-      - {type: box, box: [420, 50, 1180, 170], text: "Dropout 0.2 · Linear 192 → 64 · ReLU\nDropout 0.2 · Linear 64 → 2", font: diagram_small, outline: violet, highlight: [0]}
+      - {type: box, box: [420, 50, 1180, 170], text: "Dropout {{sequence_comparison.run.head_dropout_rate}} · Linear {{sequence_comparison.features.pair}} → {{sequence_comparison.run.head_hidden_units}} · ReLU\nDropout {{sequence_comparison.run.head_dropout_rate}} · Linear {{sequence_comparison.run.head_hidden_units}} → {{sequence_comparison.run.class_count}}", font: diagram_small, outline: violet, highlight: [0]}
       - {type: arrow, points: [[1180, 110], [1240, 110]]}
-      - {type: box, box: [1240, 50, 1740, 170], text: "softmax\nclass probabilities [16, 2]", font: diagram_small, outline: violet}
+      - {type: box, box: [1240, 50, 1740, 170], text: "softmax\nclass probabilities [{{sequence_comparison.run.batch_size}}, {{sequence_comparison.run.class_count}}]", font: diagram_small, outline: violet}
       - {type: bars, box: [60, 280, 1500, 600], orientation: horizontal, label_width: 360, value_width: 160, values: ["{{sequence_comparison.parameters.backbone}}", "{{sequence_comparison.parameters.temporal_module}}", "{{sequence_comparison.parameters.member_fusion}}", "{{sequence_comparison.parameters.classification_head}}"], labels: ["backbone", "temporal module", "member fusion", "head"], value_labels: ["{{sequence_comparison.parameters.backbone:,}}", "{{sequence_comparison.parameters.temporal_module:,}}", "{{sequence_comparison.parameters.member_fusion:,}}", "{{sequence_comparison.parameters.classification_head:,}}"], colours: [blue, aqua, yellow, violet], appear: 1}
       - {type: text, position: [60, 650], text: "total {{sequence_comparison.parameters.total:,}} parameters, {{sequence_comparison.parameters.total_megabytes}} MB in float32", font: diagram_bold, appear: 1}
     narration:
-      - "The head is the one of the classifier on {{sequence_comparison.features.pair}} features: dropout, 64 hidden units, dropout again, and two logits read with a softmax."
+      - "The head is the one of the classifier on {{sequence_comparison.features.pair}} features: dropout, {{sequence_comparison.run.head_hidden_units}} hidden units, dropout again, and {{sequence_comparison.run.class_count_words}} logits read with a softmax."
       - "With a mean pooling and a difference fusion, only the backbone and the head have weights: {{sequence_comparison.parameters.total:,}} parameters, under one megabyte."
 
   - kind: html
@@ -147,12 +151,12 @@ scenes:
       - {type: text, position: [40, 30], text: "Training and evaluation", font: diagram_bold}
       - {type: box, box: [40, 90, 840, 420], text: "before and after padded to T, with their masks\n\nencode_members: 2B sequences, one call\nsummarise_members: one call\n\nthe padding never encoded", font: diagram_text, outline: aqua}
       - {type: text, position: [920, 30], text: "Export · InferenceSequenceComparator", font: diagram_bold, appear: 0}
-      - {type: box, box: [920, 90, 1720, 420], text: "before_images [B, T1, 3, 512, 512]\nafter_images [B, T2, 3, 512, 512]\nT1, T2 from 1 to 50, every frame real\n\nevery member encoded and summarised alone", font: diagram_text, outline: magenta, appear: 0}
-      - {type: box, box: [40, 480, 1720, 600], text: "4 pairs of the batch: largest difference between the two paths {{sequence_comparison.batch.path_difference:.1e}}", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [920, 90, 1720, 420], text: "before_images [B, T1, {{sequence_comparison.run.input_channels}}, {{sequence_comparison.run.image_size}}, {{sequence_comparison.run.image_size}}]\nafter_images [B, T2, {{sequence_comparison.run.input_channels}}, {{sequence_comparison.run.image_size}}, {{sequence_comparison.run.image_size}}]\nT1, T2 from one to {{sequence_comparison.run.maximum_sequence_length}}, every frame real\n\nevery member encoded and summarised alone", font: diagram_text, outline: magenta, appear: 0}
+      - {type: box, box: [40, 480, 1720, 600], text: "{{sequence_comparison.batch.pair_count}} pairs of the batch: largest difference between the training and export paths {{sequence_comparison.batch.path_difference:.1e}}", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
       - {type: text, position: [40, 650], text: "sequence normalization with the pair scope: the export concatenates both members along one frame axis", font: diagram_small, colour: dim, appear: 2}
     narration:
-      - "The export, InferenceSequenceComparator, takes two inputs, before images and after images, each with its own number of frames up to 50, and encodes and summarizes every member alone."
-      - "On the four pairs of the batch, the masked path of the training and the per-member path of the export give the same probabilities, to less than one in {{sequence_comparison.batch.path_inverse_bound:,}}."
+      - "The export, InferenceSequenceComparator, takes two inputs, before images and after images, each with its own number of frames up to {{sequence_comparison.run.maximum_sequence_length}}, and encodes and summarizes every member alone."
+      - "On the {{sequence_comparison.batch.pair_count_words}} pairs of the batch, the masked path of the training and the per-member path of the export give the same probabilities, to less than one in {{sequence_comparison.batch.path_inverse_bound:,}}."
       - "Assuming the backbone uses the sequence normalization with the pair scope, the export concatenates the two members along one frame axis instead, so that they share their statistics as in training."
 
   - kind: html
@@ -163,13 +167,13 @@ scenes:
       - {type: text, position: [214, 110], font: code_text, segments: [{text: "CMP", colour: dim}, {text: "_", colour: dim}, {text: "IN-KAR-512", colour: dim}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", colour: dim}, {text: "_", colour: dim}, {text: "T50", highlight: [0]}, {text: "_", colour: dim}, {text: "MEAN", highlight: [0]}, {text: "_", colour: dim}, {text: "FDIF", highlight: [0]}, {text: "_", colour: dim}, {text: "HAVG.64", highlight: [1]}, {text: "_", colour: dim}, {text: "MC2", highlight: [1]}]}
       - {type: box, box: [420, 250, 820, 400], text: "T50 · MEAN\n\nmaximum length per member,\nmean pooling", font: diagram_small, outline: aqua, appear: 0, highlight: [0]}
       - {type: box, box: [880, 250, 1280, 400], text: "FDIF\n\nFCAT · FDIF · FXA<heads>\n+ SNP with the pair scope", font: diagram_small, outline: yellow, appear: 0, highlight: [0, 2]}
-      - {type: box, box: [1340, 250, 1740, 400], text: "HAVG.64 · MC2\n\naverage pooling, 64 hidden\nunits, 2 classes", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [1340, 250, 1740, 400], text: "HAVG.64 · MC2\n\naverage pooling, {{sequence_comparison.run.head_hidden_units}} hidden\nunits, {{sequence_comparison.run.class_count}} classes", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1072, 130], [620, 245]], appear: 0}
       - {type: arrow, points: [[1170, 130], [1080, 245]], appear: 0}
       - {type: arrow, points: [[1340, 130], [1540, 245]], appear: 1}
     narration:
       - "The run name gives the maximum length per member, T50, the temporal module, MEAN, and the fusion, FDIF, between the backbone and the head."
-      - "HAVG.64 is the average pooling with 64 hidden units, and MC2 the two classes."
+      - "HAVG.64 is the average pooling with {{sequence_comparison.run.head_hidden_units}} hidden units, and MC2 the {{sequence_comparison.run.class_count_words}} classes."
       - "SNP is added after the fusion only when the backbone uses the sequence normalization with the pair scope."
 
   - kind: summary
@@ -178,7 +182,7 @@ scenes:
       - {text: "One backbone, pooling and temporal module for both members"}
       - {text: "Training: 2B padded sequences, one encoder call"}
       - {text: "Export: every member alone, its own length"}
-      - {text: "FCAT 2 × 64, FDIF and FXA 3 × 64 features"}
+      - {text: "FCAT {{sequence_comparison.features.concatenation_multiple}} × {{sequence_comparison.features.member}}, FDIF and FXA {{sequence_comparison.features.difference_multiple}} × {{sequence_comparison.features.member}} features"}
       - {text: "Mean pooling and difference: no weights besides backbone and head"}
       - {text: "Fusion.number_heads divides the last block channels"}
     narration:

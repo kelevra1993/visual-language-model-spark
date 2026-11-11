@@ -9,6 +9,8 @@ output_name: sequence_comparison_03_training_and_evaluation
 pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_comparison]
+# The 2B sequences of a batch of B pairs, inherent to the comparison of two sequences
+literal_numbers: [2B]
 references:
   - "vision_training/trainers/sequence_comparison_trainer.py · SequenceComparisonTrainer.describe_split"
   - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.compute_evaluation_results"
@@ -18,9 +20,9 @@ scenes:
   - kind: title_card
     heading: "Training and evaluation"
     subheading: "What the run prints and writes, where it fails"
-    footnote: "Sequence Comparison (CMP) · chapter 3"
+    footnote: "Sequence Comparison (CMP) · the third chapter"
     narration:
-      - "This chapter reads the README run of the comparison: {{sequence_comparison.run.iteration:,}} iterations at 512 pixels, a checkpoint evaluated every 500 iterations on the {{sequence_comparison.evaluation.test_pairs}} test pairs."
+      - "This chapter reads the README run of the comparison: {{sequence_comparison.run.iteration:,}} iterations at {{sequence_comparison.run.image_size}} pixels, a checkpoint evaluated every {{sequence_comparison.run.weight_saving_iterations}} iterations on the {{sequence_comparison.evaluation.test_pairs}} test pairs."
       - "It ends with the pitfalls of the task."
 
   - kind: image
@@ -41,9 +43,9 @@ scenes:
       - {box: "{{sequence_comparison.console.header_box}}", sentences: [0, 1]}
       - {box: "{{sequence_comparison.console.interval_box}}", sentences: [1]}
     narration:
-      - "Every 100 iterations, the summary gives the pairs per second, and the real frames of both members per second."
+      - "Every {{sequence_comparison.run.information_dump}} iterations, the summary gives the pairs per second, and the real frames of both members per second."
       - "The first interval ran at {{sequence_comparison.console.first_throughput}} pairs and {{sequence_comparison.console.first_frame_throughput}} frames per second, in {{sequence_comparison.console.first_interval_time}}; the next ones at {{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second."
-      - "At 512 pixels a pair costs far more than a sequence of the classifier at 128 pixels, which ran at more than 50 sequences per second."
+      - "At {{sequence_comparison.run.image_size}} pixels a pair costs far more than a sequence of the classifier at {{sequence_comparison.classifier.image_size}} pixels, which ran at more than {{sequence_comparison.classifier.throughput_bound}} sequences per second."
 
   - kind: image
     title: "Training curves"
@@ -56,8 +58,8 @@ scenes:
       - {box: "{{sequence_comparison.training.loss_panel_box}}", sentences: [0]}
       - {box: "{{sequence_comparison.training.accuracy_panel_box}}", sentences: [1]}
     narration:
-      - "The training loss starts at {{sequence_comparison.training.train_total_loss.first:.3f}}, the natural log of two for two classes, and ends at {{sequence_comparison.training.train_total_loss.last:.3f}} at iteration 1,000, the validation batches following it."
-      - "The test accuracy is {{sequence_comparison.evaluation.accuracy.iteration_500:.3f}} at iteration 500, and the same {{sequence_comparison.evaluation.accuracy.iteration_1000:.3f}} at iteration 1,000."
+      - "The training loss starts at {{sequence_comparison.training.train_total_loss.first:.2f}}, about the natural log of {{sequence_comparison.run.class_count_words}} for {{sequence_comparison.run.class_count_words}} classes, and ends at {{sequence_comparison.training.train_total_loss.last:.2f}} at iteration {{sequence_comparison.run.iteration:,}}, the validation batches following it."
+      - "The test accuracy is {{sequence_comparison.evaluation.accuracy.iteration_500:.1%}} at iteration {{sequence_comparison.evaluation.iterations[0]:,}}, and the same {{sequence_comparison.evaluation.accuracy.iteration_1000:.1%}} at iteration {{sequence_comparison.evaluation.iterations[1]:,}}."
 
   - kind: code
     title: "Results.txt"
@@ -71,11 +73,13 @@ scenes:
       - {match: "Accuracy  |Top-1 Accuracy|Macro ROC AUC", sentences: [0]}
       - {match: "^   same_number_of_objects ", sentences: [1]}
       - {match: "^   loss_of_object ", sentences: [2]}
+    # The top-1 accuracy is the name of a metric of the report
+    literal_numbers: [top-1]
     narration:
       - "The results file gives the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-1 accuracy, equal to the accuracy as it counts the most probable class only, and the macro ROC AUC and average precision."
-      - "Same number of objects comes first, its F1 the lowest: a recall of 1, but a precision of {{sequence_comparison.evaluation_class.same_precision:.3f}}."
-      - "Loss of object keeps a precision of one with a recall of {{sequence_comparison.evaluation_class.loss_recall:.3f}}: every error is a missed loss."
-      - "The current code writes a top-5 accuracy instead, always one with two classes, and adds a Per Class Recall table: every recall with its exact 95% interval, the pairs being independent."
+      - "Same number of objects comes first, its F1 the lowest: a recall of {{sequence_comparison.evaluation_class.same_recall:.0%}}, but a precision of {{sequence_comparison.evaluation_class.same_precision:.1%}}."
+      - "Loss of object keeps a precision of {{sequence_comparison.evaluation_class.loss_precision:.0%}} with a recall of {{sequence_comparison.evaluation_class.loss_recall:.1%}}: every error is a missed loss."
+      - "The current code writes a top-{{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES}} accuracy instead, always one with {{sequence_comparison.run.class_count_words}} classes, and adds a Per Class Recall table: every recall with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval, the pairs being independent."
 
   - kind: image
     title: "The evaluation images"
@@ -84,8 +88,8 @@ scenes:
       - {box: "{{sequence_comparison.evaluation.composite.row_0_image_0_box}}", from_sentence: 0}
       - {box: "{{sequence_comparison.evaluation.composite.row_0_box}}", from_sentence: 1}
     narration:
-      - "The confusion matrix of iteration 1,000: {{sequence_comparison.errors.count_words}} loss pairs given same, and no same pair given loss."
-      - "The ROC and precision-recall curves of both classes stay close to the corner, a macro ROC AUC of {{sequence_comparison.evaluation.macro_roc_auc.iteration_1000:.4f}}, slightly below its {{sequence_comparison.evaluation.macro_roc_auc.iteration_500:.4f}} of iteration 500."
+      - "The confusion matrix of iteration {{sequence_comparison.run.iteration:,}}: {{sequence_comparison.errors.count_words}} loss pairs given same, and no same pair given loss."
+      - "The ROC and precision-recall curves of both classes stay close to the corner, a macro ROC AUC of {{sequence_comparison.evaluation.macro_roc_auc.iteration_1000:.1%}}, slightly below its {{sequence_comparison.evaluation.macro_roc_auc.iteration_500:.1%}} of iteration {{sequence_comparison.evaluation.iterations[0]:,}}."
 
   - kind: image
     title: "A wrong pair"
@@ -94,10 +98,10 @@ scenes:
       - {box: "{{sequence_comparison.samples.row_0_image_0_box}}", from_sentence: 1}
       - {box: "{{sequence_comparison.samples.row_0_image_1_box}}", from_sentence: 3}
     narration:
-      - "The sample images draw the real before frames above the real after frames, four columns per member, under the true class, the predicted one and its probability."
+      - "The sample images draw the real before frames above the real after frames, {{constant:vision_training/trainers/sequence_classification_trainer.py#FRAME_GRID_COLUMNS:words}} columns per member, under the true class, the predicted one and its probability."
       - "Test pair {{sequence_comparison.samples.wrong_number_words}} is a loss with {{sequence_comparison.errors.pair_0.before_words}} frames in each member, given same at {{sequence_comparison.samples.test_000003.probability:.2f}}: the object it lost is the small dark rectangle, the hardest to see in every frame."
-      - "The other two errors, pairs {{sequence_comparison.errors.pair_1.number}} and {{sequence_comparison.errors.pair_2.number}}, are losses too, given same at {{sequence_comparison.errors.pair_1.probability:.2f}} and {{sequence_comparison.errors.pair_2.probability:.2f}}."
-      - "Pair {{sequence_comparison.samples.right_number_words}} keeps its objects, and is right at {{sequence_comparison.samples.test_000000.probability:.3f}}."
+      - "The other {{sequence_comparison.errors.other_count_words}} errors, pairs {{sequence_comparison.errors.pair_1.number}} and {{sequence_comparison.errors.pair_2.number}}, are losses too, given same at {{sequence_comparison.errors.pair_1.probability:.2f}} and {{sequence_comparison.errors.pair_2.probability:.2f}}."
+      - "Pair {{sequence_comparison.samples.right_number_words}} keeps its objects, and is right at {{sequence_comparison.samples.test_000000.probability:.2%}}."
 
   - kind: image
     title: "Thresholds"
@@ -105,8 +109,8 @@ scenes:
     highlights:
       - {box: "{{sequence_comparison.probabilities.panel_box}}", sentences: [0]}
     narration:
-      - "The predictions file gives every pair with its two probabilities, here the probability of same for both true classes."
-      - "The thresholds file keeps a precision of 0.99 for each class: same needs a probability of {{sequence_comparison.probabilities.same_number_of_objects.threshold:.3f}}, which keeps a recall of {{sequence_comparison.probabilities.same_number_of_objects.recall:.2f}}."
+      - "The predictions file gives every pair with its {{sequence_comparison.run.class_count_words}} probabilities, here the probability of same for both true classes."
+      - "The thresholds file keeps a precision of {{sequence_comparison.probabilities.target_precision}} for each class: same needs a probability of {{sequence_comparison.probabilities.same_number_of_objects.threshold:.2f}}, which keeps a recall of {{sequence_comparison.probabilities.same_number_of_objects.recall:.2f}}."
       - "Loss of object needs only {{sequence_comparison.probabilities.loss_of_object.threshold:.2f}}, and keeps a recall of {{sequence_comparison.probabilities.loss_of_object.recall:.2f}}, above the {{sequence_comparison.evaluation_class.loss_recall:.2f}} of the most probable class: in a situation where a deployment must not miss a loss, it reads these thresholds rather than the argmax."
 
   - kind: html
@@ -115,23 +119,23 @@ scenes:
     code_reference: "vision_training/models/sequence/sequence_comparator.py · SequenceComparator.encode_members"
     elements:
       - {type: box, box: [40, 40, 860, 230], text: "training and export paths\n2B padded sequences, members alone:\nthe same to {{sequence_comparison.batch.path_difference:.0e}} in evaluation mode", font: diagram_text, outline: yellow, highlight: [0]}
-      - {type: box, box: [900, 40, 1720, 230], text: "the dataset on this machine\nmembers of 2 to 6 frames of 128 pixels,\nread at 512", font: diagram_text, outline: yellow, highlight: [1]}
-      - {type: box, box: [40, 270, 860, 460], text: "512 pixel pairs\n{{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second", font: diagram_text, outline: yellow, highlight: [1]}
+      - {type: box, box: [900, 40, 1720, 230], text: "the dataset on this machine\nmembers of {{sequence_comparison.lengths.minimum_member}} to {{sequence_comparison.lengths.maximum_member}} frames of {{sequence_comparison.dataset.frame_size}} pixels,\nread at {{sequence_comparison.run.image_size}}", font: diagram_text, outline: yellow, highlight: [1]}
+      - {type: box, box: [40, 270, 860, 460], text: "{{sequence_comparison.run.image_size}} pixel pairs\n{{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second", font: diagram_text, outline: yellow, highlight: [1]}
       - {type: box, box: [900, 270, 1720, 460], text: "Fusion keys\nrequired for every type,\nSNP only with sequence normalization", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [40, 500, 860, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(count_split_pairs)", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [900, 500, 1720, 690], text: "predictions.csv\npair names only,\nrows reshuffled at every evaluation", font: diagram_text, outline: yellow, highlight: [2]}
     narration:
       - "The pitfalls of the task: training encodes 2B padded sequences while the export encodes every member alone, which agree in evaluation mode, but only the exported path takes members of different lengths without padding."
-      - "Say you generate a new data set: the generator now writes two to twelve frames of 512 pixels, where the one on this machine holds two to six frames of 128 pixels, read at 512, so its batches are longer and slower."
+      - "Say you generate a new data set: the generator now writes {{sequence_comparison.generator.minimum_frames_words}} to {{sequence_comparison.generator.maximum_frames_words}} frames of {{sequence_comparison.generator.image_size}} pixels, where the one on this machine holds {{sequence_comparison.lengths.minimum_member_words}} to {{sequence_comparison.lengths.maximum_member_words}} frames of {{sequence_comparison.dataset.frame_size}} pixels, read at {{sequence_comparison.run.image_size}}, so its batches are longer and slower."
       - "The fusion keys are required even when unused, the iterations per epoch are counted before the label mapping, and the predictions file names a pair by its name only, its rows in a new order at every evaluation, since the test loader shuffles."
 
   - kind: summary
     title: "Recap"
     items:
       - {text: "Console: pairs and real frames per second"}
-      - {text: "Accuracy {{sequence_comparison.evaluation.accuracy.iteration_1000:.3f}} at iterations 500 and 1,000"}
+      - {text: "Accuracy {{sequence_comparison.evaluation.accuracy.iteration_1000:.3f}} at iterations {{sequence_comparison.evaluation.iterations[0]:,}} and {{sequence_comparison.evaluation.iterations[1]:,}}"}
       - {text: "Every error a missed loss, given same"}
-      - {text: "class_thresholds.json: one threshold per class at precision 0.99"}
+      - {text: "class_thresholds.json: one threshold per class at precision {{sequence_comparison.probabilities.target_precision}}"}
       - {text: "Samples: before frames above after frames"}
       - {text: "Training: 2B padded sequences · export: members alone"}
     narration:

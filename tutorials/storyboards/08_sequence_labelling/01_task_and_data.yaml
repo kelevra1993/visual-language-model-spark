@@ -21,15 +21,17 @@ scenes:
   - kind: title_card
     heading: "One class per frame"
     subheading: "Sequence labelling: where in a sequence something happens"
-    footnote: "Sequence Labelling (M2M) · chapter 1"
+    footnote: "Sequence Labelling (M2M) · the first chapter"
     narration:
       - "Sequence labeling gives a class to every frame of a sequence, so that the answer says where in the sequence something happens, not only whether it happens."
       - "This chapter covers when to choose it, its synthetic data set, the labels file, the class balance, and how whole sequences of different lengths are batched."
 
   - kind: html
     page: diagram
-    title: "Four sequence tasks, four outputs"
+    title: "The {{sequence_labelling.code.sequence_task_count:words}} sequence tasks and their outputs"
     code_reference: "vision_training/models/sequence/sequence_labeller.py · SequenceLabeller"
+    # Positions of the frames of the test sequence drawn in the diagram
+    literal_numbers: ["0", "1", "2", "3"]
     elements:
       # The test sequence of the next scene, shared by the four tasks
       - {type: text, position: [40, 70], text: "test_017424", font: diagram_monospace, anchor: lm}
@@ -61,7 +63,7 @@ scenes:
       - {type: box, box: [1090, 560, 1280, 640], text: "wanted class B", font: diagram_small, outline: magenta, appear: 3}
       - {type: text, position: [1330, 600], text: "N frames per wanted class,\nchosen by a decoding", font: diagram_small, colour: dim, anchor: lm, appear: 3}
     narration:
-      - "The four sequence tasks share the encoder of the frames, the backbone run on every frame, and a temporal module; they differ by what they predict."
+      - "The {{sequence_labelling.code.sequence_task_count:words}} sequence tasks share the encoder of the frames, the backbone run on every frame, and a temporal module; they differ by what they predict."
       - "The sequence classification gives one class to the whole sequence, and the sequence comparison one class to a pair of sequences, a before and an after."
       - "The sequence labeling gives a class to every frame, any number of frames holding any class: when the goal is to find the frame of the event, choose it."
       - "The frame selection also scores every frame, but returns a fixed number of frames per wanted class, which its decoding imposes: should you know that count in advance, choose it."
@@ -77,13 +79,16 @@ scenes:
     highlights:
       - {box: "{{sequence_labelling.dataset.strip_frame_1_box}}", sentences: [3]}
       - {box: "{{sequence_labelling.dataset.strip_frame_3_box}}", sentences: [4]}
+    # Frame positions and shape counts of the test sequence test_017424 drawn on screen (STRIP_SEQUENCE_NAME of
+    # tutorials/figures/sequence_labelling/dataset_figures.py), read from its frames, which no file records
+    literal_numbers: [zero, two, three]
     narration:
-      - "The synthetic data set of the task, synthetic changing shapes, holds {{sequence_labelling.dataset.training_sequences:,}} training sequences of two to 12 frames of {{sequence_labelling.dataset.image_size}} pixels, every frame showing five to ten shapes of 35 classes."
+      - "The synthetic data set of the task, synthetic changing shapes, holds {{sequence_labelling.dataset.training_sequences:,}} training sequences of {{sequence_labelling.dataset.minimum_sequence_frames:words}} to {{sequence_labelling.dataset.maximum_sequence_frames}} frames of {{sequence_labelling.dataset.image_size}} pixels, every frame showing {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LABELLING_MINIMUM_OBJECTS:words}} to {{sequence_labelling.generator.maximum_objects:words}} shapes of {{sequence_labelling.dataset.shape_class_count}} classes."
       - "From the second frame on, a shape of a random class appears, one of the shapes disappears, or nothing changes, with the same probability among the changes the number of shapes allows."
       - "And every frame draws all its shapes again, with a new size, color, rotation and position: a change is told only by comparing the classes of the shapes with the previous frame."
       - "Here, frame zero shows one star and frame one two of them: frame one is appearing star."
       - "Frame two shows a third star, and frame three still three stars but no rectangle: disappearing rectangle."
-      - "That gives {{sequence_labelling.dataset.class_count}} classes: no change, always the label of the first frame, then appearing and disappearing for each of the 35 shape classes."
+      - "That gives {{sequence_labelling.dataset.class_count}} classes: no change, always the label of the first frame, then appearing and disappearing for each of the {{sequence_labelling.dataset.shape_class_count}} shape classes."
 
   - kind: html
     page: diagram
@@ -104,12 +109,12 @@ scenes:
         source: {file: "figures:sequence_labelling/listings/label_mapping.txt"}
         highlights:
           - {match: "\"1\": 0", sentences: [1]}
-      - {type: box, box: [1040, 400, 1720, 560], text: "category left out of the mapping\n→ label -100: no loss, no metric,\nthe end of a segment", font: diagram_small, outline: red, appear: 2, highlight: [2]}
+      - {type: box, box: [1040, 400, 1720, 560], text: "category left out of the mapping\n→ label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: no loss, no metric,\nthe end of a segment", font: diagram_small, outline: red, appear: 2, highlight: [2]}
       - {type: box, box: [1040, 590, 1720, 700], text: "one category per frame: not checked", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "A sequence of the labels file lists its frames in order and, in frame category ids, the category of every frame: here no change twice, then disappearing trapezoid."
-      - "The label mapping file maps every category to a class index, category one, no change, becoming class zero."
-      - "A frame whose category the mapping leaves out gets the label minus 100: the loss and the metrics ignore it, and it ends a segment."
+      - "The label mapping file maps every category to a class index, category {{sequence_labelling.listings.no_change_category:words}}, no change, becoming class {{sequence_labelling.listings.no_change_class_index:words}}."
+      - "A frame whose category the mapping leaves out gets the label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: the loss and the metrics ignore it, and it ends a segment."
       - "Imagine a list one category too long or too short: nothing checks it, so the collate of the loader fails on the first batch holding that sequence, an open item of the suggestions file."
 
   - kind: image
@@ -120,10 +125,10 @@ scenes:
       - {box: "{{sequence_labelling.dataset.balance_position_panel_box}}", sentences: [2, 3]}
     narration:
       - "The record of the run, its data json file, counts the frames of every class: {{sequence_labelling.dataset.no_change_frames:,}} of the {{sequence_labelling.dataset.training_frames:,}} training frames are no change, {{sequence_labelling.dataset.no_change_share:.1%}}."
-      - "Each of the 70 change classes holds {{sequence_labelling.dataset.change_class_minimum_frames:,}} to {{sequence_labelling.dataset.change_class_maximum_frames:,}} frames, under 0.8% of the frames each."
+      - "Each of the {{sequence_labelling.dataset.change_class_count}} change classes holds {{sequence_labelling.dataset.change_class_minimum_frames:,}} to {{sequence_labelling.dataset.change_class_maximum_frames:,}} frames, at most {{sequence_labelling.dataset.change_class_maximum_share:.2%}} of the frames each."
       - "The first frame of every sequence is no change by construction, and on the later frames no change falls to {{sequence_labelling.dataset.prior_later_no_change_share:.0%}}."
       - "So a model that only knows the position of a frame already reaches a cross entropy of {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, against {{sequence_labelling.dataset.uniform_cross_entropy:.2f}} for a uniform guess over the {{sequence_labelling.dataset.class_count}} classes."
-      - "Keep these two numbers in mind: the next two chapters recognize a failed run by them."
+      - "Keep both numbers in mind: the next chapters recognize a failed run by them."
 
   - kind: image
     title: "Whole sequences, padded batches"
@@ -133,10 +138,10 @@ scenes:
       - {box: "{{sequence_labelling.batch.row_1_box}}", sentences: [1]}
       - {box: "{{sequence_labelling.batch.grid_box}}", sentences: [2]}
     narration:
-      - "Every sequence is one sample, fed whole: a sequence longer than the maximum sequence length, 50 frames here, is left out of its split with a red warning, never cut into windows."
-      - "The collate function pads the sequences of a batch to the longest one: black frames, masked out by the sequence mask, and the label minus 100, so the padding never reaches the loss."
+      - "Every sequence is one sample, fed whole: a sequence longer than the maximum sequence length, {{sequence_labelling.run.maximum_sequence_length}} frames here, is left out of its split with a red warning, never cut into windows."
+      - "The collate function pads the sequences of a batch to the longest one: black frames, masked out by the sequence mask, and the label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}, so the padding never reaches the loss."
       - "These are the first {{sequence_labelling.batch.sequence_count}} test sequences, read by the sequence data set of the repository and padded by its collate function into a batch of {{sequence_labelling.batch.sequence_count}} sequences of {{sequence_labelling.batch.length}} frames."
-      - "The backbone then runs on the real frames only, {{sequence_labelling.batch.real_frame_total}} of the {{sequence_labelling.batch.frame_slots}} here, and a step can reach the batch size times 50 frames with long sequences."
+      - "The backbone then runs on the real frames only, {{sequence_labelling.batch.real_frame_total}} of the {{sequence_labelling.batch.frame_slots}} here, and a step can reach the batch size times {{sequence_labelling.run.maximum_sequence_length}} frames with long sequences."
 
   - kind: yaml
     title: "The data settings"
@@ -148,22 +153,27 @@ scenes:
       comments: false
     highlights:
       - {match: "task:", sentences: [0]}
-      - {match: "batch_size|size: 512|keep_ratio", sentences: [1]}
+      - {key: ExperimentConfiguration.batch_size, sentences: [1]}
+      - {key: Data.image_settings.size, sentences: [1]}
+      - {key: Data.image_settings.keep_ratio, sentences: [1]}
       - {match: "maximum_sequence_length", sentences: [2]}
       - {match: "mode:", sentences: [3]}
     narration:
       - "In the synthetic configuration, the task key selects the sequence labeling trainer, its checks at launch and the M2M code of the run name."
-      - "A batch holds 16 sequences of frames resized to 512 pixels, their aspect ratio kept by padding."
+      - "A batch holds {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}} sequences of frames resized to {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#Data.image_settings.size}} pixels, their aspect ratio kept by padding."
       - "The maximum sequence length is the only sequence setting: it gives the T50 token of the run name, and the number of learned frame positions of a transformer."
-      - "And the label mapping is multi class: one class per frame among the 71."
+      - "And the label mapping is multi class: one class per frame among the {{sequence_labelling.dataset.class_count}}."
 
   - kind: terminal
     title: "Generate, train, evaluate"
     code_reference: "scripts/data/create_sequence_split_subset.py · create_sequence_split_subset"
+    # The evaluation time of the full test split, measured once by the experiment plan
+    # (documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md), which no file records as a value
+    literal_numbers: ["26", "256"]
     lines:
-      - {role: comment, text: "# Data: task = \"sequence_labelling\" in the main block, 250,000 / 50,000 / 50,000 sequences"}
+      - {role: comment, text: "# Data: task = \"sequence_labelling\" in the main block, {{sequence_labelling.generator.train_sequences:,}} / {{sequence_labelling.generator.validation_sequences:,}} / {{sequence_labelling.generator.test_sequences:,}} sequences"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
-      - {role: comment, text: "# test_10000: 10,000 test sequences drawn with the seed 0, linked to the test frames"}
+      - {role: comment, text: "# test_10000: {{sequence_labelling.subset.sequence_count:,}} test sequences drawn with the seed {{sequence_labelling.subset.seed}}, linked to the test frames"}
       - {role: command, text: "uv run python -m scripts.data.create_sequence_split_subset"}
       - {role: comment, text: "# Training: its only argument is the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml\""}
@@ -171,8 +181,8 @@ scenes:
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
       - "The data set is written by the synthetic data set script, its task set to sequence labeling in its main block."
-      - "Its full test split of 50,000 sequences took 26 minutes to evaluate at 256 pixels, so the split subset script draws test ten thousand, a fixed subset of 10,000 sequences drawn with the seed zero, whose labels file links to the frames of the full split."
-      - "The training takes the synthetic configuration alone; the README run of this series trained it for 2000 iterations, tested on that subset."
+      - "Its full test split of {{sequence_labelling.generator.test_sequences:,}} sequences took 26 minutes to evaluate at 256 pixels, so the split subset script draws test {{sequence_labelling.subset.sequence_count:words}}, a fixed subset of {{sequence_labelling.subset.sequence_count:,}} sequences drawn with the seed {{sequence_labelling.subset.seed:words}}, whose labels file links to the frames of the full split."
+      - "The training takes the synthetic configuration alone; the README run of this series trained it for {{sequence_labelling.training.last_iteration}} iterations, tested on that subset."
       - "And any checkpoint can be evaluated again with the evaluation script, set in its main block like the generator."
 
   - kind: summary
@@ -180,7 +190,7 @@ scenes:
     items:
       - {text: "M2M: one class per frame, any number of frames per class"}
       - {text: "labels.json: frame_category_ids, one category per frame"}
-      - {text: "Unmapped category → label -100: no loss, no metric"}
+      - {text: "Unmapped category → label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: no loss, no metric"}
       - {text: "no_change: {{sequence_labelling.dataset.no_change_share:.1%}} of the frames, always the first one"}
       - {text: "Position prior: cross entropy {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, uniform {{sequence_labelling.dataset.uniform_cross_entropy:.2f}}"}
       - {text: "Whole sequences, padded per batch, longer ones left out"}

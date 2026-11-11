@@ -3,8 +3,8 @@ Dataset figures of the sequence comparison tutorials (chapter 1), made by tutori
 figures.py from the object loss pairs dataset the comparison run trained on: the frames of a training pair and of a
 test pair copied for the HTML scenes, the listings of the split layout and of its labels.json entry, the chart of the
 member lengths of every class, the mask of one training batch built by the pair dataset and the collate of the loaders,
-and the share of padding frames in the batches of the run. Its facts are the sizes of the splits, the classes, the
-lengths and the padding the narration quotes.
+and the share of padding frames in the batches of the run. Its facts are the sizes of the splits, the classes and
+their class indices, the size of the frames on disk, the lengths and the padding the narration quotes.
 """
 
 import json
@@ -17,6 +17,7 @@ from collections import Counter
 from matplotlib import pyplot
 from matplotlib.lines import Line2D
 from pathlib import Path
+from PIL import Image
 from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
@@ -234,6 +235,16 @@ def make_pair_dataset_figures(output_folder: Path, train_folder: Path, label_dic
     facts.update({"mask.values": batch_mask.int().tolist(), "mask.shape": list(batch_mask.shape),
                   "mask.longest_member": int(batch_mask.shape[1]) // 2,
                   "mask.padding_share": round_fact(value=float((~batch_mask).float().mean()))})
+
+    # Class index the label mapping gives every category, and the side of the square frames written on disk
+    for category_identifier, class_index in label_mapping.items():
+        facts[f"dataset.class_index.{category_names[int(category_identifier)]}"] = class_index
+    with Image.open(fp=train_folder / "data" / train_pairs[0]["before"][0]) as first_frame:
+        frame_width, frame_height = first_frame.size
+    if frame_width != frame_height:
+        raise ValueError(f"The frames of {train_folder} are expected square, the first one is {frame_width} x "
+                         f"{frame_height} pixels.")
+    facts["dataset.frame_size"] = frame_width
 
     # Sizes and classes of the splits
     for split_name, manifest in manifests.items():
