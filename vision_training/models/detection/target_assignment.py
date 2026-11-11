@@ -123,9 +123,10 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     This function sits at the heart of the RPN training pipeline. It computes the IoU between every anchor and every
     ground truth box of its image, for all the images at once (the ground truths padded with empty boxes, which
     overlap nothing), categorizing each anchor as foreground (positive object), background (negative), or grey zone
-    (ignored during training). It guarantees that every ground truth box has at least one positive anchor assigned to
-    it to prevent objects from being missed during training. The anchors of an image without ground truth are all
-    background.
+    (ignored during training). The best anchor of every ground truth box is also made positive, so that objects with
+    no anchor above the foreground threshold still train, but it regresses to the box it overlaps the most, as in
+    torchvision and Detectron2: a box whose best anchor overlaps another box more, or a box overlapping no anchor,
+    gets no positive anchor. The anchors of an image without ground truth are all background.
 
     Args:
         batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor contains the
@@ -152,7 +153,7 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=1)
 
     # Store a pristine copy of the best matches before we corrupt it with negative labels
-    # This guarantees we can later recover the best match to fulfill the "at least one anchor per GT box" rule
+    # It gives the box that the forced best anchors of the ground truths regress to
     best_match_ground_truth_index_before_thresholding = best_match_ground_truth_index.clone()
 
     # Create readable condition variables based on the IoU thresholds
@@ -173,7 +174,7 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=background_indices, value=-1)
     best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=grey_zone_indices, value=-2)
 
-    # Making sure that every ground truth will have at least one positive anchor bounding box
+    # Forcing the best anchor of every ground truth box positive, even below the foreground threshold
     # Get the best iou value for each ground truth box across all the anchors of its image, shape [batch, GT]
     best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=2)
 
