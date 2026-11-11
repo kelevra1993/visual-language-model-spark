@@ -72,8 +72,8 @@ Should a build need other folders than those of `tutorial_project.yaml`, an opti
 
 | Option | Effect |
 |---|---|
-| `--series`, `--chapters` | Series (names of `storyboards/series.yaml`) and chapters to build, all by default |
-| `--output-folder` | Folder of the videos and of the index page (default `~/Data/tutorial_videos`, or `TUTORIAL_BUILDER_OUTPUT`) |
+| `--series`, `--chapters` | Series (names of `storyboards/series.yaml`) and chapters to build, all by default; the series video takes its other chapters from the cache, so every chapter must have been built once |
+| `--output-folder` | Folder of the series videos and of the index page (default `~/Data/tutorial_videos`, or `TUTORIAL_BUILDER_OUTPUT`) |
 | `--cache-folder` | Folder of the caches (default `~/.cache/vlms_tutorials`, or `TUTORIAL_BUILDER_CACHE`) |
 | `--experiments-folder` | Folder of the real runs (default the `experiments/` folder of the repository, or `TUTORIAL_BUILDER_EXPERIMENTS`) |
 | `--repository-python` | Python of the repository environment (default `.venv/bin/python` of the repository, or `TUTORIAL_BUILDER_REPOSITORY_PYTHON`) |
@@ -85,11 +85,12 @@ Should a build need other folders than those of `tutorial_project.yaml`, an opti
 | `--skip-transcription` | Do not check the narration by speech recognition |
 | `--allow-layout-problems` | Render even when the previews list layout problems |
 
-The steps of a build (figures, reference check, previews and layout check, videos, narration check, report and index
-page) and the layout of the output folder are described in the
+The steps of a build (figures, reference check, previews and layout check, chapter videos, narration check, series
+videos, report and index page) and the layout of the output folder are described in the
 [Rebuilding The Videos](https://github.com/kelevra1993/tutorial-video-builder#rebuilding-the-videos) section of the
-builder. The output folder holds `index.html`, `verification_report.md` and one folder per series
-(`01_foundations/...`) with the MP4 file, the subtitles and the record of every chapter.
+builder. Every series is one video, its chapters joined with chapter markers: the output folder holds `index.html`,
+`verification_report.md` and one folder per series (`01_foundations/...`) with `<series>.mp4`, its SubRip and WebVTT
+subtitles and its record, while the video of every chapter stays in `chapter_videos/` of the cache.
 
 ## Updating The Tutorials
 Every two to four weeks, or after a change of the code they show:
