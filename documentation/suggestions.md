@@ -217,6 +217,22 @@
       configurations keep the greedy NMS, no stage having measured DIoU-NMS on masks.
 39. **Spatial pyramid pooling (SPP) after the backbone**: the last feature map concatenated with its max pools of 5, 9
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
+40. **A positive anchor for every object in the region proposal targets, promised by `batch_assign_targets_to_anchors`
+    but not given** (found on 2026-11-11, left until the detection benchmark is done):
+    - **The promise:** the docstring says the function "guarantees that every ground truth box has at least one
+      positive anchor". The code forces the best anchor of every box positive, but the forced anchor regresses to the
+      box it overlaps the most (`best_match_ground_truth_index_before_thresholding`), as torchvision
+      (`Matcher.set_low_quality_matches_`) and Detectron2 do.
+    - **Two cases left without a positive anchor**, checked on the CPU on 2026-11-11:
+      - The best anchor of a box overlaps another box more: with the anchor [0, 0, 10, 10], the box B equal to it and
+        the box A [0, 0, 10, 4] (IoU 0.4), the anchor is positive for B and A gets no anchor, unless another one
+        passes `foreground_iou_threshold.min`. Overlapping objects, as in the occlusion split, are the likely case.
+      - A box overlapping no anchor (IoU 0, such as a small box between the anchors of a coarse level): the `> 0.0`
+        guard leaves it without anchor.
+    - **Not affected:** the detection heads, `add_ground_truth_proposals` adding every box to their proposals.
+    - **Options:** correct the docstring only and keep the torchvision behaviour, or give the forced anchor to the box
+      that chose it when that box has no other positive, which changes the DET numbers and needs a stage. Counting
+      first, on the training data, the objects left without a positive anchor tells whether the second is worth it.
 
 ## B. Instance segmentation
 5. **Sharper masks for small objects**: the mask heads pool every box from the backbone feature map of its level
@@ -630,8 +646,8 @@ committed): every image can be taken again from them without training, except wh
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.
 3. **The rest when the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
-   items 8, 9 and 10 depending on the datasets, and item 39 once the detection stages are done (item 38 being kept
-   on 2026-11-10).
+   items 8, 9 and 10 depending on the datasets, and items 39 and 40 once the detection stages are done (item 38 being
+   kept on 2026-11-10).
 
 ## Repository Audit For Instance Segmentation
 
@@ -1206,6 +1222,7 @@ committed): every image can be taken again from them without training, except wh
 | README "Stopping And Resuming", `build_run_name` docstring | "Changing any other setting gives another run name" | See C4 |
 | Every YAML with `residual_nets` | "Shortcuts are added every two convolution layers" | No shortcut in the 2-layer channel-changing blocks (projection shortcuts of H4 dropped on 2026-11-05) |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum IoU limit for matching" | Never read by the model, only by the checker |
+| `target_assignment.py`, `batch_assign_targets_to_anchors` docstring | "guarantees that every ground truth box has at least one positive anchor" | See item 40 |
 | `RegionProposal.strict_fallback_assignment` (YAML) | "Force assign best-overlapping anchors as foreground" | Removed (2026-11-05): they are always forced and regress to the ground truth they overlap the most |
 | `losses/detection_losses.py:65-76` | "aligns perfectly with standard RPN normalization" | See L5 |
 | `mean_average_precision.py:16` | "COCO" averages | See L6 |
