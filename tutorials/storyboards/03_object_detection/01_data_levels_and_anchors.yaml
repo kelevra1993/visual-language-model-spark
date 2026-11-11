@@ -143,7 +143,7 @@ scenes:
     elements:
       - {type: text, position: [760, 40], text: "Block 5 · stride 32", font: diagram_heading, until: 2}
       - {type: text, position: [760, 100], text: "{{object_detection.inference.level_5.cells}} × {{object_detection.inference.level_5.cells}} cells · scales 32, 64\nratios 0.5, 1, 2 (height / width)\n6 anchors per cell · {{object_detection.inference.level_5.anchor_count}} anchors", font: diagram_text, until: 2}
-      - {type: box, box: [760, 330, 1720, 470], text: "centred on the corner of the cell\n(column × stride, row × stride), not its centre\naudit L1", font: diagram_small, outline: accent, appear: 2, until: 2}
+      - {type: box, box: [760, 330, 1720, 470], text: "centred on the corner of the cell\n(column × stride, row × stride), not its centre\nan offset the regressor has to learn", font: diagram_small, outline: accent, appear: 2, until: 2}
       - {type: text, position: [760, 40], text: "Blocks 6 and 7 · stride 64", font: diagram_heading, appear: 3, until: 4}
       - {type: text, position: [760, 100], text: "{{object_detection.inference.level_6.cells}} × {{object_detection.inference.level_6.cells}} cells each\nblock 6: scales 64, 128 · {{object_detection.inference.level_6.anchor_count}} anchors\nblock 7: scales 128, 256 · {{object_detection.inference.level_7.anchor_count}} anchors\nin all: {{object_detection.inference.anchor_total:,}} anchors", font: diagram_text, appear: 3, until: 4}
       - {type: box, box: [760, 330, 1720, 430], text: "the 128 pixel anchors of blocks 6 and 7\nare the same boxes (dashed: block 7)", font: diagram_small, outline: yellow, appear: 4, until: 4}
@@ -155,7 +155,7 @@ scenes:
     narration:
       - "Every cell of a level gets one anchor per scale and aspect ratio: block 5 has {{object_detection.inference.level_5.cells}} by {{object_detection.inference.level_5.cells}} cells of 32 pixels, and its two scales, 32 and 64, by three ratios give six anchors per cell."
       - "The ratio is the height over the width at a constant area: 0.5 for a wide anchor, 2 for a tall one."
-      - "The anchors are centered on the top left corner of their cell, half a stride from its center where the backbone and ROI Align place it, an offset the regressor has to learn, audit item L1."
+      - "The anchors are centered on the top left corner of their cell, half a stride from its center where the backbone and ROI Align place it, an offset the regressor has to learn."
       - "Blocks 6 and 7 have {{object_detection.inference.level_6.cells}} by {{object_detection.inference.level_6.cells}} cells of 64 pixels, with anchors of 64 and 128, and of 128 and 256 pixels: {{object_detection.inference.anchor_total:,}} anchors in all."
       - "Since both levels share the stride and the 128 pixel scale, half the anchors of each are the same boxes, scored by two heads."
       - "For the six objects of this image, four best anchors reach the foreground threshold of 0.5, but those of the {{object_detection.inference.object_1.name}} and the {{object_detection.inference.object_2.name}} stop at {{object_detection.inference.object_1.best_iou:.2f}} and {{object_detection.inference.object_2.best_iou:.2f}}."
@@ -237,12 +237,12 @@ scenes:
       - {type: box, box: [40, 390, 820, 560], text: "fewer survivors than slots:\ncopies of random survivors fill the slots,\na valid mask tells them apart", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: text, position: [900, 380], text: "test split, iteration {{object_detection.run.checkpoint_iteration:,}}: proposals per image", font: diagram_bold, appear: 3}
       - {type: bars, box: [900, 430, 1720, 610], orientation: horizontal, values: "{{object_detection.proposal_recall.proposals_per_block}}", labels: ["block 5", "block 6", "block 7"], value_labels: "{{object_detection.proposal_recall.proposals_per_block_labels}}", colours: [blue, aqua, magenta], label_width: 120, appear: 3, highlight: [3]}
-      - {type: text, position: [900, 650], text: "one top-k and one NMS over all the levels · audit M3", font: diagram_small, colour: dim, appear: 3}
+      - {type: text, position: [900, 650], text: "one top-k and one NMS over all the levels, no share per level", font: diagram_small, colour: dim, appear: 3}
     narration:
       - "The proposal filter takes the {{object_detection.inference.anchor_total:,}} proposals of an image at once: the sigmoid of the objectness ranks them, and the best thousand in training, {{object_detection.inference.evaluation_filter.top_count}} in evaluation, are kept and clamped to the image."
       - "A non-maximum suppression at 0.7 removes the duplicates, here keeping {{object_detection.inference.evaluation_filter.survivor_count}} of {{object_detection.inference.evaluation_filter.top_count}}, and the {{object_detection.inference.evaluation_filter.valid_count}} best survivors go to the detection heads, 500 in training."
       - "With fewer survivors, the empty slots are filled with copies of random survivors, so that every image has the same number of proposals, and a valid mask tells them apart."
-      - "Ranked over all the levels at once, block 5 takes {{object_detection.inference.evaluation_filter.kept_level_5}} of the slots of this image, and {{object_detection.proposal_recall.block_5.proposals_per_image:.0f}} of 250 per image over the test split, audit item M3."
+      - "Ranked over all the levels at once, block 5 takes {{object_detection.inference.evaluation_filter.kept_level_5}} of the slots of this image, and {{object_detection.proposal_recall.block_5.proposals_per_image:.0f}} of 250 per image over the test split."
 
   - kind: image
     title: "Proposals of the test image"

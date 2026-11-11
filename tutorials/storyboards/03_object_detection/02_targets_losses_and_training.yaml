@@ -40,14 +40,14 @@ scenes:
       - {type: text, position: [572, 205], text: "0.3", font: diagram_monospace_small, colour: dim, anchor: ma}
       - {type: text, position: [884, 205], text: "0.5", font: diagram_monospace_small, colour: dim, anchor: ma}
       - {type: text, position: [1660, 205], text: "1", font: diagram_monospace_small, colour: dim, anchor: ma}
-      - {type: box, box: [100, 260, 1660, 370], text: "fallback: the best anchor of every object is foreground at any overlap above 0,\nassigned to the object it overlaps most · bug B40: a small box can get none", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: box, box: [100, 260, 1660, 370], text: "fallback: the best anchor of every object is foreground at any overlap above 0,\nassigned to the object it overlaps most: a small box can get none", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
       - {type: text, position: [100, 420], text: "test image {{object_detection.inference.image_name}}: {{object_detection.inference.anchor_total:,}} anchors", font: diagram_bold, appear: 2}
       - {type: bars, box: [100, 470, 820, 650], orientation: horizontal, values: ["{{object_detection.inference.anchor_labels.foreground}}", "{{object_detection.inference.anchor_labels.ignored}}", "{{object_detection.inference.anchor_labels.background}}"], labels: ["foreground", "ignored", "background"], value_labels: ["{{object_detection.inference.anchor_labels.foreground}}", "{{object_detection.inference.anchor_labels.ignored}}", "{{object_detection.inference.anchor_labels.background:,}}"], colours: [blue, yellow, border], label_width: 160, appear: 2, highlight: [2]}
       - {type: text, position: [940, 420], text: "sampled: 256 per image, at most 128 positive", font: diagram_bold, appear: 3}
       - {type: bars, box: [940, 470, 1660, 590], orientation: horizontal, values: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], labels: ["positives", "negatives"], value_labels: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], colours: [blue, border], label_width: 160, appear: 3, highlight: [3]}
     narration:
       - "For the region proposal losses, every anchor is labeled by its best overlap with an object: background below 0.3, foreground from 0.5, and ignored in between."
-      - "Take a small box sharing its best anchor with a larger one: the best anchor of every object is made foreground at any overlap above zero, but assigned to the object it overlaps most, so the small box gets none, bug B40."
+      - "Take a small box sharing its best anchor with a larger one: the best anchor of every object is made foreground at any overlap above zero, but assigned to the object it overlaps most, so the small box gets none, as in torchvision."
       - "On the test image, {{object_detection.inference.anchor_labels.foreground}} anchors are foreground, {{object_detection.inference.anchor_labels.overlap_foreground}} by overlap and {{object_detection.inference.anchor_labels.fallback_foreground}} by the fallback, {{object_detection.inference.anchor_labels.ignored}} are ignored and {{object_detection.inference.anchor_labels.background:,}} are background."
       - "The losses sample 256 anchors per image with at most 128 positives: here all {{object_detection.inference.anchor_labels.sampled_positives}} positives and {{object_detection.inference.anchor_labels.sampled_negatives}} random negatives."
 
@@ -99,7 +99,7 @@ scenes:
           - {match: "^BOX_REGRESSION_WEIGHTS =", sentences: [2]}
     narration:
       - "The objectness loss is the binary cross entropy of the sampled anchors, averaged over them."
-      - "The box loss, always the smooth L1 between the predicted and target offsets of the positive anchors, is summed, then divided by the number of positives rather than of sampled anchors, audit item L5."
+      - "The box loss, always the smooth L1 between the predicted and target offsets of the positive anchors, is summed, then divided by the number of positives, where torchvision divides by the sampled anchors."
       - "The offsets are regressed unscaled: the box regression weights stay at one, the ten, ten, five, five of torchvision having given about two and a half times lower mAP at 0.5 on these shapes."
 
   - kind: html
