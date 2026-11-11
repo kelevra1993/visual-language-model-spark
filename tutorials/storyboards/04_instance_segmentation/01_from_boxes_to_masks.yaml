@@ -99,11 +99,11 @@ scenes:
       - {type: text, position: [960, 40], text: "batch of 64", font: diagram_bold}
       - {type: text, position: [960, 95], text: "images [64, 3, 512, 512]\nmasks, boxes, labels:\nlists of 64 tensors", font: diagram_monospace}
       - {type: box, box: [40, 340, 1720, 470], text: "geometric augmentations move the masks with the image (nearest)\nevery box recomputed from its moved mask · synthetic configuration: random haze only", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: box, box: [40, 510, 1720, 640], text: "one full-size uint8 mask per object through the loaders\nMask R-CNN: optional 56 × 56 mini masks · audit L19", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 510, 1720, 640], text: "one full-size uint8 mask per object through the loaders\nMask R-CNN: optional 56 × 56 mini masks cropped in the box", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
     narration:
       - "A sample carries one full-size mask per object, 512 by 512, in 8-bit integers, next to its boxes and labels, and a batch keeps them as lists of 64 tensors."
       - "The geometric augmentations move the masks with the image, and the box of every object is recomputed from its moved mask; the synthetic configuration only turns random haze on."
-      - "Picture images with many objects: full-size masks through the loaders cost memory, where the reference design can keep small crops, audit item L19."
+      - "Picture images with many objects: full-size masks through the loaders cost memory, where the reference design can keep small crops in the box."
 
   - kind: yaml
     title: "The mask head in the configuration"
@@ -192,7 +192,7 @@ scenes:
         lines:
           - "Neck none: strides 32 and 64, not 4 to 32"
           - "one mask head per level, not shared"
-          - "full-size ground truth masks (L19)"
+          - "full-size ground truth masks, no mini masks"
           - "ground truth boxes added to the proposals"
           - "unscaled box targets, smooth L1 beta 1/9"
     narration:
