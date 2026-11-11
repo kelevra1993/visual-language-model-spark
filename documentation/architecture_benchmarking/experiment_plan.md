@@ -1,6 +1,6 @@
 # Experiment Plan
 
-- **Configurations:** `vision_training/configurations/classification/run-<n>.yaml`, one per launch (`run-1.yaml` to `run-10.yaml` for stage 1), launched with `uv run python -m vision_training.main --configuration_path=vision_training/configurations/classification/run-<n>.yaml`; the files of the later stages are copies of the kept one with the changed parameter
+- **Configurations:** `vision_training/configurations/classification/run-<n>.yaml`, one per launch (`run-1.yaml` to `run-10.yaml` for stage 1), launched with `uv run python -m vision_training.main --configuration_path=vision_training/configurations/classification/run-<n>.yaml`; the files of the later stages are copies of the kept one with the changed parameter. The files were deleted once their stages ended (`run-1.yaml` to `run-32.yaml` on 2026-10-13, `run-33.yaml` to `run-44.yaml` on 2026-11-11), the `training_configuration.yaml` of every run folder keeping its settings
 - **Dataset:** synthetic shapes classification, 9 classes (20 classes for stage 14, see Class Extension Stage), 500,000 train / 50,000 validation / 50,000 test images, resized to 256 pixels
 - **Launch folders:** `hyperparameter_experiments/run_1` to `run_44` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch
 
