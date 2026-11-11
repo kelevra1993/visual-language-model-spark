@@ -624,7 +624,8 @@ committed): every image can be taken again from them without training, except wh
 ## Suggested Order
 1. **The detection stages scheduled in `object_detection_experiment_plan.md`, in the user's order of 2026-11-07:** the
    FPN and the path aggregation (items 1 and 37), the CIoU box loss (item 36), the detector normalization, then the
-   audit fixes M3 (item 3) with L7, and L1.
+   audit fixes M3 (item 3) with L7, and L1. Stages 3 to 6 are done (the detector normalization keeping batch on
+   2026-11-11), the audit fixes M3 with L7 and L1 being stages 7 and 8.
 2. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.
