@@ -25,6 +25,7 @@ scenes:
     heading: "Labels, channels and targets"
     subheading: "A heat map and a tag for every key point of every class"
     footnote: "Keypoint Detection (KPT) · chapter 1"
+    literal_numbers: ["1"]
     narration:
       - "This series covers key point detection: one whole image in, every object of every class out, each with its named key points."
       - "This first chapter follows one test image from its COCO labels to the channels of the network and to the heat map targets it is trained on."
@@ -33,27 +34,29 @@ scenes:
     page: diagram
     title: "One image in, every object out"
     code_reference: "vision_training/models/keypoints/keypoint_detector.py · KeypointDetector"
+    # The x and y of a key point
+    literal_numbers: ["2"]
     elements:
       # The whole image through the stem and the high resolution network
-      - {type: image, path: "figures:keypoint_detection/dataset/labelled_image.png", box: [20, 170, 300, 450], border: border, caption: "512 x 512, whole image"}
+      - {type: image, path: "figures:keypoint_detection/dataset/labelled_image.png", box: [20, 170, 300, 450], border: border, caption: "{{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} x {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}}, whole image"}
       - {type: arrow, points: [[310, 310], [370, 310]], colour: blue}
-      - {type: box, box: [380, 240, 600, 380], text: "stem\n3 backbone blocks\nto 1/4", font: diagram_small, outline: blue}
+      - {type: box, box: [380, 240, 600, 380], text: "stem\n{{keypoint_detection.stem_block_count}} backbone blocks\nto {{keypoint_detection.heatmap_fraction}}", font: diagram_small, outline: blue}
       - {type: arrow, points: [[600, 310], [660, 310]], colour: blue}
-      - {type: box, box: [670, 240, 930, 380], text: "high resolution\nnetwork\n1/4 branch kept", font: diagram_small, outline: blue}
+      - {type: box, box: [670, 240, 930, 380], text: "high resolution\nnetwork\n{{keypoint_detection.heatmap_fraction}} branch kept", font: diagram_small, outline: blue}
       # The two sets of heat maps and the tags
       - {type: arrow, points: [[820, 240], [1030, 125]], colour: violet, appear: 1}
-      - {type: stack, box: [1040, 75, 1140, 175], count: 6, fills: [violet, blue], label: "243 heat maps + 243 tags\n1/4: [486, 128, 128]", appear: 1}
+      - {type: stack, box: [1040, 75, 1140, 175], count: 6, fills: [violet, blue], label: "{{keypoint_detection.channels_total}} heat maps + {{keypoint_detection.channels_total}} tags\n{{keypoint_detection.heatmap_fraction}}: {{keypoint_detection.network_predictions_shape}}", appear: 1}
       - {type: arrow, points: [[820, 380], [1030, 450]], colour: violet, appear: 1}
-      - {type: stack, box: [1040, 400, 1140, 500], count: 6, fills: [violet], label: "243 heat maps\n1/2: [243, 256, 256]", appear: 1}
+      - {type: stack, box: [1040, 400, 1140, 500], count: 6, fills: [violet], label: "{{keypoint_detection.channels_total}} heat maps\n{{keypoint_detection.branch_fraction}}: {{keypoint_detection.network_branch_heatmaps_shape}}", appear: 1}
       # Candidates inside the network, grouping outside it
       - {type: arrow, points: [[1250, 140], [1300, 232]], colour: aqua, appear: 2}
       - {type: arrow, points: [[1250, 450], [1300, 388]], colour: aqua, appear: 2}
-      - {type: box, box: [1250, 240, 1470, 380], text: "candidates\n30 per channel\n(exported)", font: diagram_small, outline: aqua, appear: 2}
+      - {type: box, box: [1250, 240, 1470, 380], text: "candidates\n{{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}} per channel\n(exported)", font: diagram_small, outline: aqua, appear: 2}
       - {type: arrow, points: [[1470, 310], [1520, 310]], colour: aqua, appear: 2}
       - {type: box, box: [1530, 240, 1740, 380], text: "grouping\nby the tags\non the CPU", font: diagram_small, outline: aqua, appear: 2}
       # What comes out for every object
       - {type: arrow, points: [[1635, 380], [1635, 600]], colour: yellow, appear: 3}
-      - {type: box, box: [560, 610, 1740, 700], text: "every object: class, key points [18, 2] in input pixels (NaN when missing),\nkey point scores and object score", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+      - {type: box, box: [560, 610, 1740, 700], text: "every object: class, key points [{{keypoint_detection.channels_table_columns}}, 2] in input pixels (NaN when missing),\nkey point scores and object score", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "The detector is bottom-up, as in Higher HR Net with associative embedding: the network sees the whole image and finds the key points of all its objects at once."
       - "For every key point of every class it predicts a heat map and a tag map at a quarter of the image, and a second set of heat maps at half the image."
@@ -75,11 +78,13 @@ scenes:
           - {match: "\"keypoints\": \\[\"|\"bottom_right\"|\"skeleton\"", sentences: [1]}
           - {match: "maximum_rotation_degrees", sentences: [2]}
           - {match: "\"keypoints\": \\[\\],", sentences: [3]}
+    # The visibility codes of the COCO key points
+    literal_numbers: [zero, two]
     narration:
       - "The data is the COCO layout of object detection, every object with a flat list of key points: x, y and a visibility, zero for unlabelled, one for occluded, two for visible."
-      - "The names and the skeleton come from the categories of the training labels file, not from the configuration, so every class has its own key points: four corners for this trapezoid, twelve for a hollow capsule."
+      - "The names and the skeleton come from the categories of the training labels file, not from the configuration, so every class has its own key points: {{keypoint_detection.channels_trapezoid_count:words}} corners for this trapezoid, {{keypoint_detection.channels_hollow_capsule_count:words}} for a hollow capsule."
       - "Any other field of a category, like this maximum rotation, is ignored."
-      - "Suppose the data set holds objects without key points, like the {{keypoint_detection.labels_distractor_name}}, one of four distractors: left out of the label mapping, its objects are not loaded, and the heat maps learn to stay silent on them."
+      - "Suppose the data set holds objects without key points, like the {{keypoint_detection.labels_distractor_name}}, one of {{keypoint_detection.labels_distractor_count:words}} distractors: left out of the label mapping, its objects are not loaded, and the heat maps learn to stay silent on them."
       - "An object without any labelled key point is dropped the same way; for the COCO crowds, ignore unlabelled objects also leaves their pixels out of the heat map loss."
 
   - kind: html
@@ -88,6 +93,7 @@ scenes:
     code_reference: "vision_training/models/keypoints/keypoint_detector.py · build_keypoint_channel_table"
     data: "figures:keypoint_detection/dataset/channel_table.json"
     steps: {band: 0, highlight: 1, table: 2}
+    literal_numbers: [zero]
     narration:
       - "The classes get consecutive channels, in increasing class order and in the key point order of their category, which makes {{keypoint_detection.channels_total}} channels for the {{keypoint_detection.channels_classes}} synthetic classes, each with a heat map and a tag map."
       - "The trapezoid owns channels {{keypoint_detection.channels_trapezoid_first}} to {{keypoint_detection.channels_trapezoid_last}} and the hollow capsule {{keypoint_detection.channels_hollow_capsule_first}} to {{keypoint_detection.channels_hollow_capsule_last}}; every channel is trained in every image, towards zero where its class is absent."
@@ -123,6 +129,9 @@ scenes:
       - {match: "random_left_right_flip|random_up_down_flip|random_90_rotation", sentences: [1, 2]}
       - {match: "random_rotation:", sentences: [2]}
       - {match: "random_perspective|random_jigsaw", sentences: [3]}
+    # The name of the random_90_rotation type, and maximum_rotation_degrees of SUPERVISED_AUGMENTATION_STRENGTHS
+    # (augmentations.py), a dictionary holding computed values that a constant placeholder cannot read
+    literal_numbers: [ninety, five]
     narration:
       - "The geometric augmentations move the key points with the image; a key point leaving the image becomes unlabelled, and an object is removed only when less than a quarter of its box and none of its key points stay inside."
       - "They never rename a key point: after a flip, the top left corner lies on the right and is still trained in the top left channel."
@@ -131,6 +140,8 @@ scenes:
 
   - kind: code
     title: "Gaussian targets at two strides"
+    # The two sets of heat maps of the detector
+    literal_numbers: [two]
     code_reference: "vision_training/data/keypoints/heatmap_targets.py · draw_gaussian_heatmaps"
     source:
       file: vision_training/data/keypoints/heatmap_targets.py
@@ -142,13 +153,16 @@ scenes:
       - {match: "values\\[:, radius, radius\\] = 1.0", sentences: [2]}
       - {match: "scatter_reduce_", sentences: [2]}
     narration:
-      - "The targets are built on the device for every batch, after the augmentations, at the strides four and two."
-      - "Every trained key point draws a Gaussian of sigma {{keypoint_detection.grid_sigma:g}} cells, whose centre is the key point over the stride minus half a cell, and cut {{keypoint_detection.grid_radius_cells}} cells away."
+      - "The targets are built on the device for every batch, after the augmentations, at the strides {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}} and {{keypoint_detection.branch_stride:words}}."
+      - "Every trained key point draws a Gaussian of sigma {{keypoint_detection.grid_sigma:.3g}} cells, whose centre is the key point over the stride minus half a cell, and cut {{keypoint_detection.grid_radius_cells}} cells away."
       - "The cell holding the key point is set to exactly one, the only positive cell of the focal loss, and overlapping Gaussians of one channel keep their maximum."
 
   - kind: html
     page: diagram
-    title: "One key point at stride four"
+    title: "One key point at stride {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}}"
+    # The pixel centre offset of draw_gaussian_heatmaps, the target value of the key point cell, the third chapter
+    # and the labelled visibilities
+    literal_numbers: ["0.5", "1", "3", "0"]
     code_reference: "vision_training/data/keypoints/heatmap_targets.py · build_keypoint_targets"
     elements:
       - type: grid
@@ -163,37 +177,40 @@ scenes:
         marks: [{row: 4, column: 4, sentences: [0, 1]}, {row: 4, column: 3, sentences: [1]}, {row: 4, column: 5, sentences: [1]}]
       - {type: text, position: [790, 90], text: "trapezoid · top_left · channel {{keypoint_detection.grid_channel}}", font: diagram_bold}
       - {type: text, position: [790, 150], text: "key point at ({{keypoint_detection.grid_keypoint_x}}, {{keypoint_detection.grid_keypoint_y}}) pixels", font: diagram_monospace_small}
-      - {type: text, position: [790, 190], text: "centre: x / 4 - 0.5 = {{keypoint_detection.grid_centre_x}}, {{keypoint_detection.grid_centre_y}} cells", font: diagram_monospace_small}
+      - {type: text, position: [790, 190], text: "centre: x / {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE}} - 0.5 = {{keypoint_detection.grid_centre_x}}, {{keypoint_detection.grid_centre_y}} cells", font: diagram_monospace_small}
       - {type: text, position: [790, 230], text: "its cell: column {{keypoint_detection.grid_cell_column}}, row {{keypoint_detection.grid_cell_row}}, set to 1", font: diagram_monospace_small}
       - {type: text, position: [790, 300], text: "left neighbour {{keypoint_detection.grid_left_value:.3f}} > right neighbour {{keypoint_detection.grid_right_value:.3f}}", font: diagram_monospace_small, appear: 1, highlight: [1]}
       - {type: text, position: [790, 340], text: "upper neighbour {{keypoint_detection.grid_upper_value:.3f}} > lower neighbour {{keypoint_detection.grid_lower_value:.3f}}", font: diagram_monospace_small, appear: 1}
       - {type: text, position: [790, 380], text: "the decoding reads the side from them (chapter 3)", font: diagram_small, colour: dim, appear: 1}
-      - {type: box, box: [790, 470, 1720, 640], text: "trained when labelled (v > 0), defined for its class\nand inside the image; its tag is taken at the same cell\nof the 1/4 tag map: (channel x 128 + row) x 128 + column", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [790, 470, 1720, 640], text: "trained when labelled (v > 0), defined for its class\nand inside the image; its tag is taken at the same cell\nof the {{keypoint_detection.heatmap_fraction}} tag map: (channel x {{keypoint_detection.heatmap_size}} + row) x {{keypoint_detection.heatmap_size}} + column", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
     narration:
-      - "Here is the top left corner of the trapezoid: its centre falls at {{keypoint_detection.grid_centre_x}} by {{keypoint_detection.grid_centre_y}} cells, inside the cell of column {{keypoint_detection.grid_cell_column}} and row {{keypoint_detection.grid_cell_row}}, set to one."
+      - "Here is the top left corner of the trapezoid: its centre falls at {{keypoint_detection.grid_centre_x:.2f}} by {{keypoint_detection.grid_centre_y:.2f}} cells, inside the cell of column {{keypoint_detection.grid_cell_column}} and row {{keypoint_detection.grid_cell_row}}, set to one."
       - "Its left neighbour is higher than its right one, since the key point lies left of the centre of its cell: the decoding uses that side later to place it within the cell."
       - "A key point is trained only when it is labelled, its class has it and it lies inside the image, and its tag is taken at the same cell of the quarter resolution tag map."
 
   - kind: image
     title: "Almost empty targets"
     image: "figures:keypoint_detection/dataset/targets.png"
+    literal_numbers: [zero]
     highlights:
       - {box: "{{keypoint_detection.targets_image_panel_box}}", sentences: [0]}
       - {box: "{{keypoint_detection.targets_stride_4_trapezoid_box}}", sentences: [1]}
       - {box: "{{keypoint_detection.targets_stride_2_trapezoid_box}}", sentences: [1]}
     narration:
-      - "On the whole image, the {{keypoint_detection.targets_trained_keypoints}} key points of the three objects give {{keypoint_detection.targets_stride_4_positive_cells}} positive cells per stride, among {{keypoint_detection.targets_stride_4_cells:,}} cells at stride four and four times as many at stride two."
-      - "The Gaussians of the trapezoid corners are sharper at stride two, where a cell is two pixels."
+      - "On the whole image, the {{keypoint_detection.targets_trained_keypoints}} key points of the {{keypoint_detection.labels_image_objects_with_keypoints:words}} objects give {{keypoint_detection.targets_stride_4_positive_cells}} positive cells per stride, among {{keypoint_detection.targets_stride_4_cells:,}} cells at stride {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}} and {{keypoint_detection.branch_cell_ratio:words}} times as many at stride {{keypoint_detection.branch_stride:words}}."
+      - "The Gaussians of the trapezoid corners are sharper at stride {{keypoint_detection.branch_stride:words}}, where a cell is {{keypoint_detection.branch_stride:words}} pixels."
       - "Only {{keypoint_detection.targets_stride_4_nonzero_share:.2%}} of the cells are not zero: a squared error collapsed to empty heat maps on such targets, which is why the focal loss replaced it."
 
   - kind: summary
     title: "Recap"
+    # The two heads of the detector and the target value of a key point cell
+    literal_numbers: [two, "1"]
     items:
       - {text: "Bottom-up: heat maps and tags of every key point of every class, grouped on the CPU"}
       - {text: "Key point names and skeletons come from the COCO categories of labels.json"}
-      - {text: "Consecutive channels per class: 243 for 33 classes, the table saved in the checkpoint"}
+      - {text: "Consecutive channels per class: {{keypoint_detection.channels_total}} for {{keypoint_detection.channels_classes}} classes, the table saved in the checkpoint"}
       - {text: "Augmentations move key points but never rename them: no flips here"}
-      - {text: "Gaussian targets of sigma 2 cells at strides 4 and 2, the key point cell at exactly 1"}
+      - {text: "Gaussian targets of sigma {{keypoint_detection.grid_sigma:g}} cells at strides {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE}} and {{keypoint_detection.branch_stride}}, the key point cell at exactly 1"}
       - {text: "Almost empty targets: the reason for the focal loss"}
     narration:
       - "To recap: the labels give the key points and their names, the channel table gives every key point of every class its heat map and tag, and the targets are Gaussians with a single positive cell per key point."

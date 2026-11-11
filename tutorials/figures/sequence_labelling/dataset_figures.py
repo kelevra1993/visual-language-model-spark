@@ -6,7 +6,9 @@ of the training split (data.json of the run) with the share of no_change at ever
 labels.json), the first test sequences padded into one batch by the collate function of the repository, and the
 listings of a labels.json entry and of the label mapping. The class balance gives the facts of the position prior, the
 predictor knowing only where a frame is in its sequence, whose cross entropy the training curves and the evaluation
-chapter compare the run with.
+chapter compare the run with. The settings the synthetic dataset generator and the split subset script type in their
+main block (split sizes, shapes per frame, size and seed of the test subset) and the number of sequence tasks of the
+repository are facts too, so that the narration quoting them follows the code.
 """
 
 import json
@@ -24,14 +26,16 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, format_thousands,
-                                                read_reused_facts, register_fonts, round_fact, save_figure,
+                                                register_fonts, round_fact, save_figure,
                                                 style_chart_panel, write_reused_facts)
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
                                                                      convert_frame_to_image, draw_captioned_frames,
                                                                      draw_figure_header, format_sequence_entry,
-                                                                     load_thumbnail_fonts, read_run_sections,
+                                                                     load_thumbnail_fonts, read_complete_reused_facts,
+                                                                     read_main_block_settings, read_run_sections,
                                                                      write_listing)
 from tutorial_builder.layout import ACCENT_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
+from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 
@@ -50,6 +54,22 @@ MAXIMUM_FRAME_POSITIONS = 12
 # Size of the thumbnails of the sequence strip and of the padded batch
 STRIP_FRAME_SIZE = 390
 BATCH_FRAME_SIZE = 110
+
+# Test sequence of the sample image the evaluation chapter shows (Evaluation/Iteration_<n>/Samples/test_000001.png)
+SAMPLE_SEQUENCE_NAME = "test_000001"
+
+# Prefix of the names of the classes of a shape appearing, one per shape class of the synthetic data
+APPEARING_CLASS_PREFIX = "appearing_"
+
+# Scripts whose main block settings the narration quotes, the task of the generator they are read for, and the facts
+# of the class balance a reused cache must hold (those added after its first version)
+GENERATOR_SCRIPT = "vision_training/data/synthetic/create_synthetic_dataset.py"
+SUBSET_SCRIPT = "scripts/data/create_sequence_split_subset.py"
+GENERATOR_TASK = "sequence_labelling"
+REQUIRED_BALANCE_FACTS = ["dataset.minimum_sequence_frames", "dataset.maximum_sequence_frames",
+                          "dataset.change_class_count", "dataset.shape_class_count",
+                          "dataset.change_class_maximum_share", "listings.no_change_category",
+                          "listings.no_change_class_index"]
 
 
 def draw_sequence_strip(dataset: Any, output_path: Path) -> Dict[str, Any]:
@@ -177,7 +197,8 @@ def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any],
                         textcoords="offset points", ha="left", va="bottom", color=TEXT_PRIMARY_COLOUR,
                         fontsize=19 * POINTS_PER_PIXEL)
     change_frames = class_frames[1:]
-    class_axes.annotate(text=f"70 change classes: {min(change_frames):,} to {max(change_frames):,} frames each",
+    class_axes.annotate(text=f"{len(change_frames)} change classes: {min(change_frames):,} to {max(change_frames):,} "
+                             f"frames each",
                         xy=(len(class_frames) / 2, max(change_frames)), xytext=(0, 40 * POINTS_PER_PIXEL),
                         textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
                         fontsize=19 * POINTS_PER_PIXEL)
@@ -290,7 +311,8 @@ def write_label_listings(training_labels: Dict[str, Any], mapping_path: Path, li
         listings_folder (Path): The folder of the listings.
 
     Returns:
-        Dict[str, Any]: The facts of the listings, named listings.*.
+        Dict[str, Any]: The facts of the listings, named listings.*, with the category of no_change and its class
+            index.
     """
     first_sequence = training_labels["sequences"][0]
     categories = {category["id"]: category["name"] for category in training_labels["categories"]}
@@ -307,14 +329,60 @@ def write_label_listings(training_labels: Dict[str, Any], mapping_path: Path, li
                                                     for category, class_index in mapping_items[:3]]
     mapping_lines += ["  ...", f'  "{mapping_items[-1][0]}": {mapping_items[-1][1]}', "}"]
     write_listing(lines=mapping_lines, listing_path=listings_folder / "label_mapping.txt")
+
+    # Category of no_change and the class index the mapping gives it, the first line of the mapping listing
+    no_change_category = next(category_id for category_id, category_name in categories.items()
+                              if category_name == NO_CHANGE_CLASS_NAME)
     return {"listings.first_sequence_categories": first_sequence["frame_category_ids"],
-            "listings.mapping_size": len(mapping_items)}
+            "listings.mapping_size": len(mapping_items), "listings.no_change_category": no_change_category,
+            "listings.no_change_class_index": mapping[str(no_change_category)]}
+
+
+def count_sample_no_change_frames(dataset: Any) -> Dict[str, Any]:
+    """
+    Counts the frames of the sample sequence of the evaluation chapter (its sample image) labelled no_change, the only
+    frames a model predicting no_change on every frame gets right in that image.
+
+    Args:
+        dataset (Any): The SequenceDataset of the test split of the run, in the order of its labels file.
+
+    Returns:
+        Dict[str, Any]: The facts, named sample.name, sample.frame_count and sample.no_change_frames.
+    """
+    batch = collate_named_sequences(dataset=dataset, sequence_names=[SAMPLE_SEQUENCE_NAME])
+    real_labels = batch["labels"][0][batch["sequence_mask"][0]].tolist()
+    return {"sample.name": SAMPLE_SEQUENCE_NAME, "sample.frame_count": len(real_labels),
+            "sample.no_change_frames": sum(dataset.class_names[label] == NO_CHANGE_CLASS_NAME
+                                           for label in real_labels)}
+
+
+def read_script_facts() -> Dict[str, Any]:
+    """
+    Reads the settings the narration quotes from the main blocks of the synthetic dataset generator (the split sizes
+    and the largest number of shapes of a frame of the sequence labelling) and of the split subset script (the size
+    and the seed of test_10000), and counts the sequence tasks of the repository, so that the chapter on the task and
+    its data follows the scripts and the code.
+
+    Returns:
+        Dict[str, Any]: The facts, named generator.*, subset.* and code.sequence_task_count.
+    """
+    generator_settings = read_main_block_settings(script_path=GENERATOR_SCRIPT,
+                                                  setting_names=["split_sizes", "maximum_objects"])
+    subset_settings = read_main_block_settings(script_path=SUBSET_SCRIPT, setting_names=["number_sequences", "seed"])
+    split_sizes = generator_settings["split_sizes"][GENERATOR_TASK]
+    return {"generator.train_sequences": split_sizes["train"],
+            "generator.validation_sequences": split_sizes["validation"],
+            "generator.test_sequences": split_sizes["test"],
+            "generator.maximum_objects": generator_settings["maximum_objects"][GENERATOR_TASK],
+            "subset.sequence_count": subset_settings["number_sequences"], "subset.seed": subset_settings["seed"],
+            "code.sequence_task_count": len(SEQUENCE_TASKS)}
 
 
 def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes the data figures and listings of the sequence labelling series and gives their facts, the class balance and
-    the listings (which read the whole training labels.json) being reused from the previous build unless forced.
+    the listings (which read the whole training labels.json) being reused from the previous build unless forced or
+    unless that build wrote fewer facts than the storyboards quote.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -322,19 +390,22 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
         force (bool): Whether the reused figures are made again.
 
     Returns:
-        Dict[str, Any]: The facts, named dataset.*, batch.* and listings.*.
+        Dict[str, Any]: The facts, named dataset.*, batch.*, sample.*, listings.*, generator.*, subset.* and code.*.
     """
     dataset_folder = output_folder / "dataset"
     test_dataset = build_test_dataset(run_folder=run_folder, label_type="frame")
     facts = draw_sequence_strip(dataset=test_dataset, output_path=dataset_folder / "sequence_strip.png")
     facts.update(draw_padded_batch(dataset=test_dataset, output_path=dataset_folder / "padded_batch.png"))
+    facts.update(count_sample_no_change_frames(dataset=test_dataset))
+    facts.update(read_script_facts())
 
     # Class balance and listings, from the training labels.json of 250,000 sequences, reused when already made
     balance_path = dataset_folder / "class_balance.png"
     listings_folder = output_folder / "listings"
     reused_facts_path = dataset_folder / "class_balance_facts.json"
-    reused_facts = read_reused_facts(facts_path=reused_facts_path, required_paths=[
-        listings_folder / "labels_entry.txt", listings_folder / "label_mapping.txt"], force=force)
+    reused_facts = read_complete_reused_facts(facts_path=reused_facts_path, required_paths=[
+        listings_folder / "labels_entry.txt", listings_folder / "label_mapping.txt"],
+        required_fact_names=REQUIRED_BALANCE_FACTS, force=force)
     if reused_facts is not None:
         facts.update(reused_facts)
         return facts
@@ -368,6 +439,17 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
                           "dataset.balanced_weight_change_minimum": round_fact(value=min(balanced_weights[1:])),
                           "dataset.balanced_weight_change_maximum": round_fact(value=max(balanced_weights[1:])),
                           "dataset.image_size": model_configuration["Data"]["image_settings"]["size"]})
+
+    # Lengths of the training sequences, the change and shape classes, and the largest share of a change class
+    sequence_lengths = [len(sequence["frame_category_ids"]) for sequence in training_labels["sequences"]]
+    category_names = [category["name"] for category in training_labels["categories"]]
+    balance_facts.update({"dataset.minimum_sequence_frames": min(sequence_lengths),
+                          "dataset.maximum_sequence_frames": max(sequence_lengths),
+                          "dataset.change_class_count": len(class_frames) - 1,
+                          "dataset.shape_class_count": sum(category_name.startswith(APPEARING_CLASS_PREFIX)
+                                                           for category_name in category_names),
+                          "dataset.change_class_maximum_share": round_fact(value=max(class_frames[1:]) /
+                                                                           sum(class_frames))})
     balance_facts.update(compute_prior_facts(class_frames=class_frames, sequence_count=position_shares["sequences"]))
     balance_facts.update(write_label_listings(
         training_labels=training_labels, mapping_path=Path(model_configuration["Data"]["label_mapping"][

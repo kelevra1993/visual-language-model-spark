@@ -32,6 +32,11 @@ SMOOTHING_WEIGHT = 0.95
 # Iterations between two labelled ticks of the horizontal axis
 ITERATION_TICK_STEP = 500
 
+# Iteration by which the narration says the training loss has dropped from the uniform guess, and the iteration after
+# which the narration averages the training loss on its plateau, the position prior
+EARLY_LOSS_ITERATION = 100
+LATE_MEAN_START_ITERATION = 500
+
 # Colours of the curves and of the reference lines
 CURVE_COLOURS = {"Train": SERIES_COLOURS[0], "Validation": SERIES_COLOURS[1]}
 REFERENCE_COLOUR = SERIES_COLOURS[3]
@@ -136,7 +141,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     style_curve_panel(axes=accuracy_axes, title="Accuracy of the labelled frames", y_label="Accuracy",
                       y_limit=(0.0, 0.7), last_iteration=last_iteration)
     draw_reference_line(axes=loss_axes, value=reference_facts["dataset.uniform_cross_entropy"],
-                        label=f"uniform over 71 classes: ln 71 = "
+                        label=f"uniform over {reference_facts['dataset.class_count']} classes: "
+                              f"ln {reference_facts['dataset.class_count']} = "
                               f"{reference_facts['dataset.uniform_cross_entropy']:.3f}",
                         label_position=(last_iteration * 0.62, 4.45))
     draw_reference_line(axes=loss_axes, value=reference_facts["dataset.prior_cross_entropy"],
@@ -175,6 +181,12 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     for iteration in [100, 200, 500, 1000, 1500, 2000]:
         facts[f"training.train_total_loss.smoothed_at_{iteration}"] = round_fact(
             value=smoothed_losses[numpy.searchsorted(training_iterations, iteration)])
-    facts["training.train_total_loss.mean_after_500"] = round_fact(
-        value=training_losses[training_iterations > 500].mean())
+
+    # Iterations the narration reads the loss at: the early drop, and the mean of the loss after its plateau starts
+    facts["training.early_iteration"] = EARLY_LOSS_ITERATION
+    facts["training.train_total_loss.smoothed_at_early"] = round_fact(
+        value=smoothed_losses[numpy.searchsorted(training_iterations, EARLY_LOSS_ITERATION)])
+    facts["training.late_mean_start_iteration"] = LATE_MEAN_START_ITERATION
+    facts["training.train_total_loss.late_mean"] = round_fact(
+        value=training_losses[training_iterations > LATE_MEAN_START_ITERATION].mean())
     return facts

@@ -5,8 +5,8 @@ tutorials/tutorial_sources.yaml: the confusion matrix of every evaluated checkpo
 confusion_matrix.csv) as the row percentages the grids of the confusion scene draw, the main confusions with their
 counts, the per-class metrics and the thresholds at the target precision of the last checkpoint (class_metrics.csv,
 class_thresholds.json) as the values and labels of the bars, the headline metrics of every evaluation read from the
-Test logs of TensorBoard, and the size of the predictions file. Nothing is drawn: the scenes draw these values with
-the grid and bars elements of the diagram engine.
+Test logs of TensorBoard, the size of the predictions file, and the temperatures of the slider of the temperature
+explorer page. Nothing is drawn: the scenes draw these values with the grid and bars elements of the diagram engine.
 """
 
 import csv
@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import round_fact
 from tutorials.figures.foundations.training_curves import read_scalars
+from vision_training.evaluation.classification.temperature_explorer import TEMPERATURE_GRID
 
 # Evaluated checkpoints of the classification run whose confusion matrices the scene shows, and the last one, whose
 # per-class metrics and thresholds the bars show
@@ -109,9 +110,9 @@ def describe_confusion_matrices(run_folder: Path) -> Dict[str, Any]:
         run_folder (Path): The folder of the classification run.
 
     Returns:
-        Dict[str, Any]: The facts, named confusion.*.
+        Dict[str, Any]: The facts, named confusion.*, with the evaluated checkpoints shown.
     """
-    facts = {}
+    facts = {"confusion.iterations": CONFUSION_ITERATIONS}
     for iteration in CONFUSION_ITERATIONS:
         class_names, counts = read_confusion_matrix(evaluation_folder=run_folder / "Evaluation" /
                                                     f"Iteration_{iteration}")
@@ -221,9 +222,12 @@ def make_evaluation_tables(run_folder: Path) -> Dict[str, Any]:
         run_folder (Path): The folder of the classification run of tutorial_sources.yaml.
 
     Returns:
-        Dict[str, Any]: The facts, named confusion.*, class_metrics.*, headline.* and predictions_file.*.
+        Dict[str, Any]: The facts, named confusion.*, class_metrics.*, headline.*, predictions_file.* and
+            temperature_explorer.* (the lowest and highest temperatures of the slider of the explorer page).
     """
     facts = describe_confusion_matrices(run_folder=run_folder)
     facts.update(describe_class_metrics(run_folder=run_folder))
     facts.update(describe_headline_metrics(run_folder=run_folder))
+    facts.update({"temperature_explorer.minimum_temperature": min(TEMPERATURE_GRID),
+                  "temperature_explorer.maximum_temperature": max(TEMPERATURE_GRID)})
     return facts

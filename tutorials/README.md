@@ -8,6 +8,7 @@
 - [Writing A Chapter](#writing-a-chapter)
 - [Figure Scripts](#figure-scripts)
 - [Narration](#narration)
+- [Numbers In The Storyboards](#numbers-in-the-storyboards)
 - [Updating The Builder](#updating-the-builder)
 - [Troubleshooting](#troubleshooting)
 
@@ -66,6 +67,9 @@ tutorials/build_tutorials.sh --check-references
 
 # Edit a storyboard and look at it: previews of every sentence and their contact sheets, reusing the figures
 tutorials/build_tutorials.sh --series foundations --chapters 3 --previews-only --skip-figures
+
+# List, without rendering, the chapters and scenes a build would draw again and why (a changed value, figure, sentence)
+tutorials/build_tutorials.sh --check-drift
 ```
 
 Should a build need other folders than those of `tutorial_project.yaml`, an option or a variable overrides them:
@@ -84,6 +88,8 @@ Should a build need other folders than those of `tutorial_project.yaml`, an opti
 | `--skip-figures`, `--force-figures` | Reuse the figures of the cache, or make again the figures the scripts would reuse |
 | `--skip-transcription` | Do not check the narration by speech recognition |
 | `--allow-layout-problems` | Render even when the previews list layout problems |
+| `--check-drift` | Print the chapters and scenes a build would draw again, with the changed text, figure or timing, without rendering |
+| `--prune-scene-cache` | Delete the scene segments of the cache that no chapter record uses any more |
 
 The steps of a build (figures, reference check, previews and layout check, chapter videos, narration check, series
 videos, report and index page) and the layout of the output folder are described in the
@@ -92,12 +98,18 @@ builder. Every series is one video, its chapters joined with chapter markers: th
 `verification_report.md` and one folder per series (`01_foundations/...`) with `<series>.mp4`, its SubRip and WebVTT
 subtitles and its record, while the video of every chapter stays in `chapter_videos/` of the cache.
 
+Since every scene is encoded into its own segment of `scene_segments/` of the cache, named after the fingerprint of
+everything it shows (its filled texts, its excerpt, its figures, its timing), a build draws again only the scenes whose
+fingerprint changed: a changed configuration value or sentence costs one scene, a chapter whose scenes and narration
+did not change is kept with its narration check, and a full build of unchanged storyboards takes seconds. The first
+build after an update of the builder draws everything once.
+
 ## Updating The Tutorials
 Every two to four weeks, or after a change of the code they show:
-1. `tutorials/build_tutorials.sh --check-references`: every key, function, file and command the storyboards quote that no longer exists is listed. Update the storyboards (their excerpts follow the files by themselves, only renamed keys and functions need an edit).
+1. `tutorials/build_tutorials.sh --check-references`: every key, function, file and command the storyboards quote that no longer exists is listed, with every number typed by hand. Update the storyboards (their excerpts, configuration values and constants follow the files by themselves, only renamed keys and functions need an edit).
 2. When a run of `tutorial_sources.yaml` was trained again (or must be, after a change of its task), update its folder there.
 3. Read the narration of the chapters whose code changed: an excerpt follows the file, but the sentence explaining it does not.
-4. Rebuild the changed series, then read `verification_report.md` and look at the contact sheets of the chapters you edited.
+4. `tutorials/build_tutorials.sh --check-drift` lists the scenes the new values change; rebuild (every series, only the changed scenes are drawn again), then read `verification_report.md` and look at the contact sheets of the chapters you edited.
 
 ## Writing A Chapter
 Suppose a series needs one more chapter:
@@ -128,6 +140,26 @@ So that a chapter reads like the others, its narration follows these rules:
 - Frame a few sentences of every chapter as a situation the viewer might meet, so that the narration does not only state facts: "Suppose you want to...", "Say you need to...", "Imagine that...", "Picture a data set where...", "Should you need to...", "Faced with...", "If, for instance, you...". Two to four per chapter, never the same opener twice in a chapter; the facts of the sentence stay those of the code. The situations use the synthetic shapes shown on screen most of the time, sometimes everyday examples (cats, dogs, parcels on a shelf), never the data of a particular company.
 - Show the real thing: excerpts read from the repository, real runs, real outputs. Never invented console output or numbers.
 - Pronunciation of the voice: write "pre-trained" (not "pretrained"), "data set" (not "dataset"), avoid reading tool names such as pytest aloud; "weighting" and "waiting" sound alike. A word the voice reads wrongly whatever its spelling gets a spoken form in `SPOKEN_FORMS` of `tutorial_builder/narration.py` of the builder ("ONNX" read "onyx"), the captions keeping the written word; decimals are written as usual (0.5, 35.3%), the builder giving the voice their decimal part as words. The [Narration](https://github.com/kelevra1993/tutorial-video-builder#narration) section of the builder has the rest.
+
+## Numbers In The Storyboards
+So that a chapter stays true when a default, a constant or a run changes, no number is typed by hand: the reference
+check stops the build on a digit or a number word ("one" excepted) left in a narration sentence or a text shown on
+screen, once its placeholders are removed.
+
+| Number | Written as |
+|---|---|
+| A value of a configuration file | `{{config:vision_training/configurations/<task>/<file>.yaml#Data.image_settings.size}}` |
+| A constant of the code | `{{constant:vision_training/<path>.py#NAME}}` (or `Class.NAME`, then `.key` or `[0]` into it) |
+| A number of a run | `{{<series>.<fact>}}`, a fact written by the figure script of the series |
+| A number said in words | any of the above with the `words` format: `{{config:...#Temporal.number_layers:words}}` |
+| A number of the method, not a setting | listed in `literal_numbers` of the scene, or of the storyboard ("two" views of SimCLR) |
+| A worked example with made-up values | the scene marked `example: true` |
+
+- In a narration sentence, a placeholder prints two decimals at most (`.2f`, `.1%`, `.2%`), so that a re-evaluated run moving by 0.0002 changes no spoken sentence; a value whose point needs more is listed in `exact_facts` of the scene, with a comment saying why. The texts shown on screen keep every decimal.
+- A YAML excerpt highlights a setting by its key (`{key: Data.augmentation.probability, sentences: [0]}`) rather than by its text, so the highlight survives a changed value.
+- Should a number have no readable source (an inline literal of a function), keep it in `literal_numbers` with a comment naming the file and line it describes, so the next review finds it.
+
+The syntax and every rule are in the [Numbers In The Texts](https://github.com/kelevra1993/tutorial-video-builder#numbers-in-the-texts) section of the builder.
 
 ## Updating The Builder
 After a change of the builder, this folder takes it by moving its tag: set `tag = "v<version>"` of

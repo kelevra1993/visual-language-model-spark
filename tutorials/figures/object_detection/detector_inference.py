@@ -5,11 +5,14 @@ tutorials/tutorial_sources.yaml, run on the CPU on the test image the series fol
 one cell of every detection level and the best anchor of every object (the data of the animated page
 animations/03_object_detection/anchor_grid.html), the proposals of the image before and after the non-maximum suppression
 of the proposal filter with the final detections, the labels the anchors of the image get for the region proposal loss,
-and the proposals the detection heads are trained on, every count by level. The functions of the repository do the
+and the proposals the detection heads are trained on, every count by level, with the objects the final detections find
+and the layers of the region proposal heads the diagrams draw. The functions of the repository do the
 work (forward_detection_stages, select_best_proposals, batch_assign_targets_to_anchors, add_ground_truth_proposals,
 batch_assign_targets_to_proposals, sample_positive_and_negative_training_targets), so that the figures show what the
 code computes. The inference is reused from the previous build unless forced.
 """
+
+import json
 
 import cv2
 import torch
@@ -27,6 +30,7 @@ from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WI
                                                                   read_image_annotations, read_network_image)
 from tutorial_builder.layout import BACKGROUND_COLOUR as FRAME_BACKGROUND_COLOUR
 from tutorial_builder.layout import CARD_COLOUR, DIM_TEXT_COLOUR, TEXT_COLOUR
+from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
 from vision_training.models.detection.box_operations import (clamp_boxes_to_image_boundaries,
                                                              get_intersection_over_union)
 from vision_training.models.detection.region_proposer import select_best_proposals, suppress_overlapping_proposals
@@ -43,6 +47,10 @@ ANCHOR_CELL_OBJECT = "star"
 # Seed of the random sampling of the anchors and proposals of the training targets, so that the counts of the figures
 # stay the same from one build to the next
 SAMPLING_SEED = 0
+
+# Version of the facts of the inference, raised whenever a fact is added, so that a build reusing the inference of an
+# older build (inference_facts.json) makes it again instead of missing the new facts
+INFERENCE_FACTS_VERSION = 2
 
 # Layout of the figures of three image panels: the side of every panel, the gap between them, and the bands of the
 # headings above the panels and of their notes below them, the figure being 1720 x 700 pixels
@@ -89,7 +97,8 @@ def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
                            object_names: List[str]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Describes the anchors of every detection level for the animated page of the anchors: the stride, cells, scales and
-    anchor count of the level, the six anchors of the cell of the best anchor of ANCHOR_CELL_OBJECT, in the order the
+    anchor count of the level, with its anchors per cell and its numbers of scales and of aspect ratios that the
+    narration counts, the six anchors of the cell of the best anchor of ANCHOR_CELL_OBJECT, in the order the
     anchors are stored (ratio by ratio, every scale within a ratio), and for every object of the image its best anchor
     over the levels with its overlap, the foreground threshold of 0.5 telling whether it gets a foreground anchor by
     overlap or only through the fallback of the assignment.
@@ -121,6 +130,8 @@ def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
         scales = [float(scale) for _ in region_proposer.aspect_ratios for scale in region_proposer.scales]
         level_descriptions.append({
             "name": str(level), "stride": stride, "cells": feature_map_size, "anchor_count": int(anchors.shape[0]),
+            "anchors_per_cell": anchors_per_cell, "scale_count": len(region_proposer.scales),
+            "ratio_count": len(region_proposer.aspect_ratios),
             "scales": [float(scale) for scale in region_proposer.scales],
             "cell": [cell_index % feature_map_size, cell_index // feature_map_size],
             "anchors": [{"box": [round_fact(value=coordinate) for coordinate in box.tolist()], "scale": scale,
@@ -156,6 +167,34 @@ def count_by_level(levels: torch.Tensor) -> Dict[str, int]:
         Dict[str, int]: The count of every level, keyed by block number.
     """
     return {str(level): int((levels == level).sum()) for level in sorted(LEVEL_COLOURS)}
+
+
+def count_found_objects(object_boxes: torch.Tensor, object_classes: List[int], detection_boxes: torch.Tensor,
+                        detection_labels: torch.Tensor) -> int:
+    """
+    Counts the objects of the test image that the detections reaching the deployment threshold find, the shapes the
+    evaluation chapter says the sample image of the last checkpoint finds: an object is found when a detection of its
+    class overlaps it by the matching overlap of the confusion matrix (MATCHING_INTERSECTION_OVER_UNION_THRESHOLD).
+
+    Args:
+        object_boxes (torch.Tensor): The [N, 4] boxes of the objects.
+        object_classes (List[int]): Their classes.
+        detection_boxes (torch.Tensor): The [D, 4] boxes of the detections reaching the deployment threshold.
+        detection_labels (torch.Tensor): Their [D] classes.
+
+    Returns:
+        int: The number of objects found.
+    """
+    # No detection finds no object, the overlap of an empty set of boxes having no maximum
+    if detection_boxes.shape[0] == 0:
+        return 0
+
+    # Overlap of every object with every detection, kept only for the detections of the class of the object
+    overlaps = get_intersection_over_union(boxes_1=object_boxes, boxes_2=detection_boxes)
+    same_class = torch.tensor(data=object_classes, dtype=torch.int64).unsqueeze(dim=1) == detection_labels.unsqueeze(
+        dim=0)
+    matched_overlaps = torch.where(same_class, overlaps, torch.zeros_like(input=overlaps))
+    return int((matched_overlaps.max(dim=1).values >= MATCHING_INTERSECTION_OVER_UNION_THRESHOLD).sum())
 
 
 def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nms_proposals: int,
@@ -375,15 +414,28 @@ def count_parameters(module: torch.nn.Module) -> int:
 def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
     """
     Gives the facts of the architecture of the trained detector: the parameters of every component and of the heads of
-    every level, the RoIAlign settings and the flattened size of the detection heads.
+    every level, the RoIAlign settings and the flattened size of the detection heads, the kernels and output channels
+    of the layers of the region proposal heads that the diagrams of the first chapter draw, and the stride of the max
+    pooling dividing the resolution of the backbone from one block to the next.
 
     Args:
         model (TwoStageDetector): The trained detector.
 
     Returns:
         Dict[str, Any]: The facts, named inference.model.*.
+
+    Raises:
+        ValueError: If the backbone has no max pooling layer, whose stride the narration quotes.
     """
     detection_head = model.detector_heads_dictionary["5"]
+    region_proposal_head = model.region_proposer_dictionary["5"]
+
+    # Max pooling of the backbone blocks, every block but the last halving the resolution with the same layer
+    pooling_layers = [module for module in model.backbone.modules() if isinstance(module, torch.nn.MaxPool2d)]
+    if not pooling_layers:
+        raise ValueError("The backbone of the detector has no max pooling layer, whose stride the chapter on the "
+                         "levels quotes.")
+    pooling_stride = pooling_layers[0].stride
     facts = {"inference.model.total_parameters": count_parameters(module=model),
              "inference.model.backbone_parameters": count_parameters(module=model.backbone),
              "inference.model.region_proposal_parameters": count_parameters(module=model.region_proposer_dictionary),
@@ -394,7 +446,19 @@ def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
              "inference.model.roi_align_pool_size": detection_head.roi_align_pool_size,
              "inference.model.flattened_dimension": detection_head.roi_align_pool_size ** 2 *
                                                     detection_head.convolutional_block.output_channels,
-             "inference.model.number_classes": model.number_classes}
+             "inference.model.number_classes": model.number_classes,
+             "inference.model.backbone_pooling_stride": int(pooling_stride if isinstance(pooling_stride, int) else
+                                                            pooling_stride[0]),
+             "inference.model.region_proposal_last_kernel_size":
+                 region_proposal_head.region_proposal_last_convolution.kernel_size[0],
+             "inference.model.region_proposal_last_channels":
+                 region_proposal_head.region_proposal_last_convolution.out_channels,
+             "inference.model.region_proposal_output_kernel_size":
+                 region_proposal_head.region_proposal_classifier.kernel_size[0],
+             "inference.model.region_proposal_objectness_channels":
+                 region_proposal_head.region_proposal_classifier.out_channels,
+             "inference.model.region_proposal_regression_channels":
+                 region_proposal_head.region_proposal_bounding_box_regressor.out_channels}
 
     # Spatial scale of the RoIAlign of every level, the feature map side over the input side
     for level, head in model.detector_heads_dictionary.items():
@@ -419,7 +483,11 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
     """
     figure_folder = output_folder / "inference"
     facts_path = figure_folder / "inference_facts.json"
-    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force)
+
+    # An inference left by a build writing an older version of the facts is made again, as when forced
+    outdated = facts_path.exists() and json.loads(facts_path.read_text(encoding="utf-8"))["facts"].get(
+        "inference.facts_version") != INFERENCE_FACTS_VERSION
+    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force or outdated)
     if reused_facts is not None:
         return reused_facts
 
@@ -468,6 +536,10 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
                   for box, score, label in zip(outputs["final_detection_boxes"][0][:detection_count],
                                                outputs["final_detection_scores"][0][:detection_count],
                                                outputs["final_detection_labels"][0][:detection_count])]
+    found_object_count = count_found_objects(
+        object_boxes=object_boxes, object_classes=object_classes,
+        detection_boxes=outputs["final_detection_boxes"][0][:detection_count].float(),
+        detection_labels=outputs["final_detection_labels"][0][:detection_count])
 
     # Proposal filter figure: the best proposals before the suppression, those kept after it, and the detections
     white = TEXT_COLOUR
@@ -497,8 +569,11 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
          "note": "white: the ground truth boxes", "boxes": object_entries + detection_entries}],
         output_path=figure_folder / "proposal_filter.png")
 
-    # Anchor label figure: the foreground, ignored and sampled background anchors of the image
+    # Anchor label figure: the foreground, ignored and sampled background anchors of the image, their notes quoting the
+    # thresholds of the run
     anchors = aggregated_proposals["anchors"][0]
+    foreground_minimum = filter_configuration["foreground_iou_threshold"]["min"]
+    background_maximum = filter_configuration["background_iou_threshold"]["max"]
     foreground_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=FOREGROUND_COLOUR), "alpha": 1.0,
                            "width": 3} for box in anchors[anchor_labels["labels"] == 1.0]]
     ignored_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=IGNORED_COLOUR), "alpha": 0.9,
@@ -507,9 +582,10 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
                         for box in anchors[anchor_labels["sampled_negative_mask"]]]
     label_panel_boxes = draw_panel_figure(image=rgb_image, panels=[
         {"heading": f"{anchor_labels['foreground']} foreground anchors",
-         "note": f"IoU >= 0.5: {anchor_labels['overlap_foreground']} · best anchor only: "
+         "note": f"IoU >= {foreground_minimum:g}: {anchor_labels['overlap_foreground']} · best anchor only: "
                  f"{anchor_labels['fallback_foreground']}", "boxes": object_entries + foreground_entries},
-        {"heading": f"{anchor_labels['ignored']} ignored anchors", "note": "IoU from 0.3 to 0.5, no loss",
+        {"heading": f"{anchor_labels['ignored']} ignored anchors",
+         "note": f"IoU from {background_maximum:g} to {foreground_minimum:g}, no loss",
          "boxes": object_entries + ignored_entries},
         {"heading": f"{anchor_labels['sampled_negatives']} background of {anchor_labels['background']}",
          "note": f"sampled: {anchor_labels['sampled_positives']} positives + {anchor_labels['sampled_negatives']} "
@@ -525,13 +601,15 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
              "inference.fallback_objects": [entry["name"] for entry in object_descriptions if not entry["foreground"]],
              "inference.proposal_filter.panel_boxes": proposal_panel_boxes,
              "inference.anchor_labels.panel_boxes": label_panel_boxes,
-             "inference.detection_count": detection_count}
+             "inference.detection_count": detection_count, "inference.found_object_count": found_object_count,
+             "inference.level_count": len(level_descriptions), "inference.facts_version": INFERENCE_FACTS_VERSION}
     facts["inference.fallback_count"] = len(facts["inference.fallback_objects"])
+    facts["inference.overlap_object_count"] = len(object_descriptions) - facts["inference.fallback_count"]
     for panel_index, (proposal_box, label_box) in enumerate(zip(proposal_panel_boxes, label_panel_boxes)):
         facts[f"inference.proposal_filter.panel_{panel_index + 1}_box"] = proposal_box
         facts[f"inference.anchor_labels.panel_{panel_index + 1}_box"] = label_box
     for level_description in level_descriptions:
-        for key in ["stride", "cells", "anchor_count"]:
+        for key in ["stride", "cells", "anchor_count", "anchors_per_cell", "scale_count", "ratio_count"]:
             facts[f"inference.level_{level_description['name']}.{key}"] = level_description[key]
     for object_index, object_description in enumerate(object_descriptions):
         prefix = f"inference.object_{object_index + 1}"

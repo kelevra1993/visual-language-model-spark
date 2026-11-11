@@ -4,9 +4,10 @@ evaluation), made at every build by tutorials/figures/sequence_labelling/figures
 run: the listing of the evaluation block of its last iteration in Results.txt, the probability of no_change in its
 predictions.csv on the first and on the later frames and by frame position (the signature of a model that learned the
 position of a frame rather than its content), the macro ROC AUC computed again on the later frames only, the confidence
-thresholds of class_thresholds.json, the segment metrics of the example of the tasks reference
-(documentation/reference/tasks_reference.md, formerly in the README) computed by the code of the repository, and the
-shapes and parameter counts of the trained model run on the CPU on a real padded batch.
+thresholds of class_thresholds.json, the per-class precision and recall of class_metrics.csv, the segment metrics of
+the example of the tasks reference (documentation/reference/tasks_reference.md, formerly in the README) computed by the
+code of the repository, and the shapes, residual blocks and parameter counts of the trained model run on the CPU on a
+real padded batch.
 """
 
 import json
@@ -29,8 +30,8 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
                                                                      count_model_parameters, load_sequence_model,
                                                                      parse_block_metrics, predict_sequences,
-                                                                     read_results_block, read_run_sections,
-                                                                     write_listing)
+                                                                     read_complete_reused_facts, read_results_block,
+                                                                     read_run_sections, write_listing)
 from vision_training.evaluation.sequence.segment_metrics import compute_segment_metrics
 from vision_training.models.sequence.frame_encoder import encode_frames
 
@@ -57,6 +58,10 @@ PROBABILITY_BIN_WIDTH = 0.005
 
 # Note of the segments of an evaluation block, "Segments : 58133 true and 10000 predicted in ..."
 SEGMENT_NOTE_PATTERN = re.compile(pattern=r"Segments : (\d+) true and (\d+) predicted")
+
+# Facts of the model a reused model_facts.json must hold, those added after its first version
+REQUIRED_MODEL_FACTS = ["model.backbone_channels", "model.backbone_map_size", "model.flatten_features",
+                        "model.temporal_features", "model.residual_blocks", "model.residual_block_count"]
 
 
 def write_results_listing(run_folder: Path, listing_path: Path) -> Dict[str, Any]:
@@ -305,7 +310,8 @@ def compute_model_facts(run_folder: Path) -> Dict[str, Any]:
     Rebuilds the trained model of the last checkpoint on the CPU, counts the parameters of its components, and runs
     the first test sequences of the run through it, padded into one batch, to give the shape of every stage: the
     backbone feature maps of the real frames, the pooled frame vectors, the frame vectors in their sequences, the
-    output of the temporal module and the class logits.
+    output of the temporal module and the class logits, with the channels and side of the last feature map, the
+    features a flatten pooling would give, and the backbone blocks holding a residual shortcut.
 
     Args:
         run_folder (Path): The folder of the sequence labelling run.
@@ -327,7 +333,18 @@ def compute_model_facts(run_folder: Path) -> Dict[str, Any]:
     outputs = predict_sequences(model=model, batch=batch)
     parameters = count_model_parameters(model=model)
     padding_zero_vectors = (frame_features.abs().sum(dim=2) == 0).sum(dim=1).tolist()
-    return {"model.backbone_parameters": parameters["backbone"],
+
+    # Blocks of the backbone closing at least one residual pair, with the condition of ConvolutionBlock.forward: a
+    # block whose first layer changes the channel count shifts its pairs by one layer and closes none with two layers
+    residual_blocks = [block_index + 1 for block_index, block in enumerate(model.backbone.convolution_blocks)
+                       if block.residual and any(layer_index % 2 == 1 - block.residual_parity and layer_index != 0
+                                                 for layer_index in range(len(block.layer_module_indices)))]
+    return {"model.backbone_channels": int(backbone_maps.shape[1]),
+            "model.backbone_map_size": int(backbone_maps.shape[2]),
+            "model.flatten_features": int(backbone_maps[0].numel()),
+            "model.temporal_features": int(temporal_features.shape[2]),
+            "model.residual_blocks": residual_blocks, "model.residual_block_count": len(residual_blocks),
+            "model.backbone_parameters": parameters["backbone"],
             "model.temporal_parameters": parameters["temporal_module"],
             "model.head_parameters": parameters["classification_head"], "model.total_parameters": parameters["total"],
             "model.total_megabytes": round_fact(value=parameters["total"] * 4 / 1e6),
@@ -340,10 +357,32 @@ def compute_model_facts(run_folder: Path) -> Dict[str, Any]:
             "model.padding_zero_vectors": padding_zero_vectors, "model.head": str(model.classification_head)}
 
 
+def read_class_metric_facts(run_folder: Path) -> Dict[str, Any]:
+    """
+    Reads the per-class metrics of the last evaluation (class_metrics.csv): the precision and recall of no_change and
+    the best recall of a change class, which tell a degenerate solution giving no_change to every frame.
+
+    Args:
+        run_folder (Path): The folder of the sequence labelling run.
+
+    Returns:
+        Dict[str, Any]: The facts, named evaluation.no_change_precision, evaluation.no_change_recall and
+            evaluation.change_class_maximum_recall.
+    """
+    class_metrics = pandas.read_csv(filepath_or_buffer=run_folder / "Evaluation" /
+                                    f"Iteration_{EVALUATION_ITERATION}" / "class_metrics.csv")
+    is_no_change = (class_metrics["class"] == "no_change").to_numpy()
+    return {"evaluation.no_change_precision": round_fact(value=float(class_metrics["precision"][is_no_change].iloc[0])),
+            "evaluation.no_change_recall": round_fact(value=float(class_metrics["recall"][is_no_change].iloc[0])),
+            "evaluation.change_class_maximum_recall": round_fact(value=float(
+                class_metrics["recall"][~is_no_change].max()))}
+
+
 def make_evaluation_facts(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes the evaluation listing and figure of the sequence labelling series and gives their facts, with those of the
-    thresholds file, the segment metrics and the model.
+    thresholds file, the per-class metrics, the segment metrics and the model, the model facts being reused from the
+    previous build unless forced or unless that build wrote fewer facts than the storyboards quote.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -368,9 +407,12 @@ def make_evaluation_facts(output_folder: Path, run_folder: Path, force: bool) ->
     facts.update(compute_segment_facts(run_folder=run_folder))
     facts.update(count_sequences_without_change(run_folder=run_folder))
 
+    facts.update(read_class_metric_facts(run_folder=run_folder))
+
     # Shapes and parameters of the trained model, run on the CPU, reused from the previous build unless forced
     model_facts_path = output_folder / "evaluation" / "model_facts.json"
-    model_facts = read_reused_facts(facts_path=model_facts_path, required_paths=[], force=force)
+    model_facts = read_complete_reused_facts(facts_path=model_facts_path, required_paths=[],
+                                             required_fact_names=REQUIRED_MODEL_FACTS, force=force)
     if model_facts is None:
         model_facts = compute_model_facts(run_folder=run_folder)
         write_reused_facts(facts_path=model_facts_path, figure_paths=[], facts=model_facts)

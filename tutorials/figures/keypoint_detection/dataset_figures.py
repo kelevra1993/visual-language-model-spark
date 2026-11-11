@@ -94,7 +94,8 @@ def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any]) -> 
         sample_record (Dict[str, Any]): The test image of load_test_sample.
 
     Returns:
-        Dict[str, Any]: The facts of the listing: the counts of the annotations of the image and the extra field.
+        Dict[str, Any]: The facts of the listing: the counts of the annotations of the image, the extra field and the
+            number of distractor categories (without keypoints) of the manifest.
     """
     categories = {category["id"]: category for category in sample_record["categories"]}
     annotations = sample_record["annotations"]
@@ -137,6 +138,7 @@ def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any]) -> 
     return {"labels_image_annotations": len(annotations),
             "labels_image_objects_with_keypoints": sum(1 for annotation in annotations if annotation["keypoints"]),
             "labels_distractor_name": categories[distractor["category_id"]]["name"],
+            "labels_distractor_count": sum(1 for category in categories.values() if not category["keypoints"]),
             "labels_extra_field": extra_fields[0] if extra_fields else "none",
             "labels_trapezoid_category_id": trapezoid["category_id"]}
 

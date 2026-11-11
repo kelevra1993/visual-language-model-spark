@@ -10,6 +10,7 @@ run. Its facts are the sizes of the splits, the classes and the padding shares t
 import json
 import random
 
+import cv2
 import numpy
 
 from collections import Counter
@@ -21,7 +22,8 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, compute_pixel_box,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
-from tutorials.figures.sequence_classification.sequence_figure_utilities import copy_frames, write_text_lines
+from tutorials.figures.sequence_classification.sequence_figure_utilities import (copy_frames, read_generator_setting,
+                                                                                 write_text_lines)
 from vision_training.data.synthetic.create_synthetic_dataset import MINIMUM_SEQUENCE_FRAMES
 
 # Sequence shown on the scene of the task, the first of the training manifest
@@ -35,6 +37,9 @@ BATCH_SHUFFLE_SEED = 0
 
 # Splits of a dataset, in the order of the manifests
 SPLIT_NAMES = ["train", "validation", "test"]
+
+# Task of the synthetic generator whose main block settings the facts read
+GENERATOR_TASK = "sequence_classification"
 
 
 def read_manifest(split_folder: Path) -> Dict[str, Any]:
@@ -244,6 +249,15 @@ def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: in
                                 batch_size=batch_size)
 
     # Sizes and classes of the splits, the lengths on disk and the shown sequence
+    first_frame = cv2.imread(filename=str(train_folder / "data" / shown_sequence["frames"][0]))
+    if first_frame is None:
+        raise OSError(f"The frame {train_folder / 'data' / shown_sequence['frames'][0]} cannot be read.")
+    facts.update({"dataset.frame_size": int(first_frame.shape[0]),
+                  "dataset.category_count": len(manifests["train"]["categories"]),
+                  "dataset.first_class_index": min(label_mapping.values()),
+                  "dataset.last_class_index": max(label_mapping.values()),
+                  "dataset.generator_image_size": read_generator_setting(setting_name="image_sizes",
+                                                                         task=GENERATOR_TASK)})
     facts.update({"dataset.shown_sequence": SHOWN_SEQUENCE_NAME,
                   "dataset.shown_class": category_names[shown_sequence["category_id"]],
                   "dataset.shown_frames": len(shown_sequence["frames"]),

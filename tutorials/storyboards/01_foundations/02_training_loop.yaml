@@ -20,6 +20,8 @@ scenes:
     heading: "The training loop"
     subheading: "Iterations, validation, checkpoints, resuming"
     footnote: "Foundations · chapter 2"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["2"]
     narration:
       - "Every task trains in the same loop of the base trainer; the task trainers only bring their batches, losses and metrics."
       - "This chapter follows one iteration, then the schedule of a run, what it prints and plots, and how it stops and resumes."
@@ -88,7 +90,7 @@ scenes:
       - "Everything else is scheduled in iterations: in this run, a console summary every {{foundations.run.information_dump}} iterations."
       - "A checkpoint every {{foundations.run.intermediate_weight_saving_iterations}} iterations, and every {{foundations.run.weight_saving_iterations}}, a checkpoint that is also evaluated on the whole test split."
       - "Within one iteration the order is fixed: the optimizer step, the checkpoint, the validation batch, the console summary, and the test evaluation last."
-      - "Take a run launched from the synthetic classification configuration: it sets ten to the power of ten iterations, so the run goes on until you stop it."
+      - "Take a run launched from the synthetic classification configuration: it sets {{foundations.configuration.number_iterations:words}} iterations, so the run goes on until you stop it."
 
   - kind: image
     title: "The console summary"
@@ -121,11 +123,13 @@ scenes:
     narration:
       - "Here are the curves of the classification run, every iteration faint and smoothed as TensorBoard does: the loss of the training batches falls from {{foundations.training_curves.train_total_loss.first:.2f}} to about {{foundations.training_curves.train_total_loss.smoothed_last:.2f}}."
       - "The validation curve follows it with spikes: one validation batch at a time is a noisy estimate, so read its smoothed trend rather than its points."
-      - "The accuracy of the batches climbs to about {{foundations.training_curves.train_accuracy.smoothed_last:.2f}}, and the dots are the evaluations on the whole test split: {{foundations.training_curves.test_accuracy.iteration_500:.3f}}, {{foundations.training_curves.test_accuracy.iteration_1000:.3f}} and {{foundations.training_curves.test_accuracy.iteration_1500:.3f}}."
+      - "The accuracy of the batches climbs to about {{foundations.training_curves.train_accuracy.smoothed_last:.2f}}, and the dots are the evaluations on the whole test split: {{foundations.training_curves.test_accuracy.iteration_500:.2f}}, {{foundations.training_curves.test_accuracy.iteration_1000:.2f}} and {{foundations.training_curves.test_accuracy.iteration_1500:.2f}}."
       - "The batch curves tell whether the training learns; a model is judged by the test evaluations, which come with every evaluation checkpoint."
 
   - kind: terminal
     title: "TensorBoard and MLflow"
+    # The first two of the three log folders, Train and Validation
+    literal_numbers: [two]
     lines:
       - {role: comment, text: "# Curves of one run, on http://localhost:6006"}
       - {role: command, text: "uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard"}
@@ -153,6 +157,8 @@ scenes:
   - kind: terminal
     title: "Stopping and resuming"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.restore_last_model"
+    # The iterations of the made-up stopped and resumed run of the third sentence
+    literal_numbers: [five thousand, eight thousand, three thousand]
     lines:
       - {role: comment, text: "# Ctrl+C saves a checkpoint of the last step taken, and may print:"}
       - {role: comment, text: "#   The Checkpoint Of Iteration <n> Was Not Evaluated"}
@@ -168,6 +174,8 @@ scenes:
     page: diagram
     title: "What a resume can change"
     code_reference: "vision_training/configuration_processing/run_name.py · build_run_name"
+    # Two resumptions of a run, a phrase of the prose
+    literal_numbers: [two]
     elements:
       - {type: box, box: [20, 20, 860, 410], outline: aqua, fill: null, highlight: [0]}
       - {type: text, position: [440, 55], text: "Can change when the run resumes", font: diagram_bold, anchor: mm}

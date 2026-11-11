@@ -32,6 +32,11 @@ METRIC_CURVES = {"Pixel Accuracy": SERIES_COLOURS[3], "Mean IoU": SERIES_COLOURS
 # Iterations between two labelled ticks of the curves
 ITERATION_TICK_STEP = 500
 
+# Pixel accuracy of the smoothed training batches whose first iteration the narration quotes, and the share of its
+# fall from its first to its last smoothed value that the smoothed cross entropy has made at the iteration quoted
+PIXEL_ACCURACY_THRESHOLD = 0.9
+LOSS_FALL_SHARE = 0.9
+
 
 def style_curve_panel(axes: Any, title: str, last_iteration: int, y_label: str) -> None:
     """
@@ -116,11 +121,23 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     figure.canvas.draw()
     facts["curves_validation_step"] = int(validation_iterations[0])
 
-    # First iteration whose smoothed training pixel accuracy reaches 0.9, read again outside the drawing loop
+    # First iteration whose smoothed training pixel accuracy reaches the threshold, read again outside the drawing loop
     accuracy_iterations, accuracy_values = read_scalars(log_folder=run_folder / "Tensorboard" / "Train",
                                                         tag="Pixel Accuracy")
-    reached = numpy.nonzero(smooth_values(values=accuracy_values, weight=SMOOTHING_WEIGHT) >= 0.9)[0]
+    reached = numpy.nonzero(smooth_values(values=accuracy_values, weight=SMOOTHING_WEIGHT) >=
+                            PIXEL_ACCURACY_THRESHOLD)[0]
+    facts["curves_pixel_accuracy_threshold"] = PIXEL_ACCURACY_THRESHOLD
     facts["curves_pixel_accuracy_reaches_0_9"] = int(accuracy_iterations[reached[0]]) if len(reached) else -1
+
+    # First iteration at which the smoothed cross entropy has made LOSS_FALL_SHARE of its fall, the Dice loss falling
+    # until the end of the run
+    loss_iterations, loss_values = read_scalars(log_folder=run_folder / "Tensorboard" / "Train",
+                                                tag="Cross Entropy Loss")
+    smoothed_losses = smooth_values(values=loss_values, weight=SMOOTHING_WEIGHT)
+    fall_target = smoothed_losses[0] - LOSS_FALL_SHARE * (smoothed_losses[0] - smoothed_losses[-1])
+    facts["curves_loss_fall_share"] = LOSS_FALL_SHARE
+    facts["curves_cross_entropy_loss_fall_iteration"] = int(loss_iterations[numpy.nonzero(smoothed_losses <=
+                                                                                          fall_target)[0][0]])
     facts["curves_loss_panel_box"] = compute_pixel_box(figure=figure, axes=loss_axes, with_labels=True, margin=6)
     facts["curves_metric_panel_box"] = compute_pixel_box(figure=figure, axes=metric_axes, with_labels=True, margin=6)
     facts["curves_loss_reveal_region"] = compute_pixel_box(figure=figure, axes=loss_axes, with_labels=False,

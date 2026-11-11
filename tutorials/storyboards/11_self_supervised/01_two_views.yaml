@@ -28,6 +28,8 @@ scenes:
     heading: "Two views of one image"
     subheading: "A backbone trained without labels"
     footnote: "Self-Supervised Learning (SSL) · chapter 1"
+    # The two views of the methods, and the number of the chapter in the footnote
+    literal_numbers: ["two", "1"]
     narration:
       - "The self-supervised task, SSL, trains the shared backbone without a single label, from two random views of every image."
       - "This chapter covers what it is for, how a run is launched, the keys of its views and of its projection head, the checks at launch and its run name."
@@ -36,6 +38,8 @@ scenes:
     page: diagram
     title: "When to choose it"
     code_reference: "vision_training/models/model_transfer.py · load_pretrained_component"
+    # The two views of the methods
+    literal_numbers: ["two"]
     elements:
       # Unlabelled images, the self-supervised training, the backbone it produces
       - {type: box, box: [30, 80, 330, 220], text: "many images,\nfew or no labels", font: diagram_bold, outline: violet, highlight: [0]}
@@ -58,12 +62,12 @@ scenes:
       - {type: text, position: [60, 560], text: "categories → classes of the k-NN evaluation only\nthe training never reads a label", font: diagram_small, colour: dim, appear: 2}
       - {type: box, box: [900, 480, 1730, 650], outline: magenta, appear: 3, highlight: [3]}
       - {type: text, position: [930, 505], text: "image without a mapped category", font: diagram_bold, appear: 3}
-      - {type: text, position: [930, 560], text: "kept, label IGNORED_LABEL_INDEX = -100\ntrained on like the others", font: diagram_small, colour: dim, appear: 3}
+      - {type: text, position: [930, 560], text: "kept, label IGNORED_LABEL_INDEX = {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}\ntrained on like the others", font: diagram_small, colour: dim, appear: 3}
     narration:
       - "Imagine a team whose images far outnumber its labels: with this task, the backbone learns from all of them, then initialises another task through the pre-trained settings of its backbone section."
       - "Only the backbone is transferred; the projection head that served the loss is thrown away."
       - "The task reads the data set layout and the loaders of the image classifier, and the categories of the labels files only serve the evaluation, a nearest neighbour classification of the test images."
-      - "An image without a mapped category is not dropped: it gets the ignored label, minus one hundred, and is trained on like the others; should every image be labelled, train the classifier directly."
+      - "An image without a mapped category is not dropped: it gets the ignored label, {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX:words}}, and is trained on like the others; should every image be labelled, train the classifier directly."
 
   - kind: terminal
     title: "Generate, train, evaluate"
@@ -76,7 +80,7 @@ scenes:
       - {role: comment, text: "# The checkpoints scored again: run and iteration set in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
-      - "The synthetic configuration reads the shapes data set of the classifier, so the generator runs with its task set to classification; set to self supervised, it draws the counted shapes of the two counted shapes configurations instead."
+      - "The synthetic configuration reads the shapes data set of the classifier, so the generator runs with its task set to classification; set to self supervised, it draws the counted shapes of the SimCLR and Barlow Twins counted shapes configurations instead."
       - "The training takes the self-supervised configuration, and the standalone evaluation scores its checkpoints again, as the last chapter shows."
       - "The run of this series is that configuration stopped at {{self_supervised.run.number_iterations:,}} iterations, with batches of {{self_supervised.run.batch_size}} images of {{self_supervised.run.image_size}} pixels and a checkpoint evaluated every {{self_supervised.run.weight_saving_iterations}} iterations."
 
@@ -97,13 +101,16 @@ scenes:
       - {match: "batch_size|number_neighbours", sentences: [3]}
     narration:
       - "The task adds one section, the projection head: its global pooling turns the last feature map into the representation, the vector that is evaluated, exported and transferred."
-      - "Its fully connected layers map the representation to the embedding the loss compares: here one hidden layer of 512 units with batch normalization, then an embedding of 128 values."
+      - "Its fully connected layers map the representation to the embedding the loss compares: here one hidden layer of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[0]}} units with batch normalization, then an embedding of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[1]}} values."
       - "The method is SimCLR or Barlow Twins, each with one setting, the temperature of SimCLR, {{self_supervised.run.temperature}} here, or the off-diagonal weight of Barlow Twins; both are checked whatever the method, so that one key switches between them."
       - "The batch size weighs more than in a supervised task, every view being compared with the {{self_supervised.curves.other_view_count}} other views of its batch, and the evaluation votes with {{self_supervised.run.number_neighbours}} neighbours."
 
   - kind: yaml
     title: "The views come from the augmentation"
     code_reference: "vision_training/data/augmentations.py · SELF_SUPERVISED_AUGMENTATION_STRENGTHS"
+    # The two views of the methods, and the largest aspect ratio of the crop, 2.0 in crop_aspect_ratio_range of
+    # SELF_SUPERVISED_AUGMENTATION_STRENGTHS, which a placeholder cannot read (1.0 / 2.0 is not a literal)
+    literal_numbers: ["two"]
     source:
       file: vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml
       keys: [Data.data_augmentation.activated, Data.data_augmentation.probability, Data.data_augmentation.types.random_crop,
@@ -114,7 +121,8 @@ scenes:
              Data.data_augmentation.types.random_erasing]
       comments: false
     highlights:
-      - {match: "^\\s*activated: True$|^\\s*probability: 1.0$", sentences: [0]}
+      - {key: Data.data_augmentation.activated, sentences: [0]}
+      - {key: Data.data_augmentation.probability, sentences: [0]}
       - {match: "random_crop", sentences: [1]}
       - {match: "brightness_contrast_saturation|random_hue|gray_scale_augment", sentences: [2]}
       - {match: "random_solarize|random_black_out", sentences: [3]}
@@ -127,6 +135,8 @@ scenes:
   - kind: code
     title: "Drawing the views"
     code_reference: "vision_training/data/augmentations.py · DataAugmenter.create_views"
+    # The two views of the methods
+    literal_numbers: ["two"]
     source:
       file: vision_training/data/augmentations.py
       function: DataAugmenter.create_views
@@ -145,6 +155,8 @@ scenes:
     page: diagram
     title: "Two views of one star"
     code_reference: "vision_training/data/augmentations.py · DataAugmenter.describe_report"
+    # The two views of the methods and their labels
+    literal_numbers: ["two", "1", "2"]
     elements:
       # The test image and its two views, as the sample images of the evaluation draw them
       - {type: image, path: "figures:self_supervised/views/test_000000_image.png", box: [30, 230, 270, 470], border: border, caption: "{{self_supervised.views.sample_0.name}} · {{self_supervised.views.sample_0.class}}", highlight: [0]}
@@ -178,6 +190,9 @@ scenes:
     page: diagram
     title: "The checks at launch"
     code_reference: "vision_training/configuration_processing/self_supervised_checks.py · check_self_supervised_configuration"
+    # The two methods (SELF_SUPERVISED_METHODS), the smallest batch of check_self_supervised_configuration (a batch of
+    # one refused, no constant) and the positive number of neighbours
+    literal_numbers: ["two", "0"]
     elements:
       - type: listing
         box: [30, 60, 1740, 560]
@@ -191,7 +206,7 @@ scenes:
           - {match: "batch_size' must|compare the views", sentences: [2]}
       - {type: text, position: [880, 640], text: "checked the same way: Data.grouped_batches, the head layers and their normalization, number_neighbours > 0", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
     narration:
-      - "At launch, the self-supervised checks run after the common ones, and every mistake is listed before the run stops: here the saved configuration of the run, given four mistakes."
+      - "At launch, the self-supervised checks run after the common ones, and every mistake is listed before the run stops: here the saved configuration of the run, given {{self_supervised.checks.error_count:words}} mistakes."
       - "The augmentation must be on, since its types draw the views, and the crop must be drawn for every view or turned off."
       - "The method must be one of the two, and a batch must hold at least two images, the losses comparing the images of a batch with each other."
       - "The grouped batches, which fill a batch with blocks of images sharing a camera as hard negatives, the layers of the head and the number of neighbours are checked the same way."
@@ -203,8 +218,8 @@ scenes:
     elements:
       - {type: text, position: [148, 110], font: code_text, segments: [{text: "SSL", highlight: [0]}, {text: "_", colour: dim}, {text: "IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128", dim: [1, 2]}, {text: "_", colour: dim}, {text: "PAVG.512.128-PBN", highlight: [1]}, {text: "_", colour: dim}, {text: "SIMCLR-T0.2", highlight: [1]}]}
       - {type: box, box: [60, 230, 470, 430], text: "SSL\n\ntask: self_supervised\nno class count:\nno label is trained", font: diagram_small, outline: violet, highlight: [0]}
-      - {type: box, box: [560, 230, 1030, 430], text: "PAVG.512.128-PBN\n\naverage pooling,\nlayers 512 then 128,\nbatch normalization", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: box, box: [1120, 230, 1700, 430], text: "SIMCLR-T0.2\n\nSimCLR, temperature 0.2\nor BT-OD<weight>\nfor Barlow Twins", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [560, 230, 1030, 430], text: "PAVG.512.128-PBN\n\naverage pooling,\nlayers {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[0]}} then {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[1]}},\nbatch normalization", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [1120, 230, 1700, 430], text: "SIMCLR-T0.2\n\nSimCLR, temperature {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.simclr.temperature}}\nor BT-OD<weight>\nfor Barlow Twins", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
       - {type: arrow, points: [[230, 130], [260, 225]], colour: dim}
       - {type: arrow, points: [[1140, 130], [800, 225]], colour: dim, appear: 1}
       - {type: arrow, points: [[1450, 130], [1410, 225]], colour: dim, appear: 1}
@@ -216,12 +231,14 @@ scenes:
 
   - kind: summary
     title: "Recap"
+    # The two views and the two methods
+    literal_numbers: ["two"]
     items:
       - {text: "Pre-train the backbone on unlabelled images, transfer it with Backbone.pretrained"}
-      - {text: "Labels only serve the k-NN evaluation; unmapped images get -100"}
+      - {text: "Labels only serve the k-NN evaluation; unmapped images get {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}"}
       - {text: "ProjectionHead: pooling to the representation, layers to the embedding"}
       - {text: "simclr (temperature) or barlow_twins (off-diagonal weight)"}
-      - {text: "Views drawn by Data.data_augmentation, random_crop at probability 1.0"}
+      - {text: "Views drawn by Data.data_augmentation, random_crop at probability {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#Data.data_augmentation.types.random_crop.probability}}"}
       - {text: "Solarize and black-out on the second view only"}
       - {text: "No token for the views, batch or learning rate: set run_name_suffix"}
     narration:

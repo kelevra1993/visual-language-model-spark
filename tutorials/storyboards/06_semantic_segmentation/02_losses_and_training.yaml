@@ -24,9 +24,13 @@ scenes:
     heading: "Losses and training"
     subheading: "Cross entropy and Dice, class weights, batch metrics and curves"
     footnote: "Semantic Segmentation (SEG) · chapter 2"
+    # The chapter number of the footnote, the chapter key of this storyboard
+    literal_numbers: ["2"]
+    # The learning rate is read in full: rounded to two decimals, 0.001 would read 0.00
+    exact_facts: [semantic_segmentation.run_learning_rate]
     narration:
       - "This chapter trains the segmenter: the losses of the segmentation loss section, the class weighting, the batch metrics and the curves of the synthetic run."
-      - "The run trained {{semantic_segmentation.run_iterations}} iterations of {{semantic_segmentation.run_batch_size}} images of 512 pixels, at a {{semantic_segmentation.run_learning_rate_schedule}} learning rate of {{semantic_segmentation.run_learning_rate}}."
+      - "The run trained {{semantic_segmentation.run_iterations}} iterations of {{semantic_segmentation.run_batch_size}} images of {{semantic_segmentation.run_image_size}} pixels, at a {{semantic_segmentation.run_learning_rate_schedule}} learning rate of {{semantic_segmentation.run_learning_rate}}."
 
   - kind: yaml
     title: "The loss section"
@@ -40,10 +44,12 @@ scenes:
       - {match: "class_weighting", sentences: [1]}
       - {match: "focal_gamma|label_smoothing", sentences: [2]}
       - {match: "^SegmentationLoss:", sentences: [3]}
+    # A weight of zero leaves its loss out, what the weights mean rather than a setting
+    literal_numbers: [zero]
     narration:
-      - "Four losses, each multiplied by its weight and left out at zero: the pixel cross entropy and the soft Dice loss are on, the IOU surrogate and the boundary loss are off, and at least one region loss must stay on."
+      - "Each loss is multiplied by its weight and left out at zero: the pixel cross entropy and the soft Dice loss are on, the IOU surrogate and the boundary loss are off, and at least one region loss must stay on."
       - "Class weighting none weighs every pixel the same; balanced weighs a class by the total pixels over the number of classes times its pixels, counted once over the training masks and cached in the run folder."
-      - "The focal gamma and the label smoothing apply to the cross entropy, and both are zero here."
+      - "The focal gamma and the label smoothing apply to the cross entropy, here at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.focal_gamma:words}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.label_smoothing:words}}."
       - "Take a run whose losses change midway: none of these settings gives a token to the run name, so it resumes the same run folder, the loading of the checkpoint setting the class weights of the new configuration again."
 
   - kind: code
@@ -56,10 +62,12 @@ scenes:
       - {match: "ignore_index=IGNORED_LABEL_INDEX", sentences: [0]}
       - {match: "pixel_weights = |pixel_weights.sum\\(\\)", sentences: [0]}
       - {match: "focal_gamma > 0|\\(1.0 - target_probabilities\\)", sentences: [1]}
+    # A focal gamma of zero, the power that turns the focal loss back into the cross entropy
+    literal_numbers: [zero]
     narration:
-      - "The cross entropy ignores the pixels at minus 100, weighs every pixel by its class, and is divided by the weights of the labelled pixels, so a focal gamma of zero gives the weighted cross entropy, in float32."
+      - "The cross entropy ignores the pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}, weighs every pixel by its class, and is divided by the weights of the labelled pixels, so a focal gamma of zero gives the weighted cross entropy, in float32."
       - "The focal factor, one minus the probability of the true class to the power gamma, would lower the loss of the pixels already right."
-      - "At the first iteration the untrained network gives {{semantic_segmentation.curves_cross_entropy_loss_first:.2f}}, next to the {{semantic_segmentation.shares_uniform_cross_entropy:.2f}} of a uniform guess over ten classes."
+      - "At the first iteration the untrained network gives {{semantic_segmentation.curves_cross_entropy_loss_first:.2f}}, next to the {{semantic_segmentation.shares_uniform_cross_entropy:.2f}} of a uniform guess over {{semantic_segmentation.run_number_classes:words}} classes."
 
   - kind: html
     page: diagram
@@ -75,7 +83,7 @@ scenes:
         colours: [dim, blue, blue, blue, blue, blue, blue, blue, blue, blue]
         label_width: 200
         value_width: 120
-      - {type: text, position: [80, 670], text: "share of the {{semantic_segmentation.shares_labelled_pixels:,}} labelled pixels of the test split, class_metrics.csv of iteration 2000", font: diagram_small, colour: dim}
+      - {type: text, position: [80, 670], text: "share of the {{semantic_segmentation.shares_labelled_pixels:,}} labelled pixels of the test split, class_metrics.csv of iteration {{semantic_segmentation.run_checkpoint_iteration}}", font: diagram_small, colour: dim}
     narration:
       - "On the test split the background holds {{semantic_segmentation.shares_background:.1%}} of the labelled pixels and the triangle only {{semantic_segmentation.shares_smallest:.2%}}: a pixel cross entropy is dominated by the background."
       - "Balancing that is the job of the Dice loss."
@@ -94,11 +102,11 @@ scenes:
     narration:
       - "The soft Dice loss compares the softmax probabilities with the one-hot masks over the whole batch: twice the intersection over the sum, for every class."
       - "It averages the classes present in the batch, so a small class counts as much as the background, and an absent class is left out."
-      - "It starts near one, {{semantic_segmentation.curves_dice_loss_first:.3f}} at the first iteration, since the untrained probabilities overlap no shape."
+      - "It starts near one, {{semantic_segmentation.curves_dice_loss_first:.2f}} at the first iteration, since the untrained probabilities overlap no shape."
       - "Its gradient reaches every class of the batch however small, which is what the cross entropy lacks on these masks."
 
   - kind: code
-    title: "The two losses left off"
+    title: "The losses left off"
     code_reference: "vision_training/losses/segmentation_losses.py · compute_boundary_loss"
     source:
       file: vision_training/losses/segmentation_losses.py
@@ -108,8 +116,10 @@ scenes:
       - {match: "pixel_losses \\* edge_weights", sentences: [0]}
       - {match: "edge_weights.sum\\(\\)", sentences: [1]}
       - {match: "ignore_index=IGNORED_LABEL_INDEX", sentences: [2]}
+    # The edge weights fall to zero beyond the boundary distance, the shape of the weighting rather than a setting
+    literal_numbers: [zero]
     narration:
-      - "The boundary loss is the same pixel cross entropy, weighted one on the true edges and falling to zero three pixels away, the boundary distance of the section."
+      - "The boundary loss is the same pixel cross entropy, weighted one on the true edges and falling to zero {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_distance:words}} pixels away, the boundary distance of the section."
       - "It is divided by the sum of these weights, so the errors near the edges count the most whatever the area of the regions."
       - "Like the cross entropy, it leaves the ignored pixels out and is computed in float32."
       - "Should you need to push the mean IOU further in the last part of a training, the IOU surrogate is often added then: it sorts the errors of every class and weighs them by the gradient of a convex extension of one minus IOU."
@@ -154,10 +164,10 @@ scenes:
       - {box: "{{semantic_segmentation.curves_loss_panel_box}}", sentences: [0, 1, 2]}
       - {box: "{{semantic_segmentation.curves_metric_panel_box}}", sentences: [3]}
     narration:
-      - "The total loss falls from {{semantic_segmentation.curves_total_loss_first:.2f}} to about {{semantic_segmentation.curves_total_loss_last_smoothed:.2f}}, the cross entropy to {{semantic_segmentation.curves_cross_entropy_loss_last_smoothed:.3f}} and the Dice loss to {{semantic_segmentation.curves_dice_loss_last_smoothed:.2f}}, most of what is left."
-      - "The cross entropy falls within the first few hundred iterations, while the Dice loss keeps falling to the end of the run."
+      - "The total loss falls from {{semantic_segmentation.curves_total_loss_first:.2f}} to about {{semantic_segmentation.curves_total_loss_last_smoothed:.2f}}, the cross entropy to {{semantic_segmentation.curves_cross_entropy_loss_last_smoothed:.2f}} and the Dice loss to {{semantic_segmentation.curves_dice_loss_last_smoothed:.2f}}, most of what is left."
+      - "The cross entropy makes {{semantic_segmentation.curves_loss_fall_share:.0%}} of its fall within the first {{semantic_segmentation.curves_cross_entropy_loss_fall_iteration}} iterations, while the Dice loss keeps falling to the end of the run."
       - "The dots are the validation batches, one every {{semantic_segmentation.run_validation_ratio}} iterations, {{semantic_segmentation.curves_total_loss_validation_count}} in all, close to the training curves."
-      - "The pixel accuracy of the batches passes 0.9 by iteration {{semantic_segmentation.curves_pixel_accuracy_reaches_0_9}}, while their mean IOU climbs slowly to about {{semantic_segmentation.curves_mean_iou_last_smoothed:.2f}}."
+      - "The pixel accuracy of the batches passes {{semantic_segmentation.curves_pixel_accuracy_threshold}} by iteration {{semantic_segmentation.curves_pixel_accuracy_reaches_0_9}}, while their mean IOU climbs slowly to about {{semantic_segmentation.curves_mean_iou_last_smoothed:.2f}}."
       - "The run went at about {{semantic_segmentation.training_throughput:.0f}} images per second on the GPU, {{semantic_segmentation.training_interval_seconds:.0f}} seconds per {{semantic_segmentation.training_interval_iterations}} iterations."
 
   - kind: html
@@ -169,20 +179,20 @@ scenes:
         box: [200, 80, 1100, 560]
         values: ["{{semantic_segmentation.headline_pixel_accuracy_1000}}", "{{semantic_segmentation.headline_mean_iou_1000}}", "{{semantic_segmentation.headline_pixel_accuracy_2000}}", "{{semantic_segmentation.headline_mean_iou_2000}}"]
         maximum: 1.0
-        labels: ["pixel accuracy\n1000", "mean IoU\n1000", "pixel accuracy\n2000", "mean IoU\n2000"]
+        labels: ["pixel accuracy\n{{semantic_segmentation.run_first_evaluated_iteration}}", "mean IoU\n{{semantic_segmentation.run_first_evaluated_iteration}}", "pixel accuracy\n{{semantic_segmentation.run_checkpoint_iteration}}", "mean IoU\n{{semantic_segmentation.run_checkpoint_iteration}}"]
         value_labels: ["{{semantic_segmentation.headline_pixel_accuracy_1000:.3f}}", "{{semantic_segmentation.headline_mean_iou_1000:.3f}}", "{{semantic_segmentation.headline_pixel_accuracy_2000:.3f}}", "{{semantic_segmentation.headline_mean_iou_2000:.3f}}"]
         colours: [dim, blue, dim, blue]
         gap: 40
       - {type: box, box: [1200, 140, 1720, 460], text: "test split, every pixel:\npixel accuracy follows\nthe background;\nthe mean IoU over classes\ncompares the checkpoints", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
     narration:
-      - "The test evaluations show why: at iteration 1000 the pixel accuracy is already {{semantic_segmentation.headline_pixel_accuracy_1000:.3f}} while the mean IOU is {{semantic_segmentation.headline_mean_iou_1000:.3f}}, most shapes still being missed."
-      - "At iteration 2000 they reach {{semantic_segmentation.headline_pixel_accuracy_2000:.3f}} and {{semantic_segmentation.headline_mean_iou_2000:.3f}}: the mean IOU, the headline metric of the task, is what compares the checkpoints."
+      - "The test evaluations show why: at iteration {{semantic_segmentation.run_first_evaluated_iteration}} the pixel accuracy is already {{semantic_segmentation.headline_pixel_accuracy_1000:.2f}} while the mean IOU is {{semantic_segmentation.headline_mean_iou_1000:.2f}}, most shapes still being missed."
+      - "At iteration {{semantic_segmentation.run_checkpoint_iteration}} they reach {{semantic_segmentation.headline_pixel_accuracy_2000:.2f}} and {{semantic_segmentation.headline_mean_iou_2000:.2f}}: the mean IOU, the headline metric of the task, is what compares the checkpoints."
 
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Cross entropy + soft Dice, both at weight 1; IoU surrogate and boundary losses off"}
-      - {text: "Pixels at -100 left out of every loss and metric"}
+      - {text: "Cross entropy + soft Dice at weights {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:g}}; IoU surrogate and boundary losses off"}
+      - {text: "Pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}} left out of every loss and metric"}
       - {text: "class_weighting: balanced, cached in class_pixel_counts.json"}
       - {text: "No run name token for the losses: a change resumes the run"}
       - {text: "Batch mean IoU: classes of the batch, averaged over batches"}

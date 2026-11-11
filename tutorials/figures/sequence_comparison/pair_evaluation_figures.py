@@ -226,6 +226,7 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
         iterations, values = read_scalar_curve(run_folder=run_folder, split="Test", tag=scalar_name)
         for evaluated_iteration, value in zip(iterations, values):
             facts[f"evaluation.{fact_name}.iteration_{int(evaluated_iteration)}"] = round_fact(value=value)
+        facts["evaluation.iterations"] = [int(evaluated_iteration) for evaluated_iteration in iterations]
 
     # Confusion matrix, ROC and precision-recall curves of the last evaluation side by side
     evaluation_folder = run_folder / "Evaluation" / f"Iteration_{iteration}"
@@ -245,6 +246,7 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     class_names = list(thresholds["classes"])
     facts.update(draw_probability_figure(output_path=output_folder / "evaluation" / "pair_probabilities.png",
                                          predictions=predictions, thresholds=thresholds, class_names=class_names))
+    facts["probabilities.target_precision"] = thresholds["target_precision"]
     for class_name, class_threshold in thresholds["classes"].items():
         facts[f"probabilities.{class_name}.threshold"] = round_fact(value=class_threshold["threshold"])
         facts[f"probabilities.{class_name}.recall"] = round_fact(value=class_threshold["recall"])
@@ -252,6 +254,7 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
         encoding="utf-8"))["pairs"]}
     wrong_rows = [row for row in predictions if row["correct"] == "0"]
     facts["errors.count"] = len(wrong_rows)
+    facts["errors.other_count"] = len(wrong_rows) - 1
     facts["errors.true_classes"] = sorted({row["true_class"] for row in wrong_rows})
     sorted_rows = sorted(wrong_rows, key=read_pair_name)
     for error_index, row in enumerate(sorted_rows):

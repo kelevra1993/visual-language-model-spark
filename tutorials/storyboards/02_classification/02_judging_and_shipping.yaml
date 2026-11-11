@@ -33,6 +33,8 @@ scenes:
     heading: "Judging and shipping a classifier"
     subheading: "Reports, confusions, thresholds and the export"
     footnote: "Image Classification · chapter 2"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["2"]
     narration:
       - "A classifier is judged on its whole test split at every evaluated checkpoint, and every evaluation writes what you need to decide whether to ship it."
       - "This chapter reads the evaluations of the synthetic shapes run: the report, the confusions, the thresholds, the probabilities and their temperature, and the images, then the measured effects of the head settings, the pitfalls and the export."
@@ -48,13 +50,15 @@ scenes:
       - {match: "per_class_report|number_sample_images|target_precision", sentences: [0]}
       - {match: "save_predictions|error_dumps|activated|maximum_per_class_pair", sentences: [1]}
     narration:
-      - "The evaluation section of a classification run sets the per class report, eight sample images, and the target precision of the thresholds, while the top-k accuracy needs no setting."
+      - "The evaluation section of a classification run sets the per class report, {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_sample_images:words}} sample images, and the target precision of the thresholds, while the top-k accuracy needs no setting."
       - "Save predictions writes the probabilities of every test image, and the error images, off in this run, save the misclassified images up to a number per pair of classes; the checks refuse them in the multi label mode."
 
   - kind: html
     page: diagram
     title: "The report of a checkpoint"
     code_reference: "vision_training/evaluation/classification/class_metrics_report.py · build_class_metrics_table"
+    # The top-2 and top-5 accuracies, the two most probable classes and the last two columns of the report
+    literal_numbers: [two, five]
     elements:
       - type: listing
         box: [20, 24, 1740, 600]
@@ -65,12 +69,12 @@ scenes:
           - {match: "^  Macro ROC AUC|^   (square|octagon|pentagon) ", sentences: [1]}
           - {match: "Threshold|@ P0.99|^   rectangle ", sentences: [2]}
       - {type: text, position: [880, 660], text: "Results.txt: one block per evaluated checkpoint · the console prints it with the links of the files", font: diagram_small, colour: dim, anchor: mm}
-      - {type: text, position: [880, 705], text: "newer evaluations: a Per Class Recall table, every recall with its 95% interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
+      - {type: text, position: [880, 705], text: "newer evaluations: a Per Class Recall table, every recall with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
     narration:
-      - "At iteration 1500 the report gives an accuracy of {{classification.headline.iteration_1500.accuracy:.3f}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top two accuracy of {{classification.headline.iteration_1500.top_2_accuracy:.3f}}, newer evaluations writing a top five accuracy instead: the right class is almost always among the two most probable."
+      - "At iteration {{classification.class_metrics.iteration}} the report gives an accuracy of {{classification.headline.iteration_1500.accuracy:.1%}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top two accuracy of {{classification.headline.iteration_1500.top_2_accuracy:.1%}}, newer evaluations writing a top five accuracy instead: the right class is almost always among the two most probable."
       - "With the per class report, the macro ROC AUC and average precision join them, and every class gets its row, the worst F1 first: square, octagon and pentagon."
       - "The last two columns give the threshold reaching a precision of {{classification.class_metrics.target_precision}} and the recall it keeps, a dash when that precision is never reached, as for rectangle."
-      - "Evaluations newer than this run add a per class recall table, the worst recall first, with the exact 95% confidence interval of every recall over the test images of its class."
+      - "Evaluations newer than this run add a per class recall table, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} confidence interval of every recall over the test images of its class."
 
   - kind: html
     page: diagram
@@ -80,18 +84,18 @@ scenes:
       - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_500.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 0, until: 0, marks: [{row: 4, column: 4, sentences: [0]}, {row: 5, column: 5, sentences: [0]}, {row: 8, column: 8, sentences: [0]}]}
       - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_1000.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 1, until: 1, marks: [{row: 4, column: 4, sentences: [1]}, {row: 5, column: 5, sentences: [1]}, {row: 8, column: 8, sentences: [1]}]}
       - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_1500.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 2, marks: [{row: 0, column: 3, sentences: [2]}, {row: 3, column: 0, sentences: [2]}, {row: 4, column: 5, sentences: [3]}, {row: 8, column: 5, sentences: [3]}, {row: 1, column: 8, sentences: [3]}]}
-      - {type: text, position: [1180, 70], text: "Iteration 500", font: diagram_heading, appear: 0, until: 0}
+      - {type: text, position: [1180, 70], text: "Iteration {{classification.confusion.iterations[0]}}", font: diagram_heading, appear: 0, until: 0}
       - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_500.accuracy:.3f}}\nrecall: hexagon {{classification.confusion.iteration_500.recall.hexagon:.2f}}\npentagon {{classification.confusion.iteration_500.recall.pentagon:.2f}} · octagon {{classification.confusion.iteration_500.recall.octagon:.2f}}", font: diagram_text, appear: 0, until: 0}
-      - {type: text, position: [1180, 70], text: "Iteration 1000", font: diagram_heading, appear: 1, until: 1}
+      - {type: text, position: [1180, 70], text: "Iteration {{classification.confusion.iterations[1]}}", font: diagram_heading, appear: 1, until: 1}
       - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_1000.accuracy:.3f}}\nrecall: pentagon {{classification.confusion.iteration_1000.recall.pentagon:.2f}}\nhexagon {{classification.confusion.iteration_1000.recall.hexagon:.2f}} · octagon {{classification.confusion.iteration_1000.recall.octagon:.2f}}", font: diagram_text, appear: 1, until: 1}
-      - {type: text, position: [1180, 70], text: "Iteration 1500", font: diagram_heading, appear: 2}
+      - {type: text, position: [1180, 70], text: "Iteration {{classification.confusion.iterations[2]}}", font: diagram_heading, appear: 2}
       - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_1500.accuracy:.3f}}\nsquare → rectangle {{classification.confusion.iteration_1500.square_to_rectangle.count:,}}\nrectangle → square {{classification.confusion.iteration_1500.rectangle_to_square.count:,}}", font: diagram_text, appear: 2}
       - {type: box, box: [1180, 300, 1740, 480], text: "pentagon → hexagon {{classification.confusion.iteration_1500.pentagon_to_hexagon.count:,}}\noctagon → hexagon {{classification.confusion.iteration_1500.octagon_to_hexagon.count:,}}\ncircle → octagon {{classification.confusion.iteration_1500.circle_to_octagon.count:,}}", font: diagram_small, outline: magenta, appear: 3, highlight: [3]}
       - {type: text, position: [1180, 620], text: "rows: true class · columns: predicted\ncells: % of the images of the true class", font: diagram_small, colour: dim}
     narration:
-      - "At iteration 500, the test accuracy is {{classification.headline.iteration_500.accuracy:.3f}}, and hexagon, pentagon and octagon are found less than one time in five."
-      - "At iteration 1000, {{classification.confusion.iteration_1000.recall.pentagon:.0%}} of the pentagons are found, but hexagon and octagon stay at {{classification.confusion.iteration_1000.recall.hexagon:.0%}} and {{classification.confusion.iteration_1000.recall.octagon:.0%}}."
-      - "At iteration 1500, the accuracy reaches {{classification.headline.iteration_1500.accuracy:.3f}}, and the errors left are pairs of close outlines: {{classification.confusion.iteration_1500.square_to_rectangle.count:,}} squares taken for rectangles, {{classification.confusion.iteration_1500.square_to_rectangle.share:.0%}} of them, and {{classification.confusion.iteration_1500.rectangle_to_square.count:,}} rectangles for squares."
+      - "At iteration {{classification.confusion.iterations[0]}}, the test accuracy is {{classification.headline.iteration_500.accuracy:.1%}}, and hexagon, pentagon and octagon are found only {{classification.confusion.iteration_500.recall.hexagon:.0%}}, {{classification.confusion.iteration_500.recall.pentagon:.0%}} and {{classification.confusion.iteration_500.recall.octagon:.0%}} of the time."
+      - "At iteration {{classification.confusion.iterations[1]}}, {{classification.confusion.iteration_1000.recall.pentagon:.0%}} of the pentagons are found, but hexagon and octagon stay at {{classification.confusion.iteration_1000.recall.hexagon:.0%}} and {{classification.confusion.iteration_1000.recall.octagon:.0%}}."
+      - "At iteration {{classification.confusion.iterations[2]}}, the accuracy reaches {{classification.headline.iteration_1500.accuracy:.1%}}, and the errors left are pairs of close outlines: {{classification.confusion.iteration_1500.square_to_rectangle.count:,}} squares taken for rectangles, {{classification.confusion.iteration_1500.square_to_rectangle.share:.0%}} of them, and {{classification.confusion.iteration_1500.rectangle_to_square.count:,}} rectangles for squares."
       - "{{classification.confusion.iteration_1500.pentagon_to_hexagon.count:,}} pentagons and {{classification.confusion.iteration_1500.octagon_to_hexagon.count:,}} octagons go to hexagon, which finds {{classification.confusion.iteration_1500.recall.hexagon:.0%}} of its images at a precision of only {{classification.confusion.iteration_1500.precision.hexagon:.0%}}, and {{classification.confusion.iteration_1500.circle_to_octagon.count:,}} circles are taken for octagons."
 
   - kind: image
@@ -113,6 +117,8 @@ scenes:
     page: diagram
     title: "Per-class F1 and the thresholds"
     code_reference: "vision_training/evaluation/classification/threshold_finder.py · find_class_thresholds"
+    # The two groups of classes, and the example list of target precisions
+    literal_numbers: [two, "0.99", "0.95", "0.9", "0.90"]
     elements:
       - {type: text, position: [20, 24], text: "F1 · iteration {{classification.class_metrics.iteration}}, worst first", font: diagram_small, colour: dim}
       - {type: bars, box: [20, 80, 840, 620], orientation: horizontal, maximum: 1, label_width: 150, values: "{{classification.class_metrics.sorted_f1}}", labels: "{{classification.class_metrics.sorted_class_names}}", value_labels: "{{classification.class_metrics.sorted_f1_labels}}", colour: blue, highlight: [0]}
@@ -121,7 +127,7 @@ scenes:
       - {type: text, position: [880, 680], text: "rectangle never reaches the precision: null in class_thresholds.json, a dash in the report", font: diagram_small, colour: dim, anchor: mm, appear: 2, until: 2}
       - {type: text, position: [880, 680], text: "target_precision: [0.99, 0.95, 0.90] → additional_targets, Per Class Thresholds table", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3, 4]}
     narration:
-      - "Sorted by F1, the classes split in two: plus sign, star and triangle above {{classification.class_metrics.triangle.f1:.2f}}, the six others between {{classification.class_metrics.square.f1:.2f}} and {{classification.class_metrics.circle.f1:.2f}}."
+      - "Sorted by F1, the classes split in two: plus sign, star and triangle above {{classification.class_metrics.triangle.f1:.2f}}, the others between {{classification.class_metrics.square.f1:.2f}} and {{classification.class_metrics.circle.f1:.2f}}."
       - "Imagine a deployment where errors are costly: for every class, one against the rest, the evaluation finds the lowest probability threshold whose precision reaches {{classification.class_metrics.target_precision}}, and saves it with the recall it keeps in class thresholds json."
       - "At that precision, plus sign keeps {{classification.class_metrics.plus_sign.recall_at_target_precision:.1%}} of its images and circle {{classification.class_metrics.circle.recall_at_target_precision:.0%}}, but square keeps {{classification.class_metrics.square.recall_at_target_precision:.2%}}, and rectangle never gets there."
       - "Should you want to choose among several precisions, give target precision a list, such as 0.99, 0.95 and 0.9: every class then gets a threshold and a recall at each, in a per class thresholds table of the report."
@@ -139,7 +145,7 @@ scenes:
       - {box: [140, 262, 990, 380], sentences: [1]}
     narration:
       - "The precision recall curve of every class sweeps that threshold; the dotted line is the target precision, and every dot the threshold reaching it."
-      - "The rectangle curve stays near 0.7 whatever the threshold, an average precision of {{classification.class_metrics.rectangle.average_precision:.2f}}, since the squares taken for rectangles get high rectangle probabilities; the ROC curves, saved next to it, read the same way."
+      - "The rectangle curve stays near {{classification.confusion.iteration_1500.precision.rectangle:.1f}} whatever the threshold, an average precision of {{classification.class_metrics.rectangle.average_precision:.2f}}, since the squares taken for rectangles get high rectangle probabilities; the ROC curves, saved next to it, read the same way."
       - "Evaluations newer than this run also save precision recall thresholds png, which zooms on these dots and writes every threshold in the colour of its curve."
 
   - kind: image
@@ -158,19 +164,23 @@ scenes:
     page: diagram
     title: "The logit temperature"
     code_reference: "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
+    # The made-up logits of a square and their probabilities at the temperatures one and three, the decimals listed
+    # first so that the "0" of the logits leaves them whole
+    literal_numbers: ["0.950", "0.047", "0.002", "0.665", "0.245", "0.090", "0.95", "0.67", "0.24", "0.09", six, three,
+                      zero, "6", "3", "0", "1"]
     elements:
       - {type: box, box: [40, 30, 1260, 110], text: "probabilities = softmax(logits / T)", font: diagram_bold, outline: blue, highlight: [0]}
       - {type: text, position: [40, 160], text: "a square, logits 6 · 3 · 0, T = 1", font: diagram_small, colour: dim}
       - {type: bars, box: [40, 200, 600, 600], maximum: 1, values: [0.950, 0.047, 0.002], labels: ["square", "rectangle", "circle"], value_labels: ["0.950", "0.047", "0.002"], colours: [blue, aqua, violet], gap: 40, highlight: [1]}
       - {type: text, position: [700, 160], text: "the same logits, T = 3", font: diagram_small, colour: dim, appear: 1}
       - {type: bars, box: [700, 200, 1260, 600], maximum: 1, values: [0.665, 0.245, 0.090], labels: ["square", "rectangle", "circle"], value_labels: ["0.665", "0.245", "0.090"], colours: [blue, aqua, violet], gap: 40, appear: 1, highlight: [1]}
-      - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from 0.5 to 10\nthe calibrated T", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}}\nthe calibrated T", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
       - {type: box, box: [1340, 380, 1740, 600], text: "Save Thresholds\nAt This Temperature\nthen the export with\nuse_saved_temperature", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: text, position: [880, 680], text: "the order of the logits is kept: the same predicted class, the same accuracy · classification only", font: diagram_small, colour: dim, anchor: mm, appear: 1}
     narration:
       - "A well trained softmax often squeezes its probabilities against one, which leaves the thresholds little room: dividing the logits by a temperature before the softmax spreads them out."
       - "Say a square gets the logits six, three and zero: at a temperature of one, square takes 0.95; at three, it keeps the lead with 0.67, against 0.24 for rectangle and 0.09 for circle, so the predicted class and the accuracy never change."
-      - "With the per class report on, every evaluation writes temperature explorer html, where a slider from 0.5 to 10 redraws the probabilities, the thresholds and the calibration, next to the temperature that calibrates the test split best."
+      - "With the per class report on, every evaluation writes temperature explorer html, where a slider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}} redraws the probabilities, the thresholds and the calibration, next to the temperature that calibrates the test split best."
       - "Once you have chosen one, the save button of the page, opened with the serve temperature explorer script, writes the thresholds found at that temperature next to it, and the export reads them with use saved temperature."
 
   - kind: image
@@ -184,9 +194,9 @@ scenes:
       - {box: "{{classification.evaluation.samples.iteration_500.image_3_box}}", sentences: [1]}
       - {box: "{{classification.evaluation.samples.iteration_500.image_7_box}}", sentences: [1]}
     narration:
-      - "The eight sample images are drawn once, spread over the classes, and captioned at every evaluation with the true class, the predicted class and its probability, green when right and red when wrong."
-      - "At iteration 500, this hexagon is taken for a circle, and this triangle for a plus sign."
-      - "At iteration 1500, the same eight images are right, and in TensorBoard their slider shows the prediction of every image change over the training."
+      - "The {{classification.evaluation.samples.image_count:words}} sample images are drawn once, spread over the classes, and captioned at every evaluation with the true class, the predicted class and its probability, green when right and red when wrong."
+      - "At iteration {{classification.evaluation.samples.iterations[0]}}, this hexagon is taken for a circle, and this triangle for a plus sign."
+      - "At iteration {{classification.evaluation.samples.iterations[1]}}, the same {{classification.evaluation.samples.image_count:words}} images are right, and in TensorBoard their slider shows the prediction of every image change over the training."
 
   - kind: image
     title: "Error images"
@@ -195,8 +205,10 @@ scenes:
     highlights:
       - {box: "{{classification.evaluation.errors.image_1_box}}", sentences: [1]}
       - {box: "{{classification.evaluation.errors.image_2_box}}", sentences: [1]}
+    # The probabilities are read as the file names on screen write them, with three decimals
+    exact_facts: [classification.evaluation.errors.image_1_probability, classification.evaluation.errors.image_2_probability]
     narration:
-      - "With error images on, every misclassified test image is saved in a folder named after its true and predicted classes, here by the standalone evaluation of iteration 1500: {{classification.evaluation.errors.images}} images in {{classification.evaluation.errors.pair_folders}} folders, at most {{classification.evaluation.errors.largest_pair_images}} per pair."
+      - "With error images on, every misclassified test image is saved in a folder named after its true and predicted classes, here by the standalone evaluation of iteration {{classification.evaluation.errors.iteration}}: {{classification.evaluation.errors.images}} images in {{classification.evaluation.errors.pair_folders}} folders, at most {{classification.evaluation.errors.largest_pair_images}} per pair."
       - "The file name ends with the probability of the wrong class: this square went to rectangle at {{classification.evaluation.errors.image_1_probability}}, and this pentagon to hexagon at {{classification.evaluation.errors.image_2_probability}}."
 
   - kind: html
@@ -204,21 +216,23 @@ scenes:
     title: "Measured effects of the head settings"
     code_reference: "documentation/architecture_benchmarking/experiment_plan.md"
     elements:
-      - {type: text, position: [40, 30], text: "hidden layer normalization\naccuracy at iteration 500", font: diagram_small, colour: dim}
+      - {type: text, position: [40, 30], text: "hidden layer normalization\naccuracy at iteration {{classification.benchmark.normalization_iteration}}", font: diagram_small, colour: dim}
       - {type: bars, box: [40, 140, 620, 560], maximum: 1, values: ["{{classification.benchmark.normalization.none}}", "{{classification.benchmark.normalization.batch}}", "{{classification.benchmark.normalization.layer}}"], labels: ["none", "batch", "layer"], value_labels: ["{{classification.benchmark.normalization.none:.3f}}", "{{classification.benchmark.normalization.batch:.3f}}", "{{classification.benchmark.normalization.layer:.3f}}"], colours: [dim, yellow, blue], gap: 40, appear: 0, highlight: [1]}
-      - {type: text, position: [760, 30], text: "global pooling\nlast four evaluations", font: diagram_small, colour: dim}
+      - {type: text, position: [760, 30], text: "global pooling\nlast {{classification.benchmark.last_evaluation_count:words}} evaluations", font: diagram_small, colour: dim}
       - {type: bars, box: [760, 140, 1140, 560], maximum: 1, values: ["{{classification.benchmark.pooling.flatten}}", "{{classification.benchmark.pooling.average}}"], labels: ["flatten", "average"], value_labels: ["{{classification.benchmark.pooling.flatten:.3f}}", "{{classification.benchmark.pooling.average:.3f}}"], colours: [blue, aqua], gap: 40, appear: 1, dim: [1], highlight: [2]}
-      - {type: text, position: [1280, 30], text: "class weighting\nlast four evaluations", font: diagram_small, colour: dim}
+      - {type: text, position: [1280, 30], text: "class weighting\nlast {{classification.benchmark.last_evaluation_count:words}} evaluations", font: diagram_small, colour: dim}
       - {type: bars, box: [1280, 140, 1700, 560], maximum: 1, values: ["{{classification.benchmark.weighting.balanced}}", "{{classification.benchmark.weighting.none}}"], labels: ["balanced", "none"], value_labels: ["{{classification.benchmark.weighting.balanced:.3f}}", "{{classification.benchmark.weighting.none:.3f}}"], colours: [blue, aqua], gap: 40, appear: 1, dim: [1], highlight: [2]}
-      - {type: text, position: [880, 660], text: "means of two launches · 256 pixels · 2,000 iterations · two launches of one setting: {{classification.benchmark.noise.first_mean:.3f}} and {{classification.benchmark.noise.second_mean:.3f}}", font: diagram_small, colour: dim, anchor: mm, highlight: [0, 2]}
+      - {type: text, position: [880, 660], text: "means of {{classification.benchmark.launches_per_setting:words}} launches · {{classification.benchmark.image_size}} pixels · {{classification.benchmark.last_iteration:,}} iterations · {{classification.benchmark.noise.launch_count:words}} launches of one setting: {{classification.benchmark.noise.first_mean:.3f}} and {{classification.benchmark.noise.second_mean:.3f}}", font: diagram_small, colour: dim, anchor: mm, highlight: [0, 2]}
     narration:
-      - "The architecture benchmark compared the head settings on the nine shapes at 256 pixels, two launches of 2000 iterations per setting."
-      - "Layer normalization of the hidden layers learns fastest: {{classification.benchmark.normalization.layer:.3f}} test accuracy at iteration 500, against {{classification.benchmark.normalization.none:.3f}} without normalization and {{classification.benchmark.normalization.batch:.3f}} with batch normalization, layer and batch ending level, above none."
-      - "Flatten against average pooling, and balanced against no class weights, differ by less than one point over the last four evaluations, while two launches of the same settings ended at {{classification.benchmark.noise.first_mean:.3f}} and {{classification.benchmark.noise.second_mean:.3f}}."
-      - "So flatten and balanced weights are defaults here, not measured gains: the nine classes hold between {{classification.data.smallest_training_class:,}} and {{classification.data.largest_training_class:,}} training images each."
+      - "The architecture benchmark compared the head settings on the {{classification.benchmark.class_count:words}} shapes at {{classification.benchmark.image_size}} pixels, {{classification.benchmark.launches_per_setting:words}} launches of {{classification.benchmark.last_iteration}} iterations per setting."
+      - "Layer normalization of the hidden layers learns fastest: {{classification.benchmark.normalization.layer:.1%}} test accuracy at iteration {{classification.benchmark.normalization_iteration}}, against {{classification.benchmark.normalization.none:.1%}} without normalization and {{classification.benchmark.normalization.batch:.1%}} with batch normalization, layer and batch ending level, above none."
+      - "Flatten against average pooling, and balanced against no class weights, differ by less than one point over the last {{classification.benchmark.last_evaluation_count:words}} evaluations, while {{classification.benchmark.noise.launch_count:words}} launches of the same settings ended at {{classification.benchmark.noise.first_mean:.1%}} and {{classification.benchmark.noise.second_mean:.1%}}."
+      - "So flatten and balanced weights are defaults here, not measured gains: the {{classification.data.class_count:words}} classes hold between {{classification.data.smallest_training_class:,}} and {{classification.data.largest_training_class:,}} training images each."
 
   - kind: text_panel
     title: "Pitfalls"
+    # A label smoothing above zero, and the two layers of the blocks without a shortcut
+    literal_numbers: [two, "0"]
     columns:
       - heading: "the head and the loss"
         lines:
@@ -251,8 +265,10 @@ scenes:
     page: diagram
     title: "The export"
     code_reference: "vision_training/models/classification/inference_classifier.py · InferenceClassifier.forward"
+    # The range of the raw 8-bit pixels the model takes
+    literal_numbers: [zero, "0", "255"]
     elements:
-      - {type: box, box: [20, 110, 460, 330], text: "images\n[B, 3, 512, 512] float32\nBGR, 0 to 255\nresized and padded", font: diagram_small, outline: blue, highlight: [0, 1]}
+      - {type: box, box: [20, 110, 460, 330], text: "images\n[B, {{classification.head.input_channels}}, {{classification.head.image_size}}, {{classification.head.image_size}}] float32\nBGR, 0 to 255\nresized and padded", font: diagram_small, outline: blue, highlight: [0, 1]}
       - {type: arrow, points: [[468, 220], [532, 220]]}
       - {type: box, box: [540, 110, 1000, 330], text: "InferenceClassifier\nthe ImageClassifier\nwithout labels nor loss", font: diagram_small, outline: violet, highlight: [0]}
       - {type: arrow, points: [[1008, 220], [1072, 220]]}
@@ -262,7 +278,7 @@ scenes:
       - {type: box, box: [1080, 410, 1740, 600], text: "class_thresholds.json of that checkpoint\nits T built in, the file copied next to it\na class accepted above its threshold", font: diagram_small, outline: yellow, appear: 2, highlight: [3]}
       - {type: box, box: [20, 625, 1740, 725], text: "preprocessing.json next to the model, and the metadata of the ONNX model: colour order · resize · size\ninterpolation · padding value and placement · layout · value range, read from the run and its data loaders", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
     narration:
-      - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to 512 pixels like the training, and returns the class probabilities only."
+      - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to {{classification.head.image_size}} pixels like the training, and returns the class probabilities only."
       - "So that a server builds these inputs as the training did, the export also writes their colour order, resize, size, interpolation, padding, layout and value range in the preprocessing file next to the model and in the ONNX metadata."
       - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it: given the class thresholds file of the exported checkpoint, the export divides the logits by its temperature and copies the file next to the model, so its thresholds apply to the outputs as they are."
       - "Faced with several evaluated checkpoints, deploy the thresholds of the exported one: they are computed again at every evaluation, from the probabilities of that checkpoint."
@@ -272,7 +288,7 @@ scenes:
     items:
       - {text: "Results.txt: headline metrics, then every class, worst F1 first"}
       - {text: "Confusion matrices over the evaluations: which pairs remain"}
-      - {text: "class_thresholds.json: thresholds at precision 0.99, the temperature"}
+      - {text: "class_thresholds.json: thresholds at precision {{classification.class_metrics.target_precision}}, the temperature"}
       - {text: "predictions.csv: every probability, no model run needed"}
       - {text: "Errors/<TRUE>-TO-<PREDICTED>/<sample>_<probability>.png", monospace: true}
       - {text: "Export: image_classifier, class probabilities [B, {{classification.head.number_classes}}]"}

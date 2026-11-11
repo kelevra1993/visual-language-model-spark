@@ -30,8 +30,9 @@ from tutorials.figures.keypoint_detection.keypoint_sources import OBJECT_COLOURS
 from tutorials.figures.keypoint_detection.scalar_logs import (SMOOTHING_WEIGHT, draw_smoothed_curve, read_scalars,
                                                              smooth_values)
 from vision_training.models.backbones.backbone import build_backbone
-from vision_training.models.keypoints.hrnet import HighResolutionNetwork
-from vision_training.models.keypoints.keypoint_detector import HEATMAP_PRIOR_PROBABILITY
+from vision_training.models.keypoints.hrnet import (BRANCH_SCALE_FACTOR, HigherResolutionBranch,
+                                                    HighResolutionNetwork)
+from vision_training.models.keypoints.keypoint_detector import HEATMAP_PRIOR_PROBABILITY, HEATMAP_STRIDE
 
 # Scalars of the training curves, logged by the keypoint trainer in Tensorboard/Train, with their colours: the total
 # loss alone on the first panel (the heatmap loss, almost all of it, is read for the facts only), the tag losses on the
@@ -60,9 +61,11 @@ def format_shape(shape: List[int]) -> str:
 def describe_network(inference_facts: Dict[str, Any], configuration: Dict[str, Any],
                      output_folder: Path) -> Dict[str, Any]:
     """
-    Turns the shapes and parameters recorded by the inference into the facts quoted by the architecture diagrams, and
-    writes the data of the exchange animation: the widths and resolutions of the branches of every stage and the
-    number of exchange modules of every stage.
+    Turns the shapes and parameters recorded by the inference into the facts quoted by the architecture diagrams (with
+    the channels of the predictions and of the higher resolution branch, the stages and branches of the network, the
+    stride of its lowest branch and the layers of the refinement of the branch), and writes the data of the exchange
+    animation: the widths and resolutions of the branches of every stage and the number of exchange modules of every
+    stage.
 
     Args:
         inference_facts (Dict[str, Any]): The facts of run_keypoint_inference.
@@ -95,6 +98,26 @@ def describe_network(inference_facts: Dict[str, Any], configuration: Dict[str, A
                      "image_size": image_size, "base_width": configuration["HRNet"]["base_width"]},
                output_path=output_folder / "network" / "high_resolution_network.json")
 
+    # Channels of the stem, of the quarter resolution predictions and of the input of the higher resolution branch, the
+    # branches of the last stage, the stride of the lowest one and the side of the quarter resolution maps
+    prediction_channels = shapes["prediction_convolution"]["output"][1]
+    last_branch_shapes = shapes[f"transition_{len(modules_per_stage)}"]["output"]
+    facts.update({"network_stem_channels": shapes["stem"]["output"][0][1],
+                  "network_prediction_channels": prediction_channels,
+                  "network_branch_input_channels": shapes["transposed_convolution"]["input"][1],
+                  "network_stage_count": len(modules_per_stage), "network_branch_count": len(last_branch_shapes),
+                  "network_lowest_stride": image_size // last_branch_shapes[-1][2],
+                  "heatmap_size": shapes["high_resolution_network"]["output"][2]})
+
+    # Layers of the refinement of the higher resolution branch, read from the branch built as the detector builds it
+    network_configuration = configuration["HRNet"]
+    higher_resolution_branch = HigherResolutionBranch(
+        feature_channels=network_configuration["base_width"], prediction_channels=prediction_channels,
+        heatmap_channels=prediction_channels // 2, hidden_width=configuration["KeypointHead"]["hidden_width"],
+        blocks_per_branch=network_configuration["blocks_per_branch"], modules=network_configuration["modules"],
+        normalization=network_configuration["normalization"], device=torch.device("cpu"), dtype=torch.float32)
+    facts["branch_refinement_layers"] = higher_resolution_branch.refinement.number_layers
+
     # Parameters of every component, as the model size panel of the trainer counts them
     parameters = inference_facts["inference_parameters"]
     facts.update({"network_modules_per_stage": str(modules_per_stage),
@@ -111,6 +134,41 @@ def describe_network(inference_facts: Dict[str, Any], configuration: Dict[str, A
                                         f"{parameters['Keypoint Head']:,}",
                                         f"{parameters['Higher Resolution Branch']:,}"]})
     return facts
+
+
+def describe_architecture_constants(configuration: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Gives the values of the architecture of the keypoint detector that the chapters quote and that are derived from
+    the constants of the repository or checked across the configuration rather than read from one key: the strides of
+    the two sets of heatmaps and their fractions of the image (HEATMAP_STRIDE, then BRANCH_SCALE_FACTOR finer), the
+    cells the finer heatmaps hold per cell of the quarter resolution ones, the stem blocks the checks require
+    (check_keypoint_stem_configuration: the stem must end at HEATMAP_STRIDE, every block but the last followed by a
+    pooling of BRANCH_SCALE_FACTOR unless Backbone.last_max_pooling adds one), the blocks of the stem of the
+    configuration, and the weight of both tag losses, which the narration quotes once.
+
+    Args:
+        configuration (Dict[str, Any]): The repository configuration, with the model sections of the run.
+
+    Returns:
+        Dict[str, Any]: The flat facts of the architecture.
+
+    Raises:
+        ValueError: If the pull and push tag losses have different weights, the chapters saying both are weighted alike.
+    """
+    head_configuration = configuration["KeypointHead"]
+    if head_configuration["tag_pull_weight"] != head_configuration["tag_push_weight"]:
+        raise ValueError(f"KeypointHead.tag_pull_weight {head_configuration['tag_pull_weight']} differs from "
+                         f"tag_push_weight {head_configuration['tag_push_weight']}: the network chapter says both tag "
+                         f"losses share one weight, reword it.")
+
+    # Poolings the stem needs to reach the heatmap stride, and the blocks giving them without or with a last pooling
+    stem_poolings = round(math.log(HEATMAP_STRIDE) / math.log(BRANCH_SCALE_FACTOR))
+    branch_stride = HEATMAP_STRIDE // BRANCH_SCALE_FACTOR
+    return {"branch_stride": branch_stride, "heatmap_fraction": f"1/{HEATMAP_STRIDE}",
+            "branch_fraction": f"1/{branch_stride}", "branch_cell_ratio": BRANCH_SCALE_FACTOR ** 2,
+            "stem_blocks_without_last_pooling": stem_poolings + 1, "stem_blocks_with_last_pooling": stem_poolings,
+            "stem_block_count": len(configuration["Backbone"]["convolutions"]),
+            "tag_loss_weight": head_configuration["tag_pull_weight"]}
 
 
 def describe_heatmap_losses(inference_facts: Dict[str, Any], sample_record: Dict[str, Any],
@@ -217,7 +275,8 @@ def style_curve_panel(axes: matplotlib.axes.Axes, title: str, last_iteration: in
     axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
 
 
-def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: bool) -> Dict[str, Any]:
+def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: bool,
+                         tag_loss_weight: float) -> Dict[str, Any]:
     """
     Draws the training curves of the keypoint run, its total and heatmap losses (log scale) and its weighted tag
     losses, read from Tensorboard/Train: the empty axes for the base image of the scene, or the whole chart for its
@@ -227,6 +286,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
         output_folder (Path): The figures folder of the series.
         run_folder (Path): The folder of the keypoint run.
         with_curves (bool): Whether the curves are drawn (the overlay) or only the axes (the base image).
+        tag_loss_weight (float): The weight of both tag losses (describe_architecture_constants), named in the title of
+            their panel.
 
     Returns:
         Dict[str, Any]: The facts of the curves and the boxes of the panels.
@@ -241,8 +302,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     loss_axes = figure.add_axes(rect=(0.07, 0.14, 0.40, 0.74))
     tag_axes = figure.add_axes(rect=(0.57, 0.14, 0.40, 0.74))
     style_curve_panel(axes=loss_axes, title="Total loss (log scale)", last_iteration=last_iteration, y_label="Loss")
-    style_curve_panel(axes=tag_axes, title="Tag losses, weighted by 0.1", last_iteration=last_iteration,
-                      y_label="Loss")
+    style_curve_panel(axes=tag_axes, title=f"Tag losses, weighted by {tag_loss_weight:g}",
+                      last_iteration=last_iteration, y_label="Loss")
     loss_axes.set_yscale(value="log")
     loss_axes.set_ylim(bottom=0.2, top=20.0)
     tag_axes.set_ylim(bottom=0.0, top=0.02)

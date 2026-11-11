@@ -26,6 +26,8 @@ scenes:
     heading: "The backbone and its modules"
     subheading: "Blocks, gates, shortcuts, receptive field"
     footnote: "Foundations · chapter 4"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["4"]
     narration:
       - "Every task of the repository builds its feature extractor from the same backbone section, so a backbone trained for one task can start another."
       - "This chapter opens it: the blocks, the modules that can be switched on, what the trained blocks compute, and what the benchmark measured for each setting."
@@ -44,30 +46,32 @@ scenes:
       - {match: "residual_nets|inception|squeeze_and_excite", sentences: [3]}
     narration:
       - "The convolutions list the blocks in order: every entry gives the number of convolution layers of a block, then the filters of each of its layers."
-      - "Every block ends with a two by two max pooling, but the last one while last max pooling is false, which gives this backbone a stride of {{foundations.listings.final_stride}}."
-      - "The input normalization maps the pixels to minus one half to one half, and the feature map normalization follows every convolution: batch, layer or none, the batch statistics following the training batches at a fixed momentum of zero point one."
+      - "Every block ends with a {{foundations.listings.pooling_size:words}} by {{foundations.listings.pooling_size:words}} max pooling, but the last one while last max pooling is false, which gives this backbone a stride of {{foundations.listings.final_stride}}."
+      - "The input normalization maps the pixels to minus one half to one half, and the feature map normalization follows every convolution: batch, layer or none, the batch statistics following the training batches at a fixed momentum of {{constant:vision_training/models/components/convolution_block.py#BATCH_NORMALIZATION_MOMENTUM}}."
       - "The modules switch on the residual shortcuts, their pre-activation placement, inception from the third block, and squeeze and excitation; every one of them enters the run name."
 
   - kind: html
     page: diagram
     title: "Inside a convolution block"
     code_reference: "vision_training/models/components/convolution_block.py · ConvolutionBlock.compute_layers"
+    # The first and second layers of the pair drawn
+    literal_numbers: ["1", "2"]
     elements:
       - {type: text, position: [95, 120], text: "block {{foundations.listings.example_block.number}} input", font: diagram_small, colour: dim, anchor: mm}
       - {type: stack, box: [50, 165, 140, 255], count: 5, offset: 7, fill: blue, label: "{{foundations.listings.example_block.input_size}}×{{foundations.listings.example_block.input_size}}×{{foundations.listings.example_block.input_channels}}"}
       - {type: text, position: [215, 145], text: "layer 1", font: diagram_small, colour: dim, anchor: ls, appear: 0}
       - {type: arrow, points: [[170, 210], [205, 210]], appear: 0}
-      - {type: box, box: [215, 160, 385, 260], text: "conv 3×3\n{{foundations.listings.example_block.output_channels}} filters", font: diagram_small, outline: blue, appear: 0, highlight: [0, 1]}
+      - {type: box, box: [215, 160, 385, 260], text: "conv {{foundations.listings.kernel_size}}×{{foundations.listings.kernel_size}}\n{{foundations.listings.example_block.output_channels}} filters", font: diagram_small, outline: blue, appear: 0, highlight: [0, 1]}
       - {type: arrow, points: [[393, 210], [440, 210]], appear: 0}
       - {type: box, box: [450, 160, 620, 260], text: "batch\nnorm", font: diagram_small, outline: yellow, appear: 0, highlight: [0]}
       - {type: arrow, points: [[628, 210], [675, 210]], appear: 0}
       - {type: box, box: [685, 160, 795, 260], text: "ReLU", font: diagram_small, outline: violet, appear: 0, highlight: [0]}
       - {type: arrow, points: [[803, 210], [850, 210]], appear: 0}
       - {type: box, box: [860, 160, 1030, 260], text: "squeeze and\nexcitation", font: diagram_small, outline: magenta, appear: 0, highlight: [0]}
-      - {type: text, position: [1390, 210], text: "each layer: 3 × 3 × {{foundations.listings.example_block.output_channels}} × {{foundations.listings.example_block.output_channels}}\n= {{foundations.listings.example_block.layer_weight_count:,}} weights + {{foundations.listings.example_block.output_channels}} biases", font: diagram_text, anchor: mm, align: center, appear: 1, highlight: [1]}
+      - {type: text, position: [1390, 210], text: "each layer: {{foundations.listings.kernel_size}} × {{foundations.listings.kernel_size}} × {{foundations.listings.example_block.output_channels}} × {{foundations.listings.example_block.output_channels}}\n= {{foundations.listings.example_block.layer_weight_count:,}} weights + {{foundations.listings.example_block.output_channels}} biases", font: diagram_text, anchor: mm, align: center, appear: 1, highlight: [1]}
       - {type: arrow, points: [[945, 268], [945, 330], [300, 330], [300, 412]], appear: 1}
       - {type: text, position: [320, 400], text: "layer 2 · closes the pair", font: diagram_small, colour: dim, anchor: ls, appear: 1}
-      - {type: box, box: [215, 420, 385, 520], text: "conv 3×3\n{{foundations.listings.example_block.output_channels}} filters", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [215, 420, 385, 520], text: "conv {{foundations.listings.kernel_size}}×{{foundations.listings.kernel_size}}\n{{foundations.listings.example_block.output_channels}} filters", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[393, 470], [440, 470]], appear: 1}
       - {type: box, box: [450, 420, 620, 520], text: "batch\nnorm", font: diagram_small, outline: yellow, appear: 1}
       - {type: arrow, points: [[628, 470], [675, 470]], appear: 1}
@@ -78,11 +82,11 @@ scenes:
       - {type: arrow, points: [[998, 470], [1045, 470]], appear: 2}
       - {type: box, box: [1055, 420, 1165, 520], text: "ReLU", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: arrow, points: [[1173, 470], [1220, 470]], appear: 3}
-      - {type: box, box: [1230, 420, 1400, 520], text: "max pooling\n2×2", font: diagram_small, appear: 3, highlight: [3]}
+      - {type: box, box: [1230, 420, 1400, 520], text: "max pooling\n{{foundations.listings.pooling_size}}×{{foundations.listings.pooling_size}}", font: diagram_small, appear: 3, highlight: [3]}
       - {type: arrow, points: [[1408, 470], [1455, 470]], appear: 3}
       - {type: stack, box: [1470, 425, 1560, 515], count: 5, offset: 7, fill: blue, label: "{{foundations.listings.example_block.output_size}}×{{foundations.listings.example_block.output_size}}×{{foundations.listings.example_block.output_channels}}", appear: 3, highlight: [3]}
     narration:
-      - "Inside a block, every layer is a three by three convolution padded to keep the map size, its normalization and a ReLU, then squeeze and excitation when it is on."
+      - "Inside a block, every layer is a {{foundations.listings.kernel_size:words}} by {{foundations.listings.kernel_size:words}} convolution padded to keep the map size, its normalization and a ReLU, then squeeze and excitation when it is on."
       - "In block {{foundations.listings.example_block.number}}, each of the {{foundations.listings.example_block.output_channels}} filters reads all {{foundations.listings.example_block.input_channels}} input channels: {{foundations.listings.example_block.layer_weight_count:,}} weights per layer."
       - "The layer closing a residual pair recalibrates its normalized output first, adds the shortcut, and only then applies its ReLU, so the gates never rescale the shortcut."
       - "The block ends with its max pooling: {{foundations.listings.example_block.input_size}} pixels a side become {{foundations.listings.example_block.output_size}}."
@@ -91,20 +95,22 @@ scenes:
     page: diagram
     title: "What the blocks compute"
     code_reference: "tutorials/figures/foundations/backbone_activations.py"
+    # The zero of the ReLU, the darkest value of a tile
+    literal_numbers: [zero]
     elements:
-      - {type: box, box: [440, 0, 638, 46], text: "block 1", font: diagram_small, highlight: [0]}
-      - {type: box, box: [658, 0, 856, 46], text: "block 2", font: diagram_small}
-      - {type: box, box: [876, 0, 1074, 46], text: "block 3", font: diagram_small, highlight: [1]}
-      - {type: box, box: [1094, 0, 1292, 46], text: "block 4", font: diagram_small}
-      - {type: box, box: [1312, 0, 1510, 46], text: "block 5", font: diagram_small}
-      - {type: box, box: [1530, 0, 1728, 46], text: "block 6", font: diagram_small, highlight: [2, 3]}
-      - {type: image, path: "figures:foundations/model/input_star.png", box: [20, 230, 380, 590], border: border, caption: "input · {{foundations.feature_maps.input_size}}×{{foundations.feature_maps.input_size}}×3"}
+      - {type: box, box: [440, 0, 638, 46], text: "{{foundations.listings.block_labels[0]}}", font: diagram_small, highlight: [0]}
+      - {type: box, box: [658, 0, 856, 46], text: "{{foundations.listings.block_labels[1]}}", font: diagram_small}
+      - {type: box, box: [876, 0, 1074, 46], text: "{{foundations.listings.block_labels[2]}}", font: diagram_small, highlight: [1]}
+      - {type: box, box: [1094, 0, 1292, 46], text: "{{foundations.listings.block_labels[3]}}", font: diagram_small}
+      - {type: box, box: [1312, 0, 1510, 46], text: "{{foundations.listings.block_labels[4]}}", font: diagram_small}
+      - {type: box, box: [1530, 0, 1728, 46], text: "{{foundations.listings.block_labels[5]}}", font: diagram_small, highlight: [2, 3]}
+      - {type: image, path: "figures:foundations/model/input_star.png", box: [20, 230, 380, 590], border: border, caption: "input · {{foundations.feature_maps.input_size}}×{{foundations.feature_maps.input_size}}×{{foundations.feature_maps.input_channels}}"}
       - {type: arrow, points: [[392, 410], [432, 410]]}
-      - {type: text, position: [1090, 85], text: "block 1 output · {{foundations.feature_maps.block_1.output_height}}×{{foundations.feature_maps.block_1.output_width}}×{{foundations.feature_maps.block_1.output_channels}} · the 8 most active of {{foundations.feature_maps.block_1.output_channels}} channels", font: diagram_bold, anchor: mm, appear: 0, until: 0}
+      - {type: text, position: [1090, 85], text: "block {{foundations.feature_maps.shown_blocks[0]}} output · {{foundations.feature_maps.block_1.output_height}}×{{foundations.feature_maps.block_1.output_width}}×{{foundations.feature_maps.block_1.output_channels}} · the {{foundations.feature_maps.shown_channel_count}} most active of {{foundations.feature_maps.block_1.output_channels}} channels", font: diagram_bold, anchor: mm, appear: 0, until: 0}
       - {type: image, path: "figures:foundations/model/feature_maps_block_1.png", box: [440, 115, 1740, 735], appear: 0, until: 0}
-      - {type: text, position: [1090, 85], text: "block 3 output · {{foundations.feature_maps.block_3.output_height}}×{{foundations.feature_maps.block_3.output_width}}×{{foundations.feature_maps.block_3.output_channels}} · the 8 most active of {{foundations.feature_maps.block_3.output_channels}} channels", font: diagram_bold, anchor: mm, appear: 1, until: 1}
+      - {type: text, position: [1090, 85], text: "block {{foundations.feature_maps.shown_blocks[1]}} output · {{foundations.feature_maps.block_3.output_height}}×{{foundations.feature_maps.block_3.output_width}}×{{foundations.feature_maps.block_3.output_channels}} · the {{foundations.feature_maps.shown_channel_count}} most active of {{foundations.feature_maps.block_3.output_channels}} channels", font: diagram_bold, anchor: mm, appear: 1, until: 1}
       - {type: image, path: "figures:foundations/model/feature_maps_block_3.png", box: [440, 115, 1740, 735], scaling: pixel, appear: 1, until: 1}
-      - {type: text, position: [1090, 85], text: "block 6 output · {{foundations.feature_maps.block_6.output_height}}×{{foundations.feature_maps.block_6.output_width}}×{{foundations.feature_maps.block_6.output_channels}} · the 8 most active of {{foundations.feature_maps.block_6.output_channels}} channels", font: diagram_bold, anchor: mm, appear: 2}
+      - {type: text, position: [1090, 85], text: "block {{foundations.feature_maps.shown_blocks[2]}} output · {{foundations.feature_maps.block_6.output_height}}×{{foundations.feature_maps.block_6.output_width}}×{{foundations.feature_maps.block_6.output_channels}} · the {{foundations.feature_maps.shown_channel_count}} most active of {{foundations.feature_maps.block_6.output_channels}} channels", font: diagram_bold, anchor: mm, appear: 2}
       - {type: image, path: "figures:foundations/model/feature_maps_block_6.png", box: [440, 115, 1740, 735], scaling: pixel, appear: 2}
     narration:
       - "Here is what the trained classification model computes for a test star: after the first block, at {{foundations.feature_maps.block_1.output_height}} pixels a side, the most active channels respond to the flat colours of the star and of the background."
@@ -116,6 +122,8 @@ scenes:
     page: diagram
     title: "Squeeze and excitation"
     code_reference: "vision_training/models/components/squeeze_and_excitation.py · SqueezeAndExcitation.forward"
+    # The two linear layers of squeeze and excitation, and the range of the sigmoid of its gates
+    literal_numbers: [two, zero, "1", "0"]
     elements:
       - {type: stack, box: [40, 230, 170, 360], count: 8, offset: 8, fill: blue, label: "layer output\nC = {{foundations.squeeze_excitation.gate_count}} channels"}
       - {type: arrow, points: [[200, 295], [250, 295]], appear: 0}
@@ -146,17 +154,19 @@ scenes:
     page: diagram
     title: "Residual shortcuts"
     code_reference: "vision_training/models/components/convolution_block.py · ConvolutionBlock.compute_layers"
+    # The v two of the setting residual_nets_v2, read aloud
+    literal_numbers: [two]
     elements:
       - {type: text, position: [10, 50], text: "residual_nets: True · original placement", font: diagram_bold, anchor: ls}
       - {type: box, box: [10, 150, 130, 240], text: "pair\ninput", font: diagram_small}
       - {type: arrow, points: [[138, 195], [216, 195]]}
-      - {type: box, box: [224, 150, 344, 240], text: "conv\n3×3", font: diagram_small, outline: blue}
+      - {type: box, box: [224, 150, 344, 240], text: "conv\n{{foundations.listings.kernel_size}}×{{foundations.listings.kernel_size}}", font: diagram_small, outline: blue}
       - {type: arrow, points: [[352, 195], [430, 195]]}
       - {type: box, box: [438, 150, 558, 240], text: "batch\nnorm", font: diagram_small, outline: yellow}
       - {type: arrow, points: [[566, 195], [644, 195]]}
       - {type: box, box: [652, 150, 752, 240], text: "ReLU", font: diagram_small, outline: violet}
       - {type: arrow, points: [[760, 195], [838, 195]]}
-      - {type: box, box: [846, 150, 966, 240], text: "conv\n3×3", font: diagram_small, outline: blue}
+      - {type: box, box: [846, 150, 966, 240], text: "conv\n{{foundations.listings.kernel_size}}×{{foundations.listings.kernel_size}}", font: diagram_small, outline: blue}
       - {type: arrow, points: [[974, 195], [1052, 195]]}
       - {type: box, box: [1060, 150, 1180, 240], text: "batch\nnorm", font: diagram_small, outline: yellow}
       - {type: arrow, points: [[1188, 195], [1266, 195]]}
@@ -174,13 +184,13 @@ scenes:
       - {type: arrow, points: [[330, 565], [386, 565]], appear: 2}
       - {type: box, box: [394, 520, 494, 610], text: "ReLU", font: diagram_small, outline: violet, appear: 2}
       - {type: arrow, points: [[502, 565], [558, 565]], appear: 2}
-      - {type: box, box: [566, 520, 686, 610], text: "conv\n3×3", font: diagram_small, outline: blue, appear: 2}
+      - {type: box, box: [566, 520, 686, 610], text: "conv\n{{foundations.listings.kernel_size}}×{{foundations.listings.kernel_size}}", font: diagram_small, outline: blue, appear: 2}
       - {type: arrow, points: [[694, 565], [750, 565]], appear: 2}
       - {type: box, box: [758, 520, 878, 610], text: "batch\nnorm", font: diagram_small, outline: yellow, appear: 2}
       - {type: arrow, points: [[886, 565], [942, 565]], appear: 2}
       - {type: box, box: [950, 520, 1050, 610], text: "ReLU", font: diagram_small, outline: violet, appear: 2}
       - {type: arrow, points: [[1058, 565], [1114, 565]], appear: 2}
-      - {type: box, box: [1122, 520, 1242, 610], text: "conv\n3×3", font: diagram_small, outline: blue, appear: 2}
+      - {type: box, box: [1122, 520, 1242, 610], text: "conv\n{{foundations.listings.kernel_size}}×{{foundations.listings.kernel_size}}", font: diagram_small, outline: blue, appear: 2}
       - {type: arrow, points: [[1250, 565], [1306, 565]], appear: 2}
       - {type: box, box: [1314, 530, 1384, 600], text: "+", font: diagram_heading, outline: aqua, appear: 2}
       - {type: arrow, points: [[1392, 565], [1448, 565]], appear: 2}
@@ -198,6 +208,8 @@ scenes:
     page: 01_foundations/residual_pairs
     title: "The shortcuts of this run"
     code_reference: "vision_training/models/components/convolution_block.py · ConvolutionBlock.count_residual_additions"
+    # The two maps a shortcut adds, the two layers of the blocks without a pair, and the example block of three layers
+    literal_numbers: [two, three]
     data:
       blocks: "{{foundations.listings.block_table}}"
       example:
@@ -226,6 +238,9 @@ scenes:
     page: diagram
     title: "Inception modules"
     code_reference: "vision_training/models/components/inception.py · InceptionConvolution"
+    # The four branches of Inception with their kernels and shares of the filters (inception.py), on an example layer
+    # of 64 filters
+    literal_numbers: [four, three, five, eight, "64", "16", "32", "8", "1×1", "3×3", "5×5"]
     elements:
       - {type: text, position: [20, 44], text: "inception: True · a layer of 64 filters", font: diagram_bold, anchor: ls}
       - {type: box, box: [20, 300, 200, 440], text: "layer\ninput", font: diagram_small}
@@ -250,16 +265,18 @@ scenes:
       - {type: box, box: [1360, 220, 1560, 520], text: "concatenate\n16 + 32 + 8 + 8\n= 64 channels", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1568, 370], [1612, 370]], appear: 1}
       - {type: box, box: [1620, 320, 1750, 420], text: "layer\noutput", font: diagram_small, appear: 1}
-      - {type: text, position: [1180, 690], text: "INCEPTION_STARTING_BLOCK = 3", font: diagram_monospace, anchor: lm, appear: 2, highlight: [2]}
+      - {type: text, position: [1180, 690], text: "INCEPTION_STARTING_BLOCK = {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK}}", font: diagram_monospace, anchor: lm, appear: 2, highlight: [2]}
     narration:
       - "With inception on, every layer replaces its convolution with four branches side by side: a one by one convolution, a three by three and a five by five convolution after a one by one reduction, and a max pooling followed by a three by three convolution."
       - "The branches share the filters of the layer, a quarter, a half, an eighth and an eighth, and their outputs are concatenated, so the number of filters must be a multiple of eight."
-      - "Inception always starts at the third block, the first two keeping their plain convolutions, and it adds the token INC3 to the run name."
+      - "Inception always starts at block {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK}}, the blocks before it keeping their plain convolutions, and it adds the token INC{{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK}} to the run name."
 
   - kind: html
     page: 01_foundations/receptive_field
     title: "The receptive field"
     code_reference: "vision_training/models/backbones/backbone.py · Backbone.compute_receptive_field_information"
+    # Two neighbouring values of a feature map
+    literal_numbers: [two]
     data:
       image_box: [40, 40, 700, 700]
       input_size: "{{foundations.listings.input_size}}"
@@ -272,7 +289,7 @@ scenes:
       - {type: bars, box: [820, 160, 1700, 600], values: "{{foundations.listings.receptive_fields}}", maximum: "{{foundations.listings.input_size}}", gap: 24, colour: blue, labels: "{{foundations.listings.block_labels}}", value_labels: "{{foundations.listings.receptive_field_labels}}", appear: 1, highlight: [2]}
       - {type: text, position: [1260, 690], text: "diagnosis_modes: compute_receptive_field: True", font: diagram_monospace, anchor: mm, appear: 3, highlight: [3]}
     narration:
-      - "The receptive field of a value of a feature map is the square of input pixels it depends on: every three by three convolution widens it, and every pooling doubles the step between two neighbouring values."
+      - "The receptive field of a value of a feature map is the square of input pixels it depends on: every {{foundations.listings.kernel_size:words}} by {{foundations.listings.kernel_size:words}} convolution widens it, and every pooling doubles the step between two neighbouring values."
       - "The squares are drawn around the strongest value of the final map for the test star, one per block, and the bars give their sides."
       - "After the last block, one value sees {{foundations.listings.final_receptive_field}} pixels a side, enough to hold the whole star, and squeeze and excitation adds the context of the whole image through its averages."
       - "Suppose your objects fill much of the image: with compute receptive field in the diagnosis modes, the launch prints it for every layer, to check that the last blocks see them as a whole."
@@ -325,10 +342,12 @@ scenes:
     reveals:
       - {region: "{{foundations.benchmark.model_settings.residual_reveal_region}}", sentence: 1}
       - {region: "{{foundations.benchmark.model_settings.normalization_reveal_region}}", sentence: 2}
+    # The slowdown of the layer normalization, recorded in the prose of experiment_plan.md (stage 4)
+    literal_numbers: [three]
     narration:
-      - "The repository was benchmarked on the synthetic shapes, one setting changed at a time with at least two launches each, on a deeper backbone of sixty one convolution layers trained for two thousand iterations."
-      - "Without residual shortcuts, this deep backbone never learns: both launches stay at one class in nine, while the shortcuts reach {{foundations.benchmark.model_settings.residual_on.accuracy_2000:.1%}}."
-      - "With layer normalization of the feature maps, the network had not learned after five hundred iterations either, training about three times slower, so the batch normalization stays."
+      - "The repository was benchmarked on the synthetic shapes, one setting changed at a time with at least {{foundations.benchmark.minimum_launches_per_setting:words}} launches each, on a deeper backbone of {{foundations.benchmark.backbone_layer_count:words}} convolution layers trained for {{foundations.benchmark.last_iteration}} iterations."
+      - "Without residual shortcuts, this deep backbone never learns: both launches stay at one class in {{foundations.benchmark.class_count:words}}, while the shortcuts reach {{foundations.benchmark.model_settings.residual_on.accuracy_2000:.1%}}."
+      - "With layer normalization of the feature maps, the network had not learned after {{foundations.benchmark.model_settings.layer_normalization_last_iteration}} iterations either, training about three times slower, so the batch normalization stays."
 
   - kind: image
     title: "Within the noise"
@@ -341,18 +360,23 @@ scenes:
     reveals:
       - {region: "{{foundations.benchmark.launch_noise.whole_reveal_region}}", sentence: 0}
       - {region: "{{foundations.benchmark.launch_noise.last_reveal_region}}", sentence: 1}
+    # The memory of a launch, recorded in the prose of experiment_plan.md (repeat stage), and the advice of two
+    # launches per setting
+    literal_numbers: [twenty five, twenty, two]
     narration:
-      - "Squeeze and excitation was launched six times on and six times off: over the whole run, the mean test accuracy is {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_average:.3f}} on against {{foundations.benchmark.launch_noise.squeeze_excitation_off_whole_mean_average:.3f}} off, while the six launches of one setting spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.3f}}."
-      - "Over the last evaluations, the means are {{foundations.benchmark.launch_noise.squeeze_excitation_on_last_mean_average:.3f}} on and {{foundations.benchmark.launch_noise.squeeze_excitation_off_last_mean_average:.3f}} off, inside the spread of the launches, while squeeze and excitation took twenty five gigabytes per launch instead of twenty, and about a third more time."
+      - "Squeeze and excitation was launched {{foundations.benchmark.launch_noise.launches_per_setting:words}} times on and {{foundations.benchmark.launch_noise.launches_per_setting:words}} times off: over the whole run, the mean test accuracy is {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_average:.1%}} on against {{foundations.benchmark.launch_noise.squeeze_excitation_off_whole_mean_average:.1%}} off, while the {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of one setting spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.1%}}."
+      - "Over the last evaluations, the means are {{foundations.benchmark.launch_noise.squeeze_excitation_on_last_mean_average:.1%}} on and {{foundations.benchmark.launch_noise.squeeze_excitation_off_last_mean_average:.1%}} off, inside the spread of the launches, while squeeze and excitation took twenty five gigabytes per launch instead of twenty, and about a third more time."
       - "These results come from synthetic shapes: when the goal is to choose settings for your own data, compare the ones that matter with at least two launches each."
 
   - kind: summary
     title: "Recap"
+    # The four branches of Inception
+    literal_numbers: [four]
     items:
       - {text: "The backbone section lists the blocks: layers and filters, a max pooling after every block"}
       - {text: "A layer: convolution, normalization, ReLU, then squeeze and excitation"}
       - {text: "Shortcuts add the input of a pair of layers, shifted when the channels change"}
-      - {text: "Inception splits every layer into four branches from the third block"}
+      - {text: "Inception splits every layer into four branches from block {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK}}"}
       - {text: "Model size printed at every launch, receptive field by the diagnosis modes"}
       - {text: "A trained backbone starts another task through its pretrained settings"}
     narration:

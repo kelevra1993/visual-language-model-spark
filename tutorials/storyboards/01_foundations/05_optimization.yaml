@@ -23,6 +23,8 @@ scenes:
     heading: "Optimization"
     subheading: "Optimizer, learning rate, schedule, precision, averaged weights"
     footnote: "Foundations · chapter 5"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["5"]
     narration:
       - "Every task is optimized by the same step of the base trainer, set by the Optimization section of its configuration."
       - "This chapter covers the optimizer and its learning rate, the schedule, the mixed precision and the moving average of the weights, with what the benchmark measured for them."
@@ -75,14 +77,16 @@ scenes:
     page: diagram
     title: "Adam, AdamW and SGD"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.build_optimizer"
+    # A weight decay above zero, the condition of the token
+    literal_numbers: [zero, "0"]
     elements:
       - {type: box, box: [20, 40, 570, 560], text: "adam\n\nits own step for every weight,\nfrom running averages of its gradient\nand of its squared gradient\n\nweight decay added to the gradient\n\nno run name token", font: diagram_small, outline: blue, highlight: [0]}
       - {type: box, box: [605, 40, 1155, 560], text: "adamw\n\nthe steps of Adam\n\nweight decay applied to the weights,\napart from the gradient\n\nrun name token ADAMW", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
-      - {type: box, box: [1190, 40, 1740, 560], text: "sgd\n\nsteps along the gradient,\nwith Nesterov momentum 0.9\n\nweight decay added to the gradient\n\nrun name token SGD", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [1190, 40, 1740, 560], text: "sgd\n\nsteps along the gradient,\nwith Nesterov momentum {{foundations.optimization.sgd_momentum}}\n\nweight decay added to the gradient\n\nrun name token SGD", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: text, position: [880, 650], text: "weight_decay above 0: run name token WD<decay>", font: diagram_monospace, anchor: mm, appear: 2, highlight: [2]}
     narration:
       - "Adam, the default, gives every weight its own step size, from running averages of its gradient and of its squared gradient, and adds the weight decay to the gradient."
-      - "AdamW takes the same steps but applies the weight decay to the weights directly, apart from the gradient, and SGD steps along the gradient with a Nesterov momentum of zero point nine."
+      - "AdamW takes the same steps but applies the weight decay to the weights directly, apart from the gradient, and SGD steps along the gradient with a Nesterov momentum of {{foundations.optimization.sgd_momentum}}."
       - "Another optimizer adds its name to the run name, and a weight decay above zero adds W D and its value, since the state of one optimizer cannot be resumed by another."
 
   - kind: image
@@ -94,13 +98,18 @@ scenes:
       - {box: "{{foundations.benchmark.learning_rate.learning_rate_panel_box}}", sentences: [1]}
     reveals:
       - {region: "{{foundations.benchmark.learning_rate.learning_rate_reveal_region}}", sentence: 1}
+    # The learning rates of the chart, named like their facts (learning_rate_1e_4...), the iteration of the facts
+    # quoted, and the iterations the high learning rates stay near chance, read off the chart
+    literal_numbers: [two, five, ten-thousandths, thousand, seven hundred and fifty]
     narration:
-      - "The learning rate sets the size of the steps, and the benchmark of the repository tried five values on the synthetic shapes, two launches each."
-      - "One and two ten-thousandths learn within a thousand iterations, at {{foundations.benchmark.learning_rate.learning_rate_1e_4.accuracy_1000:.1%}} and {{foundations.benchmark.learning_rate.learning_rate_2e_4.accuracy_1000:.1%}}, while from five ten-thousandths on, the launches stay near one class in nine for at least seven hundred and fifty iterations."
-      - "Two ten-thousandths had the highest mean over the eight evaluations and became the value of the synthetic shapes classifier: the largest usable value lies between two and five ten-thousandths."
+      - "The learning rate sets the size of the steps, and the benchmark of the repository tried {{foundations.benchmark.learning_rate.value_count:words}} values on the synthetic shapes, {{foundations.benchmark.learning_rate.launches_per_value:words}} launches each."
+      - "One and two ten-thousandths learn within a thousand iterations, at {{foundations.benchmark.learning_rate.learning_rate_1e_4.accuracy_1000:.1%}} and {{foundations.benchmark.learning_rate.learning_rate_2e_4.accuracy_1000:.1%}}, while from five ten-thousandths on, the launches stay near one class in {{foundations.benchmark.class_count:words}} for at least seven hundred and fifty iterations."
+      - "Two ten-thousandths had the highest mean over the {{foundations.benchmark.evaluation_count:words}} evaluations and became the value of the synthetic shapes classifier: the largest usable value lies between two and five ten-thousandths."
 
   - kind: image
     title: "Warm-up and cosine decay"
+    # The start of the linear warm-up
+    literal_numbers: [zero]
     code_reference: "vision_training/trainers/learning_rate_schedule.py · compute_learning_rate_factor"
     image: "figures:foundations/learning_rate_schedule_keypoint_synthetic_shapes_axes.png"
     overlay: "figures:foundations/learning_rate_schedule_keypoint_synthetic_shapes.png"
@@ -118,6 +127,9 @@ scenes:
   - kind: html
     page: diagram
     title: "Mixed precision"
+    # Times, memory and iterations of the mixed precision stage, recorded in the prose of experiment_plan.md (stage 8)
+    literal_numbers: ["100", "6:16", "7:01", "3:20", "3:57", "38.7", "20.4", "750", thirty nine, twenty,
+                      seven hundred and fifty]
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_model_iteration"
     elements:
       - {type: box, box: [20, 60, 700, 220], text: "training and validation forward passes:\nbfloat16", font: diagram_text, outline: aqua, highlight: [0]}
@@ -144,11 +156,13 @@ scenes:
     reveals:
       - {region: "{{foundations.benchmark.moving_average.whole_reveal_region}}", sentence: 1}
       - {region: "{{foundations.benchmark.moving_average.zoom_reveal_region}}", sentence: 2}
+    # The decay is read with its four decimals, a rounded decay averaging another number of steps
+    exact_facts: ["config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#Optimization.exponential_moving_average.decay"]
     narration:
       - "The moving average keeps a second copy of the model, never trained itself, which moves towards the trained weights after every step: the decay times the average, plus one minus the decay times the weights."
-      - "In the benchmark, the mean of the averaged weights of two launches was ahead of the trained weights at every evaluated iteration, and steadier: the trained weights dip, the average does not."
+      - "In the benchmark, the mean of the averaged weights of {{foundations.benchmark.moving_average.launch_count:words}} launches was ahead of the trained weights at every evaluated iteration, and steadier: the trained weights dip, the average does not."
       - "At the last evaluation, they reach {{foundations.benchmark.moving_average.averaged_weights.accuracy_2000:.2%}} against {{foundations.benchmark.moving_average.trained_weights.accuracy_2000:.2%}}."
-      - "A decay of zero point nine nine nine eight averages about the last five thousand steps, the first updates using a smaller decay so that the random starting weights fade quickly."
+      - "A decay of {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#Optimization.exponential_moving_average.decay}} averages about the last {{foundations.configuration.moving_average_horizon}} steps, the first updates using a smaller decay so that the random starting weights fade quickly."
 
   - kind: html
     page: diagram
@@ -178,7 +192,7 @@ scenes:
     items:
       - {text: "One step: learning rate × schedule factor, optimizer, average"}
       - {text: "Adam by default; AdamW, SGD and a weight decay enter the run name"}
-      - {text: "A learning rate that learns: 2e-4 on the synthetic shapes"}
+      - {text: "A learning rate that learns: {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate:g}} on the synthetic shapes"}
       - {text: "Warm-up, then constant or cosine, from the iteration alone"}
       - {text: "Mixed precision always on: bfloat16 forward passes, faster and lighter"}
       - {text: "The averaged weights were ahead at every evaluation of the benchmark"}

@@ -22,7 +22,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 save_figure, style_chart_panel)
 from tutorials.figures.frame_selection.selection_figures import read_selection_rows
 from tutorials.figures.sequence_labelling.sequence_utilities import (parse_block_metrics, read_results_block,
-                                                                     write_listing)
+                                                                     read_run_sections, write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
 
 # Iterations of the evaluations compared, the one with wrong choices and the last one
@@ -144,7 +144,8 @@ def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any
 
 def make_evaluation_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
-    Makes the evaluation listing and the thresholds figure of the frame selection series and gives their facts.
+    Makes the evaluation listing and the thresholds figure of the frame selection series and gives their facts, with
+    the top-k of the evaluation of the run.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -158,9 +159,13 @@ def make_evaluation_figures(output_folder: Path, run_folder: Path) -> Dict[str, 
                   listing_path=output_folder / "listings" / "results_block.txt")
     facts = draw_thresholds_figure(run_folder=run_folder, output_path=output_folder / "evaluation" /
                                    "thresholds.png")
+
+    # Top-k of the evaluation of the run, naming its top-k selection accuracy and the candidates of its decoder
+    experiment_configuration, _ = read_run_sections(run_folder=run_folder)
     facts.update({"evaluation.listed_iteration": LISTED_ITERATION,
                   "evaluation.last_iteration": THRESHOLD_ITERATIONS[-1],
-                  "evaluation.results_listing_lines": len(block_lines)})
+                  "evaluation.results_listing_lines": len(block_lines),
+                  "evaluation.top_k": int(experiment_configuration["evaluation"]["top_k"])})
     facts.update(parse_block_metrics(block_lines=block_lines, fact_prefix="evaluation"))
     facts.update(parse_block_metrics(block_lines=read_results_block(results_path=run_folder / "Results.txt",
                                                                     iteration=THRESHOLD_ITERATIONS[-1]),

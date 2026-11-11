@@ -16,12 +16,13 @@ from tutorials.figures.figure_utilities import find_run_folder, merge_facts, rea
 from tutorials.figures.sequence_classification.batch_animation import make_batch_animation
 from tutorials.figures.sequence_classification.dataset_figures import make_dataset_figures
 from tutorials.figures.sequence_classification.evaluation_figures import make_evaluation_figures
-from tutorials.figures.sequence_classification.model_figures import make_model_figures
+from tutorials.figures.sequence_classification.model_figures import describe_export_input, make_model_figures
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (add_number_words,
                                                                                  find_comparison_run_folder,
                                                                                  find_console_log,
                                                                                  load_sequence_model)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 from vision_training.trainers.checkpointing import get_last_checkpoint_iteration
 
 # Run of the series in tutorial_sources.yaml, and the names of its compared runs in the facts
@@ -65,7 +66,24 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                         iteration=checkpoint_iterations["flatten_128"])
     facts = {"run.name": run_folders["flatten_128"].name, "run.batch_size": experiment_configuration["batch_size"],
              "run.image_size": image_size, "run.number_iterations": checkpoint_iterations["flatten_128"],
-             "run.number_sample_images": experiment_configuration["evaluation"]["number_sample_images"]}
+             "run.number_sample_images": experiment_configuration["evaluation"]["number_sample_images"],
+             "run.number_classes": len(set(label_dictionary.values())),
+             "run.maximum_sequence_length": run_configuration["Data"]["sequence_settings"]["maximum_sequence_length"],
+             "run.hidden_size": run_configuration["TemporalModel"]["hidden_size"],
+             "run.number_layers": run_configuration["TemporalModel"]["number_layers"],
+             "run.head_hidden_units": run_configuration["ClassificationHead"]["fully_connected"][0],
+             "run.head_dropout": run_configuration["ClassificationHead"]["dropout_rate"],
+             "run.weight_saving_iterations": experiment_configuration["weight_saving_iterations"],
+             "run.target_precision": experiment_configuration["evaluation"]["target_precision"],
+             "run.sequence_features": flatten_model.temporal_module.output_features,
+             "temporal.pooling_types": len(POOLING_TEMPORAL_TYPES),
+             "temporal.ordered_types": len(ORDERED_TEMPORAL_TYPES),
+             "temporal.types": len(POOLING_TEMPORAL_TYPES) + len(ORDERED_TEMPORAL_TYPES)}
+
+    # Frame size of every compared run, from its saved configuration
+    for run_name, run_folder in run_folders.items():
+        facts[f"image_sizes.{run_name}"] = read_run_configuration(run_folder=run_folder)["Data"]["image_settings"][
+            "size"]
     return add_number_words(facts=merge_facts(fact_groups=[
         facts,
         make_dataset_figures(output_folder=output_folder,
@@ -78,4 +96,5 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                            test_folder=Path(experiment_configuration["test_data_folder"]),
                            label_dictionary=label_dictionary, force=force),
         make_evaluation_figures(output_folder=output_folder, run_folders=run_folders, log_paths=log_paths,
-                                evaluation_iterations=checkpoint_iterations)]))
+                                evaluation_iterations=checkpoint_iterations),
+        describe_export_input(model=flatten_model, task=RUN_KEY)]))
