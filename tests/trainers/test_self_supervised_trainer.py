@@ -2,8 +2,10 @@
 Smoke tests of SelfSupervisedTrainer of vision_training/trainers/self_supervised_trainer.py on a synthetic dataset: a
 Barlow Twins training saves, evaluates and resumes, with the tracked metrics of the method, the k-nearest neighbour
 report of the labelled test images, its per-class metrics file and the sample images of two views checked, a dataset
-mixing labelled and unlabelled images is trained on every image and evaluated on the labelled ones, and the classes of
-the evaluation are named after the categories of the three manifests.
+mixing labelled and unlabelled images is trained on every image and evaluated on the labelled ones, the classes of
+the evaluation are named after the categories of the three manifests, the labelled test images are classified by the
+reference training images and not by each other, and the reference images are the same for every trainer of a run and
+bounded per class.
 """
 
 import csv
@@ -12,6 +14,7 @@ import pytest
 import torch
 import yaml
 
+from collections import Counter
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from types import SimpleNamespace
@@ -271,3 +274,63 @@ def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> 
                                                           "images_per_block": 2, "batch_key": None}}}, batch_size=2)
     SelfSupervisedTrainer.build_dataloaders(self=trainer)
     assert trainer.class_names == ["circle", "triangle"]
+
+
+def test_test_images_are_classified_by_the_reference_training_images(tmp_path: Path) -> None:
+    """
+    Verifies that the k-nearest neighbour evaluation classifies every labelled test image by the reference training
+    images encoded with the evaluated weights, never by the other test images: with one test image per class, as in
+    the held-out images of ImageNet-22k, two test images closer to each other than to the reference images of their
+    classes are both classified correctly, where a vote among the test images would swap their classes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, receiving class_metrics.csv.
+    """
+    # Two test images of classes 0 and 1, and one reference image of each class, encoded by the stub of the trainer
+    reference_representations = torch.tensor(data=[[1.0, -0.5], [0.7, 0.7]])
+    reference_labels = torch.tensor(data=[0, 1])
+    trainer = SimpleNamespace(class_names=["circle", "square"], number_neighbours=1,
+                              encode_reference_images=lambda: (reference_representations, reference_labels))
+    global_metrics, _ = SelfSupervisedTrainer.compute_nearest_neighbour_results(
+        self=trainer, representations=torch.tensor(data=[[1.0, 0.0], [0.95, 0.31]]), labels=torch.tensor(data=[0, 1]),
+        evaluation_folder=tmp_path)
+    assert global_metrics["k-NN Accuracy"] == 1.0
+
+
+def test_reference_images_are_fixed_and_bounded_per_class(tmp_path: Path) -> None:
+    """
+    Verifies the reference images of the k-nearest neighbour evaluation of a run: two trainers of the same
+    configuration, whose datasets are shuffled differently, choose the same training images, at most
+    'evaluation.number_reference_images_per_class' per class and every image of a smaller class, and the evaluation
+    reports them in its notes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 40, "validation": 4, "test": 6}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # Two reference images per class at most
+    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                   number_iterations=4, head_settings={})
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["ExperimentConfiguration"]["evaluation"]["number_reference_images_per_class"] = 2
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    # Reference images of two trainers, the same images in the same order
+    reference_identifiers = []
+    for _ in range(2):
+        trainer = build_trainer(configuration_path=configuration_path)
+        reference_samples = trainer.reference_dataloader.dataset.samples
+        reference_identifiers.append([sample["identifier"] for sample in reference_samples])
+        trainer.shutdown_loader_workers()
+    assert reference_identifiers[0] == reference_identifiers[1]
+
+    # At most two images of every class, every image of a class of fewer training images
+    training_counts = Counter(sample["class_indices"][0] for sample in trainer.train_dataloader.dataset.samples)
+    reference_counts = Counter(sample["class_indices"][0] for sample in reference_samples)
+    assert reference_counts == {class_index: min(count, 2) for class_index, count in training_counts.items()}
+    assert (f"k-NN : {trainer.number_neighbours} neighbours among {len(reference_samples)} labelled training images "
+            f"of {len(reference_counts)} classes (2 per class at most)") in trainer.reference_notes

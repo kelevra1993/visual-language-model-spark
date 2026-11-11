@@ -156,8 +156,8 @@ def check_grouped_batches_configuration(experiment_configuration: Dict[str, Any]
 def check_self_supervised_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the settings of the self-supervised task in 'ExperimentConfiguration': the number of neighbours voting
-    in the k-nearest neighbour evaluation, and a batch of at least two images, the losses comparing the views of the
-    images of a batch with each other.
+    in the k-nearest neighbour evaluation and the largest number of its reference training images of a class, and a
+    batch of at least two images, the losses comparing the views of the images of a batch with each other.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -168,7 +168,8 @@ def check_self_supervised_evaluation_configuration(experiment_configuration: Dic
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
     errors = check_positive_integers(configuration=configuration,
-                                     key_paths=["ExperimentConfiguration.evaluation.number_neighbours"],
+                                     key_paths=["ExperimentConfiguration.evaluation.number_neighbours",
+                                                "ExperimentConfiguration.evaluation.number_reference_images_per_class"],
                                      allow_zero=False)
     batch_size = get_configuration_value(configuration=configuration, key_path="ExperimentConfiguration.batch_size")
     if isinstance(batch_size, int) and not isinstance(batch_size, bool) and batch_size == 1:

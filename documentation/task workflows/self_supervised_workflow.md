@@ -10,7 +10,7 @@ The outputs of Stages 1 and 2 were computed again on 2026-10-24 with the current
 
 ## Read This First
 
-The self-supervised task (`task: "self_supervised"`, run name code `SSL`) trains the shared backbone without labels. Every training and validation image is drawn twice by the data augmentation (`Data.data_augmentation`, with the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`); both views go through the backbone, a global pooling giving the **representation** of the image and a projection head giving its **embedding**, and the loss of `ProjectionHead.method` pulls the two views of an image together: InfoNCE over the 2N views of the batch (`simclr`) or the Barlow Twins cross-correlation pushed to the identity (`barlow_twins`). The labels of the `labels.json` manifests are only read by the test evaluation, a leave-one-out k-nearest neighbour classification of the labelled test images by their representations, next to the effective rank that watches the collapse. Choose it to pre-train the backbone on images too many to label, then initialise any other task with `Backbone.pretrained` (the projection head is dropped); choose CLS when the images are labelled. The task reuses the dataset layout, the dataset and the loaders of CLS, and its metrics code for the k-NN scores; the exported encoder (`image_encoder`) returns L2-normalized representations for similarity searches.
+The self-supervised task (`task: "self_supervised"`, run name code `SSL`) trains the shared backbone without labels. Every training and validation image is drawn twice by the data augmentation (`Data.data_augmentation`, with the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`); both views go through the backbone, a global pooling giving the **representation** of the image and a projection head giving its **embedding**, and the loss of `ProjectionHead.method` pulls the two views of an image together: InfoNCE over the 2N views of the batch (`simclr`) or the Barlow Twins cross-correlation pushed to the identity (`barlow_twins`). The labels of the `labels.json` manifests are only read by the test evaluation, a k-nearest neighbour classification of the labelled test images among a fixed sample of labelled training images by their representations, next to the effective rank that watches the collapse. Choose it to pre-train the backbone on images too many to label, then initialise any other task with `Backbone.pretrained` (the projection head is dropped); choose CLS when the images are labelled. The task reuses the dataset layout, the dataset and the loaders of CLS, and its metrics code for the k-NN scores; the exported encoder (`image_encoder`) returns L2-normalized representations for similarity searches.
 
 ### The Task At A Glance
 
@@ -30,9 +30,10 @@ loss: simclr: info_nce_loss = cross entropy of every view against the 2N - 1 oth
 batch metrics: positive_pair_accuracy (or diagonal and off-diagonal correlations), embedding_standard_deviation
    ─► TensorBoard Train every iteration, Validation every 5 (validation_iteration_ratio), console every 10
 every weight_saving_iterations: test images encoded without views ─► representations [50000, 128] kept on the CPU
-   ─► leave-one-out k-NN of the labelled ones (20 neighbours, weights exp(cosine / 0.07)): k-NN Accuracy, Balanced
-      Accuracy, Macro F1, per class precision, recall with its 95% interval, F1; Effective Rank, Representation
-      Standard Deviation
+   ─► reference training images (50 per class at most, fixed) encoded with the same weights
+   ─► k-NN of the labelled test images among them (20 neighbours, weights exp(cosine / 0.07)): k-NN Accuracy,
+      Balanced Accuracy, Macro F1, per class precision, recall with its 95% interval, F1; Effective Rank,
+      Representation Standard Deviation
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (class_metrics.csv, Samples/)
 export: InferenceEncoder (image_encoder), images [B, 3, 256, 256] ─► representations [B, 128], L2-normalized
 transfer: Backbone.pretrained of any task loads the backbone; the projection head is dropped
@@ -90,12 +91,13 @@ A dataset generated now holds the 35 classes of `SHAPE_CATEGORIES` (a k-NN chanc
 | `Data.data_augmentation.activated` | `True` | must be True, its types drawing the views; its global `probability` is ignored |
 | `Data.data_augmentation.types.random_crop` | `activated: True, probability: 1.0` | random resized crop of 20 % to 100 % of the area, aspect ratio x1/2 to x2; the checks refuse another probability |
 | `ExperimentConfiguration.batch_size` | `128` | N: every view is compared with the 2N - 1 = 255 others; at least 2, and a training or validation split smaller than a batch stops the launch |
-| `ExperimentConfiguration.evaluation.number_neighbours` | `20` | k of the leave-one-out k-NN, reduced to the labelled test images minus 1 |
+| `ExperimentConfiguration.evaluation.number_neighbours` | `20` | k of the k-NN, reduced to the number of reference training images when larger |
+| `ExperimentConfiguration.evaluation.number_reference_images_per_class` | `50` | reference training images of the k-NN per class: those of smallest file name MD5 hash, the same at every evaluation |
 | `Data.grouped_batches.activated` | `False` | True builds the batches from blocks of `images_per_block` (32) images sharing `groups[block_key]` (`"camera"`), the hard negatives |
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `k-NN Accuracy` (the headline metric), `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank` and `Representation Standard Deviation`, the notes `Labelled Test Images : <l> of <N>` and `k-NN : 20 neighbours among the other labelled test images`, and with `per_class_report` the table `Per Class k-NN Metrics`, worst F1 first, then the table `Per Class k-NN Recall` (the recall of every class with its exact 95% confidence interval over its labelled test images), worst recall first. A test split with fewer than two labelled images gives the two collapse metrics only, `Effective Rank` being then the headline metric.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `k-NN Accuracy` (the headline metric), `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank` and `Representation Standard Deviation`, the notes `Labelled Test Images : <l> of <N>` and `k-NN : 20 neighbours among <M> labelled training images of <K> classes (50 per class at most)`, and with `per_class_report` the table `Per Class k-NN Metrics`, worst F1 first, then the table `Per Class k-NN Recall` (the recall of every class with its exact 95% confidence interval over its labelled test images), worst recall first. A test split with fewer than two labelled images gives the two collapse metrics only, `Effective Rank` being then the headline metric.
 - `Evaluation/Iteration_<n>/`: `class_metrics.csv` (`class_index,class,samples,precision,recall,recall_lower,recall_upper,f1`, whatever `per_class_report`, when the k-NN is computed) and `Samples/<sample>.png` (the test image and two views drawn from a seed of the image, side by side below a 24 pixel caption bar `<class> | Views Similarity <cosine>`); `EMA/` with the moving average of the weights. There is no confusion matrix, threshold, prediction file, curve nor error image.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `InfoNCE Loss`, `Positive Pair Accuracy`, `Embedding Standard Deviation` (Barlow Twins: `Barlow Twins Loss`, `Diagonal Correlation`, `Off-Diagonal Correlation`, `Embedding Standard Deviation`), and `Learning Rate` in Train; `Tensorboard/Test`: the 5 global metrics, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>` with `per_class_report`, and the images `Samples/<sample>`.
 - `Weights/Iteration_<n>/model_<n>.pt` (e.g. `Weights/Iteration_250/model_000250.pt`): the whole model, projection head included, so that the training resumes; only the backbone initialises other runs.
@@ -261,8 +263,9 @@ run_test_evaluation(iteration)  [STAGE 4]
 ├── compute_evaluation_results()
 │   ├── compute_effective_rank()             RankMe effective rank of all the representations
 │   ├── compute_embedding_standard_deviation()   spread of all the representations
-│   └── compute_nearest_neighbour_results()  (with at least two labelled test images)
-│       ├── compute_nearest_neighbour_predictions()   leave-one-out weighted k-NN vote among the labelled images
+│   └── compute_nearest_neighbour_results()  (with at least one labelled test image)
+│       ├── encode_reference_images()                 reference training images, encoded with the evaluated weights
+│       ├── compute_nearest_neighbour_predictions()   weighted k-NN vote of the reference images
 │       ├── compute_confusion_matrix() + compute_metrics_from_confusion_matrix()
 │       ├── compute_clopper_pearson_intervals()       exact 95% interval of the recall of every class
 │       ├── build_class_metrics_table() + build_recall_interval_table()   Per Class k-NN Metrics and Recall tables
@@ -370,7 +373,7 @@ SystemExit code 1
 > The examples below are real outputs from building the trainer on `configurations/self_supervised/configuration_synthetic_shapes.yaml` (256 pixel images, batch size 128, 2 loading workers), with the run folder redirected to a temporary folder. The whole construction took 14.3 s on CPU, at the lowest priority next to other trainings.
 
 ### Step 2.1 — `SelfSupervisedTrainer.__init__()`
-Before calling `BaseTrainer.__init__()`, it stores what its hooks read: `self.method` (`ProjectionHead.method`), and `self.number_neighbours` (`evaluation.number_neighbours`, the k of the k-NN evaluation). Its class attributes name the task for the shared code, `DROPS_LAST_TRAINING_BATCH` telling it that the training loader drops its last incomplete batch (Step 2.19), and `SELF_SUPERVISED_AUGMENTATION` that its `DataAugmenter` draws the views with the self-supervised strengths (Step 2.5).
+Before calling `BaseTrainer.__init__()`, it stores what its hooks read: `self.method` (`ProjectionHead.method`), `self.number_neighbours` (`evaluation.number_neighbours`, the k of the k-NN evaluation) and `self.number_reference_images_per_class` (`evaluation.number_reference_images_per_class`). After it, `build_reference_dataloader()` chooses the reference images of the k-NN among the labelled training images (`select_reference_samples()`: in every class, the images of smallest file name MD5 hash, so the same images whatever the shuffling of the dataset) and builds their loader, read in order without augmentation; a test split with labelled images and a training split without any stops with a `ValueError`, and a test class without labelled training image is announced in yellow. Its class attributes name the task for the shared code, `DROPS_LAST_TRAINING_BATCH` telling it that the training loader drops its last incomplete batch (Step 2.19), and `SELF_SUPERVISED_AUGMENTATION` that its `DataAugmenter` draws the views with the self-supervised strengths (Step 2.5).
 
 **Example output**
 ```text
@@ -986,7 +989,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`. They were captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and the report shows a `Per Class k-NN Recall` table after `Per Class k-NN Metrics` (Step 4.11).
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`. They were captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and the report shows a `Per Class k-NN Recall` table after `Per Class k-NN Metrics` (Step 4.11). They were also captured when the k-NN compared every test image with the other test images (leave-one-out), before it compared them with reference training images (2026-11-11): the k-NN numbers below are those of the leave-one-out vote, and the note of the k-NN now reads `k-NN : 20 neighbours among <M> labelled training images of <K> classes (50 per class at most)`.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The test images are encoded as they are, without views, as in deployment.
@@ -1036,7 +1039,7 @@ A similarity of 1.000 here does not mean the backbone is invariant: Step 4.9 sho
 ### Step 4.7 — `compute_evaluation_results()`
 Concatenates the representations and the labels of the split, then computes:
 - the **effective rank** (Step 4.10) and the **representation standard deviation** (Step 3.15 applied to the representations) of every test image, labelled or not;
-- with at least two labelled test images, the **k-NN metrics** (Step 4.8), the headline metric being then the k-NN accuracy; without them, the k-NN is skipped and the headline metric is the effective rank (Step 5.6).
+- with at least one labelled test image, the **k-NN metrics** (Step 4.8), the headline metric being then the k-NN accuracy; without them, the k-NN is skipped and the headline metric is the effective rank (Step 5.6).
 
 **Example: the global metrics of both checkpoints**
 
@@ -1053,9 +1056,10 @@ class_scalars: 27 (k-NN Precision, Recall and F1 of the 9 classes)
 With 9 classes, chance is about 0.11.
 
 ### Step 4.8 — `compute_nearest_neighbour_results()` → `compute_nearest_neighbour_predictions()`
-Classifies every labelled test image by its neighbours among the other labelled test images, then scores it like a classifier (in `vision_training/evaluation/self_supervised/representation_metrics.py`):
-- The representations are L2-normalized and compared by cosine similarity, in chunks of `SIMILARITY_CHUNK_SIZE` (1024) rows, the similarity of an image with itself being excluded (leave-one-out).
-- The k = min(20, N - 1) most similar images vote for their class with the weight exp(similarity / `NEAREST_NEIGHBOUR_TEMPERATURE`), the temperature being 0.07, the votes being summed per class (`scatter_add`); the class with the most votes is the prediction.
+Classifies every labelled test image by its neighbours among the reference images, then scores it like a classifier (in `vision_training/evaluation/self_supervised/representation_metrics.py`):
+- `encode_reference_images()` encodes the reference training images chosen at the start (Step 2.1, `build_reference_dataloader()`) with the weights being evaluated, trained or averaged, through `predict_batch()` like the test images. A test image is never compared with the other test images, so a test split of one image per class (ImageNet-22k) is scored like any other. Every class of the training split votes, a class without labelled test image being a possible wrong prediction, as for a classifier of every class.
+- The representations are L2-normalized and compared by cosine similarity, in chunks of `SIMILARITY_CHUNK_SIZE` (1024) test images.
+- The k = min(20, M) most similar reference images vote for their class with the weight exp(similarity / `NEAREST_NEIGHBOUR_TEMPERATURE`), the temperature being 0.07, the votes being summed per class (`scatter_add`); the class with the most votes is the prediction.
 - `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class; `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py` gives the exact (Clopper-Pearson) 95% confidence interval of every recall from the true positives and the labelled test images of the class, the images being independent (`classification_workflow.md`, Step 4.14); `write_class_metrics_file()` saves them in `class_metrics.csv`, the bounds as `recall_lower` and `recall_upper` after `recall`.
 
 **Example: image 0 of the test split at iteration 12** (label 6, plus_sign)
@@ -1167,6 +1171,8 @@ With the moving average of the weights on (`Optimization.exponential_moving_aver
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
+> Like those of Stage 4, the k-NN outputs of this stage were captured when the k-NN compared every test image with the other test images; the k-NN now compares them with reference training images, and its note names them.
+
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`). They were captured before the per-class recall intervals were added (2026-11-01), whose `Per Class k-NN Recall` table now follows `Per Class k-NN Metrics` in the labelled blocks.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
@@ -1271,7 +1277,7 @@ Samples Without A Single Mapped Category, Kept Without Class :        <- yellow,
 Iteration 12 · 200 Test Images · 2026-10-23 02:20 ──────────────────────────────────────────────────────────────────────
   Effective Rank   1.0433   Representation Standard Deviation   0.0008
   Labelled Test Images : 0 of 200
-  k-NN : skipped, fewer than two labelled test images
+  k-NN : skipped, no labelled test image
   Sample Images : 8 fixed test images
   - Results : Results.txt
   - Sample Images : Samples

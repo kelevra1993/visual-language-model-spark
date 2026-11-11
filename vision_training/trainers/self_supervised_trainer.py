@@ -3,8 +3,8 @@ Trainer of the self-supervised task: the loaders of the 'labels.json' manifests 
 views of every training and validation image drawn on the device before the forward pass by the data augmentation with
 the self-supervised strengths (DataAugmenter.create_views of Data.data_augmentation), the loss and batch metrics of the
 method (SimCLR or Barlow Twins) tracked on every batch, and the evaluation of the representations of the checkpoints on
-the test split (k-nearest neighbour classification of the labelled test images, effective rank and standard deviation of
-the representations). Registered for the "self_supervised" task; the backbone it trains then initialises the other tasks
+the test split (k-nearest neighbour classification of the labelled test images by a fixed sample of labelled training
+images, encoded with the evaluated weights, effective rank and standard deviation of the representations). Registered for the "self_supervised" task; the backbone it trains then initialises the other tasks
 through 'Backbone.pretrained'.
 """
 
@@ -15,13 +15,15 @@ import torch
 from collections import Counter
 from pathlib import Path
 from torch.nn import functional as torch_functional
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import (IGNORED_LABEL_INDEX, LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY,
                                             EvaluationResults, SelfSupervisedBatch)
 from vision_training.data.grouped_batch_sampler import GroupedBatchSampler
 from vision_training.data.label_mapping import get_class_names
-from vision_training.data.loaders import get_classification_dataloaders
+from vision_training.data.loaders import build_native_loader, get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
 from vision_training.evaluation.classification.class_metrics_report import (build_class_metric_scalars,
                                                                              build_class_metrics_rows,
@@ -32,11 +34,13 @@ from vision_training.evaluation.evaluation_report import write_class_metrics_fil
 from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
                                                          compute_clopper_pearson_intervals)
 from vision_training.evaluation.self_supervised.representation_metrics import (compute_effective_rank,
-                                                                               compute_nearest_neighbour_predictions)
+                                                                               compute_nearest_neighbour_predictions,
+                                                                               select_reference_samples)
 from vision_training.losses.self_supervised_losses import compute_embedding_standard_deviation
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
-from vision_training.trainers.base_trainer import BaseTrainer
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
+from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.visualization import (add_caption_bar, build_batch_mosaic, convert_image_to_array,
                                                      show_viewer_windows, view_input_data)
 
@@ -72,9 +76,9 @@ class SelfSupervisedTrainer(BaseTrainer):
     augmentation ('Data.data_augmentation', with the stronger SELF_SUPERVISED_AUGMENTATION_STRENGTHS) in the forward
     pass of the training and the validation batches alike, the validation loss needing views too. Every evaluated
     checkpoint is scored without training any classifier: its representations classify the labelled test images by their
-    nearest neighbours among the other labelled test images (accuracy, balanced accuracy, macro F1 and per-class
-    metrics), and their effective rank and standard deviation watch the collapse, the only metrics of a test split
-    without labels.
+    nearest neighbours among the reference images, a fixed sample of labelled training images encoded with the same
+    weights at every evaluation (accuracy, balanced accuracy, macro F1 and per-class metrics), and their effective rank
+    and standard deviation watch the collapse, the only metrics of a test split without labels.
     """
 
     TASK_NAME = "self_supervised"
@@ -89,19 +93,112 @@ class SelfSupervisedTrainer(BaseTrainer):
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
-        Reads the self-supervised settings used by the hooks, then prepares the training run through the general
-        trainer, which builds the data augmentation drawing the views.
+        Reads the self-supervised settings used by the hooks, prepares the training run through the general trainer,
+        which builds the data augmentation drawing the views, then chooses the reference images of the k-nearest
+        neighbour evaluation among the training images (build_reference_dataloader).
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
             model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone, ProjectionHead).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
-        # Method of the run, giving its tracked metrics, and the number of neighbours voting in the evaluation
+        # Method of the run, giving its tracked metrics, the number of neighbours voting in the evaluation and the
+        # largest number of reference images of a class they are chosen among
         self.method = model_configuration["ProjectionHead"]["method"]
         self.number_neighbours = experiment_configuration["evaluation"]["number_neighbours"]
+        self.number_reference_images_per_class = experiment_configuration["evaluation"][
+            "number_reference_images_per_class"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
+        self.reference_dataloader, self.reference_notes = self.build_reference_dataloader()
+
+    def build_reference_dataloader(self) -> Tuple[Optional[DataLoader], List[str]]:
+        """
+        Chooses the reference images of the k-nearest neighbour evaluation, the labelled training images that every
+        labelled test image is compared with: at most 'evaluation.number_reference_images_per_class' images of every
+        class, the same at every evaluation (select_reference_samples), read in their order without augmentation like
+        the test images. Every class of the training split is kept, a class without labelled test image being a
+        possible wrong prediction as for a classifier of every class, and a test class without labelled training image
+        is announced, its test images never being classified correctly. Nothing is chosen without classes or without
+        labelled test image, the k-NN being then skipped.
+
+        Returns:
+            Tuple[Optional[DataLoader], List[str]]: The loader of the reference images (None without k-NN), and the
+                notes describing them in the report of every evaluation.
+
+        Raises:
+            ValueError: If the test split holds labelled images but the training split none, the k-NN having then no
+                reference image to compare them with.
+        """
+        test_classes = {sample["class_indices"][0] for sample in self.test_dataloader.dataset.samples
+                        if len(sample["class_indices"]) == 1}
+        if not self.class_names or not test_classes:
+            return None, []
+
+        # Reference images of every class of the training split, none for a training split without labels
+        training_dataset = self.train_dataloader.dataset
+        reference_samples = select_reference_samples(
+            samples=training_dataset.samples, number_images_per_class=self.number_reference_images_per_class)
+        if not reference_samples:
+            raise ValueError(f"The k-nearest neighbour evaluation compares the labelled test images with labelled "
+                             f"training images, but the training split "
+                             f"({self.experiment_configuration['train_data_folder']}) holds none: label some training "
+                             f"images, or give the test split no labels for an evaluation by the effective rank only.")
+        reference_classes = {sample["class_indices"][0] for sample in reference_samples}
+
+        # Test classes the reference images cannot predict, and reference classes without labelled test image
+        notes = [f"k-NN : {self.number_neighbours} neighbours among {len(reference_samples)} labelled training "
+                 f"images of {len(reference_classes)} classes ({self.number_reference_images_per_class} per class at "
+                 f"most)"]
+        missing_test_classes = sorted(test_classes - reference_classes)
+        if missing_test_classes:
+            missing_class_names = ", ".join(self.class_names[class_index] for class_index in missing_test_classes[:10])
+            warning = (f"k-NN : {len(missing_test_classes)} test classes without labelled training image, their test "
+                       f"images never classified correctly ({missing_class_names}"
+                       f"{', ...' if len(missing_test_classes) > 10 else ''})")
+            print_color(color="yellow", output=warning)
+            notes.append(warning)
+        number_distractor_classes = len(reference_classes - test_classes)
+        if number_distractor_classes:
+            notes.append(f"k-NN : {number_distractor_classes} training classes without labelled test image, kept as "
+                         f"possible predictions")
+
+        # Loader of the reference images in their order, encoded like the test images at every evaluation
+        reference_dataset = training_dataset.select_samples(samples=reference_samples)
+        return build_native_loader(dataset=reference_dataset, batch_size=self.batch_size, shuffle=False), notes
+
+    def list_dataloaders(self) -> List[Iterable]:
+        """
+        Lists the training, validation and test loaders and the loader of the reference images of the k-nearest
+        neighbour evaluation, so that the workers of every one stop at the end of the training.
+
+        Returns:
+            List[Iterable]: The loaders of the trainer.
+        """
+        reference_loaders = [] if self.reference_dataloader is None else [self.reference_dataloader]
+        return super().list_dataloaders() + reference_loaders
+
+    def encode_reference_images(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Encodes the reference images of the k-nearest neighbour evaluation with the weights being evaluated (the
+        trained ones, or the averaged ones within use_averaged_weights), through predict_batch and within the
+        evaluation context like the test images, so that both are pooled the same way and without augmentation.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The [M, F] representations of the reference images, on the CPU, and their
+                [M] class indices.
+        """
+        # Representations and classes of every batch of reference images, encoded like a test batch
+        representations, labels = [], []
+        weights_description = f" ({AVERAGED_WEIGHTS_LABEL})" if self.evaluating_averaged_weights else ""
+        with self.evaluation_context(), torch.no_grad():
+            for reference_batch in tqdm(self.reference_dataloader, total=len(self.reference_dataloader),
+                                        desc=f"k-NN Reference Images{weights_description}"):
+                reference_batch = self.prepare_batch(batch=reference_batch)
+                predictions = self.predict_batch(batch=reference_batch)
+                representations.append(predictions["representations"].detach().float().cpu())
+                labels.append(reference_batch["labels"].detach().cpu())
+        return torch.cat(tensors=representations, dim=0), torch.cat(tensors=labels, dim=0)
 
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
@@ -254,7 +351,8 @@ class SelfSupervisedTrainer(BaseTrainer):
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Keeps the representations, the labels and the identifiers of the kept samples of a test batch on the CPU, the
-        k-nearest neighbour evaluation comparing every test image with all the others once the split is encoded.
+        k-nearest neighbour evaluation comparing every labelled test image with the reference images once the split is
+        encoded.
 
         Args:
             accumulator (Dict[str, Any]): The 'representations', 'labels' and 'sample_identifiers' lists, extended in
@@ -270,10 +368,11 @@ class SelfSupervisedTrainer(BaseTrainer):
     def compute_nearest_neighbour_results(self, representations: torch.Tensor, labels: torch.Tensor,
                                           evaluation_folder: Path) -> Tuple[Dict[str, float], Dict[str, Any]]:
         """
-        Classifies the labelled test images by their nearest neighbours among the other labelled test images and
-        scores the classification like a classifier: accuracy, balanced accuracy, macro F1, and the precision, recall
-        (with its exact confidence interval over the labelled test images of the class) and F1 of every class, saved
-        in class_metrics.csv and shown in the per-class table, the per-class recall table and the scalars.
+        Classifies the labelled test images by their nearest neighbours among the reference images, encoded with the
+        evaluated weights (encode_reference_images), and scores the classification like a classifier: accuracy,
+        balanced accuracy, macro F1, and the precision, recall (with its exact confidence interval over the labelled
+        test images of the class) and F1 of every class, saved in class_metrics.csv and shown in the per-class table,
+        the per-class recall table and the scalars.
 
         Args:
             representations (torch.Tensor): The [N, F] representations of the labelled test images.
@@ -285,10 +384,12 @@ class SelfSupervisedTrainer(BaseTrainer):
                 outputs: the 'tables' (the per-class table, then the per-class recall table), the 'class_scalars' and
                 the 'class_metrics_path'.
         """
+        # Votes of the reference images, encoded with the weights being evaluated, for every labelled test image
         number_classes = len(self.class_names)
-        predicted_labels = compute_nearest_neighbour_predictions(representations=representations, labels=labels,
-                                                                 number_neighbours=self.number_neighbours,
-                                                                 number_classes=number_classes)
+        reference_representations, reference_labels = self.encode_reference_images()
+        predicted_labels = compute_nearest_neighbour_predictions(
+            query_representations=representations, reference_representations=reference_representations,
+            reference_labels=reference_labels, number_neighbours=self.number_neighbours, number_classes=number_classes)
         confusion_matrix = compute_confusion_matrix(predicted_labels=predicted_labels, labels=labels,
                                                     number_classes=number_classes)
         class_metrics = compute_metrics_from_confusion_matrix(confusion_matrix=confusion_matrix)
@@ -305,7 +406,7 @@ class SelfSupervisedTrainer(BaseTrainer):
                                           title=NEAREST_NEIGHBOUR_TABLE_TITLE,
                                           legend_introduction=f"k-nearest neighbour classification "
                                                               f"({self.number_neighbours} neighbours) of the labelled "
-                                                              f"test images by the other ones. ",
+                                                              f"test images by labelled training images. ",
                                           support_description="labelled test image")
         recall_table = build_recall_interval_table(class_rows=class_rows, support_key="samples",
                                                    support_column="Samples", recall_columns=[("recall", "Recall")],
@@ -320,8 +421,8 @@ class SelfSupervisedTrainer(BaseTrainer):
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
         Scores the representations of the test split and organises them for the report: the k-nearest neighbour
-        metrics of the labelled test images when there are at least two of them, the headline metric being then the
-        k-NN accuracy, and the effective rank and standard deviation of the representations of every test image, the
+        metrics of the labelled test images when there is at least one, the headline metric being then the k-NN
+        accuracy, and the effective rank and standard deviation of the representations of every test image, the
         effective rank being the headline metric of a test split without labels. The per-class k-NN metrics are saved
         in class_metrics.csv in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
 
@@ -348,7 +449,7 @@ class SelfSupervisedTrainer(BaseTrainer):
         metrics, tables, class_scalars, files = {}, [], {}, {}
         headline_metric = "Effective Rank"
         notes = [f"Labelled Test Images : {number_labelled_images} of {len(labels)}"]
-        if number_labelled_images >= 2 and self.class_names:
+        if self.reference_dataloader is not None and number_labelled_images > 0:
             metrics, class_outputs = self.compute_nearest_neighbour_results(
                 representations=representations[labelled_mask], labels=labels[labelled_mask],
                 evaluation_folder=evaluation_folder)
@@ -356,9 +457,9 @@ class SelfSupervisedTrainer(BaseTrainer):
             class_scalars = class_outputs["class_scalars"]
             files["Class Metrics"] = class_outputs["class_metrics_path"]
             headline_metric = "k-NN Accuracy"
-            notes.append(f"k-NN : {self.number_neighbours} neighbours among the other labelled test images")
+            notes.extend(self.reference_notes)
         else:
-            notes.append("k-NN : skipped, fewer than two labelled test images")
+            notes.append("k-NN : skipped, no labelled test image")
         metrics.update(representation_metrics)
 
         return {"evaluated_samples": f"{len(labels)} Test {self.SAMPLE_NAME}", "metrics": metrics, "notes": notes,

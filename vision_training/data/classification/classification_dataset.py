@@ -2,10 +2,11 @@
 ClassificationDataset, the Native (OpenCV, CPU) dataset of the classification task, reading the images and the
 multi-class or multi-label categories of a split from its 'labels.json' manifest, with the label dictionary of the
 configuration. It also reads the splits of the self-supervised task, which keeps the images without mapped category,
-their labels only serving its k-nearest neighbour evaluation. Instantiated by get_classification_dataloaders of
-data/loaders.py.
+their labels only serving its k-nearest neighbour evaluation, whose reference images are a subset of the training
+split (select_samples). Instantiated by get_classification_dataloaders of data/loaders.py.
 """
 
+import copy
 import json
 import os
 import random
@@ -139,6 +140,25 @@ class ClassificationDataset(Dataset):
             label = torch.tensor(data=class_index, dtype=torch.int64)
 
         return {"images": image_tensor, "labels": label, "sample_identifiers": sample["identifier"]}
+
+    def select_samples(self, samples: List[Dict[str, Any]]) -> "ClassificationDataset":
+        """
+        Gives a dataset of some samples of this one, with its image settings, labels and categories, for the reference
+        images of the k-nearest neighbour evaluation of the self-supervised task, chosen among the training images and
+        encoded at every evaluation. Only the selected sample records are held, so that a loader worker receiving the
+        dataset does not receive the records of the whole training split.
+
+        Args:
+            samples (List[Dict[str, Any]]): The sample records kept, taken from 'samples', in the order the new
+                dataset reads them.
+
+        Returns:
+            ClassificationDataset: The dataset of the selected samples, read in that order.
+        """
+        selected_dataset = copy.copy(self)
+        selected_dataset.samples = list(samples)
+        selected_dataset.sample_records = {sample["identifier"]: sample for sample in selected_dataset.samples}
+        return selected_dataset
 
     def describe_sample(self, sample_identifier: int) -> Dict[str, str]:
         """

@@ -31,7 +31,7 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 | `Fusion` | CMP |
 | `SegmentationDecoder`, `SegmentationLoss`, `Data.tiling`, `evaluation.save_predicted_masks`, `evaluation.boundary_tolerance` | SEG |
 | `Selection`, `evaluation.top_k` | SEL |
-| `ProjectionHead`, `Data.grouped_batches`, `evaluation.number_neighbours` | SSL |
+| `ProjectionHead`, `Data.grouped_batches`, `evaluation.number_neighbours`, `evaluation.number_reference_images_per_class` | SSL |
 | `HRNet`, `KeypointHead`, `evaluation.default_keypoint_sigma`, `evaluation.keypoint_sigmas` | KPT |
 
 ### Values Per Task
