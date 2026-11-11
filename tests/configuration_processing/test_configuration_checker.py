@@ -937,7 +937,7 @@ def use_pooling_for_labelling(configuration: Dict[str, Any]) -> None:
 def test_sequence_labelling_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the sequence labelling configurations shipped with the repository pass every consistency check,
-    the example one with a causal transformer.
+    the example one with a bidirectional LSTM.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
