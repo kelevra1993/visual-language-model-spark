@@ -163,10 +163,11 @@ def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nm
                            input_image_size: int) -> Dict[str, Any]:
     """
     Runs the proposal filter of the detector on the proposals of one image, with the counts of one mode (training or
-    evaluation): the pre_nms_proposals best proposals by objectness, clamped to the image, as select_best_proposals
-    takes them, the survivors of their non-maximum suppression (suppress_overlapping_proposals, one call for the
-    image, as the eager filter runs it), and the post_nms_proposals kept by select_best_proposals itself, with their
-    valid mask.
+    evaluation) and the selection over all the levels at once of the run shown ('RegionProposal.proposal_selection'
+    "joint", all the anchors forming one group): the pre_nms_proposals best proposals by objectness, clamped to the
+    image, as select_best_proposals takes them, the survivors of their non-maximum suppression
+    (suppress_overlapping_proposals, one call for the image, as the eager filter runs it), and the post_nms_proposals
+    kept by select_best_proposals itself, with their valid mask.
 
     Args:
         aggregated_proposals (Dict[str, torch.Tensor]): The proposals of all the levels of the image
@@ -194,9 +195,10 @@ def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nm
     kept_mask = suppress_overlapping_proposals(boxes=top_boxes, scores=top_scores, nms_iou_threshold=nms_iou_threshold,
                                                suppress_per_image=True)
     selected_boxes, _, selected_levels, valid_mask = select_best_proposals(
-        proposal_scores=scores, proposal_boxes=boxes, proposal_levels=levels, pre_nms_proposals=pre_nms_proposals,
-        post_nms_proposals=post_nms_proposals, nms_iou_threshold=nms_iou_threshold,
-        input_image_size=input_image_size, suppress_per_image=True)
+        proposal_scores=scores, proposal_boxes=boxes, proposal_levels=levels, level_sizes=[scores.shape[1]],
+        pre_nms_proposals=pre_nms_proposals, post_nms_proposals=post_nms_proposals,
+        nms_iou_threshold=nms_iou_threshold, input_image_size=input_image_size, suppress_per_image=True,
+        proposal_selection="joint")
     return {"top_boxes": top_boxes[0], "top_levels": top_levels[0], "top_by_level": count_by_level(
                 levels=top_levels[0]),
             "survivor_count": int(kept_mask.sum()), "survivors_by_level": count_by_level(

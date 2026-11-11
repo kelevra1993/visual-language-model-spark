@@ -45,11 +45,14 @@ class InferenceDetector(nn.Module):
 
         # Region proposal filtering and final post-processing settings of the inference mode
         self.input_image_size = model.input_image_size
-        # Number of anchors of all levels, stored as a plain number so that tracing never reads it from a tensor shape
-        self.number_anchors = model.number_anchors
+        # Number of anchors of every level in the order of level_names, the order of the concatenation of their
+        # proposals, stored as plain numbers so that tracing never reads them from a tensor shape
+        level_anchors = model.get_level_anchors()
+        self.level_sizes = [int(level_anchors[int(level_name)].shape[0]) for level_name in self.level_names]
         self.pre_nms_proposals = model.region_proposal_filter.inference_pre_nms_proposals
         self.post_nms_proposals = model.region_proposal_filter.inference_post_nms_proposals
         self.proposal_nms_iou_threshold = model.region_proposal_filter.nms_iou_threshold
+        self.proposal_selection = model.region_proposal_filter.proposal_selection
         self.score_threshold = model.detection_score_threshold
         self.detection_nms_iou_threshold = model.detection_nms_iou_threshold
         self.detection_nms_criterion = model.detection_nms_criterion
@@ -127,7 +130,8 @@ class InferenceDetector(nn.Module):
         """
         Keeps, for every image, the best 'post_nms_proposals' proposals after non-maximum suppression (fewer when the
         pre-NMS count or the number of anchors is smaller), with the batched selection of the training-time region
-        proposal filter (select_best_proposals), the padding slots being masked instead of filled with copies.
+        proposal filter (select_best_proposals), over all the levels or level by level as in the training
+        ('RegionProposal.proposal_selection'), the padding slots being masked instead of filled with copies.
 
         Args:
             proposal_scores (torch.Tensor): The objectness logits of all anchors, shape [B, N].
@@ -139,13 +143,14 @@ class InferenceDetector(nn.Module):
                 boolean mask [B, P] which is False for padding slots when fewer than P proposals survive.
         """
         # Batched selection shared with the region proposal filter of the training, with a single suppression call
-        # for the exports, the top-k limit clamped to the number of anchors stored as a plain number so that tracing
-        # never reads it from a tensor shape
+        # over the batch for every group of anchors for the exports, the top-k limit clamped to the anchors of every
+        # group, stored as plain numbers so that tracing never reads them from a tensor shape
         selected_boxes, _, selected_levels, valid_proposal_mask = select_best_proposals(
             proposal_scores=proposal_scores, proposal_boxes=proposal_boxes, proposal_levels=proposal_levels,
-            pre_nms_proposals=min(self.pre_nms_proposals, self.number_anchors),
+            level_sizes=self.level_sizes, pre_nms_proposals=self.pre_nms_proposals,
             post_nms_proposals=self.post_nms_proposals, nms_iou_threshold=self.proposal_nms_iou_threshold,
-            input_image_size=self.input_image_size, suppress_per_image=False)
+            input_image_size=self.input_image_size, suppress_per_image=False,
+            proposal_selection=self.proposal_selection)
         return selected_boxes, selected_levels, valid_proposal_mask
 
     def detect(self, feature_maps: dict, proposal_boxes: torch.Tensor, proposal_levels: torch.Tensor) -> Tuple[

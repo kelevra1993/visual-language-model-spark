@@ -287,13 +287,16 @@ RegionProposal:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
+  # "joint" (one top-k and NMS over all the levels) or "per_level" (top-k and NMS of every level, then the best
+  # over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per level.
+  proposal_selection: "joint"
   training:
-    # Top raw proposals kept per image before non-maximum suppression in training.
+    # Top raw proposals kept per image (per level with "per_level") before non-maximum suppression in training.
     pre_nms_proposals: 1000
     # Proposals kept per image after non-maximum suppression in training.
     post_nms_proposals: 500
   inference:
-    # Top raw proposals kept per image before non-maximum suppression at inference.
+    # Top raw proposals kept per image (per level with "per_level") before non-maximum suppression at inference.
     pre_nms_proposals: 500
     # Proposals kept per image after non-maximum suppression at inference.
     post_nms_proposals: 250

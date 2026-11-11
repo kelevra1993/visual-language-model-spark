@@ -113,26 +113,29 @@ def test_distance_nms_paths_agree_at_the_threshold_and_on_equal_scores() -> None
         assert detections["final_detection_boxes"][0, :3].tolist() == [boxes[2], boxes[0], boxes[1]]
 
 
-@pytest.mark.parametrize(argnames=("neck_type", "nms_criterion", "nms_distance_exponent"),
-                         argvalues=[("none", "iou", 1.0), ("path_aggregation", "iou", 1.0),
-                                    ("none", "distance_iou", 0.6)])
-def test_inference_detector_matches_the_eager_model(neck_type: str, nms_criterion: str,
-                                                    nms_distance_exponent: float) -> None:
+@pytest.mark.parametrize(argnames=("neck_type", "nms_criterion", "nms_distance_exponent", "proposal_selection"),
+                         argvalues=[("none", "iou", 1.0, "joint"), ("path_aggregation", "iou", 1.0, "joint"),
+                                    ("none", "distance_iou", 0.6, "joint"),
+                                    ("path_aggregation", "iou", 1.0, "per_level")])
+def test_inference_detector_matches_the_eager_model(neck_type: str, nms_criterion: str, nms_distance_exponent: float,
+                                                    proposal_selection: str) -> None:
     """
     Verifies that the export-friendly inference detector reproduces exactly the detections of the eager
     TwoStageDetector in evaluation mode, on the same weights and images, without neck and with the neck applying both
     the top-down and the bottom-up paths, with the greedy NMS and with DIoU-NMS, whose suppression on every pair of
-    the exports keeps the detections of the eager evaluation. The detections are paired by label and score like the
-    checks of the exports: the untrained detector gives exactly equal scores to many proposals, which DIoU-NMS keeps
-    side by side, and the two models, holding their proposals in another order, list such detections in another order.
+    the exports keeps the detections of the eager evaluation, and with the proposals selected over all the levels and
+    level by level. The detections are paired by label and score like the checks of the exports: the untrained
+    detector gives exactly equal scores to many proposals, which DIoU-NMS keeps side by side, and the two models,
+    holding their proposals in another order, list such detections in another order.
 
     Args:
         neck_type (str): The 'Neck.type' of the detector.
         nms_criterion (str): The 'Detector.nms_criterion' of the final NMS.
         nms_distance_exponent (float): The 'Detector.nms_distance_exponent' of "distance_iou".
+        proposal_selection (str): The 'RegionProposal.proposal_selection' of the proposal filter.
     """
     model = build_test_model(dtype=torch.float32, neck_type=neck_type, nms_criterion=nms_criterion,
-                             nms_distance_exponent=nms_distance_exponent)
+                             nms_distance_exponent=nms_distance_exponent, proposal_selection=proposal_selection)
     detector = InferenceDetector(model=model).eval()
     images = torch.rand(size=(2, 3, 512, 512)) * 255.0
 
@@ -155,23 +158,26 @@ def test_inference_detector_matches_the_eager_model(neck_type: str, nms_criterio
         assert torch.allclose(input=inference_outputs[0], other=eager_outputs["final_detection_boxes"])
 
 
-@pytest.mark.parametrize(argnames=("neck_type", "nms_criterion"),
-                         argvalues=[("none", "iou"), ("path_aggregation", "iou"), ("none", "distance_iou")])
-def test_torchscript_round_trip(tmp_path: Path, neck_type: str, nms_criterion: str) -> None:
+@pytest.mark.parametrize(argnames=("neck_type", "nms_criterion", "proposal_selection"),
+                         argvalues=[("none", "iou", "joint"), ("path_aggregation", "iou", "joint"),
+                                    ("none", "distance_iou", "joint"), ("none", "iou", "per_level")])
+def test_torchscript_round_trip(tmp_path: Path, neck_type: str, nms_criterion: str, proposal_selection: str) -> None:
     """
     Verifies that the traced TorchScript detector, saved and reloaded like the Triton PyTorch backend does,
     reproduces the eager inference detector, including for a batch size different from the traced one, without neck
     and with the neck whose level sizes are fixed numbers in the trace, with the greedy NMS and with DIoU-NMS, whose
-    scan of the proposal ranks the trace unrolls.
+    scan of the proposal ranks the trace unrolls, and with the proposals selected level by level, whose loop over the
+    levels the trace unrolls too.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         neck_type (str): The 'Neck.type' of the detector.
         nms_criterion (str): The 'Detector.nms_criterion' of the final NMS, "distance_iou" with the exponent 0.6.
+        proposal_selection (str): The 'RegionProposal.proposal_selection' of the proposal filter.
     """
     detector = InferenceDetector(model=build_test_model(dtype=torch.float32, neck_type=neck_type,
-                                                        nms_criterion=nms_criterion,
-                                                        nms_distance_exponent=0.6)).eval()
+                                                        nms_criterion=nms_criterion, nms_distance_exponent=0.6,
+                                                        proposal_selection=proposal_selection)).eval()
     model_path = tmp_path / "model.pt"
 
     with torch.no_grad():

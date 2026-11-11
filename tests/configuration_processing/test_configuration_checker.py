@@ -128,6 +128,17 @@ def set_invalid_final_nms_settings(configuration: Dict[str, Any]) -> None:
     configuration["Detector"]["nms_distance_exponent"] = 0
 
 
+def set_unknown_proposal_selection(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the region proposal filter a selection the code does not run, per image instead of over all the levels or
+    level by level.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["RegionProposal"]["proposal_selection"] = "per_image"
+
+
 def set_infinite_nms_distance_exponent(configuration: Dict[str, Any]) -> None:
     """
     Turns DIoU-NMS on with an infinite exponent of its distance term, which would reduce it to the greedy NMS.
@@ -266,6 +277,8 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                       "'Detector.nms_distance_exponent' must be a finite positive number, got 0."]),
     (set_infinite_nms_distance_exponent, ["'Detector.nms_distance_exponent' must be a finite positive number, got "
                                           "inf."]),
+    (set_unknown_proposal_selection, ["'RegionProposal.proposal_selection' must be one of ['joint', 'per_level'], "
+                                      "got 'per_image'."]),
     (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
                                             "got [0, 64].",
                                             "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "

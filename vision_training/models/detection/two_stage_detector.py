@@ -242,16 +242,22 @@ class TwoStageDetector(TaskModel):
         """
         Instantiates the RegionProposalFilter module to prune and refine bounding box proposals.
         
-        This builder method provisions the filtering component with the NMS thresholds and bounding box 
-        count limits explicitly tailored for the current execution mode (training vs. inference).
-        
+        This builder method provisions the filtering component with the NMS thresholds and bounding box
+        count limits explicitly tailored for the current execution mode (training vs. inference), and with the
+        number of anchors of every level, which 'RegionProposal.proposal_selection' "per_level" ranks one by one.
+
         Args:
             region_proposal_configuration (Dict[str, Any]): Configuration governing the region proposal thresholds.
-            
+
         Returns:
             RegionProposalFilter: The initialized module for filtering bounding box proposals.
         """
-        region_proposal_filter = RegionProposalFilter(configuration=region_proposal_configuration, )
+        # Anchors of every level in the order of the region proposal heads, the order in which
+        # aggregate_proposals_and_anchors concatenates their proposals and _aggregate_all_anchors their anchors
+        level_sizes = [int(region_proposer.region_proposal_anchor_object.anchors.shape[0])
+                       for region_proposer in self.region_proposer_dictionary.values()]
+        region_proposal_filter = RegionProposalFilter(configuration=region_proposal_configuration,
+                                                      level_sizes=level_sizes)
 
         return region_proposal_filter
 
