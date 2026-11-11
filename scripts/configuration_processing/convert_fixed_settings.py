@@ -3,21 +3,21 @@ When run, removes from configuration files written before the fixed settings the
 the code (FIXED_SETTINGS, refused by check_removed_settings of
 vision_training/configuration_processing/common_checks.py: the settings of the first conversion, then the batch
 normalization momentums of the task heads, the strict fallback assignment, the localisation loss beta and the box loss
-of the region proposal network of the detection tasks), and adds the sections and the settings a task now requires
-with the values reproducing the runs written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without
-neck; ADDED_SETTINGS: the 'box_loss' of their 'Detector' section, the smooth L1, and the 'nms_criterion' and
-'nms_distance_exponent' of their 'Detector' section, the greedy NMS), so that the training_configuration.yaml of the
-saved runs, reloaded to resume a run, by scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch
-files of vision_training/main.py load again.
+of the region proposal network of the detection tasks, then the gradient clipping norm), and adds the sections and the
+settings a task now requires with the values reproducing the runs written before them (ADDED_SECTIONS: the 'Neck' of
+the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss' of their 'Detector' section, the smooth L1, and the
+'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section, the greedy NMS), so that the
+training_configuration.yaml of the saved runs, reloaded to resume a run, by scripts/evaluation/evaluate_checkpoint.py
+and by the export, and the launch files of vision_training/main.py load again.
 The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
 sections left empty are removed, and the settings still held by some tasks are kept in their files (the sequence
 settings of the sequence tasks, the number of candidate frames of the frame selection). Every converted file is first
 copied to a backup, and a conversion changing anything else than the removed settings and the added sections and
 settings stops the script. A file holding another value than the fixed one is listed with the values its runs change
 to, except for the settings of RECORD_ONLY_SETTINGS, whose other values the code no longer trains (the CIoU box loss of
-the region proposal network): such a file is reported and left as it is, its runs staying as records. A file whose
-backbone would change (inception modules starting at another block) is refused, the code no longer building its
-layers.
+the region proposal network, a gradient clipping norm): such a file is reported and left as it is, its runs staying as
+records. A file whose backbone would change (inception modules starting at another block) is refused, the code no
+longer building its layers.
 """
 
 import re
@@ -45,7 +45,7 @@ FIXED_SETTINGS = ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfigu
                   "Backbone.modules.inception_starting_block", *FIXED_MOMENTUM_COMPONENTS,
                   "Data.data_augmentation.independent_frames", "Data.data_augmentation.shuffle_frames",
                   "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
-                  "Detector.localisation_loss_beta", "RegionProposal.box_loss"]
+                  "Detector.localisation_loss_beta", "RegionProposal.box_loss", "Optimization.gradient_clipping_norm"]
 
 # Value the code always uses for every fixed setting, by the path of the setting in a file: a file holding another
 # value changes the behaviour of its runs once converted. The localisation loss beta is compared as the files write it,
@@ -60,13 +60,16 @@ FIXED_VALUES = {"ExperimentConfiguration.evaluation.top_k": TOP_K_ACCURACY_CLASS
                 "Data.data_augmentation.independent_frames": False,
                 "Data.data_augmentation.shuffle_frames.activated": False,
                 "RegionProposal.strict_fallback_assignment": False, "RegionProposal.localisation_loss_beta": "1/9",
-                "Detector.localisation_loss_beta": "1/9", "RegionProposal.box_loss": "smooth_l1"}
+                "Detector.localisation_loss_beta": "1/9", "RegionProposal.box_loss": "smooth_l1",
+                "Optimization.gradient_clipping_norm": None}
 
 # Fixed settings whose other values trained otherwise than the code now can, with the reason: a file holding another
 # value than the one of FIXED_VALUES is not converted, its runs staying as records (their numbers kept in the results
 # files) instead of loading as runs of the fixed value
 RECORD_ONLY_SETTINGS = {"RegionProposal.box_loss": "the CIoU box loss of the region proposal network was removed, the "
-                                                   "region proposal network always using the smooth L1"}
+                                                   "region proposal network always using the smooth L1",
+                        "Optimization.gradient_clipping_norm": "the gradient clipping was removed, the gradients "
+                                                               "never being clipped"}
 
 # Text of the 'Neck' section added to the detection runs written before the neck, whose heads read the blocks
 NECK_SECTION_TEXT = """# Neck between the level blocks and the heads, every level keeping the size of its block.
@@ -586,9 +589,10 @@ if __name__ == "__main__":
     write_files = False
     # Suffix of the backups of this conversion: '_before_fixed_settings' (2026-10-29), '_before_fixed_head_settings'
     # (2026-11-05), '_before_neck' for the 'Neck' section added on 2026-11-07, '_before_box_loss' for the 'box_loss'
-    # settings added on 2026-11-08, '_before_nms_criterion' for the final NMS settings added on 2026-11-08, then
-    # '_before_region_proposal_box_loss' for the 'RegionProposal.box_loss' removed on 2026-11-10
-    backup_suffix = "_before_region_proposal_box_loss"
+    # settings added on 2026-11-08, '_before_nms_criterion' for the final NMS settings added on 2026-11-08,
+    # '_before_region_proposal_box_loss' for the 'RegionProposal.box_loss' removed on 2026-11-10, then
+    # '_before_gradient_clipping_norm' for the 'Optimization.gradient_clipping_norm' removed on 2026-11-11
+    backup_suffix = "_before_gradient_clipping_norm"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

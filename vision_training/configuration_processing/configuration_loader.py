@@ -132,7 +132,7 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     # values of other types being left for the configuration checker to report
     if "Optimization" in model_configuration:
         optimization_configuration = model_configuration["Optimization"]
-        for key in ["weight_decay", "minimum_learning_rate_ratio", "gradient_clipping_norm"]:
+        for key in ["weight_decay", "minimum_learning_rate_ratio"]:
             if key in optimization_configuration and isinstance(optimization_configuration[key], str):
                 optimization_configuration[key] = float(optimization_configuration[key])
         for key in ["warmup_iterations", "decay_iterations"]:

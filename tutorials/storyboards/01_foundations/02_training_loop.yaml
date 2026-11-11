@@ -45,7 +45,7 @@ scenes:
       - {type: text, position: [745, 192], text: "forward_pass", font: diagram_monospace_tiny, colour: dim, anchor: ma}
       - {type: text, position: [1045, 192], text: "task loss and metrics", font: diagram_monospace_tiny, colour: dim, anchor: ma, appear: 1}
       - {type: text, position: [1630, 192], text: "step_optimizer", font: diagram_monospace_tiny, colour: dim, anchor: ma, appear: 1}
-      - {type: text, position: [1630, 222], text: "clipping, schedule,\nmoving average", font: diagram_tiny, colour: dim, anchor: ma, appear: 1}
+      - {type: text, position: [1630, 222], text: "schedule,\nmoving average", font: diagram_tiny, colour: dim, anchor: ma, appear: 1}
       - {type: arrow, points: [[1630, 290], [145, 290], [145, 232]], colour: text, label: "next iteration", label_position: [892, 312], appear: 1}
       - {type: text, position: [20, 370], text: "every validation_iteration_ratio iterations", font: diagram_small, colour: dim, appear: 2}
       - {type: box, box: [20, 410, 270, 510], text: "validation batch", outline: blue, appear: 2, highlight: [2]}
@@ -58,7 +58,7 @@ scenes:
       - {type: arrow, points: [[1175, 460], [1215, 460]], colour: violet, appear: 3}
     narration:
       - "Every iteration takes one batch prefetched by the loader workers, augments it on the GPU, and runs the forward pass in bfloat16, the mixed precision of every run."
-      - "The task trainer returns its losses and batch metrics, the backward pass follows, then one optimizer step: gradient clipping, the learning rate of the schedule, and the moving average of the weights when it is on."
+      - "The task trainer returns its losses and batch metrics, the backward pass follows, then one optimizer step: the learning rate of the schedule, and the moving average of the weights when it is on."
       - "Every validation ratio iterations, one validation batch goes through the model without augmentation and without any update, for the validation curves."
       - "Every value goes to the metric tracker, which writes it to TensorBoard at every iteration and averages it over the interval for the console."
 
@@ -171,7 +171,7 @@ scenes:
     elements:
       - {type: box, box: [20, 20, 860, 410], outline: aqua, fill: null, highlight: [0]}
       - {type: text, position: [440, 55], text: "Can change when the run resumes", font: diagram_bold, anchor: mm}
-      - {type: text, position: [60, 110], text: "batch size\nlearning rate, warm-up and schedule\naugmentation\nlearning rate multipliers of pre-trained parts\ngradient clipping\nmoving average of the weights\ndropout rates, decorrelation"}
+      - {type: text, position: [60, 110], text: "batch size\nlearning rate, warm-up and schedule\naugmentation\nlearning rate multipliers of pre-trained parts\nmoving average of the weights\ndropout rates, decorrelation"}
       - {type: box, box: [900, 20, 1740, 410], outline: magenta, fill: null, appear: 1, highlight: [1]}
       - {type: text, position: [1320, 55], text: "Gives another run name: a new run folder", font: diagram_bold, anchor: mm, appear: 1}
       - {type: text, position: [940, 110], text: "task, image size, aspect ratio\nbackbone blocks, modules, normalization\nhead pooling, hidden layers, normalization\nclasses, output mode, label smoothing\nclass weighting\noptimizer and weight decay\npre-trained or frozen components", appear: 1}

@@ -1,6 +1,6 @@
 # Foundations, chapter 5: the optimization shared by every task: the settings of the Optimization section, one
 # optimizer step, the three optimizers, the learning rate and what the benchmark measured for it, the warm-up and the
-# cosine decay, gradient clipping, mixed precision and the moving average of the weights. The curves are those of
+# cosine decay, mixed precision and the moving average of the weights. The curves are those of
 # benchmark.py (documentation/architecture_benchmarking/results.csv) and learning_rate_schedule.py (the schedule of the
 # keypoint configuration) of tutorials/figures/foundations; the costs of mixed precision are those recorded in
 # documentation/architecture_benchmarking/experiment_plan.md.
@@ -25,7 +25,7 @@ scenes:
     footnote: "Foundations · chapter 5"
     narration:
       - "Every task is optimized by the same step of the base trainer, set by the Optimization section of its configuration."
-      - "This chapter covers the optimizer and its learning rate, the schedule, the gradient clipping, the mixed precision and the moving average of the weights, with what the benchmark measured for them."
+      - "This chapter covers the optimizer and its learning rate, the schedule, the mixed precision and the moving average of the weights, with what the benchmark measured for them."
 
   - kind: yaml
     title: "The optimization settings"
@@ -38,38 +38,36 @@ scenes:
       - {match: "batch_size|^\\s*learning_rate:", sentences: [0]}
       - {match: "optimizer:|weight_decay", sentences: [1]}
       - {match: "learning_rate_schedule|warmup_iterations|decay_iterations|minimum_learning_rate_ratio", sentences: [2]}
-      - {match: "gradient_clipping_norm|exponential_moving_average|activated|decay:", sentences: [3]}
+      - {match: "exponential_moving_average|activated|^\\s*decay:", sentences: [3]}
     narration:
       - "The experiment section sets the batch size and the learning rate of the run."
       - "The Optimization section picks the optimizer, Adam, AdamW or SGD, with its weight decay."
       - "Then comes the schedule of the learning rate: an optional linear warm-up, followed by a constant learning rate or a cosine decay."
-      - "Last, the clipping of the gradients and the moving average of the weights, the mixed precision needing no setting."
+      - "Last comes the moving average of the weights, the mixed precision needing no setting."
 
   - kind: html
     page: diagram
     title: "One optimizer step"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.step_optimizer"
     elements:
-      - {type: box, box: [20, 200, 230, 320], text: "loss of the\ntraining batch", font: diagram_small}
-      - {type: arrow, points: [[238, 260], [282, 260]]}
-      - {type: box, box: [290, 200, 500, 320], text: "backward:\nthe gradients", font: diagram_small}
-      - {type: arrow, points: [[508, 260], [552, 260]], appear: 0}
-      - {type: box, box: [560, 200, 800, 320], text: "gradients clipped\nto the norm", font: diagram_small, outline: yellow, appear: 0, highlight: [0]}
-      - {type: text, position: [680, 340], text: "when gradient_clipping_norm\nis set", font: diagram_small, colour: dim, anchor: ma, align: center, appear: 0}
-      - {type: arrow, points: [[808, 260], [852, 260]], appear: 1}
-      - {type: box, box: [860, 200, 1120, 320], text: "learning rate\n× schedule factor", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[990, 328], [880, 452]], appear: 1}
-      - {type: arrow, points: [[990, 328], [1300, 452]], appear: 1}
-      - {type: box, box: [640, 460, 1060, 570], text: "new layers:\nlearning_rate × factor", font: diagram_small, outline: blue, appear: 1}
-      - {type: box, box: [1100, 460, 1740, 570], text: "component transferred from another run:\nlearning_rate × multiplier × factor", font: diagram_small, outline: blue, appear: 1}
-      - {type: arrow, points: [[1128, 260], [1172, 260]], appear: 2}
-      - {type: box, box: [1180, 200, 1400, 320], text: "optimizer\nstep", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
-      - {type: arrow, points: [[1408, 260], [1452, 260]], appear: 2}
-      - {type: box, box: [1460, 200, 1740, 320], text: "moving average\nof the weights", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
-      - {type: text, position: [1600, 340], text: "when activated", font: diagram_small, colour: dim, anchor: ma, appear: 2}
+      - {type: box, box: [20, 200, 300, 320], text: "loss of the\ntraining batch", font: diagram_small}
+      - {type: arrow, points: [[308, 260], [352, 260]]}
+      - {type: box, box: [360, 200, 640, 320], text: "backward:\nthe gradients", font: diagram_small, highlight: [0]}
+      - {type: text, position: [500, 340], text: "used as they are,\nnever clipped", font: diagram_small, colour: dim, anchor: ma, align: center, appear: 0}
+      - {type: arrow, points: [[648, 260], [692, 260]], appear: 1}
+      - {type: box, box: [700, 200, 1020, 320], text: "learning rate\n× schedule factor", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[860, 328], [660, 452]], appear: 1}
+      - {type: arrow, points: [[860, 328], [1240, 452]], appear: 1}
+      - {type: box, box: [440, 460, 880, 570], text: "new layers:\nlearning_rate × factor", font: diagram_small, outline: blue, appear: 1}
+      - {type: box, box: [920, 460, 1560, 570], text: "component transferred from another run:\nlearning_rate × multiplier × factor", font: diagram_small, outline: blue, appear: 1}
+      - {type: arrow, points: [[1028, 260], [1072, 260]], appear: 2}
+      - {type: box, box: [1080, 200, 1360, 320], text: "optimizer\nstep", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1368, 260], [1412, 260]], appear: 2}
+      - {type: box, box: [1420, 200, 1740, 320], text: "moving average\nof the weights", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: text, position: [1580, 340], text: "when activated", font: diagram_small, colour: dim, anchor: ma, appear: 2}
       - {type: text, position: [880, 670], text: "TensorBoard: Learning Rate, at every iteration", font: diagram_small, colour: dim, anchor: mm, appear: 2}
     narration:
-      - "After the backward pass of every training batch, the gradients are first clipped, when a clipping norm is set."
+      - "After the backward pass of every training batch, the step uses the gradients as they are, never clipped."
       - "Then every parameter group gets its learning rate of the moment: the learning rate of the run times the factor of the schedule, and a component transferred from another run also times its multiplier."
       - "The optimizer takes its step, the moving average of the weights follows it when it is on, and TensorBoard records the learning rate at every iteration."
 
@@ -116,25 +114,6 @@ scenes:
       - "With a warm-up, the learning rate climbs linearly from zero, here over the first {{foundations.learning_rate_schedule.warmup_iterations}} iterations of the synthetic keypoint configuration."
       - "The cosine schedule then lowers it along a half cosine to its minimum ratio, {{foundations.learning_rate_schedule.minimum_learning_rate_ratio}} here, over the decay iterations, and keeps it there."
       - "Should a run stop mid-decay, it resumes the schedule exactly, as the factor only depends on the iteration, and a transferred component follows the same curve times its multiplier."
-
-  - kind: html
-    page: diagram
-    title: "Gradient clipping"
-    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.step_optimizer"
-    elements:
-      - {type: box, box: [300, 140, 700, 540], radius: 200, fill: null, outline: yellow, width: 3, highlight: [0]}
-      - {type: text, position: [500, 570], text: "clipping norm: 1.0", font: diagram_small, colour: dim, anchor: ma}
-      - {type: box, box: [492, 332, 508, 348], radius: 8, fill: text, outline: text}
-      - {type: arrow, points: [[500, 340], [880, 70]], colour: magenta, width: 5, label: "gradient of the batch\nnorm 2.3", label_position: [900, 70], label_anchor: la}
-      - {type: arrow, points: [[500, 340], [663, 224]], colour: aqua, width: 5, label: "clipped, norm 1.0", label_position: [690, 250], label_anchor: la, appear: 0, highlight: [1]}
-      - {type: text, position: [1060, 200], text: "all the gradients of the model,\nas one vector", font: diagram_text, anchor: la}
-      - {type: text, position: [1060, 340], text: "a norm above the clipping norm:\nthe vector is scaled down to it", font: diagram_text, anchor: la, appear: 0}
-      - {type: text, position: [1060, 480], text: "same direction, shorter step", font: diagram_text, anchor: la, appear: 1, highlight: [1]}
-      - {type: text, position: [1060, 620], text: "gradient_clipping_norm: null", font: diagram_monospace, anchor: la, appear: 2, highlight: [2]}
-    narration:
-      - "Gradient clipping looks at all the gradients of the model as one long vector: when its norm exceeds the clipping norm, the whole vector is scaled down to that norm."
-      - "Faced with one of the rare batches whose gradients explode, the step keeps its direction and only its length is limited, which tames it."
-      - "Null turns it off, as in the synthetic configurations; a value such as one turns it on, and since it gives no run name token, it can change when a run resumes."
 
   - kind: html
     page: diagram
@@ -197,7 +176,7 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "One step: clipping, learning rate × schedule factor, optimizer, average"}
+      - {text: "One step: learning rate × schedule factor, optimizer, average"}
       - {text: "Adam by default; AdamW, SGD and a weight decay enter the run name"}
       - {text: "A learning rate that learns: 2e-4 on the synthetic shapes"}
       - {text: "Warm-up, then constant or cosine, from the iteration alone"}

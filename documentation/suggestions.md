@@ -14,7 +14,8 @@
 > The items implemented since the first version of this list were removed:
 > - mAP evaluation, checkpoint evaluation script, run names, dataset sizes at startup, README;
 > - split of the detector and loader code;
-> - AdamW / warm-up / cosine / clipping, mixed precision;
+> - AdamW / warm-up / cosine, mixed precision (the gradient clipping added with them was removed on 2026-11-11,
+>   no run having used it);
 > - He initialisation (removed after stage 12 of the experiment), pre-activation residual pairs;
 > - moving average of the weights, its export, best value and summary columns;
 > - confusion matrix, class thresholds and error images of the detector;
@@ -360,7 +361,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | Crowds | Kept with a negative class id, kept out of the negatives, ignored by pycocotools (audit M12). | Ordinary objects, learnt and scored like the others. |
 | Objects lost by the resizing | Skipped at original resolution when under 1 pixel (`coco.py:248-250`). Masks emptied by the resize are dropped from the training targets (`model.py:1263-1265`). The evaluation keeps them, since it runs on the original images. | INS masks emptied by the resize are dropped from the training and validation targets, and from the test ground truth unless `evaluation.original_resolution` keeps them, so that they count as missed. |
 | Augmentation | imgaug pipeline with a list of mask-safe augmenters (flips, crop-and-pad, Affine, PiecewiseAffine; `model.py:1232-1259`). COCO uses horizontal flips only, nucleus flips, 90° rotations, brightness and blur. | `DataAugmenter` on the GPU: crop, aspect crop, zoom-out, flips, ±5° and 90° rotations, twelve photometric types, masks moved and boxes recomputed, fragments of objects removed. |
-| Optimisation | SGD momentum 0.9, learning rate 0.001. Each gradient tensor clipped at norm 5 (Keras `clipnorm`). L2 1e-4 except the BN scales and offsets. Weight per loss (`config.py:177-211`, `model.py:2153-2199`). | Adam / AdamW / SGD Nesterov, warm-up, cosine, optional global-norm clipping. One weight decay for every parameter (audit M10). One weight per loss (`Optimization.loss_weights`), 1 in every configuration file (item 6). |
+| Optimisation | SGD momentum 0.9, learning rate 0.001. Each gradient tensor clipped at norm 5 (Keras `clipnorm`). L2 1e-4 except the BN scales and offsets. Weight per loss (`config.py:177-211`, `model.py:2153-2199`). | Adam / AdamW / SGD Nesterov, warm-up, cosine, no gradient clipping. One weight decay for every parameter (audit M10). One weight per loss (`Optimization.loss_weights`), 1 in every configuration file (item 6). |
 | Training schedule | Stages selected by layer regular expressions: `heads`, `3+`, `4+`, `5+`, `all` (`model.py:2313-2322`, `coco.py:498-521`). | One stage per run. A loaded component can be frozen whole or given a learning rate multiplier; a schedule needs successive runs. |
 | Batch normalization | `TRAIN_BN: False` by default: the stored statistics are used and never updated (batches of 2). | Trained, with a configurable momentum. `layer` normalization is available for small batches. |
 | Evaluation | `compute_ap` with mask IoU and COCO matching (`utils.py:656-751`). COCO sample: pycocotools `COCOeval` for boxes and masks at the original resolution (`coco.py:342-385`). | Own mAP (area, 11 and 101 points) at 0.5, 0.75 and 0.5:0.95 with VOC matching (kept, audit L6), mean average recall, both by object size, box and mask results per class, proposal recall, at every checkpoint, at the network resolution or, for INS, at the original resolution (`evaluation.original_resolution`). |
@@ -392,7 +393,7 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 | Mask threshold | 0.5 | 0.5 | Same |
 | Optimiser | SGD momentum 0.9, learning rate 0.001 | Adam, learning rate 2e-4 | The paper: 0.02. Mask R-CNN lowered it, reporting exploding weights. |
 | Weight decay | 1e-4, BN parameters excluded | 0 | Audit M10 |
-| Gradient clipping | Norm 5 per gradient tensor | None | Mask R-CNN always clips, and its README suspects that clipping is what keeps the higher learning rate of the paper stable. `gradient_clipping_norm: 5.0` is a cheap first INS experiment. |
+| Gradient clipping | Norm 5 per gradient tensor | None | Mask R-CNN always clips, and its README suspects that clipping is what keeps the higher learning rate of the paper stable. Not tried: `Optimization.gradient_clipping_norm` was removed on 2026-11-11, no run having used it. |
 | Batch | 2 images per GPU, BN frozen | 40, BN trained | |
 | Loss weights | 1 each, configurable | 1 each, configurable (`Optimization.loss_weights`) | Same; tested, the weights of 1 kept |
 
@@ -667,12 +668,10 @@ committed): every image can be taken again from them without training, except wh
 - **Where:**
   - `vision_training/trainers/base_trainer.py:1274-1275`, where the total loss is summed.
   - `base_trainer.py:1027-1028`, where `training_loss.backward()` and `step_optimizer` run with no check.
-  - `base_trainer.py:508-510`, where the norm returned by `clip_grad_norm_` is thrown away.
   - No `isfinite` / `isnan` appears anywhere in `trainers/`.
 - **Effect (reproduced):** a NaN loss at step 3 of a 10-iteration run turns every weight into NaN.
   - Checkpoints 4, 8 and 10 are NaN, and so is the registry's `last` (the one resume loads). The run ends FINISHED with
     no error line; the console only shows `nan`.
-  - Gradient clipping does not help: a NaN norm scales every gradient by NaN.
   - The shipped configurations run for `number_iterations: 1e10`, so one bad batch on day 1 ruins a run left going for
     a week, and resuming reloads the NaN weights.
 - **Fix:**
@@ -680,8 +679,8 @@ committed): every image can be taken again from them without training, except wh
     synchronises, so the check costs nothing extra.
   - On a non-finite loss, zero the gradients, skip `backward` and `step`, count the skipped step and print it.
   - Raise an error the loop does not swallow after N consecutive non-finite losses.
-  - Call `clip_grad_norm_(..., error_if_nonfinite=False)`, keep the returned norm, skip the step when it is not finite
-    and log the norm to TensorBoard.
+  - Compute the norm of all the gradients together, skip the step when it is not finite and log the norm to
+    TensorBoard.
   - Refuse to save or register a checkpoint whose parameters are not finite.
 
 #### C2. Label smoothing combined with class weights trains the model to predict the rarest class
@@ -1225,8 +1224,7 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
 ### Checked And Correct
 
 - **Training loop:**
-  - bfloat16 autocast without a GradScaler is correct, clipping runs on the real gradients, and `zero_grad` comes
-    before the forward pass.
+  - bfloat16 autocast without a GradScaler is correct, and `zero_grad` comes before the forward pass.
   - The warm-up and cosine schedule maths, applied every step before `optimizer.step`.
   - The learning-rate multipliers after resume, and disjoint parameter groups.
   - Frozen batch-norm statistics restored after every `model.train()`.

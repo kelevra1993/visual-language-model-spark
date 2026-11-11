@@ -2,8 +2,9 @@
 Tests of scripts/configuration_processing/convert_fixed_settings.py, the conversion of the configuration files written
 before the fixed settings and the added sections and settings: the values changed by a conversion, the neck section
 added to the detection files, the box loss added to their detector section, the box loss of their region proposal
-section removed (a CIoU one leaving the file as it is), the final NMS settings added to their detector section, and the
-refusals of a conversion changing another setting or the backbone.
+section removed (a CIoU one leaving the file as it is), the turned off gradient clipping norm removed (a clipping file
+left as it is), the final NMS settings added to their detector section, and the refusals of a conversion changing
+another setting or the backbone.
 """
 
 import pytest
@@ -322,6 +323,76 @@ def test_conversion_removes_the_box_loss_of_the_region_proposal_section(tmp_path
     printed_output = capsys.readouterr().out
     assert "Not converted, its runs staying as records" in printed_output
     assert "RegionProposal.box_loss 'complete_iou'" in printed_output
+
+
+# Configuration of a task given by its placeholder, written before the removal of the gradient clipping, its turned
+# off norm and comment line between the cosine minimum and the moving average of the weights
+CLIPPING_CONFIGURATION_TEXT = """ExperimentConfiguration:
+  task: {task}
+Optimization:
+  # Final cosine learning rate, as a fraction of the learning rate (cosine only).
+  minimum_learning_rate_ratio: 0.01
+  # Maximum global gradient norm, clipped before every step, null to disable.
+  gradient_clipping_norm: null
+  # Exponential moving average of the weights.
+  exponential_moving_average:
+    activated: False
+    decay: 0.9998
+"""
+
+# The same configuration once converted, the moving average directly after the cosine minimum
+CONVERTED_CLIPPING_CONFIGURATION_TEXT = """ExperimentConfiguration:
+  task: {task}
+Optimization:
+  # Final cosine learning rate, as a fraction of the learning rate (cosine only).
+  minimum_learning_rate_ratio: 0.01
+  # Exponential moving average of the weights.
+  exponential_moving_average:
+    activated: False
+    decay: 0.9998
+"""
+
+
+def test_conversion_removes_the_gradient_clipping_norm(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the conversion removes the turned off gradient clipping norm, with its comment line, from the files of
+    the tasks written before its removal, and that convert_fixed_settings converts such a launch file with its backup
+    while it reports and leaves untouched a file clipping its gradients, its runs staying as records, without stopping
+    on it.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    for task in ["classification", "sequence_labelling", "self_supervised"]:
+        original_text = CLIPPING_CONFIGURATION_TEXT.format(task=task)
+        converted_text = remove_fixed_settings(configuration_text=original_text, task=task)
+        assert converted_text == CONVERTED_CLIPPING_CONFIGURATION_TEXT.format(task=task)
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+    # A launch folder holding a file clipping its gradients, listed first, and a file without clipping
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    original_text = CLIPPING_CONFIGURATION_TEXT.format(task="classification")
+    clipping_text = original_text.replace("gradient_clipping_norm: null", "gradient_clipping_norm: 1.0")
+    (configuration_folder / "run-1.yaml").write_text(data=clipping_text, encoding="utf-8")
+    (configuration_folder / "run-2.yaml").write_text(data=original_text, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_gradient_clipping_norm")
+
+    # The file without clipping converted with its backup, the clipping file reported and left as it was
+    backup_folder = configuration_folder / "previous_configurations"
+    assert converted_paths == [configuration_folder / "run-2.yaml"]
+    assert (configuration_folder / "run-2.yaml").read_text(encoding="utf-8") == \
+        CONVERTED_CLIPPING_CONFIGURATION_TEXT.format(task="classification")
+    assert (backup_folder / "run-2_before_gradient_clipping_norm.yaml").read_text(encoding="utf-8") == original_text
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == clipping_text
+    assert not (backup_folder / "run-1_before_gradient_clipping_norm.yaml").exists()
+    printed_output = capsys.readouterr().out
+    assert "Not converted, its runs staying as records" in printed_output
+    assert "Optimization.gradient_clipping_norm 1.0" in printed_output
 
 
 def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path: Path) -> None:

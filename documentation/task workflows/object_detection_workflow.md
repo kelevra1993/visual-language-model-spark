@@ -838,7 +838,7 @@ Detection Regression Loss      1: 0.4050, 2: 0.3901, 3: 0.3785, 1000: 0.1307, 20
 At iteration 1 the region proposal classification loss is close to ln 2 = 0.6931 and the detection classification loss close to ln 21 = 3.0445, the losses of untrained logits over 2 and 21 classes. The region proposal loss falls below 0.04 within 1000 iterations, while the detection classification loss is still falling at 5000, the classes being harder to tell apart than an object from the background.
 
 ### Step 3.20 — `training_loss.backward()` + `step_optimizer()`
-**Example output: the CPU run** (`gradient_clipping_norm: null`, so the gradients are not clipped; the 5000-iteration run does not record the gradient norm)
+**Example output: the CPU run** (the gradients are applied as they are; the 5000-iteration run does not record the gradient norm)
 ```text
 gradient norm: iteration 1: 42.3099   iteration 2: 40.7255   iteration 3: 33.9392        learning rate 0.0002 (constant)
 ```

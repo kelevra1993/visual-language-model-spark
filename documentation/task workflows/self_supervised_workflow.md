@@ -640,7 +640,6 @@ barlow_twins: {'total_loss': 'Total Loss', 'barlow_twins_loss': 'Barlow Twins Lo
 - Learning Rate           : 0.0005
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
-- Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
 - Validation Iter. Ratio  : 5
 - MLflow Tracking         : Off
@@ -905,7 +904,7 @@ Returns the batch metrics given by the model with its loss (positive pair accura
 Adds the metrics of the batch to the trackers of the interval and writes them to `Tensorboard/Train` at every iteration.
 
 ### Step 3.19 — `training_loss.backward()` + `step_optimizer()`
-As for every task (see `classification_workflow.md`). No gradient clipping is set here, so the gradient norms of Step 3.14 are applied as they are.
+As for every task (see `classification_workflow.md`): the gradients of Step 3.14 are applied as they are.
 
 ### Step 3.20 — validation pass
 Every 10 iterations, one validation batch runs through `run_model_iteration()` without gradient, with new random views, the model in evaluation mode.

@@ -169,8 +169,8 @@ main()
 │       ├── check_backbone_configuration()        convolution blocks numbered "1".."N", each [layers, channels],
 │       │                                         3 input channels, and the image size is a multiple of 2 ** the
 │       │                                         number of poolings, every map entering a pooling being even
-│       ├── check_optimization_configuration()    optimizer, weight decay, warm-up / cosine schedule, gradient
-│       │                                         clipping, decay of the weight moving average
+│       ├── check_optimization_configuration()    optimizer, weight decay, warm-up / cosine schedule, decay of the
+│       │                                         weight moving average
 │       └── check_classification_configuration()  classification-specific checks:
 │               ├── data:       "multi_class" mapping, at least 2 classes indexed 0..K-1 without gaps
 │               ├── no sequence normalization of the backbone, since images have no frames (the frame shuffling
@@ -338,8 +338,8 @@ main()
 │       ├── print_experiment_information()
 │       │   │   Prints the launch panel: run name, clickable folders, the settings changed since the last start of a
 │       │   │   resumed run, one block per transferred component, one line per split, iterations per epoch, batch
-│       │   │   size, checkpoint frequencies, learning rate, optimizer, schedule, gradient clipping, weight
-│       │   │   initialisation, moving average of the weights, validation ratio and MLflow
+│       │   │   size, checkpoint frequencies, learning rate, optimizer, schedule, weight initialisation,
+│       │   │   moving average of the weights, validation ratio and MLflow
 │       │   │   backend. Display only, except the split sizes, kept for MLflow.
 │       │   │
 │       │   └── describe_split() -> count_split_samples()
@@ -454,10 +454,9 @@ main()
         │   ├── training_loss.backward()
         │   │       Computes the gradient of the total loss for every trainable parameter. Training batches only.
         │   ├── step_optimizer() -> compute_learning_rate_factor()
-        │   │       Clips the gradient norm when Optimization.gradient_clipping_norm is set, sets the learning rate of
-        │   │       every parameter group to base rate x factor(iteration) (warm-up, then constant or cosine), calls
-        │   │       optimizer.step(), updates the moving average of the weights when on, and writes the learning
-        │   │       rate to TensorBoard.
+        │   │       Sets the learning rate of every parameter group to base rate x factor(iteration) (warm-up, then
+        │   │       constant or cosine), calls optimizer.step() with the gradients as they are, updates the moving
+        │   │       average of the weights when on, and writes the learning rate to TensorBoard.
         │   ├── save_model() -> save_checkpoint()
         │   │       Called right after the step when the iteration is a multiple of weight_saving_iterations
         │   │       (checkpoint, evaluated at the end of the iteration) or of intermediate_weight_saving_iterations
@@ -751,7 +750,7 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The run folder is `experiment_folder / <run name>`. The name is built from the settings that define the model: task, input, backbone, head, number of classes and optimizer. The same settings always give the same folder, so a stopped run resumes where it was, and any change of the architecture starts a new folder. The batch size, the learning rate and its schedule, the gradient clipping, the augmentation and the dropout rates give no token, because they can change between two resumptions of a run.
+The run folder is `experiment_folder / <run name>`. The name is built from the settings that define the model: task, input, backbone, head, number of classes and optimizer. The same settings always give the same folder, so a stopped run resumes where it was, and any change of the architecture starts a new folder. The batch size, the learning rate and its schedule, the augmentation and the dropout rates give no token, because they can change between two resumptions of a run.
 
 **Example: the run name of `configuration_example.yaml`, read token by token**
 
@@ -1057,7 +1056,6 @@ This prints the launch panel, so the settings of the run can be checked before a
 - Learning Rate           : 0.0002
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
-- Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
 - Validation Iter. Ratio  : 25
 - MLflow Tracking         : Off
@@ -1380,7 +1378,7 @@ iteration 1: gradient norm = 3.09      iteration 2: 2.36      iteration 3: 2.09
 ```
 
 ### Step 3.22 — `step_optimizer()` → `compute_learning_rate_factor()`
-This applies the gradients. If `Optimization.gradient_clipping_norm` is set, the gradients are first scaled down so that their total norm does not exceed it. Then the learning rate of every parameter group is set to `base_learning_rate × factor(iteration)` and `optimizer.step()` updates the weights, after which the moving average of the weights, when on, moves towards them: the parameters and the batch normalization running statistics with `min(decay, (1 + n) / (10 + n))` at its n-th update, the other buffers copied. The factor only depends on the iteration, so a resumed run continues the schedule without saving any scheduler state: a linear warm-up over `warmup_iterations`, then a constant rate or a cosine decay down to `minimum_learning_rate_ratio` over `decay_iterations`. The rate of the first group is written to TensorBoard.
+This applies the gradients as the backward pass left them: the learning rate of every parameter group is set to `base_learning_rate × factor(iteration)` and `optimizer.step()` updates the weights, after which the moving average of the weights, when on, moves towards them: the parameters and the batch normalization running statistics with `min(decay, (1 + n) / (10 + n))` at its n-th update, the other buffers copied. The factor only depends on the iteration, so a resumed run continues the schedule without saving any scheduler state: a linear warm-up over `warmup_iterations`, then a constant rate or a cosine decay down to `minimum_learning_rate_ratio` over `decay_iterations`. The rate of the first group is written to TensorBoard.
 
 **Example: this run** (`constant`, `learning_rate: 1.0e-3`): the first Adam step moves each weight by about the learning rate
 ```text

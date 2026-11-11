@@ -78,6 +78,8 @@ REMOVED_SETTINGS = {
     "ExperimentConfiguration.diagnosis_modes.verbose": ("the verbose mode no longer exists", []),
     "Optimization.mixed_precision": ("the training and validation forward passes always run in bfloat16 (mixed "
                                      "precision), the weights and the test evaluation staying in float32", []),
+    "Optimization.gradient_clipping_norm": ("the gradients are never clipped, the optimizer stepping with the "
+                                            "gradients of the backward pass as they are", []),
     "Data.loading": (f"every loader reads its batches with {NUMBER_LOADER_WORKERS} worker processes "
                      f"(NUMBER_LOADER_WORKERS of vision_training/data/loaders.py), each preparing "
                      f"{PREFETCH_BATCHES} batches in advance (PREFETCH_BATCHES)", []),
@@ -553,9 +555,9 @@ def check_error_dumps_configuration(experiment_configuration: Dict[str, Any]) ->
 def check_optimization_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Optimization' section shared by every task: the optimizer, its weight decay, the learning rate
-    schedule (warm-up, cosine decay and its minimum), the gradient clipping, the starting weights of the model and
-    the moving average of its weights, whose decay must be strictly between 0 and 1. The loss weights of the object
-    detection and instance segmentation are checked with their task (check_loss_weights_configuration).
+    schedule (warm-up, cosine decay and its minimum), the starting weights of the model and the moving average of its
+    weights, whose decay must be strictly between 0 and 1. The loss weights of the object detection and instance
+    segmentation are checked with their task (check_loss_weights_configuration).
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Optimization' section.
@@ -585,14 +587,6 @@ def check_optimization_configuration(model_configuration: Dict[str, Any]) -> Lis
         value=get_configuration_value(configuration=model_configuration,
                                       key_path="Optimization.minimum_learning_rate_ratio"),
         key_path="Optimization.minimum_learning_rate_ratio")
-
-    # Gradient clipping, disabled with null
-    gradient_clipping_norm = get_configuration_value(configuration=model_configuration,
-                                                     key_path="Optimization.gradient_clipping_norm")
-    if gradient_clipping_norm is not None and (isinstance(gradient_clipping_norm, bool) or
-                                               not isinstance(gradient_clipping_norm, (int, float)) or
-                                               gradient_clipping_norm <= 0):
-        errors.append(f"'Optimization.gradient_clipping_norm' must be null or > 0, got {gradient_clipping_norm!r}.")
 
     # Moving average of the weights, its decay giving the fraction of the average kept at every step
     errors += check_boolean_flags(configuration=model_configuration,

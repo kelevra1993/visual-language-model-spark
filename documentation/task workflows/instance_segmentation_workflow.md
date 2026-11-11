@@ -532,7 +532,6 @@ tracked metrics: {'total_loss': 'Total Loss', 'region_proposal_classification_lo
 - Learning Rate           : 0.0002
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
-- Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
 - Validation Iter. Ratio  : 25
 - MLflow Tracking         : Off

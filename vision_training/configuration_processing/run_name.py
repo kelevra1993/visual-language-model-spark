@@ -196,8 +196,8 @@ def build_optimizer_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     Builds the optimizer section of the run name, shared by every task, left out with plain Adam without weight decay:
     ADAMW or SGD, whose state cannot be resumed by another optimizer, then WD<weight decay>. The other training settings
     (augmentation, batch size, learning rate and its schedule, learning rate multipliers of the transferred
-    components, gradient clipping, batch normalization momentums) give no token, so that a run can be
-    resumed in its folder with changed values.
+    components, batch normalization momentums) give no token, so that a run can be resumed in its folder with changed
+    values.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -699,7 +699,7 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     settings, in particular every setting changing the model size, start a new one instead of mixing with a folder
     whose saved configuration no longer matches. The training settings that can change between two resumptions of a
     run (augmentation, batch size, learning rate and its schedule, learning rate multipliers of the transferred
-    components, gradient clipping, dropout rates, batch normalization momentums) give no token.
+    components, dropout rates, batch normalization momentums) give no token.
     Neither do the source run of a transferred component (only whether it is transferred, a resumed run never loading
     it again) nor the content of the label mapping file (only the number of classes): a run resumed with another
     mapping of as many classes keeps the label dictionary saved in its folder

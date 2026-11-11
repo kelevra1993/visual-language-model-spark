@@ -24,7 +24,7 @@ Every launch keeps a moving average of its weights, and the settings are compare
 - Backbone `{"1": [1, 16], "2": [2, 16], "3": [2, 16], "4": [4, 32], "5": [5, 32], "6": [5, 32]}`, residual blocks with squeeze and excite, input normalization
 - Temporal module: hidden size 96, dropout 0, positional embedding (transformer), 4 heads (transformer), kernel size 3 (temporal convolution)
 - Classification head `[96, 96]` with layer normalization, dropout 0.2, no label smoothing
-- Adam, no weight decay, constant learning rate without warm-up, no gradient clipping
+- Adam, no weight decay, constant learning rate without warm-up
 - Mixed precision (bfloat16), moving average of the weights with a decay of 0.9998
 - Data augmentation with a probability of 0.4: left-right flip (0.5), and with a probability of 0.3 each brightness, contrast and saturation, CLAHE, sharpening, luminance histogram equalization, histogram equalization of the BGR channels, noise, grayscale and the swap of the blue and red channels, the same for all the frames of a sequence
 - Every augmentation type added after the start of the experiment kept off, the haze included (on by default since 2026-10-20), so that the launches from run_11 on, restarted on 2026-10-29, train with the augmentations of run_1 to run_10

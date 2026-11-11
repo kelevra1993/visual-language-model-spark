@@ -23,7 +23,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 - Backbone `{"1": [1, 16], "2": [2, 16], "3": [2, 16], "4": [3, 32], "5": [3, 32], "6": [5, 32], "7": [5, 32]}`, residual blocks with squeeze and excite, input normalization, batch normalization
 - Detection levels 4 to 7 (strides 16 to 128) with anchors of 16 and 32, 48 and 96, 128 and 256, 384 and 768 pixels, aspect ratios 0.5, 1 and 2, so that every size of the dataset has an anchor; region proposal heads `[2, 32]`, detection heads with a 7 x 7 RoIAlign grid, `[2, 32]` convolutions and `[64, 32]` fully connected layers, each level with its own heads (no feature pyramid network)
 - Region proposals: 1000 before and 500 after the non-maximum suppression in training, 500 and 250 in inference, foreground intersection over union 0.5, background up to 0.3, 128 positive of 256 sampled anchors
-- Adam, no weight decay, constant learning rate without warm-up, no gradient clipping, moving average of the weights with a decay of 0.9998
+- Adam, no weight decay, constant learning rate without warm-up, moving average of the weights with a decay of 0.9998
 - Data augmentation:
   - learning rate stage: probability 0.4, the haze alone;
   - from 2026-11-05 (the user's `detection-run-configuration-defaults.yaml`): probability 0.25, the zoom-out, the left-right flip (0.5) and the photometric types (brightness, contrast and saturation, hue, CLAHE, sharpening, both histogram equalizations, noise, grayscale, colour swap, gamma, linear illumination, blur, motion blur, haze), each at 0.25

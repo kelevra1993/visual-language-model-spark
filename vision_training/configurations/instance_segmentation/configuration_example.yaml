@@ -3,7 +3,7 @@ ExperimentConfiguration:
   # needs RegionProposal, DetectionLevels, Detector, MaskHead and COCO 'segmentation' labels (crowds as objects).
   task: "instance_segmentation"
   # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
-  # batch size, learning rate, schedule, gradient clipping, mask threshold can change on resume.
+  # batch size, learning rate, schedule, mask threshold can change on resume.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
@@ -91,8 +91,6 @@ Optimization:
   decay_iterations: 100000
   # Final cosine learning rate, as a fraction of the learning rate (cosine only).
   minimum_learning_rate_ratio: 0.01
-  # Maximum global gradient norm, clipped before every step, null to disable.
-  gradient_clipping_norm: null
   # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
   # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
