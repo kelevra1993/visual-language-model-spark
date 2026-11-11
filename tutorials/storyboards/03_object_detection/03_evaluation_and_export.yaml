@@ -1,7 +1,8 @@
 # Object detection, chapter 3: the evaluation of a checkpoint (post-processing, sample images along the run, the
 # report tables of the mean average precision, the proposal recall, the moving average of the weights, the classes
-# and their thresholds, the confusion matrix), the export served by Triton, and the pitfalls of the task. Every number
-# comes from the DET run of tutorial_sources.yaml, read by tutorials/figures/object_detection.
+# and their thresholds, the confusion matrix), the export served by Triton with its input settings, and the
+# pitfalls of the task. Every number comes from the DET run of tutorial_sources.yaml, read by
+# tutorials/figures/object_detection.
 series: object_detection
 series_title: "Object Detection (DET)"
 chapter: 3
@@ -16,6 +17,7 @@ references:
   - "vision_training/evaluation/detection/region_recall.py · summarise_proposal_recall"
   - "vision_training/models/detection/inference_detector.py · InferenceDetector"
   - "vision_training/deployment/export_specifications.py · get_export_specification"
+  - "vision_training/deployment/input_contract.py · build_input_contract"
   - "documentation/suggestions.md"
 scenes:
   - kind: title_card
@@ -58,7 +60,7 @@ scenes:
       - {box: "{{object_detection.samples.panel_4_box}}", sentences: [2]}
     narration:
       - "The sample images show the same eight test images at every evaluation: at iteration one thousand, at a mAP at 0.5 of {{object_detection.samples.metric_1000:.3f}}, not one detection of the whole test split reaches 0.5."
-      - "Imagine you stop at two thousand, as the shipped configuration does: only the square is found here, and {{object_detection.outcomes.2000.right:,}} right detections over the {{object_detection.data.test_objects:,}} test objects: the samples look empty, item 30 of the suggestions."
+      - "Imagine you stop at two thousand, as the shipped configuration does: only the square is found here, with {{object_detection.outcomes.2000.right:,}} right detections over the {{object_detection.data.test_objects:,}} test objects, so the samples look empty."
       - "Resumed to five thousand, the run finds five of the six shapes, at a mAP of {{object_detection.samples.metric_5000:.3f}}."
 
   - kind: html
@@ -88,11 +90,11 @@ scenes:
         source: {file: "figures:object_detection/listings/results_recall.txt", start: "Mean Average", end: "Large"}
         highlights:
           - {match: "^ All|Small", sentences: [4]}
-      - {type: box, box: [1180, 70, 1740, 270], text: "PASCAL VOC matching at every IoU:\nmAP@[0.5:0.95] and 101 points\nare not pycocotools' · audit L6", font: diagram_small, outline: red, appear: 2, highlight: [2]}
+      - {type: box, box: [1180, 70, 1740, 270], text: "PASCAL VOC matching at every IoU:\nmAP@[0.5:0.95] and 101 points\nare not those of pycocotools", font: diagram_small, outline: red, appear: 2, highlight: [2]}
     narration:
       - "Every evaluated checkpoint appends its report to the results file; the mAP is computed with three methods, the area under the interpolated curve, eleven points and a hundred and one points."
       - "At iteration five thousand the area method gives {{object_detection.report.trained.methods.area.0:.3f}} at an overlap of 0.5, {{object_detection.report.trained.methods.area.1:.3f}} at 0.75, and {{object_detection.report.trained.methods.area.2:.3f}} at 0.95: the boxes are rarely that tight."
-      - "The matching follows the PASCAL VOC rule at every threshold, so the average from 0.5 to 0.95, {{object_detection.report.trained.methods.area.3:.3f}}, is not the number of the official COCO tools, audit item L6."
+      - "The matching follows the PASCAL VOC rule at every threshold, so the average from 0.5 to 0.95, {{object_detection.report.trained.methods.area.3:.3f}}, is not the number of the official COCO tools, which match a detection to the best ground truth still free."
       - "By size, the {{object_detection.report.trained.sizes.small.0}} small test objects score {{object_detection.report.trained.sizes.small.1:.3f}}, against {{object_detection.report.trained.sizes.medium.1:.3f}} for the medium and {{object_detection.report.trained.sizes.large.1:.3f}} for the large ones."
       - "The mean average recall counts the objects found at all: {{object_detection.report.trained.recall.all.1:.3f}} at 0.5, but {{object_detection.report.trained.recall.small.1:.3f}} for the small ones; if, for instance, you see a low mAP with a high recall, good boxes are ranked below false positives."
 
@@ -148,23 +150,25 @@ scenes:
     title: "The exported detector"
     code_reference: "vision_training/deployment/export_specifications.py · get_export_specification"
     elements:
-      - {type: box, box: [20, 250, 330, 430], text: "images\n[B, 3, 512, 512]\nfloat BGR, 0 to 255", font: diagram_small, outline: blue, highlight: [1]}
+      - {type: box, box: [20, 250, 330, 430], text: "images\n[B, 3, 512, 512]\nfloat BGR, 0 to 255", font: diagram_small, outline: blue, highlight: [1, 2]}
+      - {type: box, box: [20, 60, 380, 220], text: "preprocessing.json\nand ONNX metadata:\nthe letterbox of\nthe evaluation", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
       - {type: arrow, points: [[330, 340], [395, 340]]}
-      - {type: box, box: [400, 60, 1150, 620], fill: null, outline: violet, highlight: [3]}
+      - {type: box, box: [400, 60, 1150, 620], fill: null, outline: violet, highlight: [4]}
       - {type: text, position: [775, 90], text: "object_detector · TorchScript and ONNX", font: diagram_bold, anchor: ma}
-      - {type: text, position: [440, 160], text: "input normalization, backbone\nevery region proposal head\ntop-k and one batched NMS over the batch\nvalid mask instead of padding copies\nevery detection head on all 250 proposals,\n  each proposal keeping its level (torch.where)\npost-processing: score 0.5, NMS 0.5, top 100", font: diagram_text, appear: 3}
-      - {type: arrow, points: [[1150, 200], [1215, 140]], appear: 2}
-      - {type: arrow, points: [[1150, 300], [1215, 270]], appear: 2}
-      - {type: arrow, points: [[1150, 380], [1215, 400]], appear: 2}
-      - {type: arrow, points: [[1150, 480], [1215, 530]], appear: 2}
-      - {type: text, position: [1225, 140], text: "detection_boxes [B, 100, 4]", font: diagram_monospace_small, anchor: lm, appear: 2}
-      - {type: text, position: [1225, 270], text: "detection_scores [B, 100]", font: diagram_monospace_small, anchor: lm, appear: 2}
-      - {type: text, position: [1225, 400], text: "detection_labels [B, 100]", font: diagram_monospace_small, anchor: lm, appear: 2}
-      - {type: text, position: [1225, 530], text: "number_detections [B]", font: diagram_monospace_small, anchor: lm, appear: 2}
-      - {type: box, box: [20, 650, 1740, 725], text: "client side: letterbox · restore_boxes_to_original_image · per-class thresholds of class_thresholds.json", font: diagram_small, outline: yellow, appear: 4, highlight: [4]}
+      - {type: text, position: [440, 160], text: "input normalization, backbone\nevery region proposal head\ntop-k and one batched NMS over the batch\nvalid mask instead of padding copies\nevery detection head on all 250 proposals,\n  each proposal keeping its level (torch.where)\npost-processing: score 0.5, NMS 0.5, top 100", font: diagram_text, appear: 4}
+      - {type: arrow, points: [[1150, 200], [1215, 140]], appear: 3}
+      - {type: arrow, points: [[1150, 300], [1215, 270]], appear: 3}
+      - {type: arrow, points: [[1150, 380], [1215, 400]], appear: 3}
+      - {type: arrow, points: [[1150, 480], [1215, 530]], appear: 3}
+      - {type: text, position: [1225, 140], text: "detection_boxes [B, 100, 4]", font: diagram_monospace_small, anchor: lm, appear: 3}
+      - {type: text, position: [1225, 270], text: "detection_scores [B, 100]", font: diagram_monospace_small, anchor: lm, appear: 3}
+      - {type: text, position: [1225, 400], text: "detection_labels [B, 100]", font: diagram_monospace_small, anchor: lm, appear: 3}
+      - {type: text, position: [1225, 530], text: "number_detections [B]", font: diagram_monospace_small, anchor: lm, appear: 3}
+      - {type: box, box: [20, 650, 1740, 725], text: "client side: letterbox · restore_boxes_to_original_image · per-class thresholds of class_thresholds.json", font: diagram_small, outline: yellow, appear: 5, highlight: [5]}
     narration:
       - "The main block of the export module writes the detector as object detector, in TorchScript and ONNX, with its Triton configuration."
       - "It takes float BGR images of 512 pixels in 0 to 255, letterboxed by the client, the input normalization being part of the model."
+      - "For the client to letterbox its images as the evaluation did, the export writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "It returns a hundred boxes per image in network pixels, their scores and int64 labels, zero for the padding, and the number of detections of every image."
       - "In the graph: one batched NMS for the proposals, every detection head run on all 250 proposals with each proposal keeping its own level, and the post-processing with the score threshold and the final NMS of the configuration baked in."
       - "Outside the graph stay the letterbox, the restoration of the boxes to the original image, and the per-class thresholds; the export is checked against the eager model to a hundredth of a pixel on the boxes."
@@ -185,13 +189,13 @@ scenes:
         lines:
           - "2000 iterations shipped: samples nearly empty"
           - "stride 32 at best: few anchors for small boxes"
-          - "anchors on the cell corners (L1)"
-          - "block 5 takes most proposals (M3)"
+          - "anchors on the cell corners"
+          - "block 5 takes most proposals"
       - heading: "Evaluation and tools"
         lines:
-          - "mAP@[0.5:0.95]: VOC matching (L6)"
+          - "mAP@[0.5:0.95]: VOC matching, not COCO's"
           - "2-layer heads changing channels: no shortcut"
-          - "eager forward: padding copies valid (B35)"
+          - "eager forward: padding copies not masked"
     narration:
       - "To close, the pitfalls: the shipped two thousand iterations leave the samples nearly empty; the small objects get few anchors at a stride of 32, centered on the cell corners; and block 5 takes most proposals."
       - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut."

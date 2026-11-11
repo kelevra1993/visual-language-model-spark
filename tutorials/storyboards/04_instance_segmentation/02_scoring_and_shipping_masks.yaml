@@ -1,8 +1,9 @@
 # Instance segmentation, chapter 2: the masks of the final detections, their pasting into the image, the mask IoU,
 # the mask and box tables of the report, the classes where masks and boxes part, the object sizes by mask and by box
-# area, the evaluation at the original resolution, the export and its client side pasting, and the pitfalls. The
-# numbers come from the INS run of tutorial_sources.yaml (tutorials/figures/instance_segmentation), the comparison with
-# the detection run from tutorials/figures/object_detection.
+# area, the evaluation at the original resolution, the export with its input settings and its client side pasting,
+# and the pitfalls. The numbers come from the INS run of tutorial_sources.yaml
+# (tutorials/figures/instance_segmentation), the comparison with the detection run from
+# tutorials/figures/object_detection.
 series: instance_segmentation
 series_title: "Instance Segmentation (INS)"
 chapter: 2
@@ -17,6 +18,7 @@ references:
   - "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.compute_mask_overlaps"
   - "vision_training/models/instance_segmentation/inference_instance_segmenter.py · InferenceInstanceSegmenter.predict_masks"
   - "vision_training/data/preprocessing.py · restore_boxes_to_original_image"
+  - "vision_training/deployment/input_contract.py · write_onnx_input_contract"
 scenes:
   - kind: title_card
     heading: "Scoring and shipping masks"
@@ -123,7 +125,7 @@ scenes:
     image: "figures:instance_segmentation/evaluation/mask_box_average_precision.png"
     narration:
       - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:.3f}} on its masks against {{instance_segmentation.classes.star.box_ap_75:.3f}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:.3f}} against {{instance_segmentation.classes.l_shape.box_ap_75:.3f}}."
-      - "Think of thin, pointed objects: masks of 28 pixels pooled from strides of 32 and 64 cannot follow the points of a star, item 5 of the suggestions."
+      - "Think of thin, pointed objects: masks of 28 pixels pooled from strides of 32 and 64 cannot follow the points of a star."
       - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:.3f}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:.3f}} on its boxes."
 
   - kind: html
@@ -160,7 +162,8 @@ scenes:
     title: "The exported instance segmenter"
     code_reference: "vision_training/models/instance_segmentation/inference_instance_segmenter.py · InferenceInstanceSegmenter.predict_masks"
     elements:
-      - {type: box, box: [20, 250, 300, 410], text: "images\n[B, 3, 512, 512]", font: diagram_small, outline: blue}
+      - {type: box, box: [20, 250, 300, 410], text: "images\n[B, 3, 512, 512]", font: diagram_small, outline: blue, highlight: [2]}
+      - {type: box, box: [20, 60, 350, 220], text: "preprocessing.json\nand ONNX metadata:\nthe letterbox of\nthe evaluation", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
       - {type: arrow, points: [[300, 330], [365, 330]]}
       - {type: box, box: [370, 60, 1130, 560], fill: null, outline: violet, highlight: [1]}
       - {type: text, position: [750, 90], text: "instance_segmenter", font: diagram_bold, anchor: ma}
@@ -169,12 +172,13 @@ scenes:
       - {type: text, position: [1205, 150], text: "the four outputs of DET", font: diagram_small, anchor: lm}
       - {type: arrow, points: [[1130, 380], [1195, 380]]}
       - {type: text, position: [1205, 380], text: "detection_masks\n[B, 100, 28, 28] FP32", font: diagram_monospace_small, anchor: lm, highlight: [0]}
-      - {type: box, box: [20, 600, 1740, 720], text: "client: restore_boxes_to_original_image(..., clip=False) · paste_instance_masks · pixels >= mask_threshold\na clipped box squeezes its mask · audit L22", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 3]}
+      - {type: box, box: [20, 600, 1740, 720], text: "client: restore_boxes_to_original_image(..., clip=False) · paste_instance_masks · pixels >= mask_threshold\na box clipped at the border squeezes its mask", font: diagram_small, outline: yellow, appear: 3, highlight: [3, 4]}
     narration:
       - "The export writes the segmenter with the four outputs of the detector, then the detection masks: a hundred probability masks of 28 pixels per image in the frame of their boxes, zero for the padding."
       - "In the graph, every level's mask head runs on all the detections, each keeping its own level, the class channel picked by a gather, then the sigmoid; the export is checked to a thousandth on the masks."
+      - "So that the client letterboxes its images as the evaluation did, the export also writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "The client pastes the masks itself with paste instance masks, at the boxes brought back to the original image, and keeps the pixels from the mask threshold, which the export does not apply."
-      - "Take an object at the border: restore its box unclipped, since a box clipped at the border squeezes its mask, audit item L22, which the recipe of the tools reference does not say."
+      - "Take an object at the border: restore its box unclipped, since a box clipped at the border squeezes its mask, which the recipe of the tools reference does not say."
 
   - kind: text_panel
     title: "Pitfalls"
@@ -184,13 +188,13 @@ scenes:
           - "2000 iterations shipped: samples empty"
           - "per-level mask heads: own positives only"
           - "block 5 takes most proposals"
-          - "full-size masks through the loaders (L19)"
+          - "full-size masks through the loaders"
       - heading: "Evaluation and export"
         lines:
           - "28 x 28 masks lose thin parts"
           - "mask and box size rows: other objects"
           - "client pastes, thresholds itself"
-          - "restore boxes unclipped (L22)"
+          - "restore boxes unclipped"
     narration:
       - "The pitfalls of the masks: short runs leave the samples empty; each level's mask head trains on the positives of its level only, while block 5 takes most proposals; and full-size masks travel through the loaders."
       - "Masks of 28 pixels lose thin parts at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."

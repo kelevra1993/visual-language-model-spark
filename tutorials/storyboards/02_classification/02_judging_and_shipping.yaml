@@ -2,7 +2,7 @@
 # Results.txt, the confusion matrices of the three evaluations, the per-class F1 and the thresholds at the target
 # precision, the precision-recall curves, the probabilities of predictions.csv, the logit temperature and its explorer
 # page, the sample and error images, the measured effects of the head settings in the architecture benchmark, the
-# pitfalls and the export with its temperature. Coordinates of the
+# pitfalls and the export with its temperature and its input settings. Coordinates of the
 # html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures and facts
 # named classification.* are made by tutorials/figures/classification from the synthetic shapes run of
 # tutorial_sources.yaml, the images under runs: are the files its evaluation wrote.
@@ -21,6 +21,7 @@ references:
   - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.dump_errors"
   - "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
   - "vision_training/deployment/export_model.py · find_saved_thresholds_path"
+  - "vision_training/deployment/input_contract.py · write_preprocessing_file"
   - "scripts/evaluation/serve_temperature_explorer.py"
   - "vision_training/deployment/export_specifications.py · TASK_MODEL_NAMES"
   - "scripts/evaluation/evaluate_checkpoint.py"
@@ -222,13 +223,13 @@ scenes:
       - heading: "the head and the loss"
         lines:
           - "label_smoothing > 0 with balanced weights"
-          - "  pulls towards the rare classes (C2)"
+          - "  pulls towards the rare classes"
           - ""
           - "flatten: the head is tied to the image"
           - "  size and to last_max_pooling"
           - ""
           - "decorrelation on: the correlation is"
-          - "  marked Best when it falls (B45 fixed)"
+          - "  marked Best when it falls, since a fix"
       - heading: "the data and the logs"
         lines:
           - "a synthetic data set generated now:"
@@ -242,7 +243,7 @@ scenes:
     narration:
       - "Here are the pitfalls specific to this task, or that bite it first, and one console marker fixed since."
       - "Label smoothing with balanced weights pulls every image towards the rare classes, and a flattened head only works at the image size and last max pooling it was trained with."
-      - "With the decorrelation on, older logs printed a rising hidden feature correlation in green with best; since the fix of bug B45, a falling one is marked best, like a falling loss."
+      - "With the decorrelation on, older logs printed a rising hidden feature correlation in green with best, as if it were an accuracy; it is now marked best when it falls, like a loss."
       - "A synthetic data set generated now has {{classification.data.generator_class_count}} classes, so the numbers of this run do not apply to it; and the iterations per epoch and the sample counts sent to MLflow also count the images of unmapped categories."
       - "And the residual token does not put a shortcut in every block: blocks {{classification.backbone.blocks_without_shortcut_text}} change the channels with two layers and add none."
 
@@ -251,16 +252,18 @@ scenes:
     title: "The export"
     code_reference: "vision_training/models/classification/inference_classifier.py · InferenceClassifier.forward"
     elements:
-      - {type: box, box: [20, 110, 460, 330], text: "images\n[B, 3, 512, 512] float32\nBGR, 0 to 255\nresized and padded", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [20, 110, 460, 330], text: "images\n[B, 3, 512, 512] float32\nBGR, 0 to 255\nresized and padded", font: diagram_small, outline: blue, highlight: [0, 1]}
       - {type: arrow, points: [[468, 220], [532, 220]]}
       - {type: box, box: [540, 110, 1000, 330], text: "InferenceClassifier\nthe ImageClassifier\nwithout labels nor loss", font: diagram_small, outline: violet, highlight: [0]}
       - {type: arrow, points: [[1008, 220], [1072, 220]]}
-      - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax(logits / T) inside", font: diagram_small, outline: aqua, highlight: [0, 1]}
-      - {type: box, box: [20, 420, 1000, 560], text: "Triton model: image_classifier_<format>\nTorchScript and ONNX", font: diagram_small, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 1}
-      - {type: box, box: [1080, 410, 1740, 600], text: "class_thresholds.json of that checkpoint\nits T built in, the file copied next to it\na class accepted above its threshold", font: diagram_small, outline: yellow, appear: 1, highlight: [2]}
+      - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax(logits / T) inside", font: diagram_small, outline: aqua, highlight: [0, 2]}
+      - {type: box, box: [20, 420, 1000, 560], text: "Triton model: image_classifier_<format>\nTorchScript and ONNX", font: diagram_small, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 2}
+      - {type: box, box: [1080, 410, 1740, 600], text: "class_thresholds.json of that checkpoint\nits T built in, the file copied next to it\na class accepted above its threshold", font: diagram_small, outline: yellow, appear: 2, highlight: [3]}
+      - {type: box, box: [20, 625, 1740, 725], text: "preprocessing.json next to the model, and the metadata of the ONNX model: colour order · resize · size\ninterpolation · padding value and placement · layout · value range, read from the run and its data loaders", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
     narration:
       - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to 512 pixels like the training, and returns the class probabilities only."
+      - "So that a server builds these inputs as the training did, the export also writes their colour order, resize, size, interpolation, padding, layout and value range in the preprocessing file next to the model and in the ONNX metadata."
       - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it: given the class thresholds file of the exported checkpoint, the export divides the logits by its temperature and copies the file next to the model, so its thresholds apply to the outputs as they are."
       - "Faced with several evaluated checkpoints, deploy the thresholds of the exported one: they are computed again at every evaluation, from the probabilities of that checkpoint."
 
