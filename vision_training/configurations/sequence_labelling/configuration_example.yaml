@@ -100,8 +100,8 @@ Optimization:
 
 Data:
   image_settings:
-    # Input resolution of every frame.
-    size: 256
+    # Input resolution of every frame: 384 gives a 64 x 6 x 6 last feature map with the 6 blocks and last pooling.
+    size: 384
     # Keeps the original aspect ratio when resizing.
     keep_ratio: True
   sequence_settings:
@@ -205,10 +205,11 @@ Backbone:
       "3": [ 2, 32 ],
       "4": [ 4, 64 ],
       "5": [ 4, 64 ],
+      "6": [ 4, 64 ],
     }
 
-  # Max pooling after the last block.
-  last_max_pooling: False
+  # Max pooling after the last block: the sixth halving, 384 to 6 pixels, so flatten gives 2,304 values per frame.
+  last_max_pooling: True
 
   normalization:
     # Scales the inputs to [-0.5, 0.5].
