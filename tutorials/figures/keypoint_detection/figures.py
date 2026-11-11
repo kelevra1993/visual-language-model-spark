@@ -23,7 +23,8 @@ from tutorials.figures.keypoint_detection.keypoint_inference import run_keypoint
 from tutorials.figures.keypoint_detection.keypoint_sources import (describe_sample_objects, find_test_split,
                                                                   load_test_sample, read_channel_table,
                                                                   read_label_dictionary, read_repository_configuration)
-from tutorials.figures.keypoint_detection.network_figures import (describe_heatmap_losses, describe_network,
+from tutorials.figures.keypoint_detection.network_figures import (describe_architecture_constants,
+                                                                  describe_heatmap_losses, describe_network,
                                                                   describe_stem_and_run, describe_tags,
                                                                   draw_training_curves)
 from vision_training.configuration_processing.configuration_loader import load_configuration
@@ -54,6 +55,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     objects = describe_sample_objects(sample=sample_record["sample"], keypoint_categories=keypoint_categories,
                                       channel_table=channel_table)
     head_configuration = configuration["KeypointHead"]
+    architecture_facts = describe_architecture_constants(configuration=configuration)
 
     # The expensive forward pass of the trained detector, then every family drawn from it or from the run files
     inference_facts = run_keypoint_inference(output_folder=output_folder, run_folder=run_folder,
@@ -61,12 +63,16 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                              keypoint_categories=keypoint_categories, configuration=configuration,
                                              force=force)
     draw_labelled_image(output_folder=output_folder, sample_record=sample_record, objects=objects)
-    draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=True)
+    draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=True,
+                         tag_loss_weight=architecture_facts["tag_loss_weight"])
     run_configuration = load_configuration(configuration_path=run_folder / "training_configuration.yaml")
     run_label = f"{experiments_folder.name}/{run_folder.relative_to(experiments_folder)}"
     return merge_facts(fact_groups=[
+        architecture_facts,
         {"run_label": run_label, "run_iterations": run_configuration["ExperimentConfiguration"]["number_iterations"],
          "run_batch_size": run_configuration["ExperimentConfiguration"]["batch_size"],
+         "run_evaluation_interval": run_configuration["ExperimentConfiguration"]["weight_saving_iterations"],
+         "run_validation_iteration_ratio": run_configuration["ExperimentConfiguration"]["validation_iteration_ratio"],
          "run_warmup_iterations": run_configuration["Optimization"]["warmup_iterations"],
          "run_decay_iterations": run_configuration["Optimization"]["decay_iterations"],
          "sample_image_name": sample_record["image_record"]["file_name"],
@@ -81,7 +87,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                 channel_table=channel_table, heatmap_sigma=head_configuration["heatmap_sigma"]),
         describe_tags(inference_facts=inference_facts, output_folder=output_folder),
         describe_stem_and_run(configuration=configuration, run_folder=run_folder),
-        draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=False),
+        draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=False,
+                             tag_loss_weight=architecture_facts["tag_loss_weight"]),
         draw_heatmap_figure(output_folder=output_folder, sample_record=sample_record, inference_facts=inference_facts,
                             channel_table=channel_table,
                             keypoint_threshold=head_configuration["inference"]["keypoint_threshold"]),

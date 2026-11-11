@@ -9,6 +9,7 @@ keypoints read from its class_metrics.csv and keypoint_metrics.csv, and the boxe
 """
 
 import csv
+import math
 import re
 
 import matplotlib
@@ -191,6 +192,11 @@ def draw_heatmap_figure(output_folder: Path, sample_record: Dict[str, Any], infe
     pyplot.close(fig=figure)
     facts["heatmaps_candidates_above_threshold"] = inference_facts["inference_candidates_above_threshold"]
     facts["heatmaps_candidate_count"] = inference_facts["inference_candidate_count"]
+
+    # Bound of the distance of every candidate of the rows to a labelled keypoint, the next tenth of a pixel above the
+    # largest one, which the narration quotes as "less than"
+    largest_error = max(facts[f"heatmaps_{row['class_name']}_largest_error"] for row in HEATMAP_ROWS)
+    facts["heatmaps_error_bound"] = round_fact(value=math.floor(largest_error * 10) / 10 + 0.1)
     return facts
 
 
@@ -429,6 +435,7 @@ def describe_metrics(run_folder: Path) -> Dict[str, Any]:
             for iteration in EVALUATED_ITERATIONS:
                 facts[f"metrics_{weights}_{iteration}_{name}"] = values[tag][iteration]
     facts.update(read_results_header(run_folder=run_folder))
+    facts["metrics_first_iteration"] = EVALUATED_ITERATIONS[0]
     return facts
 
 
