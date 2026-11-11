@@ -24,8 +24,9 @@ scenes:
     heading: "Scoring and shipping masks"
     subheading: "Pasting, mask IoU, mask mAP, export"
     footnote: "Instance Segmentation · chapter 2"
+    literal_numbers: ["2"]
     narration:
-      - "A mask head predicts 28 by 28 probabilities in the frame of a box; scoring them and using them needs them pasted back into the image."
+      - "A mask head predicts {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} by {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} probabilities in the frame of a box; scoring them and using them needs them pasted back into the image."
       - "This chapter follows the masks of the test image from the head to the mask IoU, reads the mask evaluation of the run against its boxes, and exports the model."
 
   - kind: image
@@ -49,9 +50,11 @@ scenes:
     highlights:
       - {match: "row_weights = build_interpolation_weights|column_weights = build_interpolation_weights", sentences: [0]}
       - {match: "torch.bmm", sentences: [1]}
+    # The rows and the columns of the separable pasting
+    literal_numbers: [two]
     narration:
       - "The evaluation pastes every mask into the image at its box by bilinear sampling at the pixel centers, written with separable tent weights, one matrix for the rows and one for the columns of every box."
-      - "Two batched matrix products then paste all the masks of an image at once on the device, and the pixels from the mask threshold of 0.5 belong to the object."
+      - "Two batched matrix products then paste all the masks of an image at once on the device, and the pixels from the mask threshold of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}} belong to the object."
 
   - kind: image
     title: "Pasted masks against the ground truth"
@@ -75,8 +78,10 @@ scenes:
       - {match: "for chunk_start in range", sentences: [0]}
       - {match: "intersections = \\(flattened_predictions @", sentences: [0]}
       - {match: "dtype=torch.float64\\) - intersections", sentences: [1]}
+    # A worked example of a ratio that float32 rounds down
+    literal_numbers: ["13", "20", "0.65"]
     narration:
-      - "The mask IoU multiplies the flattened masks of a chunk of detections with every ground truth mask, 64 detections at a time at 512 pixels, the pixel counts summed in float32."
+      - "The mask IoU multiplies the flattened masks of a chunk of detections with every ground truth mask, {{instance_segmentation.geometry.overlap_chunk_size}} detections at a time at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels, the pixel counts summed in float32."
       - "The ratio is taken in float64, so that an exact 13 over 20 is not pushed below 0.65; the mAP then runs as for the boxes, once on the masks and once on the boxes of the same detections."
 
   - kind: image
@@ -89,14 +94,21 @@ scenes:
     highlights:
       - {box: "{{instance_segmentation.samples.panel_2_box}}", sentences: [0]}
       - {box: "{{instance_segmentation.samples.panel_4_box}}", sentences: [1]}
+    # The intersection over union of the metric name, mAP@0.5
+    literal_numbers: ["0.5"]
     narration:
-      - "At iteration one thousand, at a mask mAP at 0.5 of {{instance_segmentation.samples.metric_1000:.3f}}, only {{instance_segmentation.outcomes.1000.right:,}} of the {{object_detection.data.test_objects:,}} test objects are found right at the deployment threshold, and the samples stay empty."
-      - "At the shipped two thousand iterations the mask mAP is {{instance_segmentation.samples.metric_2000:.3f}}; resumed to five thousand, {{instance_segmentation.samples.metric_5000:.3f}}, with masks on four of the six shapes of this image."
+      - "At iteration {{instance_segmentation.samples.iterations[0]:words}}, at a mask mAP at 0.5 of {{instance_segmentation.samples.metric_1000:.2f}}, only {{instance_segmentation.outcomes.1000.right:,}} of the {{object_detection.data.test_objects:,}} test objects are found right at the deployment threshold, and the samples stay empty."
+      - "At the shipped {{instance_segmentation.samples.iterations[1]:words}} iterations the mask mAP is {{instance_segmentation.samples.metric_2000:.2f}}; resumed to {{instance_segmentation.samples.iterations[2]:words}}, {{instance_segmentation.samples.metric_5000:.2f}}, with masks on {{instance_segmentation.predictions.found_object_count:words}} of the {{instance_segmentation.predictions.object_count:words}} shapes of this image."
 
   - kind: html
     page: diagram
     title: "Mask and box tables"
     code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.compute_evaluation_results"
+    # The intersections over union of the metric names, mAP@0.5, @0.75 and @[0.5:0.95]
+    literal_numbers: ["0.5", "0.75", "0.95"]
+    # Both mAP at 0.95 are below a hundredth for the boxes: two decimals would read the box value as zero and hide
+    # that the masks score higher
+    exact_facts: [instance_segmentation.report.trained.mask_methods.area.2, instance_segmentation.report.trained.box_methods.area.2]
     elements:
       - type: listing
         box: [30, 30, 1000, 230]
@@ -115,33 +127,37 @@ scenes:
       - {type: box, box: [1080, 320, 1740, 460], text: "detection run, same data:\nbox mAP@0.5 {{object_detection.report.trained.methods.area.0:.3f}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: text, position: [30, 540], text: "{{instance_segmentation.run.test_scalar_count}} scalars per evaluation in Tensorboard/Test · class_metrics.csv: {{instance_segmentation.classes.column_count}} columns, box then mask_", font: diagram_small, colour: dim, appear: 2}
     narration:
-      - "The report starts with the mask tables: at five thousand, a mask mAP of {{instance_segmentation.report.trained.mask_methods.area.0:.3f}} at 0.5, {{instance_segmentation.report.trained.mask_methods.area.1:.3f}} at 0.75 and {{instance_segmentation.report.trained.mask_methods.area.3:.3f}} from 0.5 to 0.95; the first compares the checkpoints."
-      - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:.3f}} at 0.5, close to the {{object_detection.report.trained.methods.area.0:.3f}} of the detection run on the same data."
+      - "The report starts with the mask tables: at {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP of {{instance_segmentation.report.trained.mask_methods.area.0:.2f}} at 0.5, {{instance_segmentation.report.trained.mask_methods.area.1:.2f}} at 0.75 and {{instance_segmentation.report.trained.mask_methods.area.3:.2f}} from 0.5 to 0.95; the first compares the checkpoints."
+      - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:.2f}} at 0.5, close to the {{object_detection.report.trained.methods.area.0:.2f}} of the detection run on the same data."
       - "At 0.95, the masks do better than the boxes, {{instance_segmentation.report.trained.mask_methods.area.2:.3f}} against {{instance_segmentation.report.trained.box_methods.area.2:.3f}}: a mask is scored on its pixels, where a box one pixel off fails."
 
   - kind: image
     title: "Where masks and boxes part"
     code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.compute_evaluation_results"
     image: "figures:instance_segmentation/evaluation/mask_box_average_precision.png"
+    # The intersections over union of the metric names, AP@0.75 and AP@0.95
+    literal_numbers: ["0.75", "0.95"]
     narration:
-      - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:.3f}} on its masks against {{instance_segmentation.classes.star.box_ap_75:.3f}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:.3f}} against {{instance_segmentation.classes.l_shape.box_ap_75:.3f}}."
-      - "Think of thin, pointed objects: masks of 28 pixels pooled from strides of 32 and 64 cannot follow the points of a star."
-      - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:.3f}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:.3f}} on its boxes."
+      - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:.2f}} on its masks against {{instance_segmentation.classes.star.box_ap_75:.2f}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:.2f}} against {{instance_segmentation.classes.l_shape.box_ap_75:.2f}}."
+      - "Think of thin, pointed objects: masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels pooled from strides of {{instance_segmentation.geometry.strides_text}} cannot follow the points of a star."
+      - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:.2f}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:.2f}} on its boxes."
 
   - kind: html
     page: diagram
     title: "Object sizes by mask and by box"
     code_reference: "vision_training/evaluation/detection/object_sizes.py · is_in_object_size"
+    # The mask table and the box table
+    literal_numbers: [two]
     elements:
       - {type: text, position: [40, 40], text: "test objects by mask area", font: diagram_bold}
       - {type: bars, box: [40, 100, 820, 330], orientation: horizontal, values: "{{instance_segmentation.report.mask_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.mask_sizes_count_labels}}", colours: [magenta, magenta, magenta], maximum: 51000, label_width: 120, highlight: [1]}
       - {type: text, position: [940, 40], text: "test objects by box area", font: diagram_bold}
       - {type: bars, box: [940, 100, 1720, 330], orientation: horizontal, values: "{{instance_segmentation.report.box_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.box_sizes_count_labels}}", colours: [blue, blue, blue], maximum: 51000, label_width: 120, highlight: [1]}
-      - {type: box, box: [40, 420, 1720, 560], text: "small below 32², medium to 96², large above · a shape fills only part of its box\nmask mAP@0.5 of the small objects {{instance_segmentation.report.trained.mask_sizes.small.1:.3f}} · box {{instance_segmentation.report.trained.box_sizes.small.1:.3f}}", font: diagram_small, outline: border, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 420, 1720, 560], text: "small below {{instance_segmentation.geometry.small_object_limit}}, medium to {{instance_segmentation.geometry.large_object_limit}}, large above · a shape fills only part of its box\nmask mAP@0.5 of the small objects {{instance_segmentation.report.trained.mask_sizes.small.1:.3f}} · box {{instance_segmentation.report.trained.box_sizes.small.1:.3f}}", font: diagram_small, outline: border, appear: 2, highlight: [2]}
     narration:
       - "The size tables measure the objects differently: by mask area for the mask table, by box area for the box table."
       - "So {{instance_segmentation.report.trained.mask_sizes.small.0:,}} test objects are small by their mask but only {{instance_segmentation.report.trained.box_sizes.small.0:,}} by their box, and {{instance_segmentation.report.trained.mask_sizes.large.0:,}} are large against {{instance_segmentation.report.trained.box_sizes.large.0:,}}: the two rows of a size hold different objects."
-      - "The small objects stay the weak point either way, at a mask mAP of {{instance_segmentation.report.trained.mask_sizes.small.1:.3f}}."
+      - "The small objects stay the weak point either way, at a mask mAP of {{instance_segmentation.report.trained.mask_sizes.small.1:.2f}}."
 
   - kind: yaml
     title: "Scoring at the original resolution"
@@ -154,27 +170,30 @@ scenes:
       - {match: "original_resolution", sentences: [0, 1]}
       - {match: "mask_threshold", sentences: [1]}
     narration:
-      - "By default the masks are scored at the network resolution, the objects whose mask vanished at 512 pixels being left out."
+      - "By default the masks are scored at the network resolution, the objects whose mask vanished at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels being left out."
       - "When the goal is a score as COCO computes it, turn the original resolution on: the boxes are restored to the original images, the masks pasted and thresholded at that size, and the objects are those of the original annotations."
 
   - kind: html
     page: diagram
     title: "The exported instance segmenter"
     code_reference: "vision_training/models/instance_segmentation/inference_instance_segmenter.py · InferenceInstanceSegmenter.predict_masks"
+    # The four outputs of the exported detector (detection_outputs of export_specifications.py) and the zero
+    # padding masks
+    literal_numbers: [four, zero]
     elements:
-      - {type: box, box: [20, 250, 300, 410], text: "images\n[B, 3, 512, 512]", font: diagram_small, outline: blue, highlight: [2]}
+      - {type: box, box: [20, 250, 300, 410], text: "images\n[B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Backbone.input_channels}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}]", font: diagram_small, outline: blue, highlight: [2]}
       - {type: box, box: [20, 60, 350, 220], text: "preprocessing.json\nand ONNX metadata:\nthe letterbox of\nthe evaluation", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
       - {type: arrow, points: [[300, 330], [365, 330]]}
       - {type: box, box: [370, 60, 1130, 560], fill: null, outline: violet, highlight: [1]}
       - {type: text, position: [750, 90], text: "instance_segmenter", font: diagram_bold, anchor: ma}
-      - {type: text, position: [410, 160], text: "the exported detector, then\nevery level's mask head on all 100 detections,\neach detection keeping its own level\nthe class channel picked by a gather\nthe sigmoid", font: diagram_text, appear: 1}
+      - {type: text, position: [410, 160], text: "the exported detector, then\nevery level's mask head on all {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} detections,\neach detection keeping its own level\nthe class channel picked by a gather\nthe sigmoid", font: diagram_text, appear: 1}
       - {type: arrow, points: [[1130, 220], [1195, 150]]}
       - {type: text, position: [1205, 150], text: "the four outputs of DET", font: diagram_small, anchor: lm}
       - {type: arrow, points: [[1130, 380], [1195, 380]]}
-      - {type: text, position: [1205, 380], text: "detection_masks\n[B, 100, 28, 28] FP32", font: diagram_monospace_small, anchor: lm, highlight: [0]}
+      - {type: text, position: [1205, 380], text: "detection_masks\n[B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}] FP32", font: diagram_monospace_small, anchor: lm, highlight: [0]}
       - {type: box, box: [20, 600, 1740, 720], text: "client: restore_boxes_to_original_image(..., clip=False) · paste_instance_masks · pixels >= mask_threshold\na box clipped at the border squeezes its mask", font: diagram_small, outline: yellow, appear: 3, highlight: [3, 4]}
     narration:
-      - "The export writes the segmenter with the four outputs of the detector, then the detection masks: a hundred probability masks of 28 pixels per image in the frame of their boxes, zero for the padding."
+      - "The export writes the segmenter with the four outputs of the detector, then the detection masks: {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} probability masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels per image in the frame of their boxes, zero for the padding."
       - "In the graph, every level's mask head runs on all the detections, each keeping its own level, the class channel picked by a gather, then the sigmoid; the export is checked to a thousandth on the masks."
       - "So that the client letterboxes its images as the evaluation did, the export also writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "The client pastes the masks itself with paste instance masks, at the boxes brought back to the original image, and keeps the pixels from the mask threshold, which the export does not apply."
@@ -185,29 +204,31 @@ scenes:
     columns:
       - heading: "Training"
         lines:
-          - "2000 iterations shipped: samples empty"
+          - "{{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations shipped: samples empty"
           - "per-level mask heads: own positives only"
-          - "block 5 takes most proposals"
+          - "block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals"
           - "full-size masks through the loaders"
       - heading: "Evaluation and export"
         lines:
-          - "28 x 28 masks lose thin parts"
+          - "{{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} x {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} masks lose thin parts"
           - "mask and box size rows: other objects"
           - "client pastes, thresholds itself"
           - "restore boxes unclipped"
     narration:
-      - "The pitfalls of the masks: short runs leave the samples empty; each level's mask head trains on the positives of its level only, while block 5 takes most proposals; and full-size masks travel through the loaders."
-      - "Masks of 28 pixels lose thin parts at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."
+      - "The pitfalls of the masks: short runs leave the samples empty; each level's mask head trains on the positives of its level only, while block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals; and full-size masks travel through the loaders."
+      - "Masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels lose thin parts at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."
 
   - kind: summary
     title: "Recap"
+    # The intersection over union of AP@0.75
+    literal_numbers: ["0.75"]
     items:
       - {text: "Masks predicted on the final boxes, at the level of their proposal"}
-      - {text: "paste_instance_masks: bilinear at pixel centres, then >= 0.5"}
+      - {text: "paste_instance_masks: bilinear at pixel centres, then >= {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}}"}
       - {text: "Mask IoU in chunks, float64 ratio; mAP on masks, then on boxes"}
-      - {text: "Mask mAP@0.5 {{instance_segmentation.report.trained.mask_methods.area.0:.3f}}, box {{instance_segmentation.report.trained.box_methods.area.0:.3f}} at 5000"}
+      - {text: "Mask mAP@0.5 {{instance_segmentation.report.trained.mask_methods.area.0:.3f}}, box {{instance_segmentation.report.trained.box_methods.area.0:.3f}} at {{instance_segmentation.run.checkpoint_iteration}}"}
       - {text: "Star at 0.75: mask {{instance_segmentation.classes.star.mask_ap_75:.3f}}, box {{instance_segmentation.classes.star.box_ap_75:.3f}}"}
-      - {text: "detection_masks [B, 100, 28, 28]: pasted and thresholded by the client"}
+      - {text: "detection_masks [B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]: pasted and thresholded by the client"}
     narration:
       - "To recap: masks are scored after pasting, on their own IoU and size, next to the boxes of the same detections, and shipped as probabilities the client pastes."
       - "That closes the series on instance masks; the keypoint detection series follows."

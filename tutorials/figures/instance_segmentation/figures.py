@@ -6,7 +6,8 @@ repository: the run length encoding of the masks and its decoding, the mask targ
 trained instance segmenter predicts on the CPU and their pasting (mask_figures.py), the mask against box average
 precision and the report tables (evaluation_figures.py), and, with the run figures of the object detection series
 imported from tutorials/figures/object_detection/run_figures.py, the losses, the sample images along the run, the mask
-mAP of the trained and averaged weights and the console summaries. The facts are quoted by the storyboards as
+mAP of the trained and averaged weights and the console summaries, with the geometry of the mask heads and the values
+the narration derives from them (describe_quoted_facts). The facts are quoted by the storyboards as
 {{instance_segmentation.<name>}}.
 """
 
@@ -16,7 +17,7 @@ from typing import Any, Dict
 from tutorials.figures.figure_utilities import find_run_folder, merge_facts
 from tutorials.figures.instance_segmentation.evaluation_figures import (draw_mask_box_figure,
                                                                         write_mask_report_listings)
-from tutorials.figures.instance_segmentation.mask_figures import make_mask_figures
+from tutorials.figures.instance_segmentation.mask_figures import describe_mask_geometry, make_mask_figures
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
                                                                   SAMPLE_ITERATIONS, count_scalar_tags)
 from tutorials.figures.object_detection.evaluation_figures import read_confusion_notes, read_proposal_recall
@@ -44,6 +45,31 @@ METRIC_PANELS = [("Mask mAP@0.5/area", "Mask mAP@0.5, area method", "mask_map_50
 EVALUATED_ITERATIONS = [1000, 2000, 2500, 5000]
 
 
+def describe_quoted_facts(facts: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Derives from the facts of the figure families the values the narration quotes in words or as a whole, so that no
+    storyboard types them: the iterations of the console summaries and of the sample images (CONSOLE_SUMMARIES and
+    SAMPLE_ITERATIONS, the facts named after them), the objects of the test image found by at least one detection (a
+    shape found twice counting once), and the detection level whose proposals are the most numerous.
+
+    Args:
+        facts (Dict[str, Any]): The merged facts of the figure families of the series.
+
+    Returns:
+        Dict[str, Any]: The derived facts.
+    """
+    # Distinct objects of the test image matched by the detections of the trained segmenter
+    detection_objects = {facts[f"predictions.detection_{index + 1}.object"]
+                         for index in range(facts["predictions.detection_count"])}
+
+    # Level of the proposal recall table with the most proposals per image
+    block_proposals = {int(name.split(".")[1].split("_")[1]): value for name, value in facts.items()
+                       if name.startswith("proposal_recall.block_") and name.endswith(".proposals_per_image")}
+    return {"console.first_iteration": CONSOLE_SUMMARIES[0][1], "console.last_iteration": CONSOLE_SUMMARIES[-1][1],
+            "samples.iterations": list(SAMPLE_ITERATIONS), "predictions.found_object_count": len(detection_objects),
+            "proposal_recall.busiest_block": max(block_proposals, key=block_proposals.get)}
+
+
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes every figure of the instance segmentation series into its output folder and gives their facts, the
@@ -68,8 +94,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                                       output_path=listings_folder / f"console_{iteration}.txt")
         console_facts.update(read_console_summary_facts(summary_lines=summary_lines,
                                                         fact_prefix=f"console.{iteration}"))
-    return merge_facts(fact_groups=[
-        console_facts,
+    facts = merge_facts(fact_groups=[
+        console_facts, describe_mask_geometry(run_folder=run_folder),
         make_mask_figures(output_folder=output_folder, run_folder=run_folder, force=force),
         read_confusion_notes(run_folder=run_folder, iterations=EVALUATED_ITERATIONS),
         draw_loss_curves_figure(run_folder=run_folder, panels=LOSS_PANELS,
@@ -89,3 +115,6 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         read_proposal_recall(evaluation_folder=evaluation_folder),
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),
          "run.checkpoint_iteration": CHECKPOINT_ITERATION}])
+
+    # Values the narration quotes that are derived from the facts above
+    return merge_facts(fact_groups=[facts, describe_quoted_facts(facts=facts)])

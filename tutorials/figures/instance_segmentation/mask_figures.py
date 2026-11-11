@@ -7,13 +7,18 @@ star of the test image of the series, cropped and resized by build_mask_targets 
 loss); and the 28 x 28 masks the trained instance segmenter predicts for the detections of that image on the CPU,
 pasted into the image at their boxes and thresholded by paste_instance_masks, against the ground truth masks, with
 their mask overlaps (the chapter on scoring and shipping masks). The functions of the repository decode, crop, paste
-and compare the masks, so that the figures show what the code computes. The inference is reused unless forced.
+and compare the masks, so that the figures show what the code computes. The inference is reused unless forced; the
+geometry of the mask heads and of the mask evaluation quoted by both chapters (levels, strides, kernels, chunk size,
+object size limits) is read from the rebuilt model and the constants of the repository at every build.
 """
+
+import math
 
 import cv2
 import numpy
 import torch
 
+from fractions import Fraction
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Tuple
@@ -28,10 +33,14 @@ from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITE
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH,
                                      SANS_SEMIBOLD_FONT_PATH, TEXT_COLOUR)
 from vision_training.data.detection.coco_masks import build_instance_mask, compute_mask_bounding_boxes
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_RANGES
+from vision_training.losses.detection_losses import LOCALISATION_LOSS_BETA
 from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.mask_operations import (build_mask_targets,
                                                                           compute_mask_intersection_over_union,
                                                                           paste_instance_masks)
+from vision_training.trainers.instance_segmentation_trainer import (MASK_OVERLAP_CHUNK_SIZE,
+                                                                    MASK_OVERLAP_REFERENCE_PIXELS)
 
 # Object of the test image whose mask target the figures build, and the overlap range of the proposal chosen for it,
 # a positive proposal (IoU from 0.5) visibly off the object (below 0.7)
@@ -395,6 +404,61 @@ def count_mask_parameters(model: torch.nn.Module) -> Dict[str, Any]:
                                              if not name.startswith("mask_heads_dictionary")),
             "model.pool_size": head.roi_align_pool_size, "model.upsamplings": head.number_upsamplings,
             "model.mask_size": head.mask_size, "model.number_classes": model.number_classes}
+
+
+def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
+    """
+    Gives the geometry of the mask heads and of the mask evaluation that the chapters quote and that no configuration
+    value holds as it is, read from the trained instance segmenter rebuilt on the CPU (not run) and from the constants
+    of the repository: the detection levels and the strides their mask heads pool from, the feature map of the first
+    level in a training batch, the kernels of the upsampling and of the mask predictor, the pixels of a mask, the masks
+    compared at once by compute_mask_overlaps at the network resolution, the object size limits of the size tables and
+    the beta of the smooth L1 box loss. Cheap, it runs at every build, outside the reused inference of
+    make_mask_figures, so that its facts never come from an older build.
+
+    Args:
+        run_folder (Path): The folder of the INS run of tutorial_sources.yaml.
+
+    Returns:
+        Dict[str, Any]: The facts, named geometry.*.
+
+    Raises:
+        ValueError: If the mask heads double their features otherwise than by a transposed convolution, which the
+            diagrams of the mask head draw.
+    """
+    run_configuration = read_run_configuration(run_folder=run_folder)
+    image_size = run_configuration["Data"]["image_settings"]["size"]
+    batch_size = run_configuration["ExperimentConfiguration"]["batch_size"]
+    model = load_run_model(run_folder=run_folder, iteration=CHECKPOINT_ITERATION)
+
+    # Mask head of every detection level, in the order of the levels, and the strides of their feature maps
+    level_names = list(model.mask_heads_dictionary.keys())
+    first_head = model.mask_heads_dictionary[level_names[0]]
+    strides = sorted({round(1.0 / head.spatial_scale) for head in model.mask_heads_dictionary.values()})
+    stride_text = (", ".join(str(stride) for stride in strides[:-1]) + " and " + str(strides[-1]) if len(strides) > 1
+                   else str(strides[0]))
+
+    # Doubling layer of the first head, drawn as a transposed convolution by the diagrams
+    if first_head.number_upsamplings == 0 or not isinstance(first_head.upsampling_layers[0], torch.nn.ConvTranspose2d):
+        raise ValueError(f"The mask heads of {run_folder} do not double their features with a transposed "
+                         f"convolution, which the mask head diagrams of the chapters show.")
+    upsampling_layer = first_head.upsampling_layers[0]
+
+    # Masks compared at once by the evaluation at the network resolution, as compute_mask_overlaps computes it
+    overlap_chunk_size = max(1, MASK_OVERLAP_CHUNK_SIZE * MASK_OVERLAP_REFERENCE_PIXELS // (image_size * image_size))
+    return {"geometry.level_names": ", ".join(level_names), "geometry.level_count": len(level_names),
+            "geometry.first_level": int(level_names[0]),
+            "geometry.first_level_channels": first_head.convolutional_block.input_channels,
+            "geometry.first_level_shape": f"[{batch_size}, {first_head.convolutional_block.input_channels}, "
+                                          f"{first_head.feature_map_size}, {first_head.feature_map_size}]",
+            "geometry.strides_text": stride_text,
+            "geometry.upsampling_kernel": upsampling_layer.kernel_size[0],
+            "geometry.upsampling_stride": upsampling_layer.stride[0],
+            "geometry.predictor_kernel": first_head.mask_predictor.kernel_size[0],
+            "geometry.mask_pixels": first_head.mask_size ** 2, "geometry.overlap_chunk_size": overlap_chunk_size,
+            "geometry.small_object_limit": f"{int(math.sqrt(OBJECT_SIZE_RANGES['small'][1]))}²",
+            "geometry.large_object_limit": f"{int(math.sqrt(OBJECT_SIZE_RANGES['large'][0]))}²",
+            "geometry.box_loss_beta": str(Fraction(LOCALISATION_LOSS_BETA).limit_denominator(max_denominator=100))}
 
 
 def make_mask_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
