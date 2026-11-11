@@ -60,7 +60,7 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 # test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder in its main block
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
-`scripts/data/create_sequence_split_subset.py` writes a fixed random subset of a split (`test_10000`, 10,000 of the 50,000 test sequences, seed 0), the test split of the `sequence_labelling/run-*.yaml` launches (`documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`).
+`scripts/data/create_sequence_split_subset.py` writes a fixed random subset of a split (`test_10000`, 10,000 of the 50,000 test sequences, seed 0), the test split of the launches of `documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`.
 
 ### Configuration Keys To Know First
 | Key | Value in the synthetic configuration | Effect |

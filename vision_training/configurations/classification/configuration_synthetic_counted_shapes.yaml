@@ -1,5 +1,5 @@
 # Synthetic counted shapes dataset (create_synthetic_dataset.py "multi_label_classification"), 5 to 10 shapes per
-# 512 pixel image, 35 classes; backbone and frame size of sequence_labelling/run-1.yaml, pre-trains run-29 to run-50.
+# 512 pixel image, 35 classes; backbone and frame size of the sequence labelling launches, pre-trains run_29 to run_50.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.
@@ -116,7 +116,7 @@ Data:
     # Probability that a training image is augmented, each activated type then applied with its own probability;
     # sequence frames share one augmentation.
     probability: 0.4
-    # Types turned on as in the sequence labelling launches (sequence_labelling/run-1.yaml).
+    # Types turned on as in the sequence labelling launches.
     types:
       # Geometric augmentations : they keep the class of an image.
       # Random Crop : 75% to 100% of each side (same ratio), resized back
@@ -188,8 +188,8 @@ Backbone:
   # Input channels of the first convolution block: 3, the loaders giving BGR images
   input_channels : 3
 
-  # [convolutions, output filters] of every block, those of sequence_labelling/run-1.yaml so that this backbone can
-  # initialise it.
+  # [convolutions, output filters] of every block, those of the sequence labelling launches so that this backbone can
+  # initialise them.
   convolutions:
     {
       "1": [ 1, 16 ],

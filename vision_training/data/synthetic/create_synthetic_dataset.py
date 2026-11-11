@@ -3137,7 +3137,7 @@ if __name__ == "__main__":
     # detection and instance segmentation configurations, every image being seen once. The 250000 training images of
     # the keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of its
     # synthetic configuration. The 250000 training sequences of the sequence labelling are seen about 0.6 times by the
-    # 5000 iterations of 32 sequences of the launches of its hyperparameter experiment (run-<n>.yaml). The 500000
+    # 5000 iterations of 32 sequences of the launches of its hyperparameter experiment. The 500000
     # training images of the self-supervised dataset are not labelled for the training, their shape counts only
     # labelling the k-nearest neighbour evaluation of the test split. The 512000 training images of the multi-label
     # classification are seen 5 times by the 10000 iterations of 256 images of its configuration

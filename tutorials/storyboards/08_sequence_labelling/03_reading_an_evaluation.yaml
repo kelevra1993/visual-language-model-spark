@@ -18,7 +18,6 @@ references:
   - "vision_training/evaluation/classification/score_curves.py · compute_class_score_curves"
   - "vision_training/evaluation/classification/threshold_finder.py · find_class_thresholds"
   - "vision_training/evaluation/sequence/sequence_metrics.py · compute_sequence_exact_matches"
-  - "vision_training/configurations/sequence_labelling/run-1.yaml"
   - "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
   - "documentation/bug_standards.md"
   - "documentation/suggestions.md"
@@ -193,8 +192,10 @@ scenes:
   - kind: yaml
     title: "The launches of the experiment plan"
     code_reference: "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
+    # Settings of run_1 of the plan, read from its run folder (sequence_labelling_plan_launch of tutorial_sources.yaml)
+    file_label: "hyperparameter_experiments/sequence_labelling/run_1/<run name>/training_configuration.yaml"
     source:
-      file: vision_training/configurations/sequence_labelling/run-1.yaml
+      file: "runs:../hyperparameter_experiments/sequence_labelling/run_1/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32_T50_LSTM1x96_HFLAT.96.96-HLN-CWB_MC71/training_configuration.yaml"
       keys: [ExperimentConfiguration.batch_size, Optimization.exponential_moving_average, Data.image_settings,
              TemporalModel.type, TemporalModel.causal, ClassificationHead.global_pooling,
              ClassificationHead.class_weighting]
@@ -243,7 +244,7 @@ scenes:
       - {text: "predictions.csv: p(no_change) follows the frame position"}
       - {text: "ROC AUC on the later frames: {{sequence_labelling.predictions.macro_roc_auc_later_frames:.2f}}"}
       - {text: "Segment metrics: events, not frames"}
-      - {text: "Real-data launches: run-*.yaml, macro F1 of the averaged weights"}
+      - {text: "Real-data launches: run_1 to run_50, macro F1 of the averaged weights"}
       - {text: "Export: [B, T, 3, S, S] → [B, T, K], no mask"}
     narration:
       - "To recap: compare every metric with its trivial value, read the predictions by frame position, and score the events with the segment metrics."

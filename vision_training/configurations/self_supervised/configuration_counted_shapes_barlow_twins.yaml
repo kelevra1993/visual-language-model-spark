@@ -1,5 +1,5 @@
 # Barlow Twins self-supervised training on synthetic counted shapes (5 to 10 shapes of the 35 classes per 512 pixel
-# image), shape count (6 classes) for test k-NN; backbone of sequence labelling run-9.yaml; SimCLR twin.
+# image), shape count (6 classes) for test k-NN; backbone of the sequence labelling launches; SimCLR twin.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "self_supervised": label-free backbone training on two random
   # views per image; needs ProjectionHead, Data.data_augmentation on; initialises any task (Backbone.pretrained).
