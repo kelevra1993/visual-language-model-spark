@@ -52,6 +52,11 @@ runs:
   sequence_labelling:
     folder: readme_screenshots/M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71
     trained_with: "vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"
+  # Launch run_1 of the sequence labelling experiment plan, whose training_configuration.yaml chapter 3 of the series
+  # shows; in hyperparameter_experiments at the repository root, next to the experiments folder
+  sequence_labelling_plan_launch:
+    folder: ../hyperparameter_experiments/sequence_labelling/run_1/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32_T50_LSTM1x96_HFLAT.96.96-HLN-CWB_MC71
+    trained_with: "stage 1 of documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md (learning rate 1e-3, launch A, 2000 iterations), with the settings of the training_configuration.yaml of its run folder, its launch file sequence_labelling/run-1.yaml having been deleted on 2026-11-11"
   # The synthetic comparison configuration, read by tutorials/figures/sequence_comparison
   sequence_comparison:
     folder: readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2

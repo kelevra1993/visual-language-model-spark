@@ -33,7 +33,7 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 | CMP | before and after members of 2 to 12 frames, 2 to 6 shapes before | `loss_of_object`, `same_number_of_objects` |
 | SEL | one shape per frame over 4 to 12 frames, the largest circle, triangle and star to select | `unselected`, `circle`, `triangle`, `star` |
 | SSL | the CLS dataset, its classes only used by the k-NN evaluation | the 35 shapes |
-| SSL | 5 to 10 shapes per image labelled by their count (`task = "self_supervised"`, 500,000 training images, the shape categories in `shape_category_ids`), with the backbone of the M2M launches (`sequence_labelling/run-9.yaml`) so it can initialise them | `5_shapes` to `10_shapes` |
+| SSL | 5 to 10 shapes per image labelled by their count (`task = "self_supervised"`, 500,000 training images, the shape categories in `shape_category_ids`), with the backbone of the M2M launches (`sequence_labelling_experiment_plan.md`) so it can initialise them | `5_shapes` to `10_shapes` |
 
 - **The 35 shapes**: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule, L-shape, and the hollow `hollow_<shape>` of square, triangle, rectangle, pentagon, hexagon, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle and capsule.
 - **Sizes**: from 64 pixels (`MINIMUM_SHAPE_SIZE`) to a third of the image side. A hollow shape measures at least 16 pixels (`HOLLOW_MINIMUM_SIZE`); its hole is the shape scaled by 0.4 to 0.6 (`HOLLOW_INNER_SIZE_RATIO_RANGE`) inside walls of at least 2 pixels (`HOLLOW_MINIMUM_WALL_PIXELS`).

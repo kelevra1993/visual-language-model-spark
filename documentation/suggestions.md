@@ -543,9 +543,9 @@ are in `ficha-experiments-empty-bins/embeddings/`.
 The synthetic counted shapes dataset (`/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes`,
 500,000 training, 10,000 validation and 10,000 test images of 5 to 10 shapes at 512 pixels, drawn like the sequence
 labelling frames) and its two configurations (`self_supervised/configuration_counted_shapes_simclr.yaml` and
-`configuration_counted_shapes_barlow_twins.yaml`, the backbone and flattened feature map of
-`sequence_labelling/run-9.yaml`) are ready, but no run has been trained on them yet. The goal is to see whether the
-self-supervised backbone learns not only how many shapes an image holds but also which ones.
+`configuration_counted_shapes_barlow_twins.yaml`, the backbone and flattened feature map of the launches of
+`sequence_labelling_experiment_plan.md`) are ready, but no run has been trained on them yet. The goal is to see
+whether the self-supervised backbone learns not only how many shapes an image holds but also which ones.
 
 24. **The two self-supervised trainings**: SimCLR and Barlow Twins trained until the k-NN accuracy of the shape count
     (6 classes, `5_shapes` to `10_shapes`) stops rising, the input viewer checking the two views first.
@@ -556,7 +556,7 @@ self-supervised backbone learns not only how many shapes an image holds but also
     frozen representation: a multi-label linear classifier of the 35 shape classes, its macro F1 against the same probe
     on a backbone with random weights and on a supervised backbone.
 26. **Initialisation of sequence labelling**: the self-supervised backbone given to the sequence labelling runs of the
-    shape change experiment (`Backbone.pretrained`, the same architecture as `run-9.yaml`), against the same runs from
+    shape change experiment (`Backbone.pretrained`, the same architecture as their backbone), against the same runs from
     random weights, compared on the test Macro F1 of the averaged weights at the same number of iterations.
 27. **Strength of the views**: the crop keeps at least 80 % of the image area (`random_resized_crop.scale` [0.8, 1.0])
     so that both views keep most of the shapes and mostly the same count, with flips and rotations of up to 180
