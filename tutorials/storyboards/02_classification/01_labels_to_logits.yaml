@@ -21,6 +21,7 @@ references:
   - "vision_training/configurations/classification/configuration_synthetic_shapes.yaml · ClassificationHead.decorrelation"
   - "documentation/task workflows/classification_workflow.md"
   - "documentation/architecture_benchmarking/experiment_plan.md"
+  - "documentation/suggestions.md"
 scenes:
   - kind: title_card
     heading: "From labels to logits"
@@ -218,7 +219,7 @@ scenes:
       - {type: box, box: [20, 340, 560, 520], text: "this star: −ln {{classification.star_image.probabilities.star:.3f}} = {{classification.star_image.cross_entropy:.3f}}\nuntrained: ln 9 ≈ 2.197", font: diagram_small, outline: blue, appear: 0, highlight: [0]}
       - {type: text, position: [640, 330], text: "balanced weights N / (K · N_k) of the training split", font: diagram_small, colour: dim, appear: 1}
       - {type: grid, box: [640, 410, 1740, 480], values: "{{classification.class_weights.weight_rows}}", show_values: true, decimals: 3, minimum: 0.95, maximum: 1.05, column_labels: "{{classification.confusion.short_class_names}}", font: diagram_monospace_small, appear: 1, highlight: [1]}
-      - {type: box, box: [20, 560, 1740, 700], text: "label_smoothing above 0 with class_weighting balanced: PyTorch also weights the smoothing term,\nevery image is pulled towards the rare classes (suggestions.md C2) · shipped configurations: smoothing 0", font: diagram_small, outline: red, appear: 3, highlight: [3]}
+      - {type: box, box: [20, 560, 1740, 700], text: "label_smoothing above 0 with class_weighting balanced: PyTorch also weights the smoothing term,\nevery image is pulled towards the rare classes · shipped configurations: smoothing 0", font: diagram_small, outline: red, appear: 3, highlight: [3]}
     narration:
       - "In the multi class mode, the loss is the PyTorch cross entropy against the class index: minus the log of the probability of the true class, {{classification.star_image.cross_entropy:.3f}} for this star, and the log of nine, about 2.2, for an untrained network."
       - "Balanced class weighting multiplies the loss of every image by the weight of its class, the training images over the number of classes times the images of that class; these classes are nearly balanced, so the weights stay between {{classification.class_weights.minimum:.3f}} and {{classification.class_weights.maximum:.3f}}."

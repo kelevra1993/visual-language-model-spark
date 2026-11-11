@@ -216,8 +216,8 @@ scenes:
     title: "Pitfalls"
     elements:
       - {type: box, box: [40, 60, 1720, 220], text: "test_10000 holds a copy of the labels and a link to the frames of the full test split:\ngenerating the data set again makes its labels name other frames, without any error  (create_sequence_split_subset)", font: diagram_small, outline: red, highlight: [0]}
-      - {type: box, box: [40, 280, 1720, 440], text: "A causal module with Backbone.normalization.feature_map_normalization \"sequence\":\nthe statistics of every backbone layer come from the whole sequence, future frames included  (B8)", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
-      - {type: box, box: [40, 500, 1720, 660], text: "A sequence without any labelled frame counts as an exact match,\nand a batch without any labelled frame gives a NaN loss  (L11)", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 280, 1720, 440], text: "A causal module with Backbone.normalization.feature_map_normalization \"sequence\":\nthe statistics of every backbone layer come from the whole sequence, future frames included", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [40, 500, 1720, 660], text: "A sequence without any labelled frame counts as an exact match,\nand a batch without any labelled frame gives a NaN loss", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
     narration:
       - "Imagine that you generate the data set again: the test ten thousand subset holds a copy of the labels and a link to the frames of the full test split, so its labels name other frames, without any error."
       - "If, for instance, you pair a causal module with the sequence normalization of the backbone, it still sees the future, the statistics of every layer coming from the whole sequence."

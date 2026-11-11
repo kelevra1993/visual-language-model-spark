@@ -136,8 +136,8 @@ scenes:
     narration:
       - "The loss is the cross entropy of every frame, the logits flattened to one row per frame, with the ignore index minus 100: padding and unmapped frames drop out of the mean."
       - "Balanced class weights give every class the frames over the number of classes times its frames: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no change against {{sequence_labelling.dataset.balanced_weight_change_minimum:.2f}} to {{sequence_labelling.dataset.balanced_weight_change_maximum:.2f}} for a change class on this training split."
-      - "Suppose you add label smoothing on top: those weights also enter the smoothing term and pull every frame towards the rarest classes, item C2 of the suggestions file."
-      - "Take a batch without any labeled frame: its loss is not a number, the mean having nothing to average, item L11."
+      - "Suppose you add label smoothing on top: those weights also enter the smoothing term and pull every frame towards the rarest classes."
+      - "Take a batch without any labeled frame: its loss is not a number, the mean having nothing to average."
 
   - kind: html
     page: diagram
