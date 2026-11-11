@@ -28,6 +28,7 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
 | `track_evaluation` | sends the evaluation to MLflow, in a run named `<run name>-evaluation` |
 | `maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `None` keeping the `evaluation.error_dumps` of the run |
 | `target_precisions` | the precision, or list of precisions such as `[0.99, 0.95, 0.90]` (CLS, M2O, M2M, CMP), targeted by the class thresholds, `None` keeping the `evaluation.target_precision` of the run; skipped with a warning for the tasks without class thresholds |
+| `nms_criterion`, `nms_distance_exponent` | the final NMS of a DET or INS run replaced, `"iou"` (greedy) or `"distance_iou"` (DIoU-NMS) with the exponent of its distance term, `None` keeping the run's; an NMS other than the run's is written to `<run name>_nms_<criterion>[_<exponent>]` (e.g. `_nms_distance_iou_0.6`), and the setting is skipped with a warning for the tasks without detector |
 | `output_folder` | the root of the evaluations, `<experiments>/evaluations` by default |
 
 It writes `Results.txt`, `Tensorboard/Test` and `Evaluation/` in `<output_folder>/<run name>/`, as the training does, and the averaged weights when the run kept a moving average. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares every checkpoint (the averaged weights in `ema_<scalar>` columns), and the best iteration is printed for both weights.

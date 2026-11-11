@@ -1763,7 +1763,7 @@ def place_same_class_neighbour(image: np.ndarray, neighbour_shape_descriptor: Di
     """
     Places an object next to the object placed last in a synthetic image, with its class, so that the greedy NMS of a
     detector merges their two boxes where DIoU-NMS can keep both (the occlusion test split of stage 5b of the detection
-    benchmark, documentation/detection_nms_design.md): up to SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS shapes of that class,
+    benchmark): up to SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS shapes of that class,
     each drawn at SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE of the size of that object, are tried by place_shape at an IoU
     with its box from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION to 'maximum_intersection_over_union'.
 
@@ -3014,7 +3014,7 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         maximum_object_intersection_over_union (float): The largest IoU between two objects of an image, within [0, 1],
             for the images drawn by generate_image (object detection, instance segmentation, keypoint detection,
             semantic segmentation, classification), e.g. 0.6 for the occlusion test split of stage 5b of the detection
-            benchmark (documentation/detection_nms_design.md). Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3),
+            benchmark. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3),
             with which every dataset was drawn.
         same_class_neighbour_probability (float): The probability, within [0, 1], that an object of an object detection
             or instance segmentation image is placed next to the object placed before it, with its class, at an IoU
@@ -3184,7 +3184,7 @@ if __name__ == "__main__":
         "output_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_hard_shapes",
         "image_size": 1024, "split_sizes": {"train": 512000, "validation": 50000, "test": 50000}, "maximum_objects": 12}
     # Largest IoU between two objects of an image drawn by generate_image: 0.3 for every dataset, 0.6 for the occlusion
-    # test split of stage 5b of the detection benchmark (documentation/detection_nms_design.md), in a folder of its own
+    # test split of stage 5b of the detection benchmark, in a folder of its own
     maximum_object_intersection_over_union = 0.3
     # Probability that an object of a detection or instance segmentation image is placed next to the object placed
     # before it, with its class, at an IoU from 0.5 to the cap above: 0 for every dataset, above 0 for the occlusion

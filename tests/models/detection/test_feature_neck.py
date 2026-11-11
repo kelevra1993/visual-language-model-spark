@@ -3,7 +3,7 @@ Tests of the FeatureNeck of vision_training/models/detection/feature_neck.py, ap
 the backbone blocks of the detection levels and the heads: the levels and sizes are kept with the output channels, the
 'none' neck is a parameter-free identity so that the runs written before the neck are unchanged, the feature pyramid
 carries the coarse levels to the fine ones only, and path aggregation also carries the fine levels to the coarse ones,
-through the building block of PANet (documentation/detection_neck_design.md, Path Aggregation Design).
+through the building block of PANet (the bottom-up path of its official code, lib/modeling/FPN.py).
 """
 
 import pytest

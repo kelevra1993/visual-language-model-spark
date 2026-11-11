@@ -15,7 +15,7 @@ from vision_training.models.detection.box_operations import (clamp_boxes_to_imag
 
 # Criteria of the final per-class non-maximum suppression ('Detector.nms_criterion'): the IoU of the greedy NMS of
 # torchvision, or the IoU minus the normalized distance of the centres of DIoU-NMS
-# (documentation/detection_nms_design.md)
+# (Zheng et al., AAAI 2020, Eq. 13, https://arxiv.org/abs/1911.08287)
 NMS_CRITERIA = ["iou", "distance_iou"]
 
 # Largest number of box pairs whose criterion DIoU-NMS computes at once: the groups of image and class are processed
@@ -171,7 +171,7 @@ def suppress_every_pair_by_distance(boxes: torch.Tensor, scores: torch.Tensor, c
                                     iou_threshold: float, distance_exponent: float) -> torch.Tensor:
     """
     Runs DIoU-NMS on every (proposal, foreground class) pair of the exported detector, the form of batched_distance_nms
-    that the TorchScript trace and the dynamo ONNX export keep (documentation/detection_nms_design.md, Part B), so that
+    that the TorchScript trace and the dynamo ONNX export keep, so that
     a deployed model with 'Detector.nms_criterion' "distance_iou" keeps the detections of its eager evaluation. Every
     group of an image and a class holds exactly the P pairs of its proposals, so the criterion matrix has the static
     shape [B, C - 1, P, P] without padding, and the greedy suppression is the exact scan of the P ranks by decreasing
@@ -246,7 +246,7 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     NMS or DIoU-NMS of 'Detector.nms_criterion', while the deployed detector gives every pair to the same NMS (the
     greedy one of torchvision, or suppress_every_pair_by_distance for DIoU-NMS), without data-dependent Python control
     flow nor data-dependent sizes, so that the same code can be exported to TorchScript and ONNX. Both paths keep the
-    same detections with either criterion (documentation/detection_nms_design.md, Part B for DIoU-NMS). The outputs
+    same detections with either criterion. The outputs
     have a fixed size; padded entries have a score of 0, a label of 0 and an empty box.
 
     Args:

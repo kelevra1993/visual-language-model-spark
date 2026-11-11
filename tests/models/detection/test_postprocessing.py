@@ -25,7 +25,7 @@ def run_greedy_distance_nms(boxes: torch.Tensor, scores: torch.Tensor, group_ind
     (src/box.c, diounms_sort), box after box, as the reference of batched_distance_nms: in every group, the boxes taken
     by decreasing score, every kept box suppressing the lower boxes of the group whose IoU minus the normalized centre
     distance to the power of the exponent exceeds the threshold, with the continuous coordinates, the strict suppression
-    and the 1e-7 on the squared diagonal of the decisions of documentation/detection_nms_design.md.
+    and the 1e-7 on the squared diagonal chosen for batched_distance_nms.
 
     Args:
         boxes (torch.Tensor): The [N, 4] boxes [x_min, y_min, x_max, y_max].

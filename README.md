@@ -566,7 +566,6 @@ tutorials/build_tutorials.sh --check-references
 │   ├── architecture_benchmarking/     # Classification experiment plan and results of all its launches
 │   ├── reference/                     # Details of the training, the tasks, the configurations and the tools
 │   ├── task workflows/                # One run of every task followed function by function
-│   ├── self_supervised.md             # State of the self-supervised task: tests, export checks, trainings to run
 │   └── suggestions.md                 # Proposed improvements, repository audit, foundation model data downloader
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings

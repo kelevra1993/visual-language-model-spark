@@ -21,11 +21,11 @@ from vision_training.models.detection.target_assignment import (batch_assign_tar
 LOCALISATION_LOSS_BETA = 1 / 9
 
 # Localisation losses of 'Detector.box_loss': the smooth L1 on the offsets, or 1 - CIoU between the decoded boxes and
-# their targets (documentation/detection_box_loss_design.md)
+# their targets (Zheng et al., https://arxiv.org/abs/2005.03572)
 BOX_LOSSES = ["smooth_l1", "complete_iou"]
 
 # Localisation loss of the region proposal network, always the smooth L1 on the offsets: the CIoU loss is an option of
-# the detection heads only, as in the published Faster R-CNN (documentation/detection_box_loss_design.md)
+# the detection heads only, as in the published Faster R-CNN (https://arxiv.org/abs/2005.03572)
 REGION_PROPOSAL_BOX_LOSS = "smooth_l1"
 
 # Small value added to the union and to the heights of the aspect ratios of the CIoU loss, so that empty or flat boxes
