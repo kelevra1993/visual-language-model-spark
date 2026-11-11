@@ -563,7 +563,7 @@ tutorials/build_tutorials.sh --check-references
 ├── pyproject.toml                     # Project package and dependency configuration
 ├── uv.lock                            # Locked dependencies for reproducible environments
 ├── documentation/                     # Notes kept next to the code
-│   ├── architecture_benchmarking/     # Classification experiment plan and results of all its launches
+│   ├── architecture_benchmarking/     # Classification, object detection and sequence labelling experiment plans, copies of their results, stage figures and their registry experiment_comparisons.yaml
 │   ├── reference/                     # Details of the training, the tasks, the configurations and the tools
 │   ├── task workflows/                # One run of every task followed function by function
 │   └── suggestions.md                 # Proposed improvements, repository audit, foundation model data downloader
