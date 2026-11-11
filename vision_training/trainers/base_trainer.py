@@ -721,20 +721,14 @@ class BaseTrainer(ABC):
 
     def step_optimizer(self, iteration: int) -> None:
         """
-        Updates the model parameters after the backward pass of a training step: the gradients are clipped to
-        'Optimization.gradient_clipping_norm' when it is set, the learning rate of every parameter group is set to
-        its value of the schedule at this iteration, then the optimizer steps and the moving average of the weights,
-        when the run keeps one, moves towards the updated weights. The learning rate of the first group is written to
-        TensorBoard.
+        Updates the model parameters after the backward pass of a training step, with the gradients as the backward
+        pass left them: the learning rate of every parameter group is set to its value of the schedule at this
+        iteration, then the optimizer steps and the moving average of the weights, when the run keeps one, moves
+        towards the updated weights. The learning rate of the first group is written to TensorBoard.
 
         Args:
             iteration (int): The training iteration, giving the learning rate of the schedule.
         """
-        # Clip the norm of all the gradients together, when asked
-        gradient_clipping_norm = self.optimization_configuration["gradient_clipping_norm"]
-        if gradient_clipping_norm is not None:
-            torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=gradient_clipping_norm)
-
         # Learning rate of the schedule, relative to the learning rate of every parameter group
         learning_rate_factor = compute_learning_rate_factor(iteration=iteration,
                                                             optimization_configuration=self.optimization_configuration)
@@ -1084,15 +1078,13 @@ class BaseTrainer(ABC):
         intermediate_saving_description = f"{self.intermediate_weight_saving_iterations} iterations" if \
             self.intermediate_weight_saving_iterations > 0 else "Turned Off"
         print_color(color="blue", output=f"- Save Only Every         : {intermediate_saving_description}")
-        # The optimization settings: learning rate, optimizer, schedule, gradient clipping and weight moving average
+        # The optimization settings: learning rate, optimizer, schedule and weight moving average
         print_color(color="blue", output=f"- Learning Rate           : {self.learning_rate}")
         print_color(color="blue", output=f"- Optimizer               : {self.optimization_configuration['optimizer']} "
                                          f"(weight decay {self.optimization_configuration['weight_decay']})")
         print_color(color="blue", output=f"- Learning Rate Schedule  : "
                                          f"{self.optimization_configuration['learning_rate_schedule']} (warm-up "
                                          f"{self.optimization_configuration['warmup_iterations']} iterations)")
-        print_color(color="blue", output=f"- Gradient Clipping Norm  : "
-                                         f"{self.optimization_configuration['gradient_clipping_norm']}")
         moving_average_description = "Off"
         if self.exponential_moving_average is not None:
             moving_average_description = (f"decay {self.exponential_moving_average.decay}, evaluated next to the "

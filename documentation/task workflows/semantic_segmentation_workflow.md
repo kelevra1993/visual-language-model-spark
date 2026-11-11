@@ -645,7 +645,6 @@ Every path is a terminal link showing the name of its file or folder (`format_pa
 - Learning Rate           : 0.001
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
-- Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
 - Validation Iter. Ratio  : 25
 - MLflow Tracking         : Off

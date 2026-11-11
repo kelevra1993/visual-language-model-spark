@@ -3,7 +3,7 @@ Tests of build_run_name of vision_training/configuration_processing/run_name.py 
 task: the reference run names are fixed, changed settings (backbone modules, detection levels, classes, fusions, tiling,
 mask heads, transfers, sequence normalization, optimizer, weight decay) change the run name with their token, the run
 name suffix ends the name, and the training settings that can change between two resumptions (augmentation, batch
-size, learning rate, schedule, clipping, moving average of the weights, dropout rates, grouped batches) keep it.
+size, learning rate, schedule, moving average of the weights, dropout rates, grouped batches) keep it.
 """
 
 import copy
@@ -150,8 +150,7 @@ def use_complete_iou_detector_box_loss(experiment_configuration: Dict[str, Any],
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
-    and trains with another batch size, learning rate and schedule, gradient clipping and a moving average of the
-    weights.
+    and trains with another batch size, learning rate and schedule and a moving average of the weights.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
@@ -161,7 +160,7 @@ def change_training_settings(experiment_configuration: Dict[str, Any], model_con
     experiment_configuration["batch_size"] = 16
     experiment_configuration["learning_rate"] = 1.5e-3
     model_configuration["Optimization"].update({"learning_rate_schedule": "cosine", "warmup_iterations": 500,
-                                                "decay_iterations": 20000, "gradient_clipping_norm": 1.0,
+                                                "decay_iterations": 20000,
                                                 "exponential_moving_average": {"activated": True, "decay": 0.999}})
 
 
@@ -169,7 +168,7 @@ def test_reference_run_name() -> None:
     """
     Verifies the run name of the reference settings, that the same settings always give the same name, which lets a
     run resume in its own folder, and that the training settings that can change between two resumptions (augmentation,
-    batch size, learning rate and schedule, gradient clipping, moving average of the weights) keep that name.
+    batch size, learning rate and schedule, moving average of the weights) keep that name.
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     run_name = build_run_name(experiment_configuration=experiment_configuration,
@@ -562,13 +561,12 @@ def test_sequence_normalization_run_name_tokens(feature_map_normalization: str, 
 def test_optimization_run_name_tokens() -> None:
     """
     Verifies the optimizer section at the end of the run name, written only for an optimizer other than Adam or a
-    weight decay, the schedule and gradient clipping giving no token.
+    weight decay, the schedule giving no token.
     """
     experiment_configuration, model_configuration = get_classification_reference_configurations()
     model_configuration["Optimization"] = {"optimizer": "adamw", "weight_decay": 1e-4,
                                            "learning_rate_schedule": "cosine", "warmup_iterations": 500,
-                                           "decay_iterations": 20000, "minimum_learning_rate_ratio": 0.01,
-                                           "gradient_clipping_norm": 1.0}
+                                           "decay_iterations": 20000, "minimum_learning_rate_ratio": 0.01}
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
         "_MC4", "_MC4_ADAMW-WD1e-4")

@@ -573,7 +573,6 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 - Learning Rate           : 0.001
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
-- Gradient Clipping Norm  : None
 - Weight Moving Average   : Off
 - Validation Iter. Ratio  : 25
 - MLflow Tracking         : Off

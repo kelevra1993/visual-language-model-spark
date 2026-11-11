@@ -183,7 +183,7 @@ Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the 
 ### Stopping And Resuming
 - Ctrl+C stops the training and saves a checkpoint of the last training step.
 - Launching the same configuration again always resumes from the last checkpoint of its run folder, with its optimizer state. `number_iterations` is the total of the run, not the iterations left.
-- The settings that give no run name token, such as the augmentation, batch size, learning rate and its schedule, gradient clipping, moving average of the weights and dropout rates, can change between two resumptions. The changed settings are printed, and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
+- The settings that give no run name token, such as the augmentation, batch size, learning rate and its schedule, moving average of the weights and dropout rates, can change between two resumptions. The changed settings are printed, and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
 - Changed labels (another SHA-256 of a `labels.json`) stop the resume, unless `ExperimentConfiguration.allow_data_change_on_resume` is true.
 - To train the same settings from scratch, give the run another `run_name_suffix` or `experiment_folder`, or move its run folder away.
 - A failing iteration is reported in yellow and the training goes on; more than 5 failing iterations in a row stop it, saving a checkpoint.
@@ -508,7 +508,7 @@ Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.y
 The keys of every task and the values they accept are tabled in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
 
 ## Run Names
-The run name is built from the configuration by `vision_training/configuration_processing/run_name.py`, so that the same settings resume in the same folder and changed settings start a new one. It is made of sections joined with `_`, the tokens of a section being joined with `-`. The settings that can change between two resumptions give no token, such as the augmentation, batch size, learning rate and its schedule, gradient clipping, moving average of the weights, dropout rates and loss weights. `ExperimentConfiguration.run_name_suffix` (letters, digits, `-` and `.`) ends the name, to start a run of its own with the same settings.
+The run name is built from the configuration by `vision_training/configuration_processing/run_name.py`, so that the same settings resume in the same folder and changed settings start a new one. It is made of sections joined with `_`, the tokens of a section being joined with `-`. The settings that can change between two resumptions give no token, such as the augmentation, batch size, learning rate and its schedule, moving average of the weights, dropout rates and loss weights. `ExperimentConfiguration.run_name_suffix` (letters, digits, `-` and `.`) ends the name, to start a run of its own with the same settings.
 
 | Task | Run name |
 |---|---|

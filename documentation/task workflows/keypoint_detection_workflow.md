@@ -496,7 +496,6 @@ The three transferable components are the `Backbone`, the `HRNet` and the `Keypo
 - Learning Rate           : 0.001
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : cosine (warm-up 10 iterations)
-- Gradient Clipping Norm  : None
 - Weight Moving Average   : decay 0.999, evaluated next to the trained weights
 - Validation Iter. Ratio  : 10
 - MLflow Tracking         : sqlite:///.../experiments/mlflow.db

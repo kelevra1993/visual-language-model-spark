@@ -357,4 +357,4 @@ scenes:
       - {text: "A trained backbone starts another task through its pretrained settings"}
     narration:
       - "To sum up: the backbone stacks the blocks of its section, with squeeze and excitation, the residual shortcuts and inception as options, the shortcuts following pairs of layers with the same channels."
-      - "The next chapter covers the optimization: the optimizer, the learning rate and its schedule, gradient clipping, mixed precision and the moving average of the weights."
+      - "The next chapter covers the optimization: the optimizer, the learning rate and its schedule, mixed precision and the moving average of the weights."

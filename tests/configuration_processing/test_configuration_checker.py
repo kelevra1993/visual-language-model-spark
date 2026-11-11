@@ -640,8 +640,8 @@ def test_image_size_must_keep_every_pooled_feature_map_even(tmp_path: Path, caps
 def keep_the_fixed_settings(configuration: Dict[str, Any]) -> None:
     """
     Keeps every setting removed from the configuration files for its fixed value (top-k, artifacts, resumption,
-    diagnosis modes, mixed precision, loaders, inception start, batch normalization momentums), next to an unknown
-    pooling of the classification head.
+    diagnosis modes, mixed precision, gradient clipping norm, loaders, inception start, batch normalization
+    momentums), next to an unknown pooling of the classification head.
 
     Args:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
@@ -652,6 +652,7 @@ def keep_the_fixed_settings(configuration: Dict[str, Any]) -> None:
     experiment_configuration["resume_training"] = True
     experiment_configuration["diagnosis_modes"].update({"verbose": False, "compute_model_size": True})
     configuration["Optimization"]["mixed_precision"] = True
+    configuration["Optimization"]["gradient_clipping_norm"] = None
     configuration["Data"]["loading"] = {"number_workers": 4, "prefetch_batches": 2}
     configuration["Backbone"]["modules"]["inception_starting_block"] = 3
     configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0.1
@@ -690,8 +691,9 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
     ("classification", keep_the_fixed_settings,
      ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfiguration.tracking.log_artifacts",
       "ExperimentConfiguration.resume_training", "ExperimentConfiguration.diagnosis_modes.compute_model_size",
-      "ExperimentConfiguration.diagnosis_modes.verbose", "Optimization.mixed_precision", "Data.loading",
-      "Backbone.modules.inception_starting_block", "Backbone.normalization.batch_normalization_momentum",
+      "ExperimentConfiguration.diagnosis_modes.verbose", "Optimization.mixed_precision",
+      "Optimization.gradient_clipping_norm", "Data.loading", "Backbone.modules.inception_starting_block",
+      "Backbone.normalization.batch_normalization_momentum",
       "ClassificationHead.batch_normalization_momentum"], "'ClassificationHead.global_pooling' must be one of"),
     ("instance_segmentation", keep_the_fixed_head_settings,
      ["RegionProposal.normalization.batch_normalization_momentum",
@@ -1228,15 +1230,14 @@ def test_inconsistent_temporal_and_head_transfers_are_rejected(tmp_path: Path, c
 def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     """
     Sets an unknown optimizer and schedule, a negative weight decay, an empty decay, a minimum learning rate above
-    the learning rate, a zero clipping norm, and a moving average switch that is not a boolean with a decay of 1,
-    which would never move.
+    the learning rate, and a moving average switch that is not a boolean with a decay of 1, which would never move.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
     configuration["Optimization"].update({"optimizer": "rmsprop", "learning_rate_schedule": "step",
                                           "weight_decay": -0.1, "decay_iterations": 0,
-                                          "minimum_learning_rate_ratio": 1.5, "gradient_clipping_norm": 0,
+                                          "minimum_learning_rate_ratio": 1.5,
                                           "exponential_moving_average": {"activated": "yes", "decay": 1.0}})
 
 
@@ -1261,7 +1262,6 @@ def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.Ca
                              "'Optimization.weight_decay' must be >= 0, got -0.1.",
                              "'Optimization.decay_iterations' must be an integer >= 1, got 0.",
                              "'Optimization.minimum_learning_rate_ratio' must be a probability within [0, 1], got 1.5.",
-                             "'Optimization.gradient_clipping_norm' must be null or > 0, got 0.",
                              "'Optimization.exponential_moving_average.activated' must be True or False, got 'yes'.",
                              "'Optimization.exponential_moving_average.decay' must be strictly between 0 and 1, "
                              "got 1.0."]:
