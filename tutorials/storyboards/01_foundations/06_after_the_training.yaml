@@ -1,8 +1,8 @@
 # Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, comparing
-# launches and runs, clustering the image embeddings of a trained run, exporting a model to Triton and serving it, the
-# tests and the map of the repository. The settings shown are the live main blocks of the scripts; the spread between
-# launches is the one of benchmark.py and the counts of the repository those of listings.py of
-# tutorials/figures/foundations.
+# launches and runs, clustering the image embeddings of a trained run, exporting a model to Triton with its input
+# contract and serving it, the tests and the map of the repository. The settings shown are the live main blocks of the
+# scripts; the spread between launches is the one of benchmark.py and the counts of the repository those of listings.py
+# of tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
 chapter: 6
@@ -18,6 +18,7 @@ references:
   - "scripts/evaluation/compare_best_evaluations.py · compare_best_evaluations"
   - "scripts/embedding/cluster_image_embeddings.py · embed_and_cluster_sources"
   - "vision_training/deployment/export_model.py · export_experiment"
+  - "vision_training/deployment/input_contract.py · write_preprocessing_file"
   - "vision_training/deployment/run_inference.py"
 scenes:
   - kind: title_card
@@ -159,7 +160,8 @@ scenes:
       - {match: "image_classifier|object_detector", sentences: [0]}
     narration:
       - "Every task is exported under its own model name, followed by its format in the model repository, each in a folder with its Triton configuration and its version."
-      - "The models take float32 BGR images, or the frames of a sequence, in the zero to two hundred and fifty five range, resized and padded like the data loaders, the input normalization being part of the model; every task series shows its outputs."
+      - "The models take float32 BGR images, or the frames of a sequence, in the zero to two hundred and fifty five range, resized and padded like the data loaders, the input normalization being part of the model."
+      - "So that a server builds its inputs as the training did, every export writes these settings in a preprocessing file next to the model and in the ONNX metadata; every task series shows its outputs."
 
   - kind: terminal
     title: "Serving with Triton"
