@@ -321,8 +321,11 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
              "batch.frame_vector_features": int(frame_features.shape[-1])}
     for shape_name, shape_text in shapes.items():
         facts[f"batch.shape.{shape_name}"] = shape_text
+    facts["batch.frame_channels"] = int(batch["images"].shape[2])
     for block_number, block_shape in enumerate(block_shapes, start=1):
         facts[f"batch.block_{block_number}_shape"] = format_shape(shape=block_shape)
+        facts[f"batch.block_{block_number}_channels"] = int(block_shape[1])
+        facts[f"batch.block_{block_number}_size"] = int(block_shape[2])
     for sequence_index, length in enumerate(lengths):
         facts[f"batch.length_{sequence_index}"] = length
     return facts

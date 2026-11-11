@@ -20,6 +20,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 TEXT_SECONDARY_COLOUR, register_fonts, round_fact, save_figure)
 from tutorials.figures.semantic_segmentation.segmentation_sources import build_class_palette
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.data.label_mapping import get_background_class_index
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE, build_class_lookup_table
 
 # Layout of the mask figure: two square panels and the table of the values, under their titles
@@ -144,8 +145,11 @@ def draw_mask_figure(output_folder: Path, sample_record: Dict[str, Any], label_d
     save_figure(figure=figure, output_path=output_folder / "dataset" / "mask_values.png")
     pyplot.close(fig=figure)
 
-    # Facts of the values and of the panels
+    # Facts of the values and of the panels, the shapes of the mask being its categories other than the background
+    # and the ignored value
     facts = {"mask_values": ", ".join(str(int(value)) for value in values), "mask_size": int(raw_mask.shape[0]),
+             "mask_background_class": get_background_class_index(label_dictionary=label_dictionary),
+             "mask_shape_count": sum(1 for value in values if 0 < value < IGNORED_MASK_VALUE),
              "mask_pixels": int(raw_mask.size), "mask_ignored_value": IGNORED_MASK_VALUE,
              "mask_ignored_class": int(lookup_table[IGNORED_MASK_VALUE]),
              "mask_background_share": round_fact(value=float(counts[values == 0][0]) / raw_mask.size),

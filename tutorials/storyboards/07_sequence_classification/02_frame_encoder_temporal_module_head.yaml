@@ -11,6 +11,8 @@ output_name: sequence_classification_02_frame_encoder_temporal_module_head
 pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_classification]
+# The unit word of the parameter counts, every one following a {{...millions}} fact
+literal_numbers: [million]
 references:
   - "vision_training/models/sequence/sequence_classifier.py · SequenceClassifier"
   - "vision_training/models/sequence/sequence_model.py · SequenceFrameModel.compute_class_outputs"
@@ -24,9 +26,11 @@ scenes:
     heading: "From frames to classes"
     subheading: "The frame encoder, the temporal module and the head"
     footnote: "Sequence Classification (M2O) · chapter 2"
+    # The chapter number of the footnote, the chapter key of this storyboard
+    literal_numbers: ["2"]
     narration:
-      - "A sequence model has three stages: the encoder of the frames turns every real frame into a vector, the temporal module summarizes the vectors of a sequence, and the head gives the classes."
-      - "This chapter follows the padded batch through them, with the weights of the trained run at 128 pixels, and shows the one setting that decides whether the moving shapes are learned at all."
+      - "A sequence model runs in stages: the encoder of the frames turns every real frame into a vector, the temporal module summarizes the vectors of a sequence, and the head gives the classes."
+      - "This chapter follows the padded batch through them, with the weights of the trained run at {{sequence_classification.run.image_size}} pixels, and shows the one setting that decides whether the moving shapes are learned at all."
 
   - kind: code
     title: "The frame encoder"
@@ -40,6 +44,8 @@ scenes:
       - {match: "input_tensor\\[sequence_mask\\]", sentences: [1]}
       - {match: "new_zeros|frame_features\\[sequence_mask\\] = frame_vectors", sentences: [2]}
       - {match: "if sequence_mask is None|flatten\\(start_dim=0, end_dim=1\\)|reshape\\(batch_size, sequence_length", sentences: [3]}
+    # The zero vectors of the padding frames, made by new_zeros in the excerpt
+    literal_numbers: [zero]
     narration:
       - "The encoder of the frames is one function, shared by the classifier, the labeller and the comparator."
       - "With a mask, the real frames of all the sequences are gathered into one batch of images, so the padding costs no backbone computation and stays out of the batch normalization statistics."
@@ -54,34 +60,34 @@ scenes:
       layout: "figures:sequence_classification/animations/padded_batch.json"
       phases: [{name: mask, sentence: -1}, {name: gather, sentence: 1}, {name: encode, sentence: 2}, {name: scatter, sentence: 4}]
     elements:
-      - {type: text, position: [330, 680], text: "The squares: the real frame vectors of the trained flatten run, every channel map of 8 x 8 on a mosaic of the 64 channels", font: diagram_small, colour: dim, appear: 3}
+      - {type: text, position: [330, 680], text: "The squares: the real frame vectors of the trained flatten run, every channel map of {{sequence_classification.batch.block_5_size}} x {{sequence_classification.batch.block_5_size}} on a mosaic of the {{sequence_classification.batch.block_5_channels}} channels", font: diagram_small, colour: dim, appear: 3}
     narration:
       - "Back to the padded batch of the first chapter: {{sequence_classification.batch.sequence_count_words}} sequences padded to {{sequence_classification.batch.longest_words}} frames, with their mask."
       - "Indexing with the mask keeps the {{sequence_classification.batch.real_frames}} real frames, sequence after sequence: one batch of images for the backbone."
-      - "The backbone runs on them as on any images: sixteen channels at 64 pixels, then 32 at 32, 32 at 16, and 64 at eight for the last two blocks, the fifth having no pooling."
-      - "The flatten pooling turns every map of 64 by eight by eight into 4096 features: each square is the real vector of one frame, its 64 channel maps side by side."
-      - "Scattered back, the vectors fill a tensor of {{sequence_classification.batch.sequence_count_words}} by {{sequence_classification.batch.longest_words}} by 4096, and the padding positions hold exact zeros."
+      - "The backbone runs on them as on any images: {{sequence_classification.batch.block_1_channels:words}} channels at {{sequence_classification.batch.block_1_size}} pixels, then {{sequence_classification.batch.block_2_channels}} at {{sequence_classification.batch.block_2_size}}, {{sequence_classification.batch.block_3_channels}} at {{sequence_classification.batch.block_3_size}}, and {{sequence_classification.batch.block_4_channels}} at {{sequence_classification.batch.block_4_size:words}} for the fourth and fifth blocks, the fifth having no pooling."
+      - "The flatten pooling turns every map of {{sequence_classification.batch.block_5_channels}} by {{sequence_classification.batch.block_5_size:words}} by {{sequence_classification.batch.block_5_size:words}} into {{sequence_classification.batch.frame_vector_features}} features: each square is the real vector of one frame, its {{sequence_classification.batch.block_5_channels}} channel maps side by side."
+      - "Scattered back, the vectors fill a tensor of {{sequence_classification.batch.sequence_count_words}} by {{sequence_classification.batch.longest_words}} by {{sequence_classification.batch.frame_vector_features}}, and the padding positions hold exact zeros."
 
   - kind: html
     page: diagram
     title: "Average or flatten"
     code_reference: "vision_training/models/classification/classification_head.py · build_global_pooling"
     elements:
-      - {type: text, position: [440, 22], text: "average pooling · 512 pixels · {{sequence_classification.similarity.average.features}} features", font: diagram_bold, anchor: ma}
-      - {type: grid, box: [140, 100, 740, 580], values: "{{sequence_classification.similarity.average.values}}", show_values: true, decimals: 2, minimum: 0.0, maximum: 1.0, row_labels: ["0", "1", "2", "3", "4", "5", "6", "7"], column_labels: ["0", "1", "2", "3", "4", "5", "6", "7"], high_colour: yellow, highlight: [1, 2]}
-      - {type: text, position: [1320, 22], text: "flatten · 128 pixels · {{sequence_classification.similarity.flatten.features:,}} features", font: diagram_bold, anchor: ma, appear: 3}
-      - {type: grid, box: [1020, 100, 1620, 580], values: "{{sequence_classification.similarity.flatten.values}}", show_values: true, decimals: 2, minimum: 0.0, maximum: 1.0, row_labels: ["0", "1", "2", "3", "4", "5", "6", "7"], column_labels: ["0", "1", "2", "3", "4", "5", "6", "7"], high_colour: blue, appear: 3, highlight: [3]}
-      - {type: text, position: [880, 640], text: "Cosine similarity of the frame vectors of every pair of the 8 frames of {{sequence_classification.similarity.sequence}}, both trained runs on the CPU", font: diagram_small, colour: dim, anchor: ma}
+      - {type: text, position: [440, 22], text: "average pooling · {{sequence_classification.image_sizes.average_512}} pixels · {{sequence_classification.similarity.average.features}} features", font: diagram_bold, anchor: ma}
+      - {type: grid, box: [140, 100, 740, 580], values: "{{sequence_classification.similarity.average.values}}", show_values: true, decimals: 2, minimum: 0.0, maximum: 1.0, row_labels: "{{sequence_classification.similarity.frame_labels}}", column_labels: "{{sequence_classification.similarity.frame_labels}}", high_colour: yellow, highlight: [1, 2]}
+      - {type: text, position: [1320, 22], text: "flatten · {{sequence_classification.image_sizes.flatten_128}} pixels · {{sequence_classification.similarity.flatten.features:,}} features", font: diagram_bold, anchor: ma, appear: 3}
+      - {type: grid, box: [1020, 100, 1620, 580], values: "{{sequence_classification.similarity.flatten.values}}", show_values: true, decimals: 2, minimum: 0.0, maximum: 1.0, row_labels: "{{sequence_classification.similarity.frame_labels}}", column_labels: "{{sequence_classification.similarity.frame_labels}}", high_colour: blue, appear: 3, highlight: [3]}
+      - {type: text, position: [880, 640], text: "Cosine similarity of the frame vectors of every pair of the {{sequence_classification.similarity.frames}} frames of {{sequence_classification.similarity.sequence}}, both trained runs on the CPU", font: diagram_small, colour: dim, anchor: ma}
     narration:
       - "The global pooling of the head decides what the temporal module can see of a frame."
-      - "Average pooling keeps one value per channel: through the encoder of the average pooling run, the eight frames of a test sequence get the same vector, a cosine similarity of {{sequence_classification.similarity.average.minimum:.2f}} between every pair, to the sixth decimal."
+      - "Average pooling keeps one value per channel: through the encoder of the average pooling run, the {{sequence_classification.similarity.frames:words}} frames of a test sequence get the same vector, a cosine similarity of {{sequence_classification.similarity.average.minimum:.2f}} between every pair, to the sixth decimal."
       - "Picture the shape crossing the image: it moved, but its position was averaged away, so no temporal module can find the direction, and max pooling removes it the same way."
-      - "Flatten keeps every position of the eight by eight map: the frame vectors of the flatten run drift apart with the distance between the frames, down to a similarity of {{sequence_classification.similarity.flatten.minimum:.2f}} between the first and the last one."
-      - "Think of a run at 512 pixels: the cost of flatten is a frame vector that follows the image size, 4096 features at 128 pixels, 65,536 at 512."
+      - "Flatten keeps every position of the {{sequence_classification.batch.block_5_size:words}} by {{sequence_classification.batch.block_5_size:words}} map: the frame vectors of the flatten run drift apart with the distance between the frames, down to a similarity of {{sequence_classification.similarity.flatten.minimum:.2f}} between the first and the last one."
+      - "Think of a run at {{sequence_classification.image_sizes.flatten_512}} pixels: the cost of flatten is a frame vector that follows the image size, {{sequence_classification.parameters.flatten_128.frame_features}} features at {{sequence_classification.image_sizes.flatten_128}} pixels, {{sequence_classification.parameters.flatten_512.frame_features:,}} at {{sequence_classification.image_sizes.flatten_512}}."
 
   - kind: html
     page: diagram
-    title: "Seven temporal modules"
+    title: "The {{sequence_classification.temporal.types:words}} temporal modules"
     code_reference: "vision_training/models/sequence/temporal_modules.py · build_temporal_module"
     elements:
       - {type: text, position: [40, 30], text: "Ignore the order", font: diagram_bold, colour: blue}
@@ -93,10 +99,12 @@ scenes:
       - {type: box, box: [920, 210, 1720, 320], text: "transformer\nkey padding mask, then the mean of the real frames", font: diagram_small, outline: aqua, highlight: [2]}
       - {type: box, box: [920, 340, 1720, 450], text: "temporal_convolution\ndilation 2^i, the padding zeroed before every layer", font: diagram_small, outline: aqua, highlight: [2]}
       - {type: box, box: [40, 520, 1720, 640], text: "causal: True is refused for M2O and CMP (check_temporal_model_configuration): it is for M2M", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
+    # The dilation 2^i of the layer i of the temporal convolution (TemporalConvolutionModule, 2 ** layer_index)
+    literal_numbers: ["2^i"]
     narration:
-      - "The temporal module summarizes the frame vectors into one vector per sequence; seven types exist, and each keeps the padding out."
-      - "The three poolings ignore the order: the masked mean, the max with the padding at minus infinity, and the attention pooling, whose frame scores are set to minus infinity on the padding before their softmax."
-      - "The four ordered modules follow it: the GRU and the LSTM on packed sequences, the transformer with its key padding mask and a masked mean of its outputs, and the temporal convolution, whose dilation doubles at every layer, with the padding zeroed before every convolution."
+      - "The temporal module summarizes the frame vectors into one vector per sequence; {{sequence_classification.temporal.types:words}} types exist, and each keeps the padding out."
+      - "The {{sequence_classification.temporal.pooling_types:words}} poolings ignore the order: the masked mean, the max with the padding at minus infinity, and the attention pooling, whose frame scores are set to minus infinity on the padding before their softmax."
+      - "The {{sequence_classification.temporal.ordered_types:words}} ordered modules follow it: the GRU and the LSTM on packed sequences, the transformer with its key padding mask and a masked mean of its outputs, and the temporal convolution, whose dilation doubles at every layer, with the padding zeroed before every convolution."
       - "Should you pick a causal module here, it is refused: it only sees the past frames, which is meant for the sequence labeller."
 
   - kind: code
@@ -110,9 +118,9 @@ scenes:
       - {match: "last_layer_states|transpose\\(0, 1\\)", sentences: [2]}
       - {match: "if self.keep_time_axis", sentences: [3]}
     narration:
-      - "The configuration uses one bidirectional GRU layer of 128 units."
+      - "The configuration uses {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#TemporalModel.number_layers:words}} bidirectional GRU layer of {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#TemporalModel.hidden_size}} units."
       - "With a mask, the frame vectors are packed by sequence length, so the GRU stops at the last real frame of every sequence and never reads the padding."
-      - "The sequence vector is the final state of the last layer in both directions, concatenated: 256 features."
+      - "The sequence vector is the final state of the last layer in both directions, concatenated: {{sequence_classification.run.sequence_features}} features."
       - "The labeller takes the outputs of every frame instead; and the dropout rate of the module only acts between stacked layers, so with a single layer, as here, it does nothing."
 
   - kind: html
@@ -120,11 +128,11 @@ scenes:
     title: "Padding changes nothing"
     code_reference: "vision_training/models/sequence/sequence_model.py · SequenceFrameModel.compute_class_outputs"
     elements:
-      - {type: text, position: [60, 22], text: "4 test sequences cut to 3, 5, 7 and 8 frames, padded together: their class probabilities", font: diagram_bold}
-      - {type: grid, box: [340, 130, 1100, 530], values: "{{sequence_classification.invariance.padded_probabilities}}", show_values: true, decimals: 3, minimum: 0.0, maximum: 1.0, row_labels: ["3 frames", "5 frames", "7 frames", "8 frames"], column_labels: ["moving_left", "moving_right", "moving_up", "moving_down"], font: diagram_monospace_small}
+      - {type: text, position: [60, 22], text: "{{sequence_classification.invariance.sequence_count}} test sequences cut to {{sequence_classification.invariance.lengths[0]}}, {{sequence_classification.invariance.lengths[1]}}, {{sequence_classification.invariance.lengths[2]}} and {{sequence_classification.invariance.lengths[3]}} frames, padded together: their class probabilities", font: diagram_bold}
+      - {type: grid, box: [340, 130, 1100, 530], values: "{{sequence_classification.invariance.padded_probabilities}}", show_values: true, decimals: 3, minimum: 0.0, maximum: 1.0, row_labels: "{{sequence_classification.invariance.row_labels}}", column_labels: ["moving_left", "moving_right", "moving_up", "moving_down"], font: diagram_monospace_small}
       - {type: box, box: [1200, 200, 1700, 460], text: "the same sequences alone,\nwithout mask\n\nlargest difference\n{{sequence_classification.invariance.maximum_difference:.1e}}", font: diagram_text, outline: aqua, appear: 1, highlight: [1]}
     narration:
-      - "The test: four test sequences cut to three, five, seven and eight frames, padded together in one batch with their mask, then run alone without mask."
+      - "The test: {{sequence_classification.invariance.sequence_count:words}} test sequences cut to {{sequence_classification.invariance.lengths[0]:words}}, {{sequence_classification.invariance.lengths[1]:words}}, {{sequence_classification.invariance.lengths[2]:words}} and {{sequence_classification.invariance.lengths[3]:words}} frames, padded together in one batch with their mask, then run alone without mask."
       - "On the CPU, their probabilities differ by less than one in {{sequence_classification.invariance.inverse_bound:,}}: the padding changes nothing."
 
   - kind: html
@@ -132,19 +140,21 @@ scenes:
     title: "The head and the weights"
     code_reference: "vision_training/models/classification/classification_head.py · ClassificationHead"
     elements:
-      - {type: box, box: [20, 40, 300, 160], text: "frame vectors\n[16, T, 4096]", font: diagram_small, outline: blue}
+      - {type: box, box: [20, 40, 300, 160], text: "frame vectors\n[{{sequence_classification.run.batch_size}}, T, {{sequence_classification.parameters.flatten_128.frame_features}}]", font: diagram_small, outline: blue}
       - {type: arrow, points: [[300, 100], [350, 100]]}
-      - {type: box, box: [350, 40, 690, 160], text: "GRU, bidirectional\n4096 → 2 × 128", font: diagram_small, outline: aqua}
+      - {type: box, box: [350, 40, 690, 160], text: "GRU, bidirectional\n{{sequence_classification.parameters.flatten_128.frame_features}} → 2 × {{sequence_classification.run.hidden_size}}", font: diagram_small, outline: aqua}
       - {type: arrow, points: [[690, 100], [740, 100]]}
-      - {type: box, box: [740, 40, 1360, 160], text: "Dropout 0.2 · Linear 256 → 64 · ReLU\nDropout 0.2 · Linear 64 → 4", font: diagram_small, outline: violet, highlight: [0]}
+      - {type: box, box: [740, 40, 1360, 160], text: "Dropout {{sequence_classification.run.head_dropout}} · Linear {{sequence_classification.run.sequence_features}} → {{sequence_classification.run.head_hidden_units}} · ReLU\nDropout {{sequence_classification.run.head_dropout}} · Linear {{sequence_classification.run.head_hidden_units}} → {{sequence_classification.run.number_classes}}", font: diagram_small, outline: violet, highlight: [0]}
       - {type: arrow, points: [[1360, 100], [1410, 100]]}
-      - {type: box, box: [1410, 40, 1740, 160], text: "softmax\nclass probabilities [16, 4]", font: diagram_small, outline: violet}
+      - {type: box, box: [1410, 40, 1740, 160], text: "softmax\nclass probabilities [{{sequence_classification.run.batch_size}}, {{sequence_classification.run.number_classes}}]", font: diagram_small, outline: violet}
       - {type: text, position: [60, 230], text: "Parameters, bar length on a log scale", font: diagram_bold, appear: 1}
-      - {type: bars, box: [60, 290, 1700, 690], orientation: horizontal, label_width: 420, value_width: 200, values: ["{{sequence_classification.parameters.flatten_128.backbone_log10}}", "{{sequence_classification.parameters.flatten_128.temporal_module_log10}}", "{{sequence_classification.parameters.flatten_128.classification_head_log10}}", "{{sequence_classification.parameters.average_512.temporal_module_log10}}", "{{sequence_classification.parameters.flatten_512.temporal_module_log10}}"], labels: ["backbone", "GRU, flatten at 128 px", "head", "GRU, average at 512 px", "GRU, flatten at 512 px"], value_labels: ["{{sequence_classification.parameters.flatten_128.backbone:,}}", "{{sequence_classification.parameters.flatten_128.temporal_module:,}}", "{{sequence_classification.parameters.flatten_128.classification_head:,}}", "{{sequence_classification.parameters.average_512.temporal_module:,}}", "{{sequence_classification.parameters.flatten_512.temporal_module:,}}"], colours: [blue, aqua, violet, yellow, magenta], maximum: 8.0, appear: 1}
+      - {type: bars, box: [60, 290, 1700, 690], orientation: horizontal, label_width: 420, value_width: 200, values: ["{{sequence_classification.parameters.flatten_128.backbone_log10}}", "{{sequence_classification.parameters.flatten_128.temporal_module_log10}}", "{{sequence_classification.parameters.flatten_128.classification_head_log10}}", "{{sequence_classification.parameters.average_512.temporal_module_log10}}", "{{sequence_classification.parameters.flatten_512.temporal_module_log10}}"], labels: ["backbone", "GRU, flatten at {{sequence_classification.image_sizes.flatten_128}} px", "head", "GRU, average at {{sequence_classification.image_sizes.average_512}} px", "GRU, flatten at {{sequence_classification.image_sizes.flatten_512}} px"], value_labels: ["{{sequence_classification.parameters.flatten_128.backbone:,}}", "{{sequence_classification.parameters.flatten_128.temporal_module:,}}", "{{sequence_classification.parameters.flatten_128.classification_head:,}}", "{{sequence_classification.parameters.average_512.temporal_module:,}}", "{{sequence_classification.parameters.flatten_512.temporal_module:,}}"], colours: [blue, aqua, violet, yellow, magenta], maximum: 8.0, appear: 1}
+    # The two directions of the bidirectional GRU
+    literal_numbers: ["2"]
     narration:
-      - "The head is the one of the image classifier: dropout, a hidden layer of 64 units with its ReLU, dropout again, and four logits read with a softmax, the output mode being multi-class."
+      - "The head is the one of the image classifier: dropout, a hidden layer of {{sequence_classification.run.head_hidden_units}} units with its ReLU, dropout again, and {{sequence_classification.run.number_classes:words}} logits read with a softmax, the output mode being multi-class."
       - "The flattened frames make the GRU the largest part: {{sequence_classification.parameters.flatten_128.temporal_module_millions}} million of the {{sequence_classification.parameters.flatten_128.total_millions}} million weights, against {{sequence_classification.parameters.flatten_128.backbone:,}} for the backbone."
-      - "The same GRU has {{sequence_classification.parameters.average_512.temporal_module:,}} weights on the 64 features of average pooling, and {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million on the 65,536 of flatten at 512 pixels."
+      - "The same GRU has {{sequence_classification.parameters.average_512.temporal_module:,}} weights on the {{sequence_classification.parameters.average_512.frame_features}} features of average pooling, and {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million on the {{sequence_classification.parameters.flatten_512.frame_features:,}} of flatten at {{sequence_classification.image_sizes.flatten_512}} pixels."
 
   - kind: html
     page: diagram
@@ -153,15 +163,15 @@ scenes:
     elements:
       - {type: text, position: [150, 110], font: code_text, segments: [{text: "M2O", colour: dim}, {text: "_", colour: dim}, {text: "IN-KAR-128", colour: dim}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", colour: dim}, {text: "_", colour: dim}, {text: "T50", highlight: [0]}, {text: "_", colour: dim}, {text: "GRU1x128-BI", highlight: [0]}, {text: "_", colour: dim}, {text: "HFLAT.64", highlight: [1]}, {text: "_", colour: dim}, {text: "MC4", highlight: [1]}]}
       - {type: arrow, points: [[960, 130], [560, 250]], appear: 0}
-      - {type: box, box: [300, 255, 820, 425], text: "T50\n\nmaximum_sequence_length 50", font: diagram_small, outline: aqua, appear: 0, highlight: [0]}
+      - {type: box, box: [300, 255, 820, 425], text: "T50\n\nmaximum_sequence_length {{sequence_classification.run.maximum_sequence_length}}", font: diagram_small, outline: aqua, appear: 0, highlight: [0]}
       - {type: arrow, points: [[1100, 130], [1110, 250]], appear: 0}
-      - {type: box, box: [860, 255, 1380, 425], text: "GRU1x128-BI\n\ntype gru, number_layers 1,\nhidden_size 128, bidirectional", font: diagram_small, outline: aqua, appear: 0, highlight: [0]}
+      - {type: box, box: [860, 255, 1380, 425], text: "GRU1x128-BI\n\ntype gru, number_layers {{sequence_classification.run.number_layers}},\nhidden_size {{sequence_classification.run.hidden_size}}, bidirectional", font: diagram_small, outline: aqua, appear: 0, highlight: [0]}
       - {type: arrow, points: [[1290, 130], [1530, 250]], appear: 1}
-      - {type: box, box: [1420, 255, 1740, 425], text: "HFLAT.64 · MC4\n\nflatten, hidden layer 64,\n4 classes", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [1420, 255, 1740, 425], text: "HFLAT.64 · MC4\n\nflatten, hidden layer {{sequence_classification.run.head_hidden_units}},\n{{sequence_classification.run.number_classes}} classes", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: box, box: [300, 520, 1740, 650], text: "No token: TemporalModel.dropout_rate, the augmentation, the learning rate", font: diagram_text, outline: yellow, appear: 1}
     narration:
-      - "The run name adds two sequence tokens between the backbone and the head: T50 for the maximum length, and the GRU token for one bidirectional GRU layer of 128 units."
-      - "HFLAT.64 is the flatten pooling with its hidden layer of 64 units, and MC4 the four classes; the temporal dropout has no token, so it may change when a run resumes."
+      - "The run name adds its sequence tokens between the backbone and the head: T50 for the maximum length, and the GRU token for {{sequence_classification.run.number_layers:words}} bidirectional GRU layer of {{sequence_classification.run.hidden_size}} units."
+      - "HFLAT.64 is the flatten pooling with its hidden layer of {{sequence_classification.run.head_hidden_units}} units, and MC4 the {{sequence_classification.run.number_classes:words}} classes; the temporal dropout has no token, so it may change when a run resumes."
 
   - kind: summary
     title: "Recap"
@@ -170,8 +180,10 @@ scenes:
       - {text: "Padding frames: never encoded, zero vectors"}
       - {text: "average and max pooling remove where the shape is"}
       - {text: "flatten: channels x height x width, follows the image size"}
-      - {text: "Seven temporal modules, every one masking the padding"}
-      - {text: "GRU on packed sequences: final states, 2 x 128"}
+      - {text: "The {{sequence_classification.temporal.types:words}} temporal modules all mask the padding"}
+      - {text: "GRU on packed sequences: final states, 2 x {{sequence_classification.run.hidden_size}}"}
+    # The zero vectors of the padding frames (new_zeros of encode_frames) and the two directions of the GRU
+    literal_numbers: [zero, "2"]
     narration:
       - "To recap: only the real frames reach the backbone, every temporal module ignores the padding, and the pooling decides whether the frame vectors still hold the position of the shape."
       - "The third chapter trains this configuration, reads its evaluation against the average pooling run, and exports the model."

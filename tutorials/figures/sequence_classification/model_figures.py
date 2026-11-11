@@ -27,6 +27,7 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
                                                                                  load_sequence_model)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences, read_sequence_frames
+from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
 from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.task_model import TaskModel
@@ -213,6 +214,33 @@ def draw_truncation_figure(output_path: Path, facts: Dict[str, Any]) -> Dict[str
     return {"truncation.panel_box": box}
 
 
+def describe_export_input(model: TaskModel, task: str) -> Dict[str, Any]:
+    """
+    Gives the input and output of the export of the main run, read from get_export_specification of the deployment
+    code on its inference model, for the export scene: the input shape with its batch and frame dimensions, the
+    shapes of the batches the export is traced and checked on, the most frames of a request and the classes out.
+
+    Args:
+        model (TaskModel): The trained flatten run at 128 pixels, on the CPU.
+        task (str): The task of the run.
+
+    Returns:
+        Dict[str, Any]: The facts, named export.*.
+    """
+    specification = get_export_specification(task=task, inference_model=build_inference_model(task=task, model=model))
+    input_specification = specification["inputs"][0]
+
+    # The dimensions of an input start with its number of frames (-1, dynamic), written T after the batch B
+    frame_dimensions = [str(size) for size in input_specification["dimensions"][1:]]
+    return {"export.input_shape": "[" + ", ".join(["B", "T"] + frame_dimensions) + "]",
+            "export.example_shape": str(input_specification["example_shape"]),
+            "export.check_shape": str(input_specification["check_shape"]),
+            "export.maximum_frames": input_specification["maximum_frames"],
+            "export.traced_frames": input_specification["example_shape"][1],
+            "export.checked_frames": input_specification["check_shape"][1],
+            "export.output_classes": specification["outputs"][0]["dimensions"][-1]}
+
+
 def make_model_figures(output_folder: Path, flatten_model: TaskModel, run_folders: Dict[str, Path],
                        checkpoint_iterations: Dict[str, int], test_folder: Path, label_dictionary: Dict[int, int],
                        force: bool) -> Dict[str, Any]:
@@ -250,6 +278,15 @@ def make_model_figures(output_folder: Path, flatten_model: TaskModel, run_folder
         facts["similarity.sequence"] = flatten_split["names"][SIMILARITY_SEQUENCE_INDEX]
         facts.update(draw_truncation_figure(output_path=truncation_path, facts=facts))
         write_reused_facts(facts_path=facts_path, figure_paths=[truncation_path], facts=facts)
+
+    # Frames of the compared sequence and the lengths of the invariance and truncation tests, with the labels of
+    # their grids, kept out of the reused facts so that they follow the facts and constants of this module
+    frame_count = len(facts["similarity.flatten.values"])
+    facts.update({"similarity.frames": frame_count,
+                  "similarity.frame_labels": [str(frame_index) for frame_index in range(frame_count)],
+                  "invariance.sequence_count": len(facts["invariance.lengths"]),
+                  "invariance.row_labels": [f"{length} frames" for length in facts["invariance.lengths"]],
+                  "truncation.lengths": TRUNCATION_LENGTHS})
 
     # Parameters of every component of the three runs, and the size of their last checkpoint
     for run_name, run_folder in run_folders.items():
