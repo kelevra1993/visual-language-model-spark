@@ -163,11 +163,11 @@ scenes:
     highlights:
       - {match: "maximum_error_images_per_class_pair = ", sentences: [0, 1]}
       - {match: "error_dumps", sentences: [1]}
-      - {match: "^    target_precisions = ", sentences: [2]}
+      - {match: "^    target_precisions = |^    nms_criterion = |^    nms_distance_exponent = ", sentences: [2]}
     narration:
       - "The evaluate checkpoint script scores the checkpoints of a run again, its settings in its main block, as the foundations series showed."
       - "Say you leave the maximum number of error images per pair of classes as it is: a self-supervised configuration has no error dumps section, so the script skips that limit with a yellow warning and evaluates the run without error images."
-      - "Target precisions, when set, is skipped the same way, a self-supervised run having no class thresholds."
+      - "Target precisions and the non-maximum suppression settings, when set, are skipped the same way, a self-supervised run having neither class thresholds nor a detector."
 
   - kind: html
     page: diagram
