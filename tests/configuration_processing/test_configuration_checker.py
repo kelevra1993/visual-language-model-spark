@@ -1668,6 +1668,17 @@ def set_invalid_grouped_batches(configuration: Dict[str, Any]) -> None:
                                                      "images_per_block": 3})
 
 
+def set_invalid_reference_images(configuration: Dict[str, Any]) -> None:
+    """
+    Asks for no reference training image per class in the k-nearest neighbour evaluation, which would leave the
+    labelled test images without neighbours.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["number_reference_images_per_class"] = 0
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_projection_head, ["'ProjectionHead.global_pooling' must be one of ['average', 'max', 'flatten'], "
                                    "got 'median'.",
@@ -1681,13 +1692,15 @@ def set_invalid_grouped_batches(configuration: Dict[str, Any]) -> None:
                                    "'Data.grouped_batches.batch_key' must be null or a non-empty string, got ''.",
                                    "'Data.grouped_batches.images_per_block' (3) must divide "
                                    "'ExperimentConfiguration.batch_size' (128) when the grouped batches are on: a "
-                                   "batch holds a whole number of blocks."])])
+                                   "batch holds a whole number of blocks."]),
+    (set_invalid_reference_images, ["'ExperimentConfiguration.evaluation.number_reference_images_per_class' must be "
+                                    "an integer >= 1, got 0."])])
 def test_inconsistent_self_supervised_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                                 expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the self-supervised sections (projection head, grouped batches) stops the
-    loading with a short message naming the faulty key.
+    Verifies that every inconsistency of the self-supervised sections (projection head, grouped batches, reference
+    images of the k-NN evaluation) stops the loading with a short message naming the faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

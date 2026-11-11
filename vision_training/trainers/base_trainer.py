@@ -1458,9 +1458,21 @@ class BaseTrainer(ABC):
             finally:
                 self.finish_experiment_tracking(run_status=run_status)
 
+    def list_dataloaders(self) -> List[Iterable]:
+        """
+        Lists the loaders whose worker processes are stopped at the end of the training (shutdown_loader_workers): the
+        training, validation and test loaders, to which a task adds its own (the reference images of the k-nearest
+        neighbour evaluation of the self-supervised task).
+
+        Returns:
+            List[Iterable]: The loaders of the trainer.
+        """
+        return [self.train_dataloader, self.validation_dataloader, self.test_dataloader]
+
     def shutdown_loader_workers(self) -> None:
         """
-        Stops the worker processes of the training, validation and test loaders once the training ends
+        Stops the worker processes of the training, validation and test loaders, and of the other loaders of the task
+        (list_dataloaders), once the training ends
         (run_training_loop), whatever ended it, so that they free their memory at once instead of at the end of the
         process. The workers are kept alive between the passes and evaluations of the training (persistent_workers of
         build_native_loader). Left to the garbage collection of the trainer, the queues of a loader may be freed before
@@ -1468,7 +1480,7 @@ class BaseTrainer(ABC):
         seconds) before being terminated: 30 seconds for the 6 workers of a trainer, in a process running several
         trainings such as the tests. A loader iterated again afterwards starts new workers.
         """
-        for dataloader in [self.train_dataloader, self.validation_dataloader, self.test_dataloader]:
+        for dataloader in self.list_dataloaders():
             # Only a DataLoader has workers, the loaders of a task being any iterable of batches (build_dataloaders)
             if not isinstance(dataloader, DataLoader):
                 continue

@@ -38,8 +38,11 @@ ExperimentConfiguration:
     # cosine similarity, in Evaluation/Iteration_<n>/Samples/ and TensorBoard, spread over the classes. 0 disables.
     number_sample_images: 8
     # Nearest neighbours voting for the class of a labelled test image in the k-NN evaluation, each weighted by
-    # exp(cosine similarity / 0.07); a positive integer, reduced to the labelled test images minus 1 for smaller splits.
+    # exp(cosine similarity / 0.07); a positive integer, reduced to the number of reference images when larger.
     number_neighbours: 20
+    # Reference images of the k-NN per class: the labelled training images of smallest file name MD5 hash, the same at
+    # every evaluation, encoded with the evaluated weights; a positive integer bounding the evaluation time and memory.
+    number_reference_images_per_class: 50
   # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
   # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
   tracking:

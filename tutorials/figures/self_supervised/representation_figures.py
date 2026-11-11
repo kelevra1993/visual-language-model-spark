@@ -2,8 +2,9 @@
 Representation figures of the self-supervised series of the tutorial videos (chapters 2 and 3), made by
 tutorials/figures/self_supervised/figures.py from the checkpoints of the SimCLR run rebuilt on the CPU: the
 representations of the first test images encoded by the exported InferenceEncoder at the first and last evaluated
-checkpoints, scored by the leave-one-out k-NN of the repository and its effective rank; the neighbourhood of the star
-of the sample images (its nearest test images by cosine similarity, the weighted vote of its 20 neighbours, and a
+checkpoints, scored by their effective rank; the neighbourhood of the star of the sample images among these test
+images, as the k-NN compared the test images with each other when the run was evaluated (its nearest test images by
+cosine similarity, the weighted vote of its 20 neighbours, and a
 list of its nearest images for the animated page animations/11_self_supervised/knn_vote.html); a mosaic of its
 five nearest images at both checkpoints; the cosine similarities of the embeddings of the two views of four sample
 images, the InfoNCE matrix of chapter 2; the views similarity of the star at every evaluated checkpoint; and the
@@ -32,8 +33,7 @@ from tutorials.figures.self_supervised.ssl_sources import (build_view_augmenter,
 from tutorials.figures.self_supervised.view_figures import VIEW_SAMPLE_NAMES
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.evaluation.self_supervised.representation_metrics import (NEAREST_NEIGHBOUR_TEMPERATURE,
-                                                                               compute_effective_rank,
-                                                                               compute_nearest_neighbour_predictions)
+                                                                               compute_effective_rank)
 from vision_training.losses.self_supervised_losses import compute_info_nce_loss
 from vision_training.models.self_supervised.self_supervised_model import SelfSupervisedModel
 
@@ -375,7 +375,6 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
     augmenter = build_view_augmenter(run_folder=run_folder)
     evaluated_iterations = list_evaluated_iterations(run_folder=run_folder)
     query_index = [sample["path"].name for sample in subset].index(QUERY_NAME)
-    labels = torch.tensor(data=[sample["class_index"] for sample in subset])
     facts = {"knn.subset_size": SUBSET_SIZE, "knn.query_class": subset[query_index]["class_name"].replace("_", " "),
              "knn.number_neighbours": number_neighbours,
              "knn.temperature": NEAREST_NEIGHBOUR_TEMPERATURE}
@@ -392,10 +391,6 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
             continue
         representations = encode_test_images(model=model, samples=subset, image_size=image_size,
                                              keep_ratio=keep_ratio)
-        predictions = compute_nearest_neighbour_predictions(representations=torch.from_numpy(representations),
-                                                            labels=labels, number_neighbours=number_neighbours,
-                                                            number_classes=len(class_names))
-        facts[f"knn.subset_accuracy_{iteration}"] = round_fact(value=float((predictions == labels).float().mean()))
         facts[f"knn.subset_effective_rank_{iteration}"] = round_fact(value=compute_effective_rank(
             representations=torch.from_numpy(representations)))
         neighbourhood = describe_neighbourhood(representations=representations, samples=subset,

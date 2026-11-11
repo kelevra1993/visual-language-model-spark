@@ -1,5 +1,6 @@
-# Self-supervised learning, chapter 3: how a checkpoint is judged without any classifier (the leave-one-out k-NN, with
-# the real neighbourhood of a star of the test split, and the effective rank), the test metrics of the run across its
+# Self-supervised learning, chapter 3: how a checkpoint is judged without any classifier (the k-NN of the test images
+# among reference training images, the real neighbourhood of a star of the test split, and the effective rank), the
+# test metrics of the run across its
 # checkpoints, its sample images and nearest images, Results.txt, the batch normalization pitfall of the first
 # validations, the standalone evaluation, the export of the encoder, the transfer of the backbone and the
 # pitfalls of the task. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top
@@ -36,15 +37,16 @@ scenes:
     source:
       file: vision_training/evaluation/self_supervised/representation_metrics.py
       function: compute_nearest_neighbour_predictions
-      start: "normalized_representations = torch_functional"
+      start: "normalized_queries = torch_functional"
     highlights:
-      - {match: "normalize\\(", sentences: [0]}
-      - {match: "similarities = normalized|float\\(\"-inf\"\\)", sentences: [1]}
-      - {match: "topk|torch.exp", sentences: [1]}
-      - {match: "scatter_add_|argmax", sentences: [2]}
+      - {match: "normalize\\(", sentences: [1]}
+      - {match: "similarities = normalized", sentences: [1]}
+      - {match: "topk|torch.exp", sentences: [2]}
+      - {match: "scatter_add_|argmax", sentences: [3]}
     narration:
       - "Every test image is encoded without views, as in deployment, and the representations of the whole split are kept on the CPU until the end: {{self_supervised.results.test_images:,}} here."
-      - "Every labelled image is compared by cosine similarity with all the others, itself left out, and its {{self_supervised.run.number_neighbours}} nearest neighbours vote for their class, each weighing the exponential of its similarity over {{self_supervised.knn.temperature}}."
+      - "Every labelled test image is then compared by cosine similarity with a fixed sample of labelled training images, encoded by the same weights, never with the other test images."
+      - "Its {{self_supervised.run.number_neighbours}} nearest training images vote for their class, each weighing the exponential of its similarity over {{self_supervised.knn.temperature}}."
       - "The class with the most weight is the prediction, scored like a classifier with the accuracy, the balanced accuracy, the macro F1 and the metrics of every class; no classifier is ever trained."
 
   - kind: html
@@ -64,7 +66,7 @@ scenes:
       - "Its {{self_supervised.run.number_neighbours}} nearest images fall inside the ring, from a similarity of {{self_supervised.knn.query_nearest_similarity_last:.3f}} down to {{self_supervised.knn.query_last_neighbour_similarity_last:.3f}}, and {{self_supervised.knn.query_same_class_neighbours_last}} of them are stars."
       - "So close in similarity, they weigh almost the same, the nearest counting {{self_supervised.knn.weight_ratio:.1f}} times the twentieth, and the vote is close to a count."
       - "The vote goes to {{self_supervised.knn.query_prediction_last}}: after {{self_supervised.run.number_iterations:,}} iterations, the neighbourhoods are still mixed."
-      - "Scored on these {{self_supervised.knn.subset_size:,}} images alone, the accuracy is {{self_supervised.knn.subset_accuracy_last:.3f}}, against {{self_supervised.test.knn_accuracy_last:.3f}} on all {{self_supervised.results.test_images:,}}: a smaller split leaves fewer neighbours to find, so compare checkpoints on the same test split."
+      - "This run was scored when the vote ran among the test images, as drawn here; the evaluation now draws the neighbours from the training images."
 
   - kind: image
     title: "The test metrics of the run"
@@ -214,7 +216,7 @@ scenes:
           - "batch norm running statistics: wait"
           - "a cue both views share: more colour types"
           - "no run name token: run_name_suffix"
-          - "channel changes in 2 layers (H4)"
+          - "channel changes in 2 layers only"
     narration:
       - "To sum up the pitfalls: early checkpoints look collapsed because of the running statistics, and a positive pair accuracy far ahead of the nearest neighbour accuracy means the views share a cue."
       - "Stronger views or larger batches resume the previous run folder unless a suffix is set."
@@ -223,7 +225,7 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "No classifier: a leave-one-out k-NN of the test representations"}
+      - {text: "No classifier: a k-NN of test images among training images"}
       - {text: "20 neighbours, each weighing exp(cosine / 0.07)"}
       - {text: "Effective rank: the label-free collapse watch"}
       - {text: "Sample images: the same two views at every checkpoint"}

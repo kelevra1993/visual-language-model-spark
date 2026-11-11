@@ -382,8 +382,8 @@ Details: [reference](documentation/reference/tasks_reference.md#frame-selection-
 
 ### Self-Supervised Learning (SSL)
 Trains the backbone without labels: two random views of every image (`Data.data_augmentation` at the self-supervised strengths) go through the backbone, the global pooling and a projection head, and the loss pulls the two views of an image together, with SimCLR (InfoNCE) or Barlow Twins (`ProjectionHead.method`). The data has the layout of CLS, its categories only serving the evaluation. `Data.grouped_batches` builds the batches from groups of related images given by the `groups` of every sample, so that their negatives are harder.
-- **Configuration**: `self_supervised/configuration_example.yaml` (Barlow Twins), with `ProjectionHead`, `Data.grouped_batches` and the evaluation key `number_neighbours`.
-- **Evaluation**: without training any classifier, the k-NN accuracy of the labelled test images, the effective rank and the standard deviation of the representations, which fall when they collapse.
+- **Configuration**: `self_supervised/configuration_example.yaml` (Barlow Twins), with `ProjectionHead`, `Data.grouped_batches` and the evaluation keys `number_neighbours` and `number_reference_images_per_class`.
+- **Evaluation**: without training any classifier, the k-NN accuracy of the labelled test images among a fixed sample of labelled training images, the effective rank and the standard deviation of the representations, which fall when they collapse.
 
 A run of any task then loads the backbone with `Backbone.pretrained` ([Transfer Between Runs](#transfer-between-runs)).
 
