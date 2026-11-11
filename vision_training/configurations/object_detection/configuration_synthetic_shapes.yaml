@@ -357,7 +357,7 @@ Detector:
   # https://arxiv.org/abs/1911.08287), compared with nms_iou_threshold.
   nms_criterion: "distance_iou"
   # Exponent of the distance term of "distance_iou": 1.0 as in the paper, 0.6 in YOLOv4 (more boxes kept), kept
-  # by stage 5b of the detection benchmark (documentation/detection_nms_design.md).
+  # by stage 5b of the detection benchmark (+0.0034 mAP@[0.5:0.95] on its occlusion split).
   nms_distance_exponent: 0.6
   # Most positive proposals sampled per image; the ground truth boxes fill its last proposal slots first, so every
   # object has a positive to sample.

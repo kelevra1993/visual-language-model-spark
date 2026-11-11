@@ -237,7 +237,7 @@ def test_classifier_exports_divide_the_logits_by_the_logit_temperature(tmp_path:
 def test_detector_exports_keep_the_distance_nms(tmp_path: Path) -> None:
     """
     Verifies the TorchScript and ONNX exports of the inference detector whose final NMS is DIoU-NMS
-    ('Detector.nms_criterion' "distance_iou" with the exponent 0.6, documentation/detection_nms_design.md, Part B):
+    ('Detector.nms_criterion' "distance_iou" with the exponent 0.6, suppress_every_pair_by_distance):
     both reproduce the detections of the eager inference detector on a batch of another size than the traced one, and
     these detections differ from those of the greedy NMS on the same weights, so that the exported graphs run DIoU-NMS.
 

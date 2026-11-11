@@ -111,6 +111,10 @@
      would be added without upsampling, or only one of them kept.
    - What matters most for the masks is a finer level, such as block 3 or 4 (stride 8 or 16) at 1024 pixels, which
      gets the context of the deeper blocks through the top-down path (item 5).
+   - **A transferable neck (left out):** heads trained after a neck are refused by `compare_detection_heads`, the neck
+     not being transferable; a `Neck.pretrained` block would need entries in `TRANSFERABLE_COMPONENTS` (appended
+     last, its order setting the optimizer groups), `PRETRAINED_COMPONENT_NAMES`, `PRETRAINED_TOKEN_PREFIXES` and
+     `COMPONENT_NAMES`.
 2. **Choosing the detection level by box size** (the FPN rule `k = k₀ + log₂(√(wh)/224)`), instead of the level of
    the anchor the proposal came from.
    - **Mask R-CNN** uses `k = 4 + round(log2(√(wh) / 224))`, clamped to [2, 5], with w and h in network input pixels
@@ -127,8 +131,8 @@
    not suppress the proposals of the others (audit M3). Mask R-CNN does not do this either: it runs one top-k and one
    NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level) are
    the reference.
-36. **A box loss on the overlap (CIoU), implemented, off in every configuration, stage 5 left to run**
-    (`Detector.box_loss`: `"complete_iou"`), scheduled in `object_detection_experiment_plan.md`:
+36. **A box loss on the overlap (CIoU), implemented, below the smooth L1 at stage 5, off in every configuration**
+    (`Detector.box_loss`: `"complete_iou"`), stage 5 of `object_detection_experiment_plan.md`:
     - **Why:** the smooth L1 on the offsets gives the same loss to predictions of very different overlap and shrinks
       with the size of the boxes, while 1 - IoU is flat for every box that does not overlap. GIoU adds the empty area of
       the smallest enclosing box, but falls back to the IoU when one box contains the other; DIoU adds the squared
@@ -141,11 +145,15 @@
       and take 1 - CIoU against their target boxes, for both stages, the smooth L1 staying the other value of the
       setting during the stage.
     - **Implemented (2026-11-08):** `compute_complete_iou_loss` of `detection_losses.py`, checked against the CIoU
-      papers, their official Faster R-CNN code, darknet, torchvision and mmdetection (`detection_box_loss_design.md`):
+      papers, their official Faster R-CNN code, darknet, torchvision and mmdetection:
       boxes in image pixels, alpha 0 below an IoU of 0.5 (journal Eq. 10) and constant in the gradient, one setting
       per stage. The published Faster R-CNN applies it to the detection heads only, with a loss weight of 12; for
       stage 5 the user chose a weight of about 6 on 2026-11-09 (that balance under the normalization here), the
       stages left open.
+    - **Stage 5 (2026-11-10):** 0.7988 Test_EMA mAP@[0.5:0.95] in both stages (run_15 and run_16) and 0.7974 on
+      the detection heads only (run_17 and run_18), both at the weight 1, against 0.8079 for the smooth L1 (run_9
+      and run_10); run_13 and run_14, both stages at the weight 6, stalled (0.0008 and 0 at 500) and were stopped
+      before 1000. The smooth L1 stays the reference of the later stages.
     - **One option (2026-11-10):** stage 5 trained the loss in both stages and on the detection heads only, and the
       user kept the detection heads only (`Detector.box_loss`, off by default), so that the repository has a single
       CIoU setting: `RegionProposal.box_loss` was removed, the region proposal network always using the smooth L1.
@@ -163,7 +171,7 @@
       resolution at 1024 pixels, so they are merged without resampling. The neck changes the run name, the export and
       the transfer of pretrained components.
     - **Checked (2026-11-08):** the neck is the bottom-up path of the released PANet model (`lib/modeling/FPN.py`),
-      batch normalization standing for group normalization (`detection_neck_design.md`, Path Aggregation Design);
+      batch normalization standing for group normalization;
       adaptive feature pooling, the concatenation of YOLOv4 and the weighted fusion of EfficientDet are left for later
       stages.
     - **Stage 4 (2026-11-09):** 0.8038 Test_EMA mAP@[0.5:0.95] against 0.8079 for the feature pyramid (run_9 and
@@ -184,11 +192,11 @@
       the greedy NMS at 0.5: the synthetic benchmark can show the absence of harm, not the gain on occlusions.
     - **Change:** an exact batched DIoU-NMS (the Cluster-NMS form of the journal version) for the final detections,
       with the exponent of the distance term 1.0 (0.6 in YOLOv4), the region proposals keeping the greedy NMS.
-    - **Designed (2026-11-08):** `detection_nms_design.md`, from the AAAI and journal papers, the authors' Faster
+    - **Designed (2026-11-08):** from the AAAI and journal papers, the authors' Faster
       R-CNN, darknet and YOLACT code, the darknet of YOLOv4, torchvision and mmcv, with a prototype giving the boxes
       of a greedy loop written from the authors' code; stage 5b evaluates the checkpoints kept by stage 5, without
       training, on test_10000 and on an occlusion test split added by the user (overlaps up to 0.6).
-    - **Implemented (2026-11-08):** Part A of the design, `batched_distance_nms` in `postprocessing.py`, the two
+    - **Implemented (2026-11-08):** the evaluation path, `batched_distance_nms` in `postprocessing.py`, the two
       settings checked and added to the saved runs by the converter, `evaluate_checkpoint.py` evaluating another NMS
       in a folder of its own, and the overlap cap of the generator as an argument. At the threshold 0.5 the distance
       term keeps apart only pairs below an IoU of 0.5505 (exponent 1.0) or 0.6314 (0.6), and random placements with
@@ -201,7 +209,7 @@
     - **Stage 5b (2026-11-10):** on the occlusion split, the exponent 0.6 raises the Test_EMA mAP@[0.5:0.95] of the
       reference pair run_9 and run_10 from 0.5649 to 0.5683 (+0.0034, each launch gaining) and 1.0 to 0.5656, with
       test_10000 unchanged (0.8079, 0.8078 with 0.6); the CIoU pair gains the same. The user chose 0.6.
-    - **Exported (2026-11-10):** Part B of the design, `suppress_every_pair_by_distance` in `postprocessing.py`, the
+    - **Exported (2026-11-10):** the export path, `suppress_every_pair_by_distance` in `postprocessing.py`, the
       exact DIoU-NMS on every pair with static shapes, so that the `InferenceDetector`, its TorchScript and ONNX
       exports and the instance segmenter run the NMS of their configuration; the instance segmentation
       configurations keep the greedy NMS, no stage having measured DIoU-NMS on masks.

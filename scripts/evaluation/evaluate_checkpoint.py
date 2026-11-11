@@ -118,7 +118,7 @@ def apply_nms_criterion(model_configuration: Dict[str, Any], task: str, nms_crit
     """
     Replaces the criterion and the distance exponent of the final non-maximum suppression of the evaluated checkpoints
     of a detection or instance segmentation run, e.g. "distance_iou" with 1.0, then 0.6, to compare DIoU-NMS with the
-    greedy NMS of the run at stage 5b of the detection benchmark (documentation/detection_nms_design.md) without
+    greedy NMS of the run at stage 5b of the detection benchmark without
     training again, the final NMS changing no trained weight. The tasks without a 'Detector' section are evaluated
     without it, a warning telling that it was skipped.
 
