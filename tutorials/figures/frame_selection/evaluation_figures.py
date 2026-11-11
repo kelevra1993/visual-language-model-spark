@@ -111,7 +111,7 @@ def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any
         output_path (Path): The PNG file.
 
     Returns:
-        Dict[str, Any]: The facts, named thresholds.*.
+        Dict[str, Any]: The facts, named thresholds.*, with the iterations of the panels.
     """
     register_fonts()
     figure, panel_axes = pyplot.subplots(nrows=1, ncols=len(THRESHOLD_ITERATIONS), figsize=(
@@ -134,6 +134,9 @@ def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any
         facts[f"thresholds.iteration_{iteration}_panel_box"] = compute_pixel_box(figure=figure, axes=axes,
                                                                                  with_labels=True, margin=0)
         facts["thresholds.target_precision"] = thresholds["target_precision"]
+
+    # Iterations of the panels, left to right, quoted by the narration instead of typed numbers
+    facts["thresholds.iterations"] = THRESHOLD_ITERATIONS
     save_figure(figure=figure, output_path=output_path)
     pyplot.close(fig=figure)
     return facts
@@ -156,6 +159,7 @@ def make_evaluation_figures(output_folder: Path, run_folder: Path) -> Dict[str, 
     facts = draw_thresholds_figure(run_folder=run_folder, output_path=output_folder / "evaluation" /
                                    "thresholds.png")
     facts.update({"evaluation.listed_iteration": LISTED_ITERATION,
+                  "evaluation.last_iteration": THRESHOLD_ITERATIONS[-1],
                   "evaluation.results_listing_lines": len(block_lines)})
     facts.update(parse_block_metrics(block_lines=block_lines, fact_prefix="evaluation"))
     facts.update(parse_block_metrics(block_lines=read_results_block(results_path=run_folder / "Results.txt",

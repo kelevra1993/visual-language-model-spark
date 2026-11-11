@@ -54,7 +54,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     checkpoint_iterations = {run_name: get_last_checkpoint_iteration(weights_directory=run_folder / "Weights")
                              for run_name, run_folder in run_folders.items()}
 
-    # Settings of the main run: its splits, batch size, frame size and classes
+    # Settings of the main run: its splits, batch size, frame size, classes and sample sequences per evaluation
     run_configuration = read_run_configuration(run_folder=run_folders["flatten_128"])
     experiment_configuration = run_configuration["ExperimentConfiguration"]
     _, model_configuration = load_experiment_configuration(
@@ -64,7 +64,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     flatten_model = load_sequence_model(run_folder=run_folders["flatten_128"],
                                         iteration=checkpoint_iterations["flatten_128"])
     facts = {"run.name": run_folders["flatten_128"].name, "run.batch_size": experiment_configuration["batch_size"],
-             "run.image_size": image_size, "run.number_iterations": checkpoint_iterations["flatten_128"]}
+             "run.image_size": image_size, "run.number_iterations": checkpoint_iterations["flatten_128"],
+             "run.number_sample_images": experiment_configuration["evaluation"]["number_sample_images"]}
     return add_number_words(facts=merge_facts(fact_groups=[
         facts,
         make_dataset_figures(output_folder=output_folder,

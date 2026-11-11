@@ -103,7 +103,7 @@ scenes:
       - {box: "{{sequence_classification.samples.row_0_image_0_box}}", sentences: [1]}
       - {box: "{{sequence_classification.samples.row_0_image_1_box}}", sentences: [1]}
     narration:
-      - "Every evaluation draws its eight fixed test sequences as grids of their real frames, under the true class, the predicted one and its probability, in green when right and in red when wrong."
+      - "Every evaluation draws its {{sequence_classification.run.number_sample_images_words}} fixed test sequences as grids of their real frames, under the true class, the predicted one and its probability, in green when right and in red when wrong."
       - "Here the same {{sequence_classification.samples.flatten_128.true_class}} sequence: right at {{sequence_classification.samples.flatten_128.probability:.3f}} with flatten, given {{sequence_classification.samples.average_512.predicted_class}} at {{sequence_classification.samples.average_512.probability:.2f}} with average pooling."
 
   - kind: image
@@ -112,8 +112,8 @@ scenes:
     highlights:
       - {box: "{{sequence_classification.truncation.panel_box}}", sentences: [0]}
     narration:
-      - "The run only ever saw sequences of eight frames: on the first frames of the test sequences, which show less of the movement, its checkpoint reaches an accuracy of {{sequence_classification.truncation.frames_2.accuracy:.2f}} with two frames, {{sequence_classification.truncation.frames_4.accuracy:.2f}} with 4, and {{sequence_classification.truncation.frames_8.accuracy:.2f}} with all 8."
-      - "Let's consider a deployment that sends shorter sequences: the model accepts any length, but what it learnt comes from sequences of eight frames, so check those lengths against the training data."
+      - "The run only ever saw sequences of {{sequence_classification.dataset.disk_frames_words}} frames: on the first frames of the test sequences, which show less of the movement, its checkpoint reaches an accuracy of {{sequence_classification.truncation.frames_2.accuracy:.2f}} with two frames, {{sequence_classification.truncation.frames_4.accuracy:.2f}} with 4, and {{sequence_classification.truncation.frames_8.accuracy:.2f}} with all 8."
+      - "Let's consider a deployment that sends shorter sequences: the model accepts any length, but what it learnt comes from sequences of {{sequence_classification.dataset.disk_frames_words}} frames, so check those lengths against the training data."
 
   - kind: html
     page: diagram
@@ -150,7 +150,7 @@ scenes:
     narration:
       - "The pitfalls of the task: average or max pooling leaves motion classes at chance, and nothing warns about it but a loss stuck at the natural log of four."
       - "Flatten follows the image size: at 512 pixels its GRU grows to {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million weights and its checkpoint to {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} megabytes, against {{sequence_classification.checkpoints.flatten_128.megabytes:.0f}} at 128 pixels, and it did not learn in 500 iterations."
-      - "The data set on this machine only holds sequences of eight frames, so the README runs never padded a batch, and a data set from the current generator gives longer and slower batches."
+      - "The data set on this machine only holds sequences of {{sequence_classification.dataset.disk_frames_words}} frames, so the README runs never padded a batch, and a data set from the current generator gives longer and slower batches."
       - "The temporal dropout does nothing with one GRU layer, shuffled frames with an ordered module only print a warning, and the iterations per epoch are counted before the label mapping."
 
   - kind: summary
