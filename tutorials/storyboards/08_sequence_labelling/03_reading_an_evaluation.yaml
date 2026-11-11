@@ -1,10 +1,10 @@
 # Sequence labelling, chapter 3: the evaluation of the README run read file by file (Results.txt, predictions.csv, the
 # sample images, class_thresholds.json), which shows a degenerate solution predicting no_change on every frame; the
 # segment metrics on the example of documentation/reference/tasks_reference.md and on the run; how to recognize such a
-# run; the launches of the experiment plan on the same data; the pitfalls and the export. Coordinates of the html
-# scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures named
-# figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling, the sample image is read from the
-# run folder.
+# run; the experiment plan on the same data and the settings it kept, shown in configuration_example.yaml; the
+# pitfalls and the export. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its
+# top left corner); the figures named figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling,
+# the sample image is read from the run folder.
 series: sequence_labelling
 series_title: "Sequence Labelling (M2M)"
 chapter: 3
@@ -28,7 +28,7 @@ scenes:
     footnote: "Sequence Labelling (M2M) · chapter 3"
     narration:
       - "This chapter reads the evaluation of the README run, which looks acceptable at first sight and is a degenerate solution."
-      - "It shows how to recognize one from the evaluation files, what the segment metrics add, how the launches on real settings avoid it, and the pitfalls and export of the task."
+      - "It shows how to recognize one from the evaluation files, what the segment metrics add, how the settings kept by the experiment plan avoid it, and the pitfalls and export of the task."
 
   - kind: html
     page: diagram
@@ -189,25 +189,27 @@ scenes:
       - "Faced with a run of your own, read the balanced accuracy, the macro F1 and the segment metrics first, and compute the prior of your data before trusting a loss curve."
       - "The suggestions file lists this run as left to redo, with a longer training and another learning rate."
 
+  # The benchmark was trained once and is not trained again: the plan holds its scores, and the configuration example
+  # the settings it kept, so the scene reads no run folder and the narration quotes no score
   - kind: yaml
-    title: "The launches of the experiment plan"
+    title: "What the experiment plan kept"
     code_reference: "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
-    # Settings of run_1 of the plan, read from its run folder (sequence_labelling_plan_launch of tutorial_sources.yaml)
-    file_label: "hyperparameter_experiments/sequence_labelling/run_1/<run name>/training_configuration.yaml"
     source:
-      file: "runs:../hyperparameter_experiments/sequence_labelling/run_1/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32_T50_LSTM1x96_HFLAT.96.96-HLN-CWB_MC71/training_configuration.yaml"
-      keys: [ExperimentConfiguration.batch_size, Optimization.exponential_moving_average, Data.image_settings,
-             TemporalModel.type, TemporalModel.causal, ClassificationHead.global_pooling,
-             ClassificationHead.class_weighting]
+      file: vision_training/configurations/sequence_labelling/configuration_example.yaml
+      keys: [ExperimentConfiguration.learning_rate, Backbone.pretrained.experiment_folder, TemporalModel.type,
+             TemporalModel.number_layers, TemporalModel.bidirectional, TemporalModel.causal,
+             ClassificationHead.global_pooling, ClassificationHead.class_weighting]
       comments: false
     highlights:
-      - {match: "type: \"lstm\"|causal|global_pooling|class_weighting|size: 256|batch_size", sentences: [0]}
-      - {match: "exponential_moving_average|activated: True|decay", sentences: [1]}
+      - {match: "class_weighting", sentences: [2, 3]}
+      - {match: "learning_rate|type: \"lstm\"|number_layers|bidirectional|causal|global_pooling", sentences: [3]}
+      - {match: "number_layers|global_pooling|experiment_folder: null", sentences: [4]}
     narration:
-      - "The launches of the sequence labeling experiment plan, run one to run 50, start from other values: a causal LSTM, flatten pooling, balanced class weights, frames of 256 pixels and batches of 64 sequences."
-      - "They keep a moving average of the weights and are compared on the test macro F1 of the averaged weights, which weighs every change as much as the frequent no change frames."
-      - "At iteration 2000 of the learning rate stage, the launches at 0.001 reach a macro F1 of 0.024 on average and still rise, so the later stages train 6000 iterations."
-      - "One launch at 0.002 stayed at 0.0068 from iteration 500 on, the score of a model that only learns that the first frame is no change: the same failure, caught by the same metric."
+      - "The sequence labeling benchmark trained its experiment plan once, on the same changing shapes, one setting at a time, every score recorded in the plan."
+      - "Its launches were compared on the test macro F1, which weighs every change as much as the frequent no change frames."
+      - "Without class weights, as in the README run, one launch stayed at the score of a model predicting no change on every frame: the same failure, caught by the same metric."
+      - "Suppose you start on sequences of your own: the configuration example holds what the plan kept, balanced class weights, a learning rate of 0.001, a bidirectional LSTM of two layers and flatten pooling."
+      - "The two layers and the flatten pooling were kept with a pre-trained backbone, which the example leaves off: its experiment folder is null."
 
   - kind: html
     page: diagram
@@ -244,7 +246,7 @@ scenes:
       - {text: "predictions.csv: p(no_change) follows the frame position"}
       - {text: "ROC AUC on the later frames: {{sequence_labelling.predictions.macro_roc_auc_later_frames:.2f}}"}
       - {text: "Segment metrics: events, not frames"}
-      - {text: "Real-data launches: run_1 to run_50, macro F1 of the averaged weights"}
+      - {text: "Experiment plan: macro F1, its settings in configuration_example.yaml"}
       - {text: "Export: [B, T, 3, S, S] → [B, T, K], no mask"}
     narration:
       - "To recap: compare every metric with its trivial value, read the predictions by frame position, and score the events with the segment metrics."
