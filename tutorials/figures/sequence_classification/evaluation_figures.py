@@ -10,6 +10,7 @@ narration quotes.
 """
 
 import math
+import re
 
 import numpy
 
@@ -46,6 +47,11 @@ SAMPLE_SEQUENCE = "test_000000"
 
 # Bins of the histograms of the probability of the true class
 PROBABILITY_BINS = numpy.linspace(start=0.0, stop=1.0, num=41)
+
+# Probability of the true class above which a test sequence counts as confidently right, and the first evaluated
+# checkpoint of the flatten run, whose wrong predictions the report scene quotes
+CONFIDENT_PROBABILITY = 0.9
+FIRST_EVALUATION_ITERATION = 500
 
 
 def read_test_metrics(run_folder: Path, run_name: str) -> Dict[str, Any]:
@@ -220,6 +226,15 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                                                             r"Train Total Loss", "validation": r"Validation Iter",
                                                             "interval": r"Interval Of"})
     facts.update({f"console.{name}": box for name, box in console_boxes.items()})
+
+    # Interval length and validation batches of that summary, as its last lines print them
+    validation_match = next(re.search(pattern=r"Validation Iterations In This Interval: (\d+) \(Ratio: Every (\d+)",
+                                      string=line) for line in console_lines if line.startswith("Validation Iterations"))
+    interval_match = next(re.search(pattern=r"Interval Of (\d+) Iterations", string=line) for line in console_lines
+                          if line.startswith("Interval Of"))
+    facts.update({"console.flatten_128.validation_batches": int(validation_match.group(1)),
+                  "console.flatten_128.validation_ratio": int(validation_match.group(2)),
+                  "console.flatten_128.interval_iterations": int(interval_match.group(1))})
     for run_name, log_path in log_paths.items():
         summaries = read_interval_summaries(log_path=log_path)
         throughputs = [summary["throughput"] for summary in summaries]
@@ -272,7 +287,7 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                                       run_labels[run_name][1], "probabilities": true_probabilities}
         facts.update({f"probabilities.{run_name}.minimum_true": round_fact(value=true_probabilities.min()),
                       f"probabilities.{run_name}.median_true": round_fact(value=numpy.median(true_probabilities)),
-                      f"probabilities.{run_name}.above_0_9": int((true_probabilities > 0.9).sum()),
+                      f"probabilities.{run_name}.above_0_9": int((true_probabilities > CONFIDENT_PROBABILITY).sum()),
                       f"probabilities.{run_name}.minimum_any": round_fact(value=all_probabilities.min()),
                       f"probabilities.{run_name}.maximum_any": round_fact(value=all_probabilities.max()),
                       f"probabilities.{run_name}.predicted_classes": sorted({row["predicted_class"]
@@ -280,8 +295,10 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                       f"probabilities.{run_name}.sequences": len(predictions)})
     facts.update(draw_probability_figure(output_path=output_folder / "evaluation" / "true_class_probabilities.png",
                                          probability_sets=probability_sets))
-    first_predictions = read_predictions(run_folder=run_folders["flatten_128"], iteration=500)
+    first_predictions = read_predictions(run_folder=run_folders["flatten_128"], iteration=FIRST_EVALUATION_ITERATION)
     wrong_rows = [row for row in first_predictions if row["correct"] == "0"]
+    facts.update({"probabilities.threshold": CONFIDENT_PROBABILITY,
+                  "evaluation.flatten_128.first_iteration": FIRST_EVALUATION_ITERATION})
     facts["evaluation.flatten_128.wrong_at_500"] = [row["sequence"] for row in wrong_rows]
     if wrong_rows:
         facts.update({"evaluation.flatten_128.first_wrong.sequence": wrong_rows[0]["sequence"],

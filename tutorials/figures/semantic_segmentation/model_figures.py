@@ -3,11 +3,14 @@ Figures and facts of the model scenes of the semantic segmentation series of the
 tutorials/figures/semantic_segmentation/figures.py: the shapes of the skip connections of the encoder and of every level
 of the decoder recorded on the test image by the inference of segmentation_inference.py, the parameters of the
 components and the receptive field of the encoder (the labels of the U-Net diagram), the residual shortcuts every block
-adds once residual_nets is turned on (the caveat of the decoder), and the figure of what every level computes, the mean
-absolute activation of the skip connections and of the decoder levels next to the predicted class map.
+adds once residual_nets is turned on (the caveat of the decoder), the figure of what every level computes, the mean
+absolute activation of the skip connections and of the decoder levels next to the predicted class map, and the shapes
+and tolerances of the export of the segmenter given by the export specification of the deployment code.
 """
 
 import copy
+import math
+import re
 
 import matplotlib
 import numpy
@@ -15,7 +18,7 @@ import torch
 
 from matplotlib import pyplot
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR,
@@ -23,7 +26,10 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
 from tutorials.figures.semantic_segmentation.segmentation_inference import INFERENCE_ARRAYS_NAME
 from tutorials.figures.semantic_segmentation.segmentation_sources import build_class_palette
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
 from vision_training.models.backbones.backbone import build_backbone
+from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.segmentation.segmentation_decoder import SegmentationDecoder
 
 # Layout of the figure of the levels: two rows of six square panels under their titles
@@ -36,17 +42,20 @@ LEVEL_ROW_GAP = 20
 ACTIVATION_COLOURS = [SURFACE_COLOUR, "#%02x%02x%02x" % NAMED_COLOURS["aqua"], TEXT_PRIMARY_COLOUR]
 
 
-def format_shape(shape: List[int]) -> str:
+def format_shape(shape: List[int], batch_name: Optional[str] = None) -> str:
     """
-    Writes the shape of a tensor without its batch dimension, as the labels of the U-Net diagram show it.
+    Writes the shape of a tensor without its batch dimension, as the labels of the U-Net diagram show it, or with its
+    batch dimension written as a name, as the export scene shows the inputs and outputs of the exported segmenter.
 
     Args:
-        shape (List[int]): The [B, C, H, W] shape.
+        shape (List[int]): The [B, C, H, W] shape (or [B, H, W]).
+        batch_name (Optional[str]): The name written for the batch dimension, None to leave it out.
 
     Returns:
-        str: The "[C, H, W]" text.
+        str: The "[C, H, W]" text, or "[B, C, H, W]" with the batch name.
     """
-    return "[" + ", ".join(str(size) for size in shape[1:]) + "]"
+    sizes = [str(size) for size in shape[1:]]
+    return "[" + ", ".join(([batch_name] if batch_name is not None else []) + sizes) + "]"
 
 
 def count_shortcuts_with_residuals(configuration: Dict[str, Any]) -> Dict[str, List[int]]:
@@ -77,6 +86,65 @@ def count_shortcuts_with_residuals(configuration: Dict[str, Any]) -> Dict[str, L
             "decoder": [block.count_residual_additions() for block in decoder.convolution_blocks.values()]}
 
 
+def read_upsampling_kernel_size(layer_text: str) -> int:
+    """
+    Reads the kernel size of the transposed convolution of a decoder level from the text of the layer recorded by the
+    inference of the trained segmenter, the "two by two transposed convolution" of the U-Net scene.
+
+    Args:
+        layer_text (str): The printed layer, e.g. "ConvTranspose2d(128, 64, kernel_size=(2, 2), stride=(2, 2))".
+
+    Returns:
+        int: The side of its square kernel.
+
+    Raises:
+        ValueError: If the layer is not a transposed convolution with a square kernel (a bilinear upsampling).
+    """
+    kernel_match = re.search(pattern=r"ConvTranspose2d\(.*kernel_size=\((\d+), (\d+)\)", string=layer_text)
+    if kernel_match is None or kernel_match.group(1) != kernel_match.group(2):
+        raise ValueError(f"The upsampling layer {layer_text!r} is not a transposed convolution with a square kernel, "
+                         f"which the decoder scenes describe.")
+    return int(kernel_match.group(1))
+
+
+def describe_export_specification(run_folder: Path) -> Dict[str, Any]:
+    """
+    Gives the inputs, outputs and comparison tolerances of the export of the segmentation run, read from
+    get_export_specification of the deployment code on the inference segmenter of the run (built from its saved
+    configuration without its weights, which the specification does not read), for the export scene: the shapes of
+    the images, of the class map and of the class probabilities, and the tolerances of compare_segmentations.
+
+    Args:
+        run_folder (Path): The folder of the segmentation run.
+
+    Returns:
+        Dict[str, Any]: The facts of the export, named export_*.
+
+    Raises:
+        ValueError: If the probability tolerance is not a power of ten, which the narration reads as one.
+    """
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=run_folder / "training_configuration.yaml")
+    task = experiment_configuration["task"]
+    model = TASK_MODEL_CLASSES[task](configuration=model_configuration, device=torch.device("cpu"), dtype=MODEL_DTYPE)
+    specification = get_export_specification(task=task, inference_model=build_inference_model(task=task, model=model))
+
+    # Shapes with their batch dimension, as the export scene writes them
+    output_dimensions = {output["name"]: output["dimensions"] for output in specification["outputs"]}
+    tolerance = specification["comparison_tolerances"]["tolerance"]
+    tolerance_exponent = -math.log10(tolerance)
+    if abs(tolerance_exponent - round(tolerance_exponent)) > 1e-9:
+        raise ValueError(f"The probability tolerance {tolerance} of the segmentation export is not a power of ten.")
+    # The batch dimension, left out of the dimensions of the specification, is dynamic (-1) and written B
+    return {"export_input_shape": format_shape(shape=[-1] + specification["inputs"][0]["dimensions"], batch_name="B"),
+            "export_class_map_shape": format_shape(shape=[-1] + output_dimensions["class_map"], batch_name="B"),
+            "export_class_probabilities_shape": format_shape(shape=[-1] + output_dimensions["class_probabilities"],
+                                                             batch_name="B"),
+            "export_probability_tolerance": tolerance,
+            "export_probability_tolerance_exponent": int(round(tolerance_exponent)),
+            "export_minimum_equal_share": specification["comparison_tolerances"]["minimum_equal_share"]}
+
+
 def describe_model(inference_facts: Dict[str, Any], configuration: Dict[str, Any]) -> Dict[str, Any]:
     """
     Turns the shapes and parameters recorded by the inference into the facts quoted by the U-Net diagram and the
@@ -102,6 +170,16 @@ def describe_model(inference_facts: Dict[str, Any], configuration: Dict[str, Any
                   "model_upsampling_level_5": inference_facts["inference_upsampling_layers"]["5"],
                   "model_skip_count": sum(1 for name in shapes if name.startswith("skip_")) - 1,
                   "model_level_count": sum(1 for name in shapes if name.startswith("level_"))})
+
+    # Blocks of the encoder (one skip_ output per block, the last one being the bottleneck), the halvings of the
+    # resolution from the input to the bottleneck, the channels of the finest level and the kernel of the upsampling
+    facts.update({"model_backbone_blocks": sum(1 for name in shapes if name.startswith("skip_")),
+                  "model_resolution_halvings": int(round(math.log2(shapes["skip_1"][-1] /
+                                                                   shapes["bottleneck"][-1]))),
+                  "model_bottleneck_resolution": shapes["bottleneck"][-1],
+                  "model_level_1_channels": shapes["level_1"][1],
+                  "model_upsampling_kernel_size": read_upsampling_kernel_size(
+                      layer_text=inference_facts["inference_upsampling_layers"]["5"])})
 
     # Shortcuts of the run, and those residual_nets would add, block by block
     shortcuts = count_shortcuts_with_residuals(configuration=configuration)

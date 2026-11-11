@@ -117,7 +117,7 @@ def describe_confusion_matrix(run_folder: Path) -> Dict[str, Any]:
     return facts
 
 
-def draw_boundary_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
+def draw_boundary_figure(output_folder: Path, run_folder: Path, boundary_tolerance: int) -> Dict[str, Any]:
     """
     Draws the IoU and the boundary IoU of every class of the last evaluation of the run, read from its
     class_metrics.csv, as one row per class sorted by IoU, the two values joined, so that the gap between the regions
@@ -126,6 +126,8 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any
     Args:
         output_folder (Path): The figures folder of the series.
         run_folder (Path): The folder of the segmentation run.
+        boundary_tolerance (int): 'ExperimentConfiguration.evaluation.boundary_tolerance' of the run, in pixels, named
+            by the legend.
 
     Returns:
         Dict[str, Any]: The facts of the region and boundary metrics of every class.
@@ -147,7 +149,7 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any
     axes.scatter(iou_values, positions, s=(13 * POINTS_PER_PIXEL) ** 2, color=SERIES_COLOURS[0], zorder=3,
                  label="IoU")
     axes.scatter(boundary_values, positions, s=(13 * POINTS_PER_PIXEL) ** 2, color=SERIES_COLOURS[2], zorder=3,
-                 label="boundary IoU, 2 pixel tolerance")
+                 label=f"boundary IoU, {boundary_tolerance} pixel tolerance")
     axes.scatter(f1_values, positions, s=(9 * POINTS_PER_PIXEL) ** 2, color=SERIES_COLOURS[4], zorder=3, marker="D",
                  label="boundary F1")
     axes.set_yticks(ticks=positions, labels=[row["class"].replace("_", " ") for row in rows])
