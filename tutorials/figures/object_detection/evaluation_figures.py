@@ -246,8 +246,9 @@ def convert_report_value(value: str) -> Any:
 def write_report_listings(run_folder: Path, iteration: int, output_folder: Path) -> Dict[str, Any]:
     """
     Writes the tables of the report of one checkpoint (Results.txt) shown by the listings of the evaluation scene,
-    and gives their values as facts: the mAP of every method at every IoU, the objects and mAP of every size, and the
-    mean average recall of every group, for the trained weights and for their moving average.
+    and gives their values as facts: the mAP of every method at every IoU with the number of methods, the objects and
+    mAP of every size, and the mean average recall of every group, for the trained weights and for their moving
+    average.
 
     Args:
         run_folder (Path): The run folder.
@@ -267,7 +268,12 @@ def write_report_listings(run_folder: Path, iteration: int, output_folder: Path)
             if not averaged_weights:
                 write_listing(lines=table_lines, output_path=output_folder / file_name)
             table_name = file_name.split(".")[0].split("_")[1]
-            for row_label, values in parse_table_rows(table_lines=table_lines).items():
+            table_rows = parse_table_rows(table_lines=table_lines)
+
+            # Number of rows of the methods table, one per method computing the mAP
+            if table_name == "methods":
+                facts[f"report.{weights_name}.method_count"] = len(table_rows)
+            for row_label, values in table_rows.items():
                 row_key = row_label.split(" ")[0].lower()
                 for value_index, value in enumerate(values):
                     facts[f"report.{weights_name}.{table_name}.{row_key}.{value_index}"] = convert_report_value(
