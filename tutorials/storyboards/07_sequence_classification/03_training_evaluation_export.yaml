@@ -17,6 +17,7 @@ references:
   - "vision_training/deployment/export_model.py"
   - "vision_training/deployment/export_specifications.py"
   - "documentation/suggestions.md"
+  - "documentation/task workflows/sequence_classification_workflow.md"
 scenes:
   - kind: title_card
     heading: "Training, evaluation and export"
@@ -138,11 +139,11 @@ scenes:
   - kind: html
     page: diagram
     title: "Pitfalls"
-    code_reference: "documentation/suggestions.md"
+    code_reference: "documentation/task workflows/sequence_classification_workflow.md"
     elements:
       - {type: box, box: [40, 40, 860, 230], text: "global_pooling average or max\nmotion classes at chance,\nthe loss at the natural log of 4", font: diagram_text, outline: red, highlight: [0]}
       - {type: box, box: [900, 40, 1720, 230], text: "flatten at 512 pixels\n{{sequence_classification.parameters.flatten_512.temporal_module_millions}} M GRU weights,\ncheckpoints of {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} MB", font: diagram_text, outline: red, highlight: [1]}
-      - {type: box, box: [40, 270, 860, 460], text: "the dataset on this machine\n{{sequence_classification.dataset.disk_frames}} frames everywhere, never padded\n(suggestions.md K32)", font: diagram_text, outline: yellow, highlight: [2]}
+      - {type: box, box: [40, 270, 860, 460], text: "the dataset on this machine\n{{sequence_classification.dataset.disk_frames}} frames everywhere, never padded\nolder than the variable-length generator", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [900, 270, 1720, 460], text: "TemporalModel.dropout_rate\nno effect with one GRU layer", font: diagram_text, outline: yellow, highlight: [3]}
       - {type: box, box: [40, 500, 860, 690], text: "shuffle_frames with an ordered module\na yellow warning only", font: diagram_text, outline: yellow, highlight: [3]}
       - {type: box, box: [900, 500, 1720, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(count_split_sequences)", font: diagram_text, outline: yellow, highlight: [3]}

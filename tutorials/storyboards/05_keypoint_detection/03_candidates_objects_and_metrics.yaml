@@ -149,7 +149,7 @@ scenes:
       - "Every evaluation runs on {{keypoint_detection.metrics_test_images}} test images holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
       - "From iteration 2000 to 6000, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_5:.3f}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:.3f}} to {{keypoint_detection.metrics_trained_6000_map_0_95:.3f}}."
       - "At iteration 2000 the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:.3f}} at 0.95; by 6000 they are within a hundredth of the trained weights."
-      - "This run was scored before the fix of bug B51, when a ground truth matched any object with an OKS above zero, so {{keypoint_detection.metrics_trained_6000_matched:.4f}} matched sits next to a mean error of about seven pixels; a new evaluation needs an OKS of 0.5."
+      - "This run was scored before a match needed an OKS of 0.5, when a ground truth matched any object with an OKS above zero, so {{keypoint_detection.metrics_trained_6000_matched:.4f}} matched sits next to a mean error of {{keypoint_detection.metrics_trained_6000_error:.1f}} pixels."
 
   - kind: image
     title: "Worst classes and key points"
@@ -201,7 +201,7 @@ scenes:
       - {text: "Candidates: 3x3 local maxima of the averaged heat maps, placed within their cell"}
       - {text: "Grouping on the CPU, key point by key point, by rounded tag distance then score"}
       - {text: "OKS replaces the box IOU: sigma 0.05, a missing key point counts 0"}
-      - {text: "OKS mAP@0.5 is the headline; Matched Objects needs an OKS of 0.5 (B51)"}
+      - {text: "OKS mAP@0.5 is the headline; Matched Objects needs an OKS of 0.5"}
       - {text: "Exported network outputs candidates, the client groups them"}
       - {text: "evaluate_checkpoint: no error images, the limit skipped with a warning"}
     narration:

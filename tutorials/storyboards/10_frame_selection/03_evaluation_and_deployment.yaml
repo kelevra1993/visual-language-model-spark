@@ -135,7 +135,7 @@ scenes:
     narration:
       - "The decoding settings read the class thresholds file of the evaluation of the exported iteration."
       - "Take a checkpoint that was never evaluated: once exported, every threshold is zero, nothing is ever flagged, and the wanted classes are named by their indices, so evaluate before exporting."
-      - "Say you export the moving average of the weights: it still reads the thresholds of the trained weights, a known limit the audit left as it is."
+      - "Say you export the moving average of the weights: it still reads the thresholds of the trained weights, a known limit left as it is."
 
   - kind: html
     page: diagram
@@ -144,7 +144,7 @@ scenes:
       - {type: box, box: [40, 40, 1720, 170], text: "A sequence without exactly frames_per_class frames of every wanted class stops the launch", font: diagram_text, outline: red, highlight: [0]}
       - {type: box, box: [40, 200, 1720, 330], text: "Hungarian: the most probable labelling, not the largest number of right frames", font: diagram_text, outline: violet, highlight: [0]}
       - {type: box, box: [40, 360, 1720, 520], text: "Tied probabilities take the best rank: equal probabilities on every frame\nscore a top-k selection accuracy and a mean true frame rank of 1  (compute_frame_ranks)", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
-      - {type: box, box: [40, 550, 1720, 710], text: "The synthetic task is solved: the README sample shows no wrong pick  (K34)\nthe checkpoint of iteration 1000 shows three", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 550, 1720, 710], text: "The synthetic task is solved: the README sample shows no wrong pick\nthe checkpoint of iteration 1000 shows three", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
     narration:
       - "To recap the pitfalls: a sequence without exactly frames per class frames of every wanted class stops the launch, and the Hungarian decoding maximizes the labeling, not the right frames."
       - "Equal probabilities give every equal frame the best rank, so a model giving the same probability to every frame scores a top-k accuracy and a mean rank of one: read them with the selection accuracy."
