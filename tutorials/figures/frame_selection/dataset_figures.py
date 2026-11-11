@@ -80,8 +80,9 @@ def draw_sequence_strip(dataset: SequenceDataset, output_path: Path) -> Dict[str
     output_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(fp=output_path)
 
-    # Classes and boxes of the frames, and the frames to select
+    # Classes and boxes of the frames, the frames to select, and the position of the last frame for the captions
     facts = {"dataset.strip_sequence": STRIP_SEQUENCE_NAME, "dataset.strip_frame_count": len(frames),
+             "dataset.strip_last_frame_index": len(frames) - 1,
              "dataset.strip_labels": [dataset.class_names[label] for label in frame_labels],
              "dataset.strip_selected_frames": {dataset.class_names[label]: frame_index
                                                for frame_index, label in enumerate(frame_labels)
@@ -177,7 +178,7 @@ def write_label_listings(experiment_configuration: Dict[str, Any], model_configu
 def make_dataset_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
     Makes the data figure and listings of the frame selection series and gives their facts, with the class balance
-    of the record of the run.
+    of the record of the run and its numbers of classes and wanted classes.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -199,7 +200,11 @@ def make_dataset_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any
     training_frames = sum(record["frames"]["train"] for record in classes)
     for record in classes:
         facts[f"dataset.{record['class_name']}_training_frames"] = record["frames"]["train"]
-    facts.update({"dataset.training_frames": training_frames,
+
+    # Classes of the model and wanted classes (every class but the unselected one), quoted by the shapes and counts
+    wanted_class_count = sum(record["class_index"] != test_dataset.unselected_class_index for record in classes)
+    facts.update({"dataset.class_count": len(classes), "dataset.wanted_class_count": wanted_class_count,
+                  "dataset.training_frames": training_frames,
                   "dataset.unselected_share": round_fact(value=classes[0]["frames"]["train"] / training_frames),
                   "dataset.test_frames": sum(record["frames"]["test"] for record in classes),
                   "dataset.validation_sequences": classes[1]["frames"]["validation"],

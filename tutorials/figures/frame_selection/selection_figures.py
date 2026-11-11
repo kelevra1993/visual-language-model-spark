@@ -78,6 +78,20 @@ def find_frame_index(frame_file: str) -> int:
     return int(Path(frame_file).stem)
 
 
+def find_sequence_number(sequence_name: str) -> int:
+    """
+    Gives the number of a test sequence from its name, 'test_000052' giving 52, so that the narration names the
+    sequences of the wrong picks and of the matrix animations by the number the selection images caption.
+
+    Args:
+        sequence_name (str): The name of the sequence in the labels file, its number after the last underscore.
+
+    Returns:
+        int: The number of the sequence.
+    """
+    return int(sequence_name.rsplit("_", maxsplit=1)[-1])
+
+
 def check_against_evaluation(probabilities: numpy.ndarray, sequence_name: str, class_names: Dict[int, str],
                              wanted_class_indices: List[int], selected_frames: numpy.ndarray,
                              selection_rows: Dict[Tuple[str, str], Dict[str, str]]) -> None:
@@ -323,7 +337,8 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
             if true_frame == chosen_frame:
                 continue
             pick_name = f"picks.{sequence_name}"
-            facts.update({f"{pick_name}.class": class_names[class_index], f"{pick_name}.true_frame": true_frame,
+            facts.update({f"{pick_name}.sequence_number": find_sequence_number(sequence_name=sequence_name),
+                          f"{pick_name}.class": class_names[class_index], f"{pick_name}.true_frame": true_frame,
                           f"{pick_name}.true_probability": round_fact(value=probabilities[true_frame, class_index]),
                           f"{pick_name}.chosen_frame": chosen_frame,
                           f"{pick_name}.chosen_probability": round_fact(value=probabilities[chosen_frame, class_index]),
@@ -342,6 +357,7 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
                 facts[f"matrix.{class_names[class_index]}_pick_gain"] = matrix_data["values"]["gains"][frame_index][
                     class_index]
             facts["matrix.frame_count"] = frame_count
+            facts["matrix.sequence_number"] = find_sequence_number(sequence_name=sequence_name)
             facts["matrix.true_frames"] = {class_names[label]: frame_index for frame_index, label in
                                            enumerate(frame_labels.tolist()) if label != unselected_class_index}
             for class_name, frame_index in facts["matrix.true_frames"].items():
@@ -392,6 +408,10 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
                   "model.head_parameters": parameters["classification_head"],
                   "model.total_parameters": parameters["total"],
                   "model.total_megabytes": round_fact(value=parameters["total"] * 4 / 1e6),
+                  "model.backbone_channels": int(backbone_maps.shape[1]),
+                  "model.backbone_map_size": int(backbone_maps.shape[-1]),
+                  "model.frame_feature_size": int(frame_features.shape[-1]),
+                  "model.temporal_feature_size": int(temporal_features.shape[-1]),
                   "model.input_shape": str(list(batch["images"].shape)),
                   "model.backbone_shape": str(list(backbone_maps.shape)),
                   "model.frame_features_shape": str(list(frame_features.shape)),
