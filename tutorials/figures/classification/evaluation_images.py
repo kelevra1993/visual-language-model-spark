@@ -13,8 +13,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Tuple
 
-from tutorials.tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_BOLD_FONT_PATH,
-                                               TEXT_COLOUR)
+from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_BOLD_FONT_PATH,
+                                     TEXT_COLOUR)
 
 # Iterations whose sample images are compared, the first and the last test evaluations of the run
 SAMPLE_ITERATIONS = [500, 1500]

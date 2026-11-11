@@ -27,7 +27,7 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.object_detection.detection_sources import (extract_table, parse_table_rows,
                                                                   read_results_block, write_listing)
-from tutorials.tutorial_builder.layout import NAMED_COLOURS
+from tutorial_builder.layout import NAMED_COLOURS
 
 # Tables of the report of a checkpoint shown as listings, with the names of their files
 REPORT_TABLES = [("Mean Average Precision", "results_methods.txt"),

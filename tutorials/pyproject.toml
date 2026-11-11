@@ -1,36 +1,17 @@
 [project]
 name = "vlms-tutorials"
 version = "1.0.0"
-description = "Builder of the narrated tutorial videos of visual-language-model-spark, rebuilt from their storyboards, the code and configurations of the repository and its real runs"
+description = "Environment of the tutorial video build of visual-language-model-spark, the builder being tutorial-video-builder"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    # Offline voice of the narration (Kokoro, run by ONNX Runtime on the CPU)
-    "kokoro-onnx==0.6.1",
-    # Speech recognition checking the narration against its script
-    "faster-whisper==1.2.1",
-    # Static ffmpeg encoding the frames and the narration
-    "imageio-ffmpeg==0.6.0",
-    # Headless Chrome driver capturing the HTML scenes frame by frame
-    "playwright==1.64.1",
-    "pillow>=12.0.0",
-    "numpy>=2.2.0",
-    "pyyaml>=6.0.2",
+    # Builder of the videos: storyboards, frames, Kokoro narration, encoding, checks (pinned by tag below)
+    "tutorial-video-builder",
 ]
 
-[project.scripts]
-build-tutorials = "tutorial_builder.build_tutorials:main"
+[tool.uv]
+# This folder holds storyboards, figures and pages, not a package to install
+package = false
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["tutorial_builder"]
-
-[tool.pytest.ini_options]
-# The tests of the builder, run with the environment of this folder (uv run --project tutorials pytest tutorials/tests)
-testpaths = ["tests"]
-addopts = "--import-mode=importlib"
-
-[dependency-groups]
-dev = ["pytest>=9.1.1"]
+[tool.uv.sources]
+# The private builder repository, pinned to a release tag; move the tag to take a newer builder, then `uv sync`
+tutorial-video-builder = { git = "ssh://git@github.com/kelevra1993/tutorial-video-builder.git", tag = "v1.0.0" }

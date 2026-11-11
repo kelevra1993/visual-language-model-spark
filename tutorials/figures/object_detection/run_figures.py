@@ -25,8 +25,8 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 style_chart_panel)
 from tutorials.figures.object_detection.detection_sources import (read_scalar_series, strip_terminal_codes,
                                                                   write_listing)
-from tutorials.tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_BOLD_FONT_PATH,
-                                               TEXT_COLOUR)
+from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_BOLD_FONT_PATH,
+                                     TEXT_COLOUR)
 
 # Regions of a sample image of the detection evaluations (1028 x 560 pixels): the caption band above the panels, the
 # ground truth panel, the 4 pixel separator and the prediction panel, each 512 pixels, and the legend band below them

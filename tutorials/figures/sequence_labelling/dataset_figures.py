@@ -31,7 +31,7 @@ from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_
                                                                      draw_figure_header, format_sequence_entry,
                                                                      load_thumbnail_fonts, read_run_sections,
                                                                      write_listing)
-from tutorials.tutorial_builder.layout import ACCENT_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
+from tutorial_builder.layout import ACCENT_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 

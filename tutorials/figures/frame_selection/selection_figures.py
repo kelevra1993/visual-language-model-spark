@@ -24,7 +24,7 @@ from tutorials.figures.figure_utilities import read_reused_facts, round_fact, wr
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
                                                                      count_model_parameters, load_sequence_model,
                                                                      load_thumbnail_fonts, predict_sequences)
-from tutorials.tutorial_builder.layout import CARD_COLOUR, TEXT_COLOUR
+from tutorial_builder.layout import CARD_COLOUR, TEXT_COLOUR
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.sequence.frame_selection_decoding import (decode_frame_selection, flag_low_confidence,
                                                                       gather_frame_probabilities,

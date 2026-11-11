@@ -24,7 +24,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
 from tutorials.figures.keypoint_detection.scalar_logs import read_scalar_values
 from tutorials.figures.semantic_segmentation.segmentation_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
                                                                          SAMPLE_IMAGE_NAME)
-from tutorials.tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
+from tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
 
 # Gap between the two sample images stacked in the samples figure
 SAMPLE_GAP = 24

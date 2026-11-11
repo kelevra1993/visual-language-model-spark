@@ -25,8 +25,8 @@ from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITE
                                                                   load_run_model, read_category_names,
                                                                   read_image_annotations, read_network_image,
                                                                   read_test_manifest, write_listing)
-from tutorials.tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH,
-                                               SANS_SEMIBOLD_FONT_PATH, TEXT_COLOUR)
+from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH,
+                                     SANS_SEMIBOLD_FONT_PATH, TEXT_COLOUR)
 from vision_training.data.detection.coco_masks import build_instance_mask, compute_mask_bounding_boxes
 from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.mask_operations import (build_mask_targets,

@@ -2,7 +2,8 @@
 Helpers shared by the figure scripts of the tutorial videos (tutorials/figures/<series>/), which make_figures.py runs
 with the Python of the repository at every build: the real runs and repository files the figures are drawn from, named
 in tutorials/tutorial_sources.yaml; the palette, the chart size and the Inter and Hack fonts of the video frames
-(tutorial_builder/layout.py, tutorials/fonts), so that a chart sits on the card of an image scene like the text around
+(tutorial_builder/layout.py and its fonts folder, of the tutorial-video-builder package the build puts on the import
+path), so that a chart sits on the card of an image scene like the text around
 it; the PNG files written at their exact pixel size and the pixel boxes of their panels, which the storyboards use as
 highlight boxes and reveal regions through the facts; the trained model of the classification run, read on the CPU with
 its input images, for the model figures of the foundations and classification series; and the reuse of the expensive
@@ -23,11 +24,11 @@ from pathlib import Path
 from PIL import Image
 from typing import Any, Dict, List, Optional, Tuple
 
-from tutorials.tutorial_builder.layout import (CARD_BORDER_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR,
-                                               MONOSPACE_BOLD_FONT_PATH, MONOSPACE_FONT_PATH, NAMED_COLOURS,
-                                               SANS_BOLD_FONT_PATH, SANS_FONT_PATH, SANS_SEMIBOLD_FONT_PATH,
-                                               TEXT_COLOUR, VIEWPORT_HEIGHT, VIEWPORT_WIDTH)
-from tutorials.tutorial_builder.settings import REPOSITORY_ROOT, SOURCES_FILE, THREAD_COUNT
+from tutorial_builder.layout import (CARD_BORDER_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR,
+                                     MONOSPACE_BOLD_FONT_PATH, MONOSPACE_FONT_PATH, NAMED_COLOURS,
+                                     SANS_BOLD_FONT_PATH, SANS_FONT_PATH, SANS_SEMIBOLD_FONT_PATH,
+                                     TEXT_COLOUR, VIEWPORT_HEIGHT, VIEWPORT_WIDTH)
+from tutorial_builder.figure_context import find_repository_root, find_sources_file, read_thread_count
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.models.model_loading import load_trained_model
@@ -54,8 +55,8 @@ TEXT_SECONDARY_COLOUR = "#%02x%02x%02x" % DIM_TEXT_COLOUR
 SERIES_COLOURS = ["#%02x%02x%02x" % NAMED_COLOURS[colour_name] for colour_name in
                   ["blue", "aqua", "yellow", "magenta", "violet"]]
 
-# Font families of the charts, registered from tutorials/fonts: Inter for the text, Hack for the file names and the
-# configuration excerpts
+# Font families of the charts, registered from the fonts of the builder: Inter for the text, Hack for the file names
+# and the configuration excerpts
 SANS_FONT_FAMILY = "Inter"
 MONOSPACE_FONT_FAMILY = "Hack"
 
@@ -83,9 +84,9 @@ def read_tutorial_sources() -> Dict[str, Any]:
     Raises:
         FileNotFoundError: If the sources file is missing.
     """
-    if not SOURCES_FILE.exists():
-        raise FileNotFoundError(f"No sources file {SOURCES_FILE}: it names the runs read by the figure scripts.")
-    return yaml.safe_load(SOURCES_FILE.read_text(encoding="utf-8"))
+    if not find_sources_file().exists():
+        raise FileNotFoundError(f"No sources file {find_sources_file()}: it names the runs read by the figure scripts.")
+    return yaml.safe_load(find_sources_file().read_text(encoding="utf-8"))
 
 
 def find_run_folder(experiments_folder: Path, run_key: str) -> Path:
@@ -106,12 +107,12 @@ def find_run_folder(experiments_folder: Path, run_key: str) -> Path:
     """
     runs = read_tutorial_sources()["runs"]
     if run_key not in runs or "folder" not in runs[run_key]:
-        raise KeyError(f"No run {run_key} with a 'folder' in {SOURCES_FILE}, whose runs are {sorted(runs)}.")
+        raise KeyError(f"No run {run_key} with a 'folder' in {find_sources_file()}, whose runs are {sorted(runs)}.")
     run_folder = experiments_folder / runs[run_key]["folder"]
     if not run_folder.is_dir():
-        raise FileNotFoundError(f"No run folder {run_folder} for the {run_key} run of {SOURCES_FILE}: make it again "
-                                f"with {runs[run_key]['trained_with']}, then update its folder in "
-                                f"{SOURCES_FILE.name} if its run name changed.")
+        raise FileNotFoundError(f"No run folder {run_folder} for the {run_key} run of {find_sources_file()}: make it "
+                                f"again with {runs[run_key]['trained_with']}, then update its folder in "
+                                f"{find_sources_file().name} if its run name changed.")
     return run_folder
 
 
@@ -132,10 +133,11 @@ def find_repository_file(file_key: str) -> Path:
     """
     repository_files = read_tutorial_sources()["repository_files"]
     if file_key not in repository_files:
-        raise KeyError(f"No repository file {file_key} in {SOURCES_FILE}, whose files are {sorted(repository_files)}.")
-    file_path = REPOSITORY_ROOT / repository_files[file_key]
+        raise KeyError(f"No repository file {file_key} in {find_sources_file()}, whose files are "
+                       f"{sorted(repository_files)}.")
+    file_path = find_repository_root() / repository_files[file_key]
     if not file_path.exists():
-        raise FileNotFoundError(f"No file {file_path} for the repository file {file_key} of {SOURCES_FILE}.")
+        raise FileNotFoundError(f"No file {file_path} for the repository file {file_key} of {find_sources_file()}.")
     return file_path
 
 
@@ -157,11 +159,12 @@ def read_run_configuration(run_folder: Path) -> Dict[str, Any]:
 def register_fonts() -> None:
     """
     Registers the fonts of the video frames for matplotlib, once per process: Inter (regular, semibold and bold) for
-    the text of the charts and Hack for their file names and configuration excerpts, read from tutorials/fonts so that
-    every machine draws the same charts, Inter becoming the default family of the charts.
+    the text of the charts and Hack for their file names and configuration excerpts, read from the fonts folder of the
+    builder (tutorial_builder.layout) so that every machine draws the same charts, Inter becoming the default family
+    of the charts.
 
     Raises:
-        FileNotFoundError: If a font file of tutorials/fonts is missing.
+        FileNotFoundError: If a font file of the builder is missing.
     """
     for font_path in [SANS_FONT_PATH, SANS_SEMIBOLD_FONT_PATH, SANS_BOLD_FONT_PATH, MONOSPACE_FONT_PATH,
                       MONOSPACE_BOLD_FONT_PATH]:
@@ -368,7 +371,7 @@ def load_classification_model(run_folder: Path) -> Tuple[TaskModel, int]:
     Raises:
         FileNotFoundError: If the run has no checkpoint.
     """
-    torch.set_num_threads(THREAD_COUNT)
+    torch.set_num_threads(read_thread_count())
     checkpoint_iteration = get_last_checkpoint_iteration(weights_directory=run_folder / "Weights")
 
     # Iteration 0 means no checkpoint, for which get_checkpoint_path raises the error naming the folder

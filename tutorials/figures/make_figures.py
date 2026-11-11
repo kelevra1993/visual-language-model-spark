@@ -1,10 +1,12 @@
 """
-Runner of the figure scripts of the tutorials, started by the tutorial build (tutorial_builder/build_tutorials.py) with
-the Python of the repository environment, from the repository root, as `python -m tutorials.figures.make_figures`: the
-figures of a series are made by the make_figures function of tutorials/figures/<series>/figures.py from the real runs,
-datasets and checkpoints (read on the CPU), into the figures folder of the cache, and the numbers its storyboards quote
-are written next to them in facts.json. The figure scripts use the code of the repository, so that a figure made after
-the code changed shows what the code does now.
+Runner of the figure scripts of the tutorials, started by the tutorial build (build-tutorials of tutorial-video-builder)
+with the Python of the repository environment, from the repository root, as `python -m tutorials.figures.make_figures`
+(figures_module of tutorials/tutorial_project.yaml): the figures of a series are made by the make_figures function of
+tutorials/figures/<series>/figures.py from the real runs, datasets and checkpoints (read on the CPU), into the figures
+folder of the cache, and the numbers its storyboards quote are written next to them in facts.json. The figure scripts
+use the code of the repository, so that a figure made after the code changed shows what the code does now; they read
+the palette and fonts of the frames from tutorial_builder.layout and the repository, sources file and threads of the
+build from tutorial_builder.figure_context, both put on their import path by the builder.
 """
 
 import argparse
