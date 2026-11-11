@@ -99,7 +99,7 @@ scenes:
           - {match: "^BOX_REGRESSION_WEIGHTS =", sentences: [2]}
     narration:
       - "The objectness loss is the binary cross entropy of the sampled anchors, averaged over them."
-      - "The box loss of the section, here the smooth L1 between the predicted and target offsets of the positive anchors, is summed, then divided by the number of positives rather than of sampled anchors, audit item L5."
+      - "The box loss, always the smooth L1 between the predicted and target offsets of the positive anchors, is summed, then divided by the number of positives rather than of sampled anchors, audit item L5."
       - "The offsets are regressed unscaled: the box regression weights stay at one, the ten, ten, five, five of torchvision having given about two and a half times lower mAP at 0.5 on these shapes."
 
   - kind: html

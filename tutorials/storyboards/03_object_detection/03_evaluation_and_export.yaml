@@ -36,10 +36,12 @@ scenes:
       end: "candidate_mask = \\(probabilities >= score_threshold\\)"
     highlights:
       - {match: "torch.softmax|labels = torch.arange", sentences: [0]}
-      - {match: "candidate_mask = \\(probabilities", sentences: [1, 2]}
+      - {match: "candidate_mask = \\(probabilities", sentences: [1, 2, 3, 4]}
     narration:
       - "In evaluation the detector runs without ground truth: the filter keeps 250 proposals, every head scores those of its level, and the post-processing takes the softmax without the background, so that every foreground class of every proposal is a candidate."
       - "The candidates reaching the score threshold go through one batched NMS at 0.5 per image and class, and the hundred best remain, padded with zeros."
+      - "The detection configurations run it on the distance IoU, the IoU minus a term of the distance between the centers, which spares overlapping boxes whose centers lie apart."
+      - "The run shown here was evaluated before that option, with the plain IoU, which the instance segmentation configurations keep."
       - "The evaluation lowers the threshold from 0.5 at deployment to 0.05, so that the precision recall curves keep their low end, and restores it afterwards."
 
   - kind: image
@@ -164,7 +166,7 @@ scenes:
       - "The main block of the export module writes the detector as object detector, in TorchScript and ONNX, with its Triton configuration."
       - "It takes float BGR images of 512 pixels in 0 to 255, letterboxed by the client, the input normalization being part of the model."
       - "It returns a hundred boxes per image in network pixels, their scores and int64 labels, zero for the padding, and the number of detections of every image."
-      - "In the graph: one batched NMS for the proposals, every detection head run on all 250 proposals with each proposal keeping its own level, and the post-processing with the score and NMS thresholds baked in."
+      - "In the graph: one batched NMS for the proposals, every detection head run on all 250 proposals with each proposal keeping its own level, and the post-processing with the score threshold and the final NMS of the configuration baked in."
       - "Outside the graph stay the letterbox, the restoration of the boxes to the original image, and the per-class thresholds; the export is checked against the eager model to a hundredth of a pixel on the boxes."
 
   - kind: terminal
