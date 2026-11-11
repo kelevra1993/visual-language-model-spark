@@ -12,6 +12,7 @@
 - [Troubleshooting](#troubleshooting)
 
 ## Description
+If one wishes to learn the repository by watching rather than by reading its documents, these videos are the way in.
 Narrated tutorial videos of the repository, for engineers who know deep learning and are new to the repository. An
 overview video gives the whole repository in one chapter (the ten tasks, each told through a situation where it is the
 right tool, how they differ and what they share), a foundations series covers what every task shares (the repository
