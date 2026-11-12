@@ -22,6 +22,24 @@ runs:
   object_detection:
     folder: readme_screenshots/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC20
     trained_with: "vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml on the instance segmentation synthetic dataset"
+  # Stage 7 of the detection benchmark, read by tutorials/figures/object_detection/proposal_selection.py: the two
+  # launches of each proposal selection and the inference-only preview of the per-level selection on run_9; they lie in
+  # hyperparameter_experiments/ of the repository, next to the experiments folder of the build
+  object_detection_benchmark_joint_a:
+    folder: ../hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    trained_with: "run-1.yaml of the detection benchmark (its fixed settings and starting values in documentation/architecture_benchmarking/object_detection_experiment_plan.md) with learning rate 1e-3, background IoU minimum 0.1 and the feature pyramid neck (stage 3 of the plan), RegionProposal.proposal_selection joint, 15,000 iterations, two launches side by side (run_9)"
+  object_detection_benchmark_joint_b:
+    folder: ../hyperparameter_experiments/object_detection/run_10/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    trained_with: "run-1.yaml of the detection benchmark (its fixed settings and starting values in documentation/architecture_benchmarking/object_detection_experiment_plan.md) with learning rate 1e-3, background IoU minimum 0.1 and the feature pyramid neck (stage 3 of the plan), RegionProposal.proposal_selection joint, 15,000 iterations, two launches side by side (run_10)"
+  object_detection_benchmark_per_level_a:
+    folder: ../hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    trained_with: "the settings of run_9 and run_10 with RegionProposal.proposal_selection per_level (stage 7 of documentation/architecture_benchmarking/object_detection_experiment_plan.md), 15,000 iterations, two launches side by side (run_21)"
+  object_detection_benchmark_per_level_b:
+    folder: ../hyperparameter_experiments/object_detection/run_22/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    trained_with: "the settings of run_9 and run_10 with RegionProposal.proposal_selection per_level (stage 7 of documentation/architecture_benchmarking/object_detection_experiment_plan.md), 15,000 iterations, two launches side by side (run_22)"
+  object_detection_benchmark_per_level_preview:
+    folder: ../hyperparameter_experiments/object_detection/run_9/evaluations/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35_proposal_selection_per_level
+    trained_with: "scripts/evaluation/evaluate_checkpoint.py on iteration 15,000 of run_9 with RegionProposal.proposal_selection per_level and the greedy final NMS of the run (the stage 7 preview of the plan)"
   instance_segmentation:
     folder: readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20
     trained_with: "vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml, shortened, resumed to 5000 iterations"
@@ -68,6 +86,8 @@ runs:
 repository_files:
   benchmark_results: documentation/architecture_benchmarking/results.csv
   benchmark_plan: documentation/architecture_benchmarking/experiment_plan.md
+  # Results of the detection benchmark, whose stage 7 curves the proposal selection scenes draw
+  object_detection_benchmark_results: documentation/architecture_benchmarking/object_detection_results.csv
   # Configuration whose learning rate schedule (warm-up, then cosine decay) the optimization figure draws
   learning_rate_schedule_configuration: vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml
   # Configuration whose data augmentation (activated types and probabilities) the data pipeline chapter shows and draws
