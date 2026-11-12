@@ -876,7 +876,7 @@ Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ─�
   - ...
 ```
 
-**Example: the same block with the current code** (the README screenshot run of this configuration, 2000 iterations at 512 pixels, on `test_10000`; shortened)
+**Example: the same block with the curves** (the README screenshot run of this configuration, 2000 iterations at 512 pixels, on `test_10000`, recorded with `top_k: 2` and before the per-class recall intervals, its rates written as percentages like the current code; shortened)
 ```text
 Iteration 2000 · 10000 Test Sequences, 69918 Labelled Frames · 2026-10-23 05:38 ────────────────────────────────────────
   Accuracy               46.97 %   Balanced Accuracy         1.41 %

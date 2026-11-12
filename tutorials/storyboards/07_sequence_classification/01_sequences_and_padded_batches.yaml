@@ -92,12 +92,13 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
       - {role: comment, text: "# The training: data folders and label mapping set in the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml\""}
-      - {role: comment, text: "# The evaluation of checkpoints: run folder and iteration in the main block"}
+      - {role: comment, text: "# The evaluation of checkpoints, set in its main block, into <run>/Checkpoint_Evaluation/"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
       - "The synthetic generator writes such a data set once its task and output folder are set in its main block."
       - "It now draws {{sequence_classification.dataset.generator_minimum_frames_words}} to {{sequence_classification.dataset.generator_maximum_frames_words}} frames of {{sequence_classification.dataset.generator_image_size}} pixels per sequence, not the {{sequence_classification.dataset.disk_frames_words}} frames of the data set on this machine."
       - "The training takes the synthetic configuration, and the standalone evaluation script scores any checkpoint of the run again, its settings in its main block too."
+      - "It writes into the checkpoint evaluation folder of the run, next to the evaluation folder of the training."
 
   - kind: yaml
     title: "The keys of the task"

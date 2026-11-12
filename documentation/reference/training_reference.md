@@ -76,7 +76,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 - **At launch**: the run name with clickable links to its files, the changes since the last start of a resumed run, the transferred components, the splits and their sizes, the main settings, the model summary and the model size. `diagnosis_modes.compute_receptive_field` adds the receptive field. A transferred component shows its source and learning rate:
 
 ```text
-- Pretrained Backbone     : file:///…/experiments/CLS_IN-KAR-256_…_HAVG.512.256-CWB_MC1000
+- Pretrained Backbone     : file:///…/experiments/CLS_IN-KAR-256_…_HFLAT.512.256-HLN-CWB_MC1000
     - Source Iteration    : last saved checkpoint
     - Frozen              : False
     - Norm. Layers Frozen : False
@@ -88,7 +88,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 
 ```text
 Training Batch Dropped : The image cannot be read : <file>
-- Dropped Batches Since The Last Summary : Training 2, Validation 1
+- Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)
 ```
 
 - **Every `weight_saving_iterations` iterations**: the evaluation report, also appended to `Results.txt`, then the `EMA Weights` report when the moving average is on. The reports of CLS, M2O, M2M and CMP write their rates as percentages, those of DET, INS, KPT, SEG, SEL and SSL between 0 and 1 with 4 decimals; `class_metrics.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
@@ -171,7 +171,7 @@ uv run python -m scripts.data.visualize_augmentation_strengths
 ## Checking The Anchor Coverage
 `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (object detection and instance segmentation) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, per detection level and object size, then exits without training.
 - Every split is read from its annotations with a progress bar, no image being loaded.
-- The best anchor of every object is the grid anchor nearest its centre for every anchor shape, exact and computed on the CPU.
+- The best anchor of every object is the grid anchor nearest its centre for every anchor shape, on the grid of `RegionProposal.anchor_centres`, exact and computed on the CPU.
 - It creates no run folder and writes no file; the training launches measure the training split alone at `RegionProposal.foreground_iou_threshold.min` (`anchor_recall.csv`).
 
 ## TensorBoard Monitoring

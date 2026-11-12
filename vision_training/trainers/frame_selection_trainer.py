@@ -379,7 +379,8 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
             frame_ranks (List[np.ndarray]): The [T, W] rank of every frame of every sequence for every wanted class.
             class_thresholds (List[Optional[float]]): The confidence threshold of every wanted class, None when the
                 target precision was never reached.
-            evaluation_folder (Path): The evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
+            evaluation_folder (Path): The evaluation folder of the checkpoint,
+                '<run>/[Checkpoint_]Evaluation/Iteration_<n>/'.
 
         Returns:
             Path: The written selections file.

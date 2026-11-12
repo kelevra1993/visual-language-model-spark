@@ -151,11 +151,12 @@ screen, once its placeholders are removed.
 | A value of a configuration file | `{{config:vision_training/configurations/<task>/<file>.yaml#Data.image_settings.size}}` |
 | A constant of the code | `{{constant:vision_training/<path>.py#NAME}}` (or `Class.NAME`, then `.key` or `[0]` into it) |
 | A number of a run | `{{<series>.<fact>}}`, a fact written by the figure script of the series |
+| A rate written as the reports write it | the `percent` format for a rate between 0 and 1 (`{{<series>.<fact>:percent}}`, "94.03 %"), `percent_label` for a round setting such as a target precision ("99 %"), `points` for the difference of two rates ("+0.52 points") |
 | A number said in words | any of the above with the `words` format: `{{config:...#Temporal.number_layers:words}}` |
 | A number of the method, not a setting | listed in `literal_numbers` of the scene, or of the storyboard ("two" views of SimCLR) |
 | A worked example with made-up values | the scene marked `example: true` |
 
-- In a narration sentence, a placeholder prints two decimals at most (`.2f`, `.1%`, `.2%`), so that a re-evaluated run moving by 0.0002 changes no spoken sentence; a value whose point needs more is listed in `exact_facts` of the scene, with a comment saying why. The texts shown on screen keep every decimal.
+- In a narration sentence, a placeholder prints two decimals at most (`.2f`, `.1%`, `.2%`, `percent`, `percent_label`, `points`), so that a re-evaluated run moving by 0.0002 changes no spoken sentence; a value whose point needs more is listed in `exact_facts` of the scene, with a comment saying why. The texts shown on screen keep every decimal.
 - A YAML excerpt highlights a setting by its key (`{key: Data.augmentation.probability, sentences: [0]}`) rather than by its text, so the highlight survives a changed value.
 - Should a number have no readable source (an inline literal of a function), keep it in `literal_numbers` with a comment naming the file and line it describes, so the next review finds it.
 

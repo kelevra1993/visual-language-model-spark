@@ -90,11 +90,11 @@ If one wishes to change what the comparator learns or how it reads the pairs, th
 | Key | Value in the synthetic configuration | Effect |
 |---|---|---|
 | `Fusion.type` | `"difference"` | `[before, after, after - before]`, 192 features (`FDIF`); `"concatenation"` gives `[before, after]`, 128 features (`FCAT`); `"cross_attention"` adds an attention of the frames of each member to the other member before the temporal module (`FXA<heads>`) |
-| `Fusion.number_heads`, `Fusion.dropout_rate` | `4`, `0.0` | read by the cross attention only, required for every type; the channels of the last backbone block must be a multiple of the heads |
+| `Fusion.number_heads`, `Fusion.dropout_rate` | `4`, `0.0` | read by the cross attention only, required for every type; with `"cross_attention"`, the channels of the last backbone block must be a multiple of the heads |
 | `Fusion.sequence_normalization_scope` | `"member"` | with `Backbone.normalization.feature_map_normalization: "sequence"`, normalizes every member by its own frames, or both members of a pair together with `"pair"` (`SNP`); unused with the batch normalization of this configuration |
 | `Data.sequence_settings.maximum_sequence_length` | `50` | the longest member: a pair with a longer member is left out of its split with a red warning (`T50`) |
 | `TemporalModel.type` | `"mean_pooling"` | shared by both members (`MEAN`); any of the 7 types, never causal |
-| `ClassificationHead.global_pooling` | `"average"` | 64 features per frame; with it the README run reaches a test accuracy of 0.985 at iteration 500 |
+| `ClassificationHead.global_pooling` | `"average"` | 64 features per frame; with it the README run reaches a test accuracy of 98.50 % at iteration 500 |
 | `Data.image_settings.size` | `512` | the frames of the dataset on disk (128 pixels) are resized to 512 |
 | `Data.data_augmentation.shuffle_frames` | `activated: False, probability: 0.25` | when on, shuffles every member on its own, each with its own draw |
 

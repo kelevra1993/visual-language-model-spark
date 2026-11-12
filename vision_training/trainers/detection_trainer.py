@@ -471,8 +471,8 @@ class DetectionTrainer(CocoSplitTrainer):
         AP@0.5 first), with the same values as TensorBoard scalars (the AP@0.5 of every class only with the per-class
         report). The average precisions and thresholds of every class are saved to class_metrics.csv, the proposal
         recall to proposal_recall.csv, the thresholds to class_thresholds.json and the confusion matrix to
-        confusion_matrix.csv in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever
-        the per-class report (save_error_analysis).
+        confusion_matrix.csv in the evaluation folder of the checkpoint,
+        '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', whatever the per-class report (save_error_analysis).
 
         Args:
             accumulator (Dict[str, Any]): The detections and ground truths of the test split, with the confusion matrix,
@@ -514,8 +514,8 @@ class DetectionTrainer(CocoSplitTrainer):
         """
         Summarises the proposal recall of the test split for the report of an evaluated checkpoint, in the object
         detection and the instance segmentation: its table, always shown, its TensorBoard scalars, and its rows saved
-        to proposal_recall.csv in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', which is
-        sent to MLflow.
+        to proposal_recall.csv in the evaluation folder of the checkpoint,
+        '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', which is sent to MLflow.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, with the filled 'proposal_recall'.
@@ -534,10 +534,11 @@ class DetectionTrainer(CocoSplitTrainer):
                             class_score_thresholds: Dict[int, Optional[Tuple[float, float]]]) -> Dict[str, Any]:
         """
         Saves the outputs of the evaluation of a checkpoint telling where the detector fails, in its evaluation
-        folder, '<run>/Evaluation/Iteration_<n>/', for compute_evaluation_results: the score threshold of every class
-        reaching the target precision in class_thresholds.json (the format of the classification tasks, for the
-        deployment), and the confusion matrix of the detections the deployed detector returns in confusion_matrix.csv,
-        both whatever the per-class report, the confusion matrix image only with it, also logged to TensorBoard. The
+        folder, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', for compute_evaluation_results: the score threshold
+        of every class reaching the target precision in class_thresholds.json (the format of the classification tasks,
+        for the deployment), and the confusion matrix of the detections the deployed detector returns in
+        confusion_matrix.csv, both whatever the per-class report, the confusion matrix image only with it, also logged
+        to TensorBoard. The
         report gets a note counting the outcomes of the detections and, when the error images are on, a note counting
         them with their folder.
 

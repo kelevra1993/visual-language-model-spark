@@ -1,5 +1,5 @@
 # Synthetic object loss pairs dataset (create_synthetic_dataset.py "sequence_comparison"): before and after views of 2
-# to 4 objects, labelled with whether the after member lost one.
+# to 6 objects, labelled with whether the after member lost one.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "sequence_comparison": sequence comparator (one class per
   # before and after sequence pair); needs Data.sequence_settings, TemporalModel, Fusion and ClassificationHead.

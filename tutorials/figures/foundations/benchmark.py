@@ -469,10 +469,14 @@ def draw_moving_average_chart(output_folder: Path, launches: Dict[Tuple[str, str
                                     clip_to_panel=axes is zoom_axes)
         averaged_mean = draw_setting(axes=axes, launch_curves=averaged_launches, colour=SERIES_COLOURS[1],
                                      clip_to_panel=axes is zoom_axes)
+    # The labels write the rounded facts the narration quotes, so that a mean ending on a half hundredth of a percent
+    # (99.625 %) is rounded the same way on the chart and in the captions
     label_point(axes=zoom_axes, iteration=2000, value=trained_mean[-1],
-                text=format_percentage(value=trained_mean[-1]), offset=(-30, -40), colour=SERIES_COLOURS[0])
+                text=format_percentage(value=round_fact(value=trained_mean[-1])), offset=(-30, -40),
+                colour=SERIES_COLOURS[0])
     label_point(axes=zoom_axes, iteration=2000, value=averaged_mean[-1],
-                text=format_percentage(value=averaged_mean[-1]), offset=(-30, 40), colour=SERIES_COLOURS[1])
+                text=format_percentage(value=round_fact(value=averaged_mean[-1])), offset=(-30, 40),
+                colour=SERIES_COLOURS[1])
     save_figure(figure=figure, output_path=output_folder / "benchmark_moving_average.png")
     facts = measure_panels(figure=figure, chart_name="moving_average", panels={"whole": whole_axes, "zoom": zoom_axes})
     pyplot.close(fig=figure)

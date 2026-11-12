@@ -424,7 +424,7 @@ class SelfSupervisedTrainer(BaseTrainer):
         metrics of the labelled test images when there is at least one, the headline metric being then the k-NN
         accuracy, and the effective rank and standard deviation of the representations of every test image, the
         effective rank being the headline metric of a test split without labels. The per-class k-NN metrics are saved
-        in class_metrics.csv in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
+        in class_metrics.csv in the evaluation folder of the checkpoint, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/'.
 
         Args:
             accumulator (Dict[str, Any]): The representations and labels of the test split.

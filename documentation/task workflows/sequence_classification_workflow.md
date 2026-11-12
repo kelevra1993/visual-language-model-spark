@@ -208,7 +208,7 @@ main()
 │       │       └── class_weights buffer        ones, or balanced on the sequences of every class
 │       ├── initialise_pretrained_components()  Backbone, TemporalModel and ClassificationHead can come from other runs
 │       ├── build_optimizer()
-│       ├── get_tracked_metrics() + MetricTracker.__init__(counts_frames=True)
+│       ├── get_tracked_metrics() + get_percent_tracked_metrics() + MetricTracker.__init__(counts_frames=True)
 │       ├── print_experiment_information() -> describe_split() -> count_split_sequences()
 │       │       "S sequences, F frames, K sequences of at most M frames"; an epoch is K sequences.
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
@@ -560,13 +560,14 @@ pretrained_checkpoint_paths                     = {'Backbone': None, 'TemporalMo
 Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 ```
 
-### Step 2.19 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-The metrics of the classification: the total loss, the classification loss and the accuracy of every batch. The tracker is created with `counts_frames=True`, so that it also counts the real frames of every interval (Step 3.8).
+### Step 2.19 — `get_tracked_metrics()` + `get_percent_tracked_metrics()` + `MetricTracker.__init__()`
+The metrics of the classification: the total loss, the classification loss and the accuracy of every batch. The tracker is created with `counts_frames=True`, so that it also counts the real frames of every interval (Step 3.8), and with the accuracy as its only rate (`get_percent_tracked_metrics()`, inherited from `ClassificationTrainer`), printed as a percentage with its change in points in the console summary (Step 3.21), the losses keeping 4 decimals.
 
 **Example output**
 ```text
 {'total_loss': 'Total Loss', 'classification_loss': 'Classification Loss', 'accuracy': 'Accuracy'}
-MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequences', counts_frames True
+MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequences', counts_frames True,
+               percent_metric_keys ['accuracy']
 ```
 
 ### Step 2.20 — `print_experiment_information()` (→ `describe_split()` → `count_split_sequences()`)
@@ -835,7 +836,7 @@ Tensorboard/Validation at iteration 10: Total Loss 1.3548, Classification Loss 1
 ```
 
 ### Step 3.21 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()`
-The sums of the interval are divided by the number of batches it ran, the frame counter is kept as it is. The header gives the sequences per second (`Sequences Per Second`) and the real frames per second, and MLflow receives the second one as `train/frame_throughput`.
+The sums of the interval are divided by the number of batches it ran, the frame counter is kept as it is. The header gives the sequences per second (`Sequences Per Second`) and the real frames per second, and MLflow receives the second one as `train/frame_throughput`. The accuracies are printed as percentages with their change in points (Step 2.19), the losses with 4 decimals; MLflow and TensorBoard keep the accuracy between 0 and 1.
 
 **Example: the sums and the averages of the first interval**
 ```text
@@ -1027,7 +1028,7 @@ At iteration 12 only `moving_left` reaches the precision: threshold 0.2224914431
 ```
 
 ### Step 4.11 — `build_class_metrics_rows()` + `write_class_metrics_file()` + `save_confusion_matrix_image()` + `save_score_curve_images()`
-`class_metrics.csv` is written at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` (the precision-recall curves zoomed on the thresholds of the target precisions) only with `per_class_report`, which also adds the `roc_auc` and `average_precision` columns after `f1` (see `classification_workflow.md`, Steps 4.14 and 4.15). The `recall_lower` and `recall_upper` columns after `recall` hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test sequences being independent (`classification_workflow.md`, Step 4.14). The example of this run predates the curves.
+`class_metrics.csv` is written at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` (the precision-recall curves zoomed on the thresholds of the target precisions) only with `per_class_report`, which also adds the `roc_auc` and `average_precision` columns after `f1` (see `classification_workflow.md`, Steps 4.14 and 4.15). The images write their accuracies, shares, areas under the curves and axes as percentages, as the report, while `class_metrics.csv` keeps its values between 0 and 1. The `recall_lower` and `recall_upper` columns after `recall` hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test sequences being independent (`classification_workflow.md`, Step 4.14). The example of this run predates the curves.
 
 **Example: `Evaluation/Iteration_6/class_metrics.csv`**
 ```text
@@ -1158,7 +1159,7 @@ The current evaluation writes 26 scalars to `Tensorboard/Test` (6 global + 20 pe
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, when the k of the top-k accuracy was a setting (`top_k: 2`, now fixed at 5), before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, when the k of the top-k accuracy was a setting (`top_k: 2`, now fixed at 5), before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6. The script then wrote into `evaluations/<run>/Evaluation/` of the experiments root folder: the paths and the rates of the examples are shown as the current code writes them, in `<run>/Checkpoint_Evaluation/` and as percentages.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `target_precisions` replaces the target precision of the run (a list such as `[0.99, 0.95, 0.90]` giving the thresholds of every class at each of them), the NMS settings are for the detection tasks only, and the evaluation is written in the `Checkpoint_Evaluation/` folder of the run. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.
