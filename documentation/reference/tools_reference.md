@@ -151,7 +151,7 @@ Every folder of kept images lists them in `kept_images.csv`. The kept images of 
 3. Group the candidates with `group_keypoint_candidates` (`vision_training/models/keypoints/keypoint_grouping.py`) and the `KeypointHead.inference` settings of the run.
 4. Bring the keypoints back to the original image with `restore_boxes_to_original_image`, as boxes of zero size.
 
-**Frame selection (SEL).** The export adds the CPU decoder `frame_selector_decoder`, a Triton Python backend running the decoding of `Selection.decoding` with the thresholds of `class_thresholds.json` (0 when the checkpoint was not evaluated), and one ensemble per format, `frame_selector_<format>_ensemble`, chaining network and decoder. The decoder folder holds a copy of `vision_training/models/sequence/frame_selection_decoding.py` and `decoding_settings.json` (the wanted classes in output order), and uses the numpy and scipy of the Triton image:
+**Frame selection (SEL).** The export adds the CPU decoder `frame_selector_decoder`, a Triton Python backend running the decoding of `Selection.decoding` with the thresholds of the `class_thresholds.json` of the exported iteration, in `Evaluation/` or `Checkpoint_Evaluation/` (0 when the checkpoint was not evaluated, an error when both folders hold one), and one ensemble per format, `frame_selector_<format>_ensemble`, chaining network and decoder. The decoder folder holds a copy of `vision_training/models/sequence/frame_selection_decoding.py` and `decoding_settings.json` (the wanted classes in output order), and uses the numpy and scipy of the Triton image:
 
 | Output | Type | Shape | Content |
 |---|---|---|---|
