@@ -1,11 +1,11 @@
 """
 Tests of find_saved_thresholds_path, check_saved_thresholds_location and read_saved_temperature of
 vision_training/deployment/export_model.py, used by the export with use_saved_temperature: the thresholds saved from
-the temperature explorer of the exported checkpoint are found in its evaluation folder in the evaluations folder of
-scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the averaged weights), the export stopping when the
-run folder holds them too, thresholds given by the export button of the page are accepted only from the evaluation of
-the exported checkpoint and weights, and their temperature is read after checking them against the classes of the
-exported model.
+the temperature explorer of the exported checkpoint are found in its evaluation folder in the Checkpoint_Evaluation
+folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the averaged weights), the export stopping
+when the Evaluation folder of the training holds them too, thresholds given by the export button of the page are
+accepted only from an evaluation of the exported checkpoint and weights in the run folder, and their temperature is
+read after checking them against the classes of the exported model.
 """
 
 import json
@@ -75,12 +75,12 @@ def get_checkpoint_path(experiment_folder: Path) -> Path:
 
 
 @pytest.mark.parametrize(argnames=("evaluation_subfolder", "use_averaged_weights"),
-                         argvalues=[(f"evaluations/{RUN_NAME}/Evaluation/Iteration_6/EMA", True)])
+                         argvalues=[(f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_6/EMA", True)])
 def test_saved_temperature_is_read_from_the_evaluation_of_the_checkpoint(
         tmp_path: Path, evaluation_subfolder: str, use_averaged_weights: bool) -> None:
     """
     Verifies that the saved thresholds are found in the evaluation of the exported iteration and averaged weights in
-    the evaluations folder, and that their temperature is read.
+    the Checkpoint_Evaluation folder of the run, and that their temperature is read.
     """
     saved_path = write_evaluation(evaluation_folder=tmp_path / evaluation_subfolder,
                                   saved_thresholds=build_thresholds(logit_temperature=2.5, number_classes=3),
@@ -95,11 +95,11 @@ def test_saved_temperature_is_read_from_the_evaluation_of_the_checkpoint(
 
 def test_thresholds_saved_in_both_folders_are_refused(tmp_path: Path) -> None:
     """
-    Verifies that thresholds saved for the exported checkpoint in both the run folder and the evaluations folder stop
-    the export, so that the deployed temperature is never picked silently between two saves.
+    Verifies that thresholds saved for the exported checkpoint in both the Evaluation and the Checkpoint_Evaluation
+    folders of the run stop the export, so that the deployed temperature is never picked silently between two saves.
     """
     for evaluation_subfolder in [f"{RUN_NAME}/Evaluation/Iteration_6",
-                                 f"evaluations/{RUN_NAME}/Evaluation/Iteration_6"]:
+                                 f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_6"]:
         write_evaluation(evaluation_folder=tmp_path / evaluation_subfolder,
                          saved_thresholds=build_thresholds(logit_temperature=2.5, number_classes=3), number_classes=3)
     experiment_folder = tmp_path / RUN_NAME
@@ -126,19 +126,22 @@ def test_saved_thresholds_of_another_evaluation_or_model_are_refused(
 
 
 @pytest.mark.parametrize(argnames=("saved_subfolder", "use_averaged_weights", "accepted"), argvalues=[
-    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_6/EMA", True, True),
+    (f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_6/EMA", True, True),
     (f"{RUN_NAME}/Evaluation/Iteration_6", False, True),
     (f"{RUN_NAME}/Evaluation/Iteration_7", False, False),
-    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_6/EMA", False, False),
+    (f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_6/EMA", False, False),
     (f"{RUN_NAME}/Evaluation/Iteration_6", True, False),
-    ("evaluations/CLS_OTHER_MC3/Evaluation/Iteration_6", False, False)])
+    ("CLS_OTHER_MC3/Checkpoint_Evaluation/Iteration_6", False, False),
+    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_6", False, False),
+    (f"{RUN_NAME}/Checkpoint_Evaluation/Evaluation/Iteration_6", False, False)])
 def test_given_saved_thresholds_must_be_those_of_the_exported_checkpoint(tmp_path: Path, saved_subfolder: str,
                                                                          use_averaged_weights: bool,
                                                                          accepted: bool) -> None:
     """
     Verifies that the thresholds given by the export button of the page are accepted only from the evaluation of the
-    exported run, iteration and weights, in the run folder or the evaluations folder, and refused from the evaluation
-    of another iteration, of the other weights or of another run.
+    exported run, iteration and weights, in its Evaluation or Checkpoint_Evaluation folder, and refused from the
+    evaluation of another iteration, of the other weights, of another run or from the former evaluations folder next to
+    the run.
     """
     experiment_folder = tmp_path / RUN_NAME
     saved_path = tmp_path / saved_subfolder / SAVED_THRESHOLDS_FILE_NAME

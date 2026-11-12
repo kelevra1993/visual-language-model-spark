@@ -76,6 +76,11 @@ TRAINING_DATA_ANALYSIS_ARTIFACT_FOLDER = "analysis"
 # label of its Results.txt blocks and the prefix of its MLflow metrics
 AVERAGED_WEIGHTS_FOLDER_NAME = "EMA"
 AVERAGED_WEIGHTS_TENSORBOARD_FOLDER = "Test_EMA"
+
+# Folder of the evaluations of the checkpoints of a training inside its run folder, '<run>/Evaluation/Iteration_<n>/';
+# a standalone evaluation (scripts/evaluation/evaluate_checkpoint.py) keeps the iteration folders directly in its own
+# folder instead, '<run>/Checkpoint_Evaluation/Iteration_<n>/'
+EVALUATION_FOLDER_NAME = "Evaluation"
 AVERAGED_WEIGHTS_LABEL = "EMA Weights"
 AVERAGED_WEIGHTS_METRIC_PREFIX = "test_ema"
 
@@ -157,6 +162,15 @@ class BaseTrainer(ABC):
         if self.run_name is None:
             self.run_name = self.get_run_name()
         self.experiment_folder = self.experiment_configuration["experiment_folder"] / self.run_name
+
+        # A standalone evaluation writes in its own folder inside the evaluated run ('<run>/Checkpoint_Evaluation/'),
+        # its iteration folders directly in it; a training keeps them in the 'Evaluation' folder of its run folder
+        standalone_evaluation_folder = self.experiment_configuration["standalone_evaluation_folder"]
+        self.standalone_evaluation = standalone_evaluation_folder is not None
+        if self.standalone_evaluation:
+            self.experiment_folder = self.experiment_folder / standalone_evaluation_folder
+        self.evaluation_root = (self.experiment_folder if self.standalone_evaluation
+                                else self.experiment_folder / EVALUATION_FOLDER_NAME)
 
         # Basic training parameters
         self.training_iterations = self.experiment_configuration["number_iterations"]
@@ -829,10 +843,11 @@ class BaseTrainer(ABC):
         if not create_run_folder:
             return tensorboard_directory, weights_directory, new_configuration_path, None
 
-        # Create directories
+        # Create directories, a standalone evaluation reading the weights of the evaluated run and saving none
         self.experiment_folder.mkdir(parents=True, exist_ok=True)
         tensorboard_directory.mkdir(exist_ok=True, parents=True)
-        weights_directory.mkdir(exist_ok=True, parents=True)
+        if not self.standalone_evaluation:
+            weights_directory.mkdir(exist_ok=True, parents=True)
 
         # Settings changed since the last start of a resumed run, before the copy replaces the saved configuration
         configuration_changes = self.compare_with_saved_configuration(
@@ -1920,7 +1935,8 @@ class BaseTrainer(ABC):
         """
         Gives the folder of the files of the evaluation of a checkpoint, written by the base trainer (sample images)
         and the task trainers (class metrics, thresholds, confusion matrix, predictions, error images...):
-        '<run>/Evaluation/Iteration_<n>/', and its 'EMA' subfolder for the averaged weights.
+        '<run>/Evaluation/Iteration_<n>/' for a training, '<run>/Checkpoint_Evaluation/Iteration_<n>/' for a standalone
+        evaluation (evaluation_root), and its 'EMA' subfolder for the averaged weights.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
@@ -1928,7 +1944,7 @@ class BaseTrainer(ABC):
         Returns:
             Path: The evaluation folder of the weights being evaluated.
         """
-        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder = self.evaluation_root / f"Iteration_{iteration}"
         if self.evaluating_averaged_weights:
             return evaluation_folder / AVERAGED_WEIGHTS_FOLDER_NAME
         return evaluation_folder

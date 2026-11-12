@@ -28,10 +28,10 @@ from vision_training.deployment.frame_selection_deployment import (build_decodin
 from vision_training.deployment.input_contract import (build_input_contract, write_onnx_input_contract,
                                                        write_preprocessing_file)
 from vision_training.deployment.triton_configuration import write_triton_configuration
-from vision_training.evaluation.checkpoint_evaluation import EVALUATIONS_FOLDER_NAME
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_saved_thresholds)
-from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -188,10 +188,10 @@ def find_saved_thresholds_path(experiment_folder: Path, checkpoint_path: Path, u
     """
     Finds the thresholds saved from the temperature explorer of the exported checkpoint, whose temperature is built
     into an exported classifier with use_saved_temperature: 'saved_temperature_thresholds.json' in the evaluation
-    folder of the exported iteration and weights ('Evaluation/Iteration_<n>', its 'EMA' subfolder for the averaged
-    weights), in the run folder (evaluation of the training) or in '<runs>/evaluations/<run>/' (default folder of
-    scripts/evaluation/evaluate_checkpoint.py). Exactly one of them must hold the file, so that the deployed
-    temperature is never taken from another evaluation than the one chosen.
+    folder of the exported iteration and weights, '<run>/Evaluation/Iteration_<n>' (evaluation of the training) or
+    '<run>/Checkpoint_Evaluation/Iteration_<n>' (scripts/evaluation/evaluate_checkpoint.py), its 'EMA' subfolder for
+    the averaged weights. Exactly one of them must hold the file, so that the deployed temperature is never taken from
+    another evaluation than the one chosen.
 
     Args:
         experiment_folder (Path): The exported run folder.
@@ -205,12 +205,11 @@ def find_saved_thresholds_path(experiment_folder: Path, checkpoint_path: Path, u
         FileNotFoundError: If none of the two evaluation folders holds saved thresholds.
         ValueError: If both hold saved thresholds.
     """
-    # Evaluation folder of the exported iteration and weights in the run folder, then in the evaluations folder
+    # Evaluation folder of the exported iteration and weights, of the training then of the standalone evaluation
     weights_folders = [AVERAGED_WEIGHTS_FOLDER_NAME] if use_averaged_weights else []
-    candidate_paths = [Path(evaluation_root, checkpoint_path.parent.name, *weights_folders, SAVED_THRESHOLDS_FILE_NAME)
-                       for evaluation_root in [experiment_folder / "Evaluation",
-                                               experiment_folder.parent / EVALUATIONS_FOLDER_NAME /
-                                               experiment_folder.name / "Evaluation"]]
+    candidate_paths = [Path(experiment_folder, evaluation_folder_name, checkpoint_path.parent.name, *weights_folders,
+                            SAVED_THRESHOLDS_FILE_NAME)
+                       for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
     found_paths = [candidate_path for candidate_path in candidate_paths if candidate_path.is_file()]
     if not found_paths:
         raise FileNotFoundError(f"No {SAVED_THRESHOLDS_FILE_NAME} for the exported checkpoint: save the thresholds of "
@@ -228,7 +227,7 @@ def check_saved_thresholds_location(saved_thresholds_path: Path, experiment_fold
     """
     Checks that thresholds given to the export (by the export button of the temperature explorer) are those saved in
     the evaluation folder of the exported run, iteration and weights, '<run>/Evaluation/Iteration_<n>/[EMA/]' or
-    '<runs>/evaluations/<run>/Evaluation/Iteration_<n>/[EMA/]', so that a classifier is never exported with the
+    '<run>/Checkpoint_Evaluation/Iteration_<n>/[EMA/]', so that a classifier is never exported with the
     temperature chosen on the evaluation of another checkpoint or of the other weights.
 
     Args:
@@ -240,19 +239,21 @@ def check_saved_thresholds_location(saved_thresholds_path: Path, experiment_fold
     Raises:
         ValueError: If the file is not the saved thresholds of the evaluation of the exported checkpoint and weights.
     """
-    # Evaluation folder of the iteration, the averaged weights in its 'EMA' subfolder
+    # Evaluation folder of the iteration, the averaged weights in its 'EMA' subfolder, in one of the two evaluation
+    # folders of the exported run folder itself
     evaluation_folder = saved_thresholds_path.parent
     iteration_folder = evaluation_folder.parent if use_averaged_weights else evaluation_folder
     weights_folder_name = evaluation_folder.name if use_averaged_weights else None
     found_location = (saved_thresholds_path.name, weights_folder_name, iteration_folder.name,
-                      iteration_folder.parent.name, iteration_folder.parent.parent.name)
-    expected_location = (SAVED_THRESHOLDS_FILE_NAME, AVERAGED_WEIGHTS_FOLDER_NAME if use_averaged_weights else None,
-                         checkpoint_path.parent.name, "Evaluation", experiment_folder.name)
-    if found_location != expected_location or (not use_averaged_weights and
-                                               evaluation_folder.name == AVERAGED_WEIGHTS_FOLDER_NAME):
+                      iteration_folder.parent.name, iteration_folder.parent.parent.resolve())
+    expected_locations = [(SAVED_THRESHOLDS_FILE_NAME, AVERAGED_WEIGHTS_FOLDER_NAME if use_averaged_weights else None,
+                           checkpoint_path.parent.name, evaluation_folder_name, experiment_folder.resolve())
+                          for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
+    if found_location not in expected_locations or (not use_averaged_weights and
+                                                    evaluation_folder.name == AVERAGED_WEIGHTS_FOLDER_NAME):
         weights_description = f"{AVERAGED_WEIGHTS_FOLDER_NAME}/" if use_averaged_weights else ""
-        raise ValueError(f"Expected the thresholds saved in <runs>/[{EVALUATIONS_FOLDER_NAME}/]"
-                         f"{experiment_folder.name}/Evaluation/{checkpoint_path.parent.name}/{weights_description}"
+        raise ValueError(f"Expected the thresholds saved in {experiment_folder.name}/[{EVALUATION_FOLDER_NAME} or "
+                         f"{CHECKPOINT_EVALUATION_FOLDER_NAME}]/{checkpoint_path.parent.name}/{weights_description}"
                          f"{SAVED_THRESHOLDS_FILE_NAME} for the exported checkpoint, got {saved_thresholds_path}.")
 
 
@@ -484,8 +485,8 @@ if __name__ == "__main__":
     # Classification only: True builds the temperature saved with the button of the temperature explorer of the exported
     # iteration and weights (served by scripts/evaluation/serve_temperature_explorer.py) into the exported model and
     # copies its thresholds next to it as class_thresholds.json; the file 'saved_temperature_thresholds.json' is looked
-    # for in '<run>/Evaluation/Iteration_<n>/' and '<runs>/evaluations/<run>/Evaluation/Iteration_<n>/' ('EMA' after
-    # them for the averaged weights). False exports with a temperature of 1 and without thresholds
+    # for in '<run>/Evaluation/Iteration_<n>/' and '<run>/Checkpoint_Evaluation/Iteration_<n>/' ('EMA' after them for
+    # the averaged weights). False exports with a temperature of 1 and without thresholds
     use_saved_temperature = False
     # With use_saved_temperature, the saved_temperature_thresholds.json to deploy, None to look for it in the two
     # folders above (the export button of the temperature explorer gives the file of its page)

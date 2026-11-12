@@ -57,8 +57,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"
 
 # Evaluation of the checkpoints of a run: set run_name, experiment_folder, iteration (None, a number or "all"),
-# test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair, target_precisions and
-# output_folder in its main block
+# test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and target_precisions in its
+# main block; it writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 `scripts/data/create_sequence_split_subset.py` writes a fixed random subset of a split (`test_10000`, 10,000 of the 50,000 test sequences, seed 0), the test split of the launches of `documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`.
@@ -958,7 +958,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Matc
 6,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
 3,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
 ```
-The file has 223 columns: the iteration, the 9 global metrics, then the precision, recall and F1 of the 71 classes. It is written in `evaluations/<run name>/Evaluation/`, next to the `Iteration_12`, `Iteration_9`, `Iteration_6` and `Iteration_3` folders of the evaluation. With the current code (Stage 4), `Macro ROC AUC` and `Macro Average Precision` follow `Top-2 Accuracy`, and the `ROC AUC` and `Average Precision` columns of every class having them follow its F1, the columns being all the scalars of the evaluation (`build_summary_columns()`).
+The file has 223 columns: the iteration, the 9 global metrics, then the precision, recall and F1 of the 71 classes. It is written in `<run name>/Checkpoint_Evaluation/`, next to the `Iteration_12`, `Iteration_9`, `Iteration_6` and `Iteration_3` folders of the evaluation. With the current code (Stage 4), `Macro ROC AUC` and `Macro Average Precision` follow `Top-2 Accuracy`, and the `ROC AUC` and `Average Precision` columns of every class having them follow its F1, the columns being all the scalars of the evaluation (`build_summary_columns()`).
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 **Example output: the block of the checkpoint of iteration 12 on the 20 sequences** (shortened, recorded before the curves of Stage 4)

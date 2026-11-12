@@ -28,6 +28,7 @@ from vision_training.configuration_processing.configuration_loader import (load_
 from vision_training.core.task_registry import TASK_TRAINER_CLASSES
 from vision_training.data.augmentations import (AUGMENTATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.models.classification.image_classifier import ImageClassifier
 
 # Colour codes of the terminal removed from the captured text
@@ -72,9 +73,11 @@ def order_folder_entry(entry: Path) -> Tuple[bool, int, str]:
 def list_run_folder_tree(run_folder: Path) -> List[str]:
     """
     Lists the folder of a run as a tree for the run folder scene: its folders then its files, without the
-    configuration backups of the converter of saved runs (CONFIGURATION_BACKUP_PATTERN); in Weights and Evaluation the
-    first and last iteration folders with "..." between them, the last checkpoint expanded (the last evaluation is
-    listed apart by list_evaluation_folder); in Tensorboard the log folder of every split.
+    configuration backups of the converter of saved runs (CONFIGURATION_BACKUP_PATTERN) and without the folders written
+    afterwards by scripts/evaluation/evaluate_checkpoint.py (Checkpoint_Evaluation and its NMS variants), which the
+    chapter on the tools after the training shows; in Weights and Evaluation the first and last iteration folders with
+    "..." between them, the last checkpoint expanded (the last evaluation is listed apart by list_evaluation_folder); in
+    Tensorboard the log folder of every split.
 
     Args:
         run_folder (Path): The folder of the run.
@@ -83,9 +86,10 @@ def list_run_folder_tree(run_folder: Path) -> List[str]:
         List[str]: The lines of the tree.
     """
     lines = [f"{run_folder.name}/"]
-    # Entries written by the training, the configuration backups of the converter left out
+    # Entries written by the training, without the configuration backups and the standalone evaluations
     top_entries = sorted((entry for entry in run_folder.iterdir()
-                          if not CONFIGURATION_BACKUP_PATTERN.fullmatch(string=entry.name)), key=order_folder_entry)
+                          if not CONFIGURATION_BACKUP_PATTERN.fullmatch(string=entry.name)
+                          and not entry.name.startswith(CHECKPOINT_EVALUATION_FOLDER_NAME)), key=order_folder_entry)
     for top_index, top_entry in enumerate(top_entries):
         top_is_last = top_index == len(top_entries) - 1
         lines.append(f"{'└── ' if top_is_last else '├── '}{top_entry.name}{'/' if top_entry.is_dir() else ''}")

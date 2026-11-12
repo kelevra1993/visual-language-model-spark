@@ -173,7 +173,7 @@ scenes:
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
       start: "# Largest number of error images saved"
-      end: "output_folder = experiment_folder.parent"
+      end: "^    nms_distance_exponent = "
     highlights:
       - {match: "maximum_error_images_per_class_pair = ", sentences: [0, 1]}
       - {match: "error_dumps", sentences: [1]}

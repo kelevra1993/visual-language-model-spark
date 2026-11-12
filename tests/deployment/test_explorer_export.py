@@ -28,15 +28,15 @@ RUN_NAME = "CLS_TEST_MC3"
 @pytest.mark.parametrize(argnames=("evaluation_subfolder", "run_subfolder", "iteration", "use_averaged_weights"),
                          argvalues=[(f"{RUN_NAME}/Evaluation/Iteration_800", RUN_NAME, 800, False),
                                     (f"{RUN_NAME}/Evaluation/Iteration_800/EMA", RUN_NAME, 800, True),
-                                    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_3500/EMA", RUN_NAME, 3500, True),
-                                    (f"group/evaluations/{RUN_NAME}/Evaluation/Iteration_5", f"group/{RUN_NAME}", 5,
+                                    (f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_3500/EMA", RUN_NAME, 3500, True),
+                                    (f"group/{RUN_NAME}/Checkpoint_Evaluation/Iteration_5", f"group/{RUN_NAME}", 5,
                                      False)])
 def test_evaluation_folder_gives_its_run_iteration_and_weights(tmp_path: Path, evaluation_subfolder: str,
                                                                run_subfolder: str, iteration: int,
                                                                use_averaged_weights: bool) -> None:
     """
-    Verifies that the evaluation of the training and that of evaluate_checkpoint.py (in the evaluations folder next to
-    the run) both give the run folder holding the weights, the iteration and the weights of the checkpoint.
+    Verifies that the evaluation of the training and that of evaluate_checkpoint.py (in the Checkpoint_Evaluation
+    folder of the run) both give the run folder holding the weights, the iteration and the weights of the checkpoint.
     """
     assert describe_evaluation_folder(evaluation_folder=tmp_path / evaluation_subfolder) == {
         "run_folder": tmp_path / run_subfolder, "iteration": iteration, "use_averaged_weights": use_averaged_weights}
@@ -44,7 +44,8 @@ def test_evaluation_folder_gives_its_run_iteration_and_weights(tmp_path: Path, e
 
 @pytest.mark.parametrize(argnames="evaluation_subfolder", argvalues=[f"{RUN_NAME}/Evaluation/Iteration_last",
                                                                      f"{RUN_NAME}/Results/Iteration_800",
-                                                                     f"{RUN_NAME}/Evaluation/Iteration_800/Errors"])
+                                                                     f"{RUN_NAME}/Evaluation/Iteration_800/Errors",
+                                                                     f"evaluations/{RUN_NAME}/Iteration_800"])
 def test_folders_other_than_an_evaluation_are_refused(tmp_path: Path, evaluation_subfolder: str) -> None:
     """
     Verifies that a folder not laid out as the evaluation of an iteration is refused with the expected layout.
@@ -126,7 +127,7 @@ def test_exports_at_two_temperatures_keep_their_own_folders(tmp_path: Path) -> N
     run_folder = tmp_path / RUN_NAME
     write_trained_model(experiment_folder=run_folder, task="classification", keep_ratio=False,
                         tiling_configuration=None)
-    evaluation_folder = tmp_path / "evaluations" / RUN_NAME / "Evaluation" / f"Iteration_{EXPORTED_ITERATION}"
+    evaluation_folder = run_folder / "Checkpoint_Evaluation" / f"Iteration_{EXPORTED_ITERATION}"
     export_settings = {"evaluation_folder": evaluation_folder, "formats": ["onnx"], "model_version": 1,
                        "maximum_batch_size": 4, "tensorrt_precision": None}
 

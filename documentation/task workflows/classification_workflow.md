@@ -78,8 +78,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair, target_precisions and
-#    output_folder in the main block of scripts/evaluation/evaluate_checkpoint.py
+#    test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and target_precisions in
+#    the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # 4. Temperature and export: serve the temperature explorers of the experiments folders, open http://127.0.0.1:8091/,
@@ -623,16 +623,16 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 │   run name and its folder, the iteration ("all" for every checkpoint from the last one, None for the last one, or an
 │   integer), an optional other labelled test folder, the evaluation batch size, whether the evaluation is tracked in
 │   MLflow, the maximum number of error images per pair of classes, the target precisions of the class thresholds
-│   (a probability or a list such as [0.99, 0.95, 0.90]), the final NMS of the detection tasks (skipped with a
-│   warning for a classifier), and the output folder.
+│   (a probability or a list such as [0.99, 0.95, 0.90]) and the final NMS of the detection tasks (skipped with a
+│   warning for a classifier). It writes in <run>/Checkpoint_Evaluation/.
 │
 ├── load_experiment_configuration() + get_trainer_class() + trainer construction   (same as Stages 1-2)
 │       Loads training_configuration.yaml from the trained run (its classes from the label_dictionary.json next to
-│       it), points experiment_folder to the output folder and run_name to the name of the evaluated run folder (and
-│       test_data_folder, batch_size, tracking.activated, evaluation.error_dumps turned on with the given limit and
-│       evaluation.target_precision to the given values), turns off
-│       the transfer of pretrained components, then builds the same trainer as for a training. Its run folder, with
-│       the name of the evaluated run, is created in the output folder.
+│       it), sets test_data_folder, batch_size, tracking.activated, evaluation.error_dumps (turned on with the given
+│       limit) and evaluation.target_precision to the given values, points the trainer to
+│       <run>/Checkpoint_Evaluation/ (point_to_checkpoint_evaluation(), the run name kept), turns off the transfer
+│       of pretrained components, then builds the same trainer as for a training. It writes its iteration folders
+│       directly in Checkpoint_Evaluation/ and saves no weights.
 ├── get_checkpoint_iterations() / get_last_checkpoint_iteration()
 │       Read Weights/full-checkpoint of the trained run: all the recorded iterations, evaluated from the last one
 │       ("all"), or only the last one (None). An integer iteration is used as given.
@@ -645,7 +645,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
     └── summarise_checkpoint_evaluations()
         │   For each iteration: skips it with a warning if its file is missing, loads its weights (and their moving
         │   average when on) into the trainer's model, runs the test evaluation, and keeps the scalars. At the end
-        │   writes Evaluation/evaluation_summary.csv (one row per iteration, the averaged weights in ema_ columns) and
+        │   writes evaluation_summary.csv (one row per iteration, the averaged weights in ema_ columns) and
         │   prints the best iteration of the headline metric for every kind of weights, tied iterations listed.
         │
         └── run_test_evaluation()  for each checkpoint  -> [STAGE 4]
@@ -1868,7 +1868,7 @@ artifacts: evaluation/iteration_6/class_metrics.csv, class_thresholds.json, conf
 > The examples below are real outputs of this script logic run on the run of Stage 3 (checkpoints saved at iterations 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step), with `iteration = "all"` and, to keep it short, a test folder of 300 images taken from the test split (`test_data_folder`), instead of the 5,000 images of Stage 4. They were also captured before the per-class recall intervals were added (2026-11-01): the block of Step 5.6 now also holds the `Per Class Recall` table after `Per Class Metrics`, and `class_metrics.csv` the `recall_lower` and `recall_upper` columns after `recall`.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-This separate script evaluates checkpoints of a run that has already been trained (or is still training) without training anything: to compare several checkpoints, to pick the one to deploy, or to score a run on another labelled split. It is launched alone, as a module from the root of the repository (`uv run python -m scripts.evaluation.evaluate_checkpoint`), and has no command line: its settings are the variables at the top of its `__main__` block. The run folder is only read; everything the evaluation writes goes to a separate folder.
+This separate script evaluates checkpoints of a run that has already been trained (or is still training) without training anything: to compare several checkpoints, to pick the one to deploy, or to score a run on another labelled split. It is launched alone, as a module from the root of the repository (`uv run python -m scripts.evaluation.evaluate_checkpoint`), and has no command line: its settings are the variables at the top of its `__main__` block. The files of the run are only read; everything the evaluation writes goes to the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training.
 
 **Example: the settings of the script** (`run_name` and `experiment_folder` of the file name the last evaluated run, change them for another run)
 
@@ -1882,16 +1882,15 @@ This separate script evaluates checkpoints of a run that has already been traine
 | `maximum_error_images_per_class_pair` | turns the error images on with at most this number of images per pair of true and predicted classes, the first ones met, a number above the number of test samples saving every error; `None` to keep `evaluation.error_dumps` of the run |
 | `target_precisions` | the precision of the class thresholds, or a list of distinct precisions whose first one is the main target (e.g. `[0.99, 0.95, 0.90]`, Step 4.13), checked like the configuration (`apply_target_precisions()`); `None` to keep `evaluation.target_precision` of the run |
 | `nms_criterion`, `nms_distance_exponent` | the final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
-| `output_folder` | root of the evaluations, `experiment_folder.parent / "evaluations"` by default (`<experiments>/evaluations`), kept apart so the trained run is untouched |
 
 ### Step 5.2 — `load_experiment_configuration()` + `get_trainer_class()` + trainer construction (same as Stages 1–2)
-The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks), the label dictionary being read from the `label_dictionary.json` saved next to it, so that the classes of the run keep their meaning when the mapping file was edited or moved since (a run started before the file existed takes the mapping file). It then points `experiment_folder` to the output folder, sets `run_name` to the name of the evaluated run folder (the trainer otherwise builds the name from the settings, which lose the `PT` tokens once the transfer is turned off), sets `test_data_folder`, `batch_size`, `tracking.activated`, `evaluation.error_dumps` (turned on with `maximum_error_images_per_class_pair`) and `evaluation.target_precision` (`target_precisions`) when they are given, and calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates a run folder with the same run name inside the output folder. The trainer keeps a `DisabledTracker` until Step 5.4.
+The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks), the label dictionary being read from the `label_dictionary.json` saved next to it, so that the classes of the run keep their meaning when the mapping file was edited or moved since (a run started before the file existed takes the mapping file). It then sets `test_data_folder`, `batch_size`, `tracking.activated`, `evaluation.error_dumps` (turned on with `maximum_error_images_per_class_pair`) and `evaluation.target_precision` (`target_precisions`) when they are given, and points the trainer to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()`: `experiment_folder` becomes the folder holding the run, `run_name` the name of the evaluated run folder (the trainer otherwise builds the name from the settings, which lose the `PT` tokens once the transfer is turned off) and `standalone_evaluation_folder` is set to `Checkpoint_Evaluation`, so that the trainer writes in `<run>/Checkpoint_Evaluation/`, with its iteration folders directly in it, and creates no `Weights/` folder. It finally calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates `<run>/Checkpoint_Evaluation/` with its copy of the configuration, `data.json` and `label_dictionary.json`. The trainer keeps a `DisabledTracker` until Step 5.4.
 
-**Example output:** the construction prints the launch panel of Step 2.22 with the output folder. The new run folder holds no weights, so no model is loaded here: the weights are loaded by Step 5.5.
+**Example output:** the construction prints the launch panel of Step 2.22 with the evaluation folder. The evaluation folder holds no weights, so no model is loaded here: the weights are loaded by Step 5.5.
 ```text
 tracking in the saved configuration: {'activated': True, 'tracking_uri': None, 'experiment_name': None}
 - Run Name                : CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9
-- Experiment Folder       : file:///.../runs/evaluations/CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9
+- Experiment Folder       : file:///.../runs/CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9/Checkpoint_Evaluation
 ...
 - Test Data Folder        : file:///.../test_300 (300 images, 9 categories)
 - Iterations Per Epoch    : 782
@@ -1903,7 +1902,7 @@ No Initiation Model Weights Will Be Used...
 We Generate A New Model That Will Be Trained From Scratch.
 -----------------------------------------------------------
 ```
-The `MLflow Tracking` line of the panel names the database of the trained run, where the MLflow run of the evaluation is written (Step 5.4): the script moves `experiment_folder` to the output folder, but `tracking_root` keeps the experiments root folder of the run.
+The `MLflow Tracking` line of the panel names the database of the trained run, where the MLflow run of the evaluation is written (Step 5.4): the script moves the trainer to the `Checkpoint_Evaluation/` folder of the run, but `tracking_root` keeps the experiments root folder of the run.
 
 ### Step 5.3 — `get_checkpoint_iterations()` / `get_last_checkpoint_iteration()`
 They read the registry `Weights/full-checkpoint` of the trained run (Step 2.27) to decide which iterations are evaluated: `get_checkpoint_iterations()` lists every recorded iteration, intermediate checkpoints included, and the script reverses the list (`iteration = "all"`), so that the most trained weights are evaluated first; `get_last_checkpoint_iteration()` gives the last one (`iteration = None`). An integer iteration is used as given.
@@ -1933,11 +1932,11 @@ artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3
 `test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric (`bug_standards.md` B15, dropped). These artifacts also predate the curves, which add `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to every `evaluation/iteration_<n>/` with `per_class_report`.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Checkpoint_Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
 
 **Example output** (after the four evaluations)
 ```text
-Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/CLS_IN-KAR-64_..._MC9/Evaluation/evaluation_summary.csv
+Evaluation Summary Of 4 Checkpoints : file:///.../runs/CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/evaluation_summary.csv
   - Best Checkpoint : iteration 9 (Accuracy 0.1133)
 
 evaluation_summary.csv (32 columns: iteration, the 4 global scalars, the 27 per-class scalars):
@@ -1949,7 +1948,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/square,Re
 ```
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
-This is exactly the function of Stage 4, so a checkpoint evaluated here gives the same block in the console and in `Results.txt`, the same TensorBoard curves (`Tensorboard/Test`), the same sample images and the same evaluation files (`Evaluation/Iteration_N/`) as during the training, only in the output folder, on the split chosen in the script, and tracked in the MLflow run of the evaluation. The output folder takes the name of the evaluated run folder whatever the evaluated split, so evaluating the same run twice reuses it: `Results.txt` receives new blocks, the files of the `Iteration_N` folders are rewritten and the error images of both evaluations end up in the same `Errors/` folders (`bug_standards.md` B19). With `per_class_report`, a classifier evaluated here also gets its `temperature_explorer.html` and `class_logits.npz`, which `serve_temperature_explorer.py` lists with those of the training (Step 4.13): the thresholds saved on its page land in this `Iteration_N` folder, one of the two folders where `export_model.py` looks for them with `use_saved_temperature` (`find_saved_thresholds_path()`, which refuses the export when both the run and the evaluations folder hold a saved file for the checkpoint). The tree below was recorded before the curves and the temperature explorer.
+This is exactly the function of Stage 4, so a checkpoint evaluated here gives the same block in the console and in `Results.txt`, the same TensorBoard curves (`Tensorboard/Test`), the same sample images and the same evaluation files (`Iteration_N/`, as in `Evaluation/` during the training) as during the training, only in `<run>/Checkpoint_Evaluation/`, on the split chosen in the script, and tracked in the MLflow run of the evaluation. The evaluation folder is the same whatever the evaluated split, so evaluating the same run twice reuses it: `Results.txt` receives new blocks, the files of the `Iteration_N` folders are rewritten and the error images of both evaluations end up in the same `Errors/` folders (`bug_standards.md` B19). With `per_class_report`, a classifier evaluated here also gets its `temperature_explorer.html` and `class_logits.npz`, which `serve_temperature_explorer.py` lists with those of the training (Step 4.13): the thresholds saved on its page land in this `Iteration_N` folder, one of the two folders where `export_model.py` looks for them with `use_saved_temperature` (`find_saved_thresholds_path()`, which refuses the export when both `Evaluation/` and `Checkpoint_Evaluation/` hold a saved file for the checkpoint). The tree below was recorded before the curves and the temperature explorer.
 
 **Example output: the block of the checkpoint of iteration 9 on the 300 images** (the console prints the same links as in Step 4.18, then the next checkpoint starts with its `Evaluating :` line)
 ```text
@@ -1970,14 +1969,13 @@ Iteration 9 · 300 Test Images · 2026-10-09 09:53 ─────────�
    octagon          34      0.1133   1.0000   0.2036           —         —
   Worst F1 first, ties in class order. — : no samples of the class, or the precision 0.99 is never reached.
 
-evaluations/CLS_IN-KAR-64_..._MC9/
-├── Evaluation/Iteration_12/, Iteration_9/, Iteration_6/ and Iteration_3/
+CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/
+├── Iteration_12/, Iteration_9/, Iteration_6/ and Iteration_3/
 │                                                  Errors/  Samples/  class_metrics.csv  class_thresholds.json
 │                                                  confusion_matrix.csv  confusion_matrix.png  predictions.csv
-├── Evaluation/evaluation_summary.csv
+├── evaluation_summary.csv
 ├── Results.txt                                    the four blocks
 ├── Tensorboard/Test/
-├── Weights/                                       empty
 ├── data.json                                      the record of the data of the evaluation (Step 2.7), its test
 │                                                  split being the evaluated one
 ├── label_dictionary.json                          the classes of the trained run

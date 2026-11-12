@@ -77,10 +77,10 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml"
 
 # 3. Evaluation of checkpoints: in the main block of scripts/evaluation/evaluate_checkpoint.py set run_name,
-#    experiment_folder (the run folder), iteration (None, an integer or "all"), test_data_folder, batch_size,
-#    track_evaluation and output_folder; maximum_error_images_per_class_pair (and target_precisions, nms_criterion
-#    and nms_distance_exponent when set) is skipped with a yellow warning, the task saving no error image, no class
-#    threshold and having no detector (Step 5.1)
+#    experiment_folder (the run folder), iteration (None, an integer or "all"), test_data_folder, batch_size and
+#    track_evaluation; maximum_error_images_per_class_pair (and target_precisions, nms_criterion and
+#    nms_distance_exponent when set) is skipped with a yellow warning, the task saving no error image, no class
+#    threshold and having no detector (Step 5.1); the evaluation is written in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
@@ -292,7 +292,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   (uv run python -m scripts.evaluation.evaluate_checkpoint)
 └── same as every task, maximum_error_images_per_class_pair skipped with a warning (the configuration has no
-    error_dumps section): loads training_configuration.yaml, builds the SelfSupervisedTrainer in the output folder, then
+    error_dumps section): loads training_configuration.yaml, builds the SelfSupervisedTrainer writing in
+    <run>/Checkpoint_Evaluation/, then
     evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations() -> run_test_evaluation()
 ```
 
@@ -1199,7 +1200,7 @@ With the moving average of the weights on (`Optimization.exponential_moving_aver
 The same script for every task (see `classification_workflow.md`, Stage 5), configured by the variables of its main block and run with `uv run python -m scripts.evaluation.evaluate_checkpoint`: set `run_name` to the self-supervised run and `experiment_folder` to its run folder, `iteration` to `None` (the last checkpoint), an integer or `"all"`, and `test_data_folder` to another split if needed. The self-supervised configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the self-supervised evaluation saves no error image. `target_precisions`, `nms_criterion` and `nms_distance_exponent`, when set, are skipped the same way, the task having neither class thresholds nor a detector. A run saved before the k-NN took reference training images lacks `evaluation.number_reference_images_per_class` in its `training_configuration.yaml`, which the checks refuse (`Missing configuration key 'ExperimentConfiguration.evaluation.number_reference_images_per_class'`): add the key to it before evaluating it again. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder (`experiment_folder` set to `output_folder`, by default the `evaluations/` folder next to the run folder, and `run_name` to the name of the run folder, so that the files go to `evaluations/<run name>/`), the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer`.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()` (`experiment_folder` set to the folder holding the run, `run_name` to the name of the run folder and `standalone_evaluation_folder` to `Checkpoint_Evaluation`, so that the files go to `<run name>/Checkpoint_Evaluation/`), the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer`.
 
 **Example output** (shortened)
 ```text
@@ -1208,7 +1209,7 @@ The script loads `training_configuration.yaml` of the run, with the classes of t
 - Batch Size              : 16
 - MLflow Tracking         : sqlite:///.../runs/mlflow.db
 ```
-The panel names the backend of the evaluated run, where the evaluation is tracked (Step 5.4): `tracking_root` keeps the experiments root folder of the run while `experiment_folder` points to the output folder.
+The panel names the backend of the evaluated run, where the evaluation is tracked (Step 5.4): the script moves the trainer to the `Checkpoint_Evaluation/` folder of the run, but `tracking_root` keeps the experiments root folder of the run.
 
 ### Step 5.3 — `get_checkpoint_iterations()`
 **Example output**
@@ -1229,7 +1230,7 @@ metrics: 33 keys, 132 rows
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
 **Example output**
 ```text
-Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv          <- a clickable link to evaluations/SSL_IN-KAR-64_..._SIMCLR-T0.2/Evaluation/evaluation_summary.csv
+Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv          <- a clickable link to SSL_IN-KAR-64_..._SIMCLR-T0.2/Checkpoint_Evaluation/evaluation_summary.csv
   - Best Checkpoint : iteration 3 (k-NN Accuracy 0.1250)
 
 iteration,k-NN Accuracy,k-NN Balanced Accuracy,k-NN Macro F1,Effective Rank,Representation Standard Deviation, ...
@@ -1240,12 +1241,12 @@ iteration,k-NN Accuracy,k-NN Balanced Accuracy,k-NN Macro F1,Effective Rank,Repr
 ```
 The file has 33 columns: the iteration, the 5 global metrics and the 27 per-class metrics.
 
-**Example: the output folder**
+**Example: the evaluation folder**
 ```text
-evaluations/SSL_IN-KAR-64_..._SIMCLR-T0.2/
-    data.json  label_dictionary.json  Results.txt  training_configuration.yaml  Weights/ (empty)
-    Evaluation/evaluation_summary.csv
-    Evaluation/Iteration_3, 6, 9, 12/   class_metrics.csv  Samples/
+SSL_IN-KAR-64_..._SIMCLR-T0.2/Checkpoint_Evaluation/
+    data.json  label_dictionary.json  Results.txt  training_configuration.yaml
+    evaluation_summary.csv
+    Iteration_3, 6, 9, 12/   class_metrics.csv  Samples/
     Tensorboard/Test
 ```
 

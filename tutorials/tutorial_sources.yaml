@@ -9,9 +9,9 @@ runs:
     folder: readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9
     trained_with: "vision_training/configurations/classification/configuration_synthetic_shapes.yaml on the 9-class synthetic shapes dataset, 1500 iterations, learning rate 0.0002, a checkpoint every 250 iterations (intermediate_weight_saving_iterations 250) evaluated every 500 (weight_saving_iterations 500), MLflow tracking on, with the augmentation probabilities the file had then (0.3 for most types, 0.25 now)"
   # Standalone evaluation of the classification run, whose error images the classification figures show; written by
-  # scripts/evaluation/evaluate_checkpoint.py into the evaluations folder next to the run
+  # scripts/evaluation/evaluate_checkpoint.py into the Checkpoint_Evaluation folder of the run
   classification_evaluation:
-    folder: readme_screenshots/evaluations/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9
+    folder: readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation
     trained_with: "scripts/evaluation/evaluate_checkpoint.py on iteration 1500 of the classification run, with at most 10 error images per pair of classes (maximum_error_images_per_class_pair 10)"
   classification_learning_rates:
     folders:

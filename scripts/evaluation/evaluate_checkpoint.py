@@ -1,13 +1,14 @@
 """
 When run, evaluates the last, a given or every checkpoint of a trained experiment on its test split (or another
 labelled split) through vision_training.evaluation.checkpoint_evaluation.evaluate_checkpoints, the trainer of the task
-being built from the copied configuration, the results written to a separate evaluations folder and, when the tracking
-is on, tracked in an MLflow run of their own. The precisions targeted by the class thresholds can be replaced, e.g. by
+being built from the copied configuration, the results written inside the run folder, in
+'<run>/Checkpoint_Evaluation/' next to the 'Evaluation' folder of the training, and, when the tracking is on, tracked
+in an MLflow run of their own. The precisions targeted by the class thresholds can be replaced, e.g. by
 [0.99, 0.95, 0.90] to read the thresholds of a research report without training again; with the per-class report, a
 classifier gets its 'temperature_explorer.html' and 'class_logits.npz', served by
 scripts/evaluation/serve_temperature_explorer.py to choose, save and export the temperature of the checkpoint. The
 final non-maximum suppression of a detection run can be replaced, e.g. by DIoU-NMS for stage 5b of the detection
-benchmark, its evaluations going to an output subfolder of their own.
+benchmark, its evaluations going to a folder of their own, '<run>/Checkpoint_Evaluation_nms_<name>/'.
 """
 
 from pathlib import Path
@@ -17,7 +18,7 @@ from vision_training.core.task_registry import get_trainer_class
 from vision_training.configuration_processing.classification_checks import check_target_precisions
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_nms_criterion_configuration
-from vision_training.evaluation.checkpoint_evaluation import EVALUATIONS_FOLDER_NAME, evaluate_checkpoints
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, evaluate_checkpoints
 from vision_training.models.model_transfer import disable_pretrained_settings
 from vision_training.trainers.checkpointing import get_checkpoint_iterations, get_last_checkpoint_iteration
 from vision_training.utilities.os_utilities import print_color
@@ -166,13 +167,42 @@ def apply_nms_criterion(model_configuration: Dict[str, Any], task: str, nms_crit
     return "" if evaluated_nms_name == run_nms_name else f"_nms_{evaluated_nms_name}"
 
 
+def point_to_checkpoint_evaluation(experiment_configuration: Dict[str, Any], experiment_folder: Path,
+                                   folder_suffix: str) -> Path:
+    """
+    Points the configuration copied from an evaluated run to the folder of its standalone evaluation,
+    '<run>/Checkpoint_Evaluation<suffix>/', inside the run folder next to the 'Evaluation' folder of its training, so
+    that every evaluation of a run stays with it: the trainer writes its Results.txt, Tensorboard/Test, the copied
+    configuration and the iteration folders there, directly (standalone_evaluation_folder), saves no weights and
+    writes nothing else in the run folder. The run name stays the one of the evaluated run, for the launch panel and the
+    tags of the MLflow run of the evaluation, and 'tracking_root' keeps the experiments root folder of the run, so that
+    this MLflow run goes to the backend of the evaluated experiment.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The loaded experiment configuration of the evaluated run, changed in
+            place.
+        experiment_folder (Path): The evaluated run folder.
+        folder_suffix (str): The suffix of the evaluation folder, '_nms_<name>' for a detection run evaluated with
+            another final NMS (apply_nms_criterion), empty otherwise.
+
+    Returns:
+        Path: The folder of the evaluation.
+    """
+    experiment_configuration["experiment_folder"] = experiment_folder.parent
+    experiment_configuration["run_name"] = experiment_folder.name
+    experiment_configuration["standalone_evaluation_folder"] = CHECKPOINT_EVALUATION_FOLDER_NAME + folder_suffix
+    return experiment_folder / experiment_configuration["standalone_evaluation_folder"]
+
+
 if __name__ == "__main__":
-    # Run name of the trained experiment whose configuration and checkpoints are evaluated, it is only read, in the
-    # experiments root folder of its configuration ('experiment_folder')
+    # Run name of the trained experiment whose configuration and checkpoints are evaluated, in the experiments root
+    # folder of its configuration ('experiment_folder'); its files are only read, the evaluation being written in its
+    # 'Checkpoint_Evaluation' folder
     run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9"
     experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "readme_screenshots" / run_name
     # Checkpoint iteration to evaluate, None for the last saved one, or "all" for every checkpoint of the registry
-    # (the intermediate ones included, the last saved first), compared in 'Evaluation/evaluation_summary.csv'
+    # (the intermediate ones included, the last saved first), compared in
+    # 'Checkpoint_Evaluation/evaluation_summary.csv'
     iteration = 1500
     # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one
     test_data_folder = None
@@ -184,9 +214,10 @@ if __name__ == "__main__":
     # 'tracking.activated'. The MLflow run of the training is never modified
     track_evaluation = None
     # Largest number of error images saved for every pair of true and predicted classes, the first ones met, in
-    # 'Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/', the error images being turned on. A number above the
-    # number of test samples saves every error. None keeps the experiment's 'evaluation.error_dumps' settings. Skipped
-    # with a warning for the tasks without error images (semantic segmentation, keypoint detection, self-supervised)
+    # 'Checkpoint_Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/', the error images being turned on. A number
+    # above the number of test samples saves every error. None keeps the experiment's 'evaluation.error_dumps'
+    # settings. Skipped with a warning for the tasks without error images (semantic segmentation, keypoint detection,
+    # self-supervised)
     maximum_error_images_per_class_pair = 100000
     # Precision targeted by the class thresholds, or a list of distinct precisions whose first one is the main target,
     # e.g. [0.99, 0.95, 0.90] to read the thresholds of every class at each of them in class_thresholds.json,
@@ -196,25 +227,15 @@ if __name__ == "__main__":
     target_precisions = None
     # Criterion of the final non-maximum suppression of the detection tasks, "iou" (greedy) or "distance_iou"
     # (DIoU-NMS), and the exponent of its distance term (1.0 in the paper, 0.6 in YOLOv4), None keeping the run's. An
-    # NMS other than the run's writes to '<run folder name>_nms_<criterion>[_<exponent>]', e.g. '_nms_distance_iou_1.0'.
-    # Skipped with a warning for the tasks without detector
+    # NMS other than the run's writes to '<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/', e.g.
+    # 'Checkpoint_Evaluation_nms_distance_iou_1.0'. Skipped with a warning for the tasks without detector
     nms_criterion = None
     nms_distance_exponent = None
-    # Root folder of the evaluations, kept apart from the experiment so that its files are untouched. Like a training
-    # run, Results.txt, Tensorboard/Test and the Evaluation folder are written in a subfolder of it with the name of
-    # the evaluated run folder. The export looks for the thresholds saved from the temperature explorer of a classifier
-    # in this default folder
-    output_folder = experiment_folder.parent / EVALUATIONS_FOLDER_NAME
 
-    # Point the copied configuration to the output folder and to the evaluated split, its 'tracking_root' keeping the
-    # experiments root folder of the run so that the panel names the MLflow backend the evaluation is tracked in
+    # Copied configuration of the run pointed to the evaluated split and settings, the files of the run being only read
     configuration_path = experiment_folder / "training_configuration.yaml"
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)
-    experiment_configuration["experiment_folder"] = output_folder
-    # The output subfolder keeps the name of the evaluated run folder, which the settings no longer give once the
-    # transfer of pretrained components is turned off below
-    experiment_configuration["run_name"] = experiment_folder.name
     if test_data_folder is not None:
         experiment_configuration["test_data_folder"] = test_data_folder
     if batch_size is not None:
@@ -226,12 +247,16 @@ if __name__ == "__main__":
                             maximum_error_images_per_class_pair=maximum_error_images_per_class_pair)
     # Target precisions of the class thresholds replaced, for the tasks giving class thresholds
     apply_target_precisions(experiment_configuration=experiment_configuration, target_precisions=target_precisions)
-    # Final non-maximum suppression replaced for the detection tasks, its evaluations written to a subfolder of their
-    # own, the name of the run folder followed by that of the NMS, when it is not the one of the run
+    # Final non-maximum suppression replaced for the detection tasks, its evaluations written to a folder of their
+    # own, named after the NMS, when it is not the one of the run
     nms_folder_suffix = apply_nms_criterion(model_configuration=model_configuration,
                                             task=experiment_configuration["task"], nms_criterion=nms_criterion,
                                             nms_distance_exponent=nms_distance_exponent)
-    experiment_configuration["run_name"] += nms_folder_suffix
+    # Results.txt, Tensorboard/Test and the iteration folders written in '<run>/Checkpoint_Evaluation/', next to the
+    # 'Evaluation' folder of the training, where the export also looks for the thresholds saved from the temperature
+    # explorer of a classifier
+    point_to_checkpoint_evaluation(experiment_configuration=experiment_configuration,
+                                   experiment_folder=experiment_folder, folder_suffix=nms_folder_suffix)
 
     # The weights come from the evaluated checkpoints, so the pretrained components the run started from are not loaded
     disable_pretrained_settings(model_configuration=model_configuration)

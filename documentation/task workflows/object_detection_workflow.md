@@ -266,7 +266,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 └── same as every task: evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations()
-    -> run_test_evaluation() for every checkpoint, then Evaluation/evaluation_summary.csv
+    -> run_test_evaluation() for every checkpoint, then evaluation_summary.csv
 ```
 
 ---
@@ -1304,10 +1304,10 @@ At iteration 5000, the proposals overlap 99.67 % of the test objects by 0.5 and 
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the 5000-iteration run of Stage 3 (its 20 checkpoints, one every 250 iterations) with `iteration = "all"`, `batch_size = 64`, `track_evaluation = False`, a temporary output folder and, to keep it short, a test folder of the first 200 images of the test split (its `labels.json` reduced to these images and their 709 annotations, its `data/` folder linked). It ran on the GPU, shared with other trainings, in 59 minutes, about 3 minutes per checkpoint for the trained and the averaged weights. Step 5.4 comes from an earlier, tracked evaluation of the four checkpoints of the CPU run, the tracking being off here. They were captured before the per-class recall intervals were added (2026-11-01), whose `Per Class Recall` table now follows the per-class table of Step 5.6.
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the 5000-iteration run of Stage 3 (its 20 checkpoints, one every 250 iterations) with `iteration = "all"`, `batch_size = 64`, `track_evaluation = False`, the evaluation written in a temporary folder and, to keep it short, a test folder of the first 200 images of the test split (its `labels.json` reduced to these images and their 709 annotations, its `data/` folder linked). It ran on the GPU, shared with other trainings, in 59 minutes, about 3 minutes per checkpoint for the trained and the averaged weights. Step 5.4 comes from an earlier, tracked evaluation of the four checkpoints of the CPU run, the tracking being off here. They were captured before the per-class recall intervals were added (2026-11-01), whose `Per Class Recall` table now follows the per-class table of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5), configured by the variables of its main block (`run_name`, `experiment_folder`, `iteration`, `test_data_folder`, `batch_size`, `track_evaluation`, `maximum_error_images_per_class_pair`, `target_precisions`, `nms_criterion`, `nms_distance_exponent`, `output_folder`). Should you need to score a run trained with the greedy NMS, such as the runs of this document, with the DIoU-NMS of the current configurations, set `nms_criterion = "distance_iou"` and `nms_distance_exponent = 0.6`: the evaluation then goes to `<output_folder>/<run folder name>_nms_distance_iou_0.6`, so that it never mixes with the evaluations of the NMS of the run (`apply_nms_criterion()`); `target_precisions` takes one precision for the detection, a list being refused. Its default `maximum_error_images_per_class_pair = 100000` turns the error images of Step 4.5 on whatever the configuration, every error image of the test split being saved, and the `pretrained` settings are turned off (`disable_pretrained_settings()`), every weight coming from the evaluated checkpoint.
+The same script for every task (see `classification_workflow.md`, Stage 5), configured by the variables of its main block (`run_name`, `experiment_folder`, `iteration`, `test_data_folder`, `batch_size`, `track_evaluation`, `maximum_error_images_per_class_pair`, `target_precisions`, `nms_criterion`, `nms_distance_exponent`), the evaluation being written in the `Checkpoint_Evaluation/` folder of the run. Should you need to score a run trained with the greedy NMS, such as the runs of this document, with the DIoU-NMS of the current configurations, set `nms_criterion = "distance_iou"` and `nms_distance_exponent = 0.6`: the evaluation then goes to `<run>/Checkpoint_Evaluation_nms_distance_iou_0.6/`, so that it never mixes with the evaluations of the NMS of the run (`apply_nms_criterion()`); `target_precisions` takes one precision for the detection, a list being refused. Its default `maximum_error_images_per_class_pair = 100000` turns the error images of Step 4.5 on whatever the configuration, every error image of the test split being saved, and the `pretrained` settings are turned off (`disable_pretrained_settings()`), every weight coming from the evaluated checkpoint.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
@@ -1343,7 +1343,7 @@ Evaluation Summary Of 20 Checkpoints : evaluation_summary.csv
   - Best Checkpoint (EMA Weights) : iteration 5000 (mAP@0.5/area 0.7287)
 ```
 
-**Example: `<output folder>/<run>/Evaluation/evaluation_summary.csv`** (145 columns: the iteration, the 72 scalars of the trained weights, that is the 52 of Step 4.7 and the `AP@0.5` of the 20 classes, then the same 72 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
+**Example: `<run>/Checkpoint_Evaluation/evaluation_summary.csv`** (145 columns: the iteration, the 72 scalars of the trained weights, that is the 52 of Step 4.7 and the `AP@0.5` of the 20 classes, then the same 72 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
 ```text
 iteration   mAP@0.5/area   mAP@[0.5:0.95]/area   AP@0.5/kite   AP@0.5/plus_sign   ema_mAP@0.5/area   ema_mAP@[0.5:0.95]/area
    5000       0.7210         0.5257                0.2906        0.9992             0.7287             0.5794

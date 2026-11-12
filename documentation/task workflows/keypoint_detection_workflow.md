@@ -67,8 +67,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation, output_folder and maximum_error_images_per_class_pair = None
-#    (Step 5.1) in the main block of scripts/evaluation/evaluate_checkpoint.py
+#    test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair = None (Step 5.1) in the
+#    main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # 4. Export (CUDA only, Step 6.1): set experiment_folder, iteration and formats in the main block of
@@ -1202,7 +1202,7 @@ MLflow Run Created In The Experiment 'keypoint_detection' : 8974fb1c8f1541aaa07b
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
 The checkpoints are ranked on the headline metric of the task, the OKS mAP@0.5 (area method), for the trained and the averaged weights.
 
-**Example output** (the four checkpoints tie at 0, so the four iterations are listed in their evaluation order; the file name is a terminal link to `experiments/evaluations/<run>/Evaluation/evaluation_summary.csv`)
+**Example output** (the four checkpoints tie at 0, so the four iterations are listed in their evaluation order; the file name is a terminal link to `experiments/<run>/Checkpoint_Evaluation/evaluation_summary.csv`)
 ```text
 -------------------------------------------------------------
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
@@ -1223,12 +1223,11 @@ The checkpoint of iteration 60 matched one object when this file was written, bu
 
 **Example: the evaluation folder**
 ```text
-experiments/evaluations/<run>/
-├── Evaluation/evaluation_summary.csv
-├── Evaluation/Iteration_15/, Iteration_30/, Iteration_45/, Iteration_60/      the files of Step 4.9, with Samples/ (16 PNG images) and EMA/
+experiments/<run>/Checkpoint_Evaluation/
+├── evaluation_summary.csv
+├── Iteration_15/, Iteration_30/, Iteration_45/, Iteration_60/      the files of Step 4.9, with Samples/ (16 PNG images) and EMA/
 ├── Tensorboard/Test/, Test_EMA/
-├── Weights/                                                                    empty
-├── Results.txt                                                                 2888 lines
+├── Results.txt                                                     2888 lines
 └── data.json, label_dictionary.json, training_configuration.yaml
 ```
 

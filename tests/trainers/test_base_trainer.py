@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
+from scripts.evaluation.evaluate_checkpoint import point_to_checkpoint_evaluation
 from tests.fixtures.evaluation_checks import read_results_blocks
 from vision_training.core.contracts import EvaluationResults
 from vision_training.data.label_mapping import RUN_LABEL_DICTIONARY_FILE_NAME
@@ -104,7 +105,8 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
                         moving_average_activated: bool = False, number_training_samples: int = 8,
                         allow_data_change_on_resume: bool = False, run_name: Optional[str] = None,
                         label_dictionary: Optional[Dict[Any, int]] = None,
-                        training_dataset: Optional[Dataset] = None) -> DummyTrainer:
+                        training_dataset: Optional[Dataset] = None,
+                        evaluated_run_folder: Optional[Path] = None) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples, which must be evaluated only once.
@@ -125,6 +127,9 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
             of the dummy configuration. Defaults to None.
         training_dataset (Optional[Dataset]): The training split, None for number_training_samples readable samples.
             Defaults to None.
+        evaluated_run_folder (Optional[Path]): The run folder evaluated by a standalone evaluation, whose trainer is
+            pointed to its Checkpoint_Evaluation folder as scripts/evaluation/evaluate_checkpoint.py does
+            (point_to_checkpoint_evaluation), None for a training. Defaults to None.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -137,6 +142,9 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
     experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
     experiment_configuration["allow_data_change_on_resume"] = allow_data_change_on_resume
     experiment_configuration["run_name"] = run_name
+    if evaluated_run_folder is not None:
+        point_to_checkpoint_evaluation(experiment_configuration=experiment_configuration,
+                                       experiment_folder=evaluated_run_folder, folder_suffix="")
     if label_dictionary is not None:
         model_configuration["Data"]["label_dictionary"] = label_dictionary
     model_configuration["Optimization"]["exponential_moving_average"] = {"activated": moving_average_activated,

@@ -78,9 +78,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder (the run folder), iteration (None, an integer or
-#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair, target_precisions
-#    and output_folder in the main block of scripts/evaluation/evaluate_checkpoint.py (its NMS settings are for the
-#    detection tasks only)
+#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and target_precisions
+#    in the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
+#    (its NMS settings are for the detection tasks only)
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
@@ -1161,10 +1161,10 @@ The current evaluation writes 26 scalars to `Tensorboard/Test` (6 global + 20 pe
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, when the k of the top-k accuracy was a setting (`top_k: 2`, now fixed at 5), before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `target_precisions` replaces the target precision of the run (a list such as `[0.99, 0.95, 0.90]` giving the thresholds of every class at each of them), the NMS settings are for the detection tasks only, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `target_precisions` replaces the target precision of the run (a list such as `[0.99, 0.95, 0.90]` giving the thresholds of every class at each of them), the NMS settings are for the detection tasks only, and the evaluation is written in the `Checkpoint_Evaluation/` folder of the run. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, keeps the name of the run folder (`run_name`), turns the transfer of the pretrained components off (`disable_pretrained_settings()`) and builds a `SequenceClassificationTrainer`.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the `Checkpoint_Evaluation/` folder of the run, the reduced split and the batch size, keeps the name of the run folder (`run_name`), turns the transfer of the pretrained components off (`disable_pretrained_settings()`) and builds a `SequenceClassificationTrainer`.
 
 **Example: the split line of the launch information**
 ```text
@@ -1188,7 +1188,7 @@ The best checkpoint is the one with the highest headline metric; on a tie every 
 
 **Example output** (every checkpoint predicts `moving_down` for the 40 sequences, so they all have the same accuracy)
 ```text
-Evaluation Summary Of 4 Checkpoints : file:///.../example_runs/evaluations/M2O_IN-KAR-64_..._MC4/Evaluation/evaluation_summary.csv
+Evaluation Summary Of 4 Checkpoints : file:///.../example_runs/M2O_IN-KAR-64_..._MC4/Checkpoint_Evaluation/evaluation_summary.csv
   - Best Checkpoint : iterations 12, 9, 6, 3 tie (Accuracy 0.1250)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/moving_left,Recall/moving_left,F1/moving_left, ...

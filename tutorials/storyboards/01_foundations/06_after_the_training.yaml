@@ -42,7 +42,7 @@ scenes:
       - {match: "^    run_name = |^    experiment_folder = ", sentences: [0]}
       - {match: "^    iteration = |^    test_data_folder = |^    batch_size = |^    track_evaluation = ", sentences: [1]}
     narration:
-      - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: set the run name and its folder in the main block of the evaluate checkpoint script; the run folder itself is never modified."
+      - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: set the run name and its folder in the main block of the evaluate checkpoint script; the files of the run are only read."
       - "The iteration is None for the last checkpoint, a number, or all for every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
 
   - kind: code
@@ -63,19 +63,20 @@ scenes:
     page: diagram
     title: "What the evaluation writes"
     code_reference: "vision_training/evaluation/checkpoint_evaluation.py · summarise_checkpoint_evaluations"
+    # The indentation of the tree written with non-breaking spaces, the leading spaces of a text being dropped
     elements:
-      - {type: text, position: [30, 60], text: "<experiments>/evaluations/", font: diagram_monospace, anchor: ls}
-      - {type: text, position: [30, 115], text: "└── <run name>/", font: diagram_monospace, anchor: ls}
-      - {type: text, position: [30, 170], text: "    ├── Results.txt", font: diagram_monospace, anchor: ls, highlight: [0]}
-      - {type: text, position: [30, 225], text: "    ├── Tensorboard/Test/", font: diagram_monospace, anchor: ls, highlight: [0]}
-      - {type: text, position: [30, 280], text: "    └── Evaluation/", font: diagram_monospace, anchor: ls, highlight: [0]}
-      - {type: text, position: [30, 335], text: "        ├── Iteration_<n>/", font: diagram_monospace, anchor: ls, highlight: [0]}
-      - {type: text, position: [30, 390], text: "        │   └── the files of the task, Errors/ when on", font: diagram_monospace, colour: dim, anchor: ls}
-      - {type: text, position: [30, 445], text: "        └── evaluation_summary.csv", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [30, 60], text: "<experiments>/<run name>/", font: diagram_monospace, anchor: ls}
+      - {type: text, position: [30, 115], text: "├── Evaluation/   of the training", font: diagram_monospace, colour: dim, anchor: ls}
+      - {type: text, position: [30, 170], text: "└── Checkpoint_Evaluation/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 225], text: "\u00a0\u00a0\u00a0\u00a0├── Results.txt", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 280], text: "\u00a0\u00a0\u00a0\u00a0├── Tensorboard/Test/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 335], text: "\u00a0\u00a0\u00a0\u00a0├── Iteration_<n>/", font: diagram_monospace, anchor: ls, highlight: [0]}
+      - {type: text, position: [30, 390], text: "\u00a0\u00a0\u00a0\u00a0│\u00a0\u00a0\u00a0└── the files of the task, Errors/ when on", font: diagram_monospace, colour: dim, anchor: ls}
+      - {type: text, position: [30, 445], text: "\u00a0\u00a0\u00a0\u00a0└── evaluation_summary.csv", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: box, box: [1000, 150, 1740, 330], text: "every checkpoint scored on the whole\ntest split, with the trained weights\nand the averaged ones when kept", font: diagram_text, outline: aqua, appear: 0, highlight: [0]}
       - {type: box, box: [1000, 380, 1740, 560], text: "iteration = \"all\": one row per checkpoint,\nthe best checkpoint printed\nfor the trained and averaged weights", font: diagram_text, outline: violet, appear: 1, highlight: [1]}
     narration:
-      - "The evaluation writes the results file, the test curves and the evaluation folder like a training does, in a folder named after the run, under evaluations."
+      - "The evaluation writes the results file, the test curves and one folder per checkpoint like a training does, in the checkpoint evaluation folder of the run, next to the evaluation folder of the training."
       - "With all the checkpoints, the evaluation summary compares their metrics in one table, and the best checkpoint is printed for the trained and for the averaged weights."
 
   - kind: code

@@ -26,10 +26,10 @@ from vision_training.evaluation.classification.temperature_explorer import (EXPL
                                                                             compute_temperature_thresholds,
                                                                             describe_explorer_temperature)
 
-# Evaluations of the tests: one with its class logits, evaluated in its run folder, one without, evaluated by
-# evaluate_checkpoint.py for the averaged weights of a deleted run
+# Evaluations of the tests: one with its class logits, evaluated by the training of its run, one without, evaluated by
+# evaluate_checkpoint.py for the averaged weights, in the Checkpoint_Evaluation folder of a run without configuration
 LIVE_EVALUATION = "experiments/CLS_LIVE_MC3/Evaluation/Iteration_6"
-GRID_EVALUATION = "experiments/evaluations/CLS_GRID_MC3/Evaluation/Iteration_3/EMA"
+GRID_EVALUATION = "experiments/CLS_GRID_MC3/Checkpoint_Evaluation/Iteration_3/EMA"
 
 
 @pytest.fixture
@@ -81,14 +81,16 @@ def request_server(url: str, content: Optional[Dict[str, Any]]) -> Tuple[int, by
 
 def test_index_and_pages_are_served_with_their_evaluation(served_experiments: Tuple[Dict[str, Any], str]) -> None:
     """
-    Verifies that the index lists both evaluations, any temperature for the one with logits and the grid for the other,
-    and that every page is built with the current template, its data naming the evaluation and the export settings.
+    Verifies that the index lists both evaluations, the training one and the checkpoint evaluation, any temperature for
+    the one with logits and the grid for the other, and that every page is built with the current template, its data
+    naming the evaluation and the export settings.
     """
     _, address = served_experiments
     status, index = request_server(url=f"{address}/", content=None)
     assert status == 200
     assert index.count(b"<tr><td>") == 2 and b"CLS_LIVE_MC3" in index and b"CLS_GRID_MC3" in index
     assert b"<td>Any</td>" in index and b"<td>Grid only</td>" in index
+    assert b"<td>Training</td>" in index and b"<td>Checkpoint evaluation</td>" in index
 
     for identifier, live_temperatures in [(LIVE_EVALUATION, True), (GRID_EVALUATION, False)]:
         status, page = request_server(url=f"{address}/explorer?evaluation={quote(identifier)}", content=None)

@@ -50,12 +50,15 @@ placeholder.
 <main>
   <h1>Temperature Explorers</h1>
   <p>The evaluations of the classifiers of the experiments folders that hold a temperature explorer. Open one to choose
-     its temperature, save its thresholds and export it to <code>&lt;run&gt;/Exports/</code>. Temperatures "Any": the
-     evaluation kept its logits, any temperature can be shown; "Grid only": the temperatures of its slider.</p>
+     its temperature, save its thresholds and export it to <code>&lt;run&gt;/Exports/</code>. Evaluation "Training":
+     <code>&lt;run&gt;/Evaluation/</code>, written by the training; "Checkpoint evaluation":
+     <code>&lt;run&gt;/Checkpoint_Evaluation/</code>, written by <code>evaluate_checkpoint.py</code>. Temperatures
+     "Any": the evaluation kept its logits, any temperature can be shown; "Grid only": the temperatures of its
+     slider.</p>
   <div class="table-wrapper">
     <table>
-      <tr><th>Run</th><th>Iteration</th><th>Weights</th><th>Temperatures</th><th>Saved T</th><th>Exports</th>
-          <th>Folder</th></tr>
+      <tr><th>Run</th><th>Evaluation</th><th>Iteration</th><th>Weights</th><th>Temperatures</th><th>Saved T</th>
+          <th>Exports</th><th>Folder</th></tr>
 __INDEX_ROWS__
     </table>
   </div>
