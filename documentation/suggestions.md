@@ -34,8 +34,8 @@
 > - zoom-out augmentation (`random_zoom_out`), on in the DET and INS `configuration_example.yaml`;
 > - translation augmentation (`random_translation`) along the width, the height or both, up to 25 % of each side, for
 >   every task, off in every configuration file;
-> - region proposal negatives down to IoU 0 (audit H1), the check warning when `background_iou_threshold.min` is
->   above 0;
+> - region proposal negatives down to IoU 0 (audit H1), the DET configurations back at 0.1 since 2026-11-12, kept by
+>   stage 2 of the detection benchmark, without warning;
 > - NMS at 0.7 for the region proposals and 0.5 for the detections (audit M4);
 > - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`),
 >   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
@@ -795,6 +795,9 @@ committed): every image can be taken again from them without training, except wh
     3456 anchors.
 - **Fix:** set `background_iou_threshold.min: 0.0` in the four DET and INS YAMLs, and make the check warn when it is
   above 0.
+- **Status (2026-11-12):** done on 2026-10-21, then measured: stage 2 of the detection benchmark found 0.1 better than
+  0.0 on the hard shapes (+0.0194 mAP@[0.5:0.95], the boxes tighter), so the DET configurations hold 0.1 again and the
+  warning was removed; the INS configurations keep 0.0 until the instance segmentation benchmark.
 
 #### H2. Ground-truth boxes are never added to the proposals of the detection and mask heads *(changes DET numbers)*
 - **Where:** `two_stage_detector.py:433-468` (`_prepare_detector_inputs`) assigns targets only to the filtered RPN

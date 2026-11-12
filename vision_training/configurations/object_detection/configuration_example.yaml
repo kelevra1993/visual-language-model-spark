@@ -57,8 +57,8 @@ ExperimentConfiguration:
     tracking_uri: null
     # MLflow experiment, null for the task name ("object_detection").
     experiment_name: null
-  # Base learning rate.
-  learning_rate: 2.0e-4
+  # Base learning rate, 1e-3 kept by stage 1 of the detection benchmark.
+  learning_rate: 1.0e-3
   # Lets a resumed run train on a changed labels.json (the previous data.json kept as data_until_iteration_<n>.json);
   # False refuses it, a new run (run_name_suffix) being needed. A moved data folder with the same labels resumes.
   allow_data_change_on_resume: false
@@ -272,9 +272,9 @@ DetectionLevels:
 
 # Neck between the level blocks and the heads, every level keeping the size of its block.
 Neck:
-  # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels) or "path_aggregation"
-  # (the feature pyramid, then a bottom-up path from the fine levels).
-  type: "none"
+  # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels, kept by the detection
+  # benchmark) or "path_aggregation" (the feature pyramid, then a bottom-up path from the fine levels).
+  type: "feature_pyramid"
   # Channels of every level after the neck, read by the heads (unused with "none").
   output_channels: 64
   normalization:
@@ -307,9 +307,9 @@ RegionProposal:
     # Maximum matching IoU (capped at 1.0).
     max: 1.0
   background_iou_threshold:
-    # Minimum IoU of a strict background anchor. At 0.0 any anchor overlapping no object can be background; above it,
-    # those are ignored and only hard negatives (anchors touching an object) are sampled, allowed with a yellow warning.
-    min: 0.0
+    # Minimum IoU of a strict background anchor: above 0.0 the anchors overlapping no object are ignored, only the
+    # hard negatives touching an object being sampled (0.1 kept by the detection benchmark).
+    min: 0.1
     # Maximum IoU of a strict background anchor.
     max: 0.3
   # IoU threshold of the non-maximum suppression of overlapping proposals.

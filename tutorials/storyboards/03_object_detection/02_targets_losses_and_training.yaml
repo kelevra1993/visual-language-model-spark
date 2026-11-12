@@ -50,7 +50,7 @@ scenes:
       - {type: text, position: [940, 420], text: "sampled: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.total_training_samples}} per image, at most {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.number_training_positives}} positive", font: diagram_bold, appear: 3}
       - {type: bars, box: [940, 470, 1660, 590], orientation: horizontal, values: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], labels: ["positives", "negatives"], value_labels: ["{{object_detection.inference.anchor_labels.sampled_positives}}", "{{object_detection.inference.anchor_labels.sampled_negatives}}"], colours: [blue, border], label_width: 160, appear: 3, highlight: [3]}
     narration:
-      - "For the region proposal losses, every anchor is labeled by its best overlap with an object: background below {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.max}}, foreground from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.foreground_iou_threshold.min}}, and ignored in between."
+      - "For the region proposal losses, every anchor is labeled by its best overlap with an object, in the run shown here: background below {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.max}}, foreground from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.foreground_iou_threshold.min}}, and ignored in between."
       - "Take a small box sharing its best anchor with a larger one: the best anchor of every object is made foreground at any overlap above zero, but assigned to the object it overlaps most, so the small box gets none, as in torchvision."
       - "On the test image, {{object_detection.inference.anchor_labels.foreground}} anchors are foreground, {{object_detection.inference.anchor_labels.overlap_foreground}} by overlap and {{object_detection.inference.anchor_labels.fallback_foreground}} by the fallback, {{object_detection.inference.anchor_labels.ignored}} are ignored and {{object_detection.inference.anchor_labels.background:,}} are background."
       - "The losses sample {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.total_training_samples}} anchors per image with at most {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.number_training_positives}} positives: here all {{object_detection.inference.anchor_labels.sampled_positives}} positives and {{object_detection.inference.anchor_labels.sampled_negatives}} random negatives."
@@ -76,10 +76,11 @@ scenes:
       keys: [RegionProposal.foreground_iou_threshold, RegionProposal.background_iou_threshold, RegionProposal.number_training_positives, RegionProposal.total_training_samples]
       comments: false
     highlights:
-      - {match: "foreground_iou_threshold:|background_iou_threshold:", sentences: [0]}
-      - {match: "number_training_positives|total_training_samples", sentences: [1]}
+      - {match: "foreground_iou_threshold:|background_iou_threshold:", sentences: [0, 1]}
+      - {match: "number_training_positives|total_training_samples", sentences: [2]}
     narration:
-      - "The thresholds live in the Region Proposal section: foreground from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.foreground_iou_threshold.min}}, its maximum being unused, and background from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.min:.3g}} to {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.max}}, so that the anchors overlapping nothing are sampled too."
+      - "The thresholds live in the Region Proposal section: foreground from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.foreground_iou_threshold.min}}, its maximum being unused, and background from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.min:.3g}} to {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.max}}."
+      - "The anchors overlapping no object are thus ignored, every negative touching an object: the best minimum of the detection benchmark, chosen after the run shown here."
       - "Then the sampling counts; the box loss is not a setting, the code always taking the smooth L1 with a beta of one over {{object_detection.losses.box_loss_beta_denominator:words}}."
 
   - kind: html
@@ -208,7 +209,7 @@ scenes:
   - kind: image
     title: "The losses of the run"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_model_iteration"
-    # The learning rate is a setting read in full, its single significant digit lying at the fourth decimal
+    # The learning rate is a setting read in full, its single significant digit lying at the third decimal
     exact_facts: ["config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate"]
     image: "figures:object_detection/training/loss_curves.png"
     highlights:
@@ -218,7 +219,7 @@ scenes:
     narration:
       - "Over the {{object_detection.losses.iterations:,}} iterations of the run, the region proposal losses fall fast: the objectness loss from {{object_detection.losses.rpn_classification.first:.2f}} to {{object_detection.losses.rpn_classification.last:.2f}}, the box loss from {{object_detection.losses.rpn_regression.first:.2f}} to {{object_detection.losses.rpn_regression.last:.2f}}."
       - "The detection classification loss starts at {{object_detection.losses.detection_classification.first:.2f}}, close to the logarithm of {{object_detection.inference.model.number_classes}}, then flattens while the proposals improve, and slowly reaches {{object_detection.losses.detection_classification.last:.2f}}."
-      - "Their weighted sum goes from {{object_detection.losses.total.first:.2f}} to {{object_detection.losses.total.last:.2f}}, at a constant learning rate of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate}}, the moving average of the weights being kept alongside."
+      - "Their weighted sum goes from {{object_detection.losses.total.first:.2f}} to {{object_detection.losses.total.last:.2f}} at a constant learning rate, the moving average of the weights being kept alongside; the shipped configuration has since raised the rate to {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate}}, the best of the detection benchmark."
 
   - kind: html
     page: diagram
@@ -248,7 +249,7 @@ scenes:
     # The two samplings and four losses of the method, and the four offsets of a box
     literal_numbers: [two, four, "4"]
     items:
-      - {text: "Anchors: foreground from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.foreground_iou_threshold.min}}, background below {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.max}}, the best anchor of every object kept"}
+      - {text: "Anchors: foreground from {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.foreground_iou_threshold.min}}, background {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.min:.3g}} to {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.background_iou_threshold.max}}, the best anchor of every object kept"}
       - {text: "{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.total_training_samples}} anchors per image, at most {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.number_training_positives}} positive"}
       - {text: "Ground truth boxes written into the proposals; {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.total_training_samples}} per image, at most {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.number_training_positives}} positive"}
       - {text: "RoI head: ROI Align {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.roi_align_pool_size}} × {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.roi_align_pool_size}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.convolutions[0]}} convolutions, FC {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.fully_connected[0]}} and {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.fully_connected[1]}}, {{object_detection.inference.model.number_classes}} classes, 4 offsets per class"}

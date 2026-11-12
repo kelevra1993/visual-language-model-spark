@@ -130,7 +130,7 @@ scenes:
     literal_numbers: [three]
     narration:
       - "A configuration has one section for the experiment, one for the optimization, one for the data, one for the backbone, and the sections of the task, here the classification head."
-      - "Detection and instance segmentation also have a Neck section between the backbone and their heads, whose type is none in every configuration of the repository."
+      - "Detection and instance segmentation also have a Neck section between the backbone and their heads: a feature pyramid in the object detection configurations, none in the instance segmentation ones."
       - "There are no defaults, the file of a task holding every key the task reads: if, for instance, you forget three keys, the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all three."
       - "The training is counted in iterations, not epochs: checkpoints, evaluations and summaries are all set in iterations."
 

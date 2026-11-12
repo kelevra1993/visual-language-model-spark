@@ -26,7 +26,6 @@ from vision_training.data.augmentations import SELF_SUPERVISED_AUGMENTATION_STRE
 from vision_training.data.label_mapping import write_run_label_dictionary
 from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES, build_keypoint_label_mapping,
                                                                      build_keypoint_labels)
-from vision_training.utilities.os_utilities import color_text
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -208,39 +207,38 @@ def remove_module_key(configuration: Dict[str, Any]) -> None:
     del configuration["Detector"]["modules"]["residual_nets"]
 
 
-def raise_background_minimum(configuration: Dict[str, Any]) -> None:
+def lower_background_minimum(configuration: Dict[str, Any]) -> None:
     """
-    Starts the background IoU range of the region proposals above 0.0, keeping only the hard negatives.
+    Starts the background IoU range of the region proposals at 0.0, every anchor overlapping no object being sampled
+    as background too.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
-    configuration["RegionProposal"]["background_iou_threshold"]["min"] = 0.1
+    configuration["RegionProposal"]["background_iou_threshold"]["min"] = 0.0
 
 
-def test_background_minimum_above_zero_only_warns(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_background_minimum_loads_without_warning(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that a background IoU range starting above 0.0 loads with a yellow warning instead of an error, the hard
-    negatives being a choice, and that the shipped value 0.0 prints no warning.
+    Verifies that the background IoU range of the shipped example, starting at 0.1 (kept by stage 2 of the detection
+    benchmark, only the hard negatives being sampled), loads without error or warning, and so does a range starting at
+    0.0.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
     """
-    # The shipped configuration samples every anchor overlapping no object as background, silently
+    # The shipped configuration ignores the anchors overlapping no object, silently
     _, model_configuration = load_experiment_configuration(configuration_path=EXAMPLE_CONFIGURATION_PATH)
-    assert model_configuration["RegionProposal"]["background_iou_threshold"]["min"] == 0.0
+    assert model_configuration["RegionProposal"]["background_iou_threshold"]["min"] == 0.1
     assert "background_iou_threshold.min" not in capsys.readouterr().out
 
-    # A minimum above 0.0 is accepted, and announced in yellow
+    # A minimum of 0.0, sampling every anchor overlapping no object as background, is accepted silently as well
     configuration_path = write_modified_configuration(temporary_directory=tmp_path,
-                                                      modify_function=raise_background_minimum)
+                                                      modify_function=lower_background_minimum)
     _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["RegionProposal"]["background_iou_threshold"]["min"] == 0.1
-    printed_output = capsys.readouterr().out
-    expected_warning = ("Warning: 'RegionProposal.background_iou_threshold.min' is 0.1, above 0.0: the anchors whose "
-                        "best IoU is below it are ignored, only the hard negatives being sampled as background.")
-    assert color_text(color="yellow", text=expected_warning) in printed_output
+    assert model_configuration["RegionProposal"]["background_iou_threshold"]["min"] == 0.0
+    assert "background_iou_threshold.min" not in capsys.readouterr().out
 
 
 def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
