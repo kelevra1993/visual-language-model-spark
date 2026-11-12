@@ -15,7 +15,7 @@ from torchvision.ops import batched_nms
 
 from vision_training.models.detection import postprocessing
 from vision_training.models.detection.box_operations import get_intersection_over_union
-from vision_training.models.detection.postprocessing import batched_distance_nms
+from vision_training.models.detection.postprocessing import batched_distance_nms, suppress_groups_apart
 
 
 def run_greedy_distance_nms(boxes: torch.Tensor, scores: torch.Tensor, group_indices: torch.Tensor,
@@ -237,3 +237,33 @@ def test_distance_nms_chunks_and_reduced_precision_keep_the_same_boxes(monkeypat
                 other=batched_distance_nms(boxes=reduced_boxes.float(), scores=scores.float(),
                                            group_indices=group_indices, iou_threshold=0.5,
                                            distance_exponent=distance_exponent))
+
+
+@pytest.mark.parametrize(argnames="number_boxes", argvalues=[200, 3000])
+def test_groups_apart_keep_the_boxes_of_batched_nms(number_boxes: int) -> None:
+    """
+    Verifies that the suppression of the exports, every group moved beyond the largest coordinate then one nms call
+    (suppress_groups_apart), keeps the same boxes in the same order as batched_nms of torchvision, below and above the
+    4000 coordinates from which batched_nms loops over the groups on the CPU, on overlapping boxes of 7 groups, and
+    that boxes of different groups never suppress each other.
+
+    Args:
+        number_boxes (int): The number of boxes, 800 or 12,000 coordinates.
+    """
+    generator = torch.Generator().manual_seed(number_boxes)
+    corners = torch.rand(size=(number_boxes, 2), generator=generator) * 200.0
+    sides = torch.rand(size=(number_boxes, 2), generator=generator) * 60.0 + 4.0
+    boxes = torch.cat(tensors=[corners, corners + sides], dim=1)
+    scores = torch.rand(size=(number_boxes,), generator=generator)
+    group_indices = torch.randint(low=0, high=7, size=(number_boxes,), generator=generator)
+    kept_indices = suppress_groups_apart(boxes=boxes, scores=scores, group_indices=group_indices, iou_threshold=0.5)
+    assert torch.equal(input=kept_indices, other=batched_nms(boxes=boxes, scores=scores, idxs=group_indices,
+                                                             iou_threshold=0.5))
+
+    # Two identical boxes of different groups are both kept, of the same group only the higher scoring one
+    same_boxes = torch.tensor(data=[[10.0, 10.0, 50.0, 50.0], [10.0, 10.0, 50.0, 50.0]])
+    same_scores = torch.tensor(data=[0.9, 0.8])
+    assert suppress_groups_apart(boxes=same_boxes, scores=same_scores, group_indices=torch.tensor(data=[0, 1]),
+                                 iou_threshold=0.5).tolist() == [0, 1]
+    assert suppress_groups_apart(boxes=same_boxes, scores=same_scores, group_indices=torch.tensor(data=[3, 3]),
+                                 iou_threshold=0.5).tolist() == [0]

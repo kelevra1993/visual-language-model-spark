@@ -8,7 +8,7 @@ the InferenceDetector of the deployment.
 import torch
 
 from typing import Dict
-from torchvision.ops import batched_nms
+from torchvision.ops import batched_nms, nms
 
 from vision_training.models.detection.box_operations import (clamp_boxes_to_image_boundaries,
                                                              get_distance_intersection_over_union)
@@ -21,6 +21,31 @@ NMS_CRITERIA = ["iou", "distance_iou"]
 # Largest number of box pairs whose criterion DIoU-NMS computes at once: the groups of image and class are processed
 # in chunks of at most that many pairs, so that a batch with large groups keeps its memory bounded
 MAXIMUM_DISTANCE_NMS_PAIRS = 2 ** 22
+
+
+def suppress_groups_apart(boxes: torch.Tensor, scores: torch.Tensor, group_indices: torch.Tensor,
+                          iou_threshold: float) -> torch.Tensor:
+    """
+    Runs the greedy non-maximum suppression of every group of boxes (an image, or an image and a class) in a single
+    torchvision nms call for the exported detectors, the boxes of every group moved by its index times the largest
+    coordinate plus one, so that boxes of different groups never overlap. This is the coordinate trick batched_nms
+    runs on few boxes or under TorchScript tracing; called directly, it keeps one algorithm for any number of boxes,
+    whereas batched_nms switches to a loop over the groups above 4000 coordinates on the CPU and 100,000 on the GPU,
+    a choice that depends on the batch size, so that the dynamo ONNX export of a dynamic batch stops on it (a detector
+    of 35 classes keeping 250 proposals gives 35,000 coordinates per image, beyond the limit from 3 images on).
+
+    Args:
+        boxes (torch.Tensor): The [N, 4] boxes, N above zero.
+        scores (torch.Tensor): Their [N] scores.
+        group_indices (torch.Tensor): Their [N] non-negative group indices.
+        iou_threshold (float): The overlap above which the lower scoring box of a pair of the same group is suppressed.
+
+    Returns:
+        torch.Tensor: The int64 indices of the kept boxes, sorted by decreasing score, as batched_nms gives them.
+    """
+    # Offset of every group beyond the largest coordinate of all the boxes, then one suppression over all of them
+    group_offsets = group_indices.to(dtype=boxes.dtype) * (boxes.max() + 1.0)
+    return nms(boxes=boxes + group_offsets.unsqueeze(dim=1), scores=scores, iou_threshold=iou_threshold)
 
 
 def keep_cluster_boxes(padded_boxes: torch.Tensor, valid_mask: torch.Tensor, iou_threshold: float,
@@ -301,7 +326,8 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     # path only gives it the candidates: a box below the threshold never suppresses a higher scoring one, so the
     # detections are the same, without the per-group NMS loop torchvision runs on the hundreds of thousands of pairs
     # of a whole batch. The exports give every pair to the NMS, the dynamo ONNX export refusing a data-dependent number
-    # of boxes: the greedy NMS of torchvision, or DIoU-NMS on the static [B, C - 1, P, P] matrix of the groups
+    # of boxes: the greedy NMS with the groups moved apart (suppress_groups_apart), or DIoU-NMS on the static
+    # [B, C - 1, P, P] matrix of the groups
     kept_mask = torch.zeros_like(input=probabilities.reshape(-1), dtype=torch.bool)
     if suppress_candidates_only:
         candidate_indices = torch.nonzero(input=candidate_mask.reshape(-1)).flatten()
@@ -311,8 +337,8 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
             nms_criterion=nms_criterion, nms_distance_exponent=nms_distance_exponent)]
         kept_mask[kept_indices] = True
     elif nms_criterion == "iou":
-        kept_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=probabilities.reshape(-1),
-                                   idxs=group_indices.reshape(-1), iou_threshold=nms_iou_threshold)
+        kept_indices = suppress_groups_apart(boxes=boxes.reshape(-1, 4), scores=probabilities.reshape(-1),
+                                             group_indices=group_indices.reshape(-1), iou_threshold=nms_iou_threshold)
         kept_mask[kept_indices] = True
     elif nms_criterion == "distance_iou":
         kept_mask = suppress_every_pair_by_distance(
