@@ -94,7 +94,7 @@ scenes:
       - {type: box, box: [1575, 290, 1745, 400], text: "post-process\n{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} per image", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
       - {type: text, position: [1390, 660], text: "{{object_detection.inference.model.number_classes}} classes · a box per class", font: diagram_small, colour: dim, anchor: ma, appear: 3}
     narration:
-      - "The detector is a two-stage detector in the style of Faster R-CNN, built on the shared backbone of the repository, without feature pyramid in the shipped configurations."
+      - "The detector is a two-stage detector in the style of Faster R-CNN, built on the shared backbone of the repository; the run shown here has no neck, the shipped configurations a feature pyramid."
       - "Every block named in Detection Levels is a level with its own anchors and region proposal head: here blocks 5, 6 and 7, with {{object_detection.inference.level_5.anchor_count:,}}, {{object_detection.inference.level_6.anchor_count:,}} and {{object_detection.inference.level_7.anchor_count:,}} anchors at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels."
       - "The proposal filter keeps at most the best {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.pre_nms_proposals:words}} proposals of every level, suppresses the overlaps within each level at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.nms_iou_threshold}}, and passes the best {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} per image to the second stage, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} in evaluation."
       - "Every proposal goes back to the detection head of the level its anchor came from, which pools it with ROI Align, classifies it among {{object_detection.inference.model.number_classes}} classes and refines one box per class."
@@ -142,7 +142,7 @@ scenes:
     narration:
       - "Detection Levels names the backbone blocks the detector reads, as quoted keys in increasing order, and gives every level its anchors, its region proposal head and its detection head."
       - "The backbone divides the resolution by {{object_detection.inference.model.backbone_pooling_stride:words}} in every block; with the last max pooling off, block 7 keeps the {{object_detection.inference.level_6.cells:words}} by {{object_detection.inference.level_6.cells:words}} map of block 6, so the levels have strides of {{object_detection.inference.level_5.stride}}, {{object_detection.inference.level_6.stride}} and {{object_detection.inference.level_7.stride}}."
-      - "Picture a data set of small objects: with the Neck type none of the configuration, no top-down path merges the levels, the finest stride is {{object_detection.inference.level_5.stride}}, and those objects pay for it, as the last chapter shows; the feature pyramid and path aggregation types add that path."
+      - "Picture a data set of small objects: without a neck, as in the run shown here, no top-down path merges the levels, the finest stride is {{object_detection.inference.level_5.stride}}, and those objects pay for it, as the last chapter shows; the shipped feature pyramid, or path aggregation, adds that path."
       - "The heads are small here: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.region_proposal.convolutions[0]:words}} convolutions of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.region_proposal.convolutions[1]}} channels for the proposals, and for the detections {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.convolutions[0]:words}} convolutions with squeeze and excitation and residual shortcuts, then fully connected layers of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.fully_connected[0]}} and {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.fully_connected[1]}} units."
 
   - kind: html
@@ -468,7 +468,7 @@ scenes:
     narration:
       - "Assuming you would like to reproduce the run, generate the data set of the instance masks with the synthetic data set script, its task set in its main block; a new data set has {{object_detection.data.generated_category_count}} shapes, the one of this run {{object_detection.data.category_count}}."
       - "With its hard objects option, the object detection task of the script draws the images of the detection benchmark instead: small, faint, covered or cut shapes next to very large ones."
-      - "The training takes the synthetic detection configuration, which stops at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown here, trained before the per-level selection, was resumed to {{object_detection.run.number_iterations:words}}."
+      - "The training takes the synthetic detection configuration, which stops at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown here, trained before the per-level selection and the feature pyramid, was resumed to {{object_detection.run.number_iterations:words}}."
       - "The evaluation script evaluates any checkpoint again, set in its main block like every script but the training."
 
   - kind: summary
@@ -476,7 +476,7 @@ scenes:
     # The two stages and the four losses of the method, and the block numbers of the levels
     literal_numbers: [two, four, "5", "6", "7"]
     items:
-      - {text: "Two stages: proposals per level, then RoI heads per level, Neck none: no feature pyramid"}
+      - {text: "Two stages: proposals per level, then RoI heads per level; Neck: feature pyramid shipped, none in the run"}
       - {text: "COCO bbox [x, y, w, h] to corners; background added as class {{object_detection.data.background_class}}"}
       - {text: "Blocks 5, 6, 7: strides {{object_detection.inference.level_5.stride}}, {{object_detection.inference.level_6.stride}}, {{object_detection.inference.level_7.stride}}"}
       - {text: "{{object_detection.inference.level_5.anchors_per_cell}} anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners"}

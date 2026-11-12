@@ -213,9 +213,9 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     anchors centred on the cell corners or centres, the selection of the proposals over all the levels or level by
     level, the proposal counts kept around non-maximum
     suppression, the anchor sampling budget of the proposal losses, and the 'pretrained' settings initialising the
-    heads with those of another run. A background range starting above 0.0 is allowed but printed as a yellow warning,
-    since the anchors overlapping no object are then never sampled as background, only the hard negatives touching an
-    object.
+    heads with those of another run. A background range starting above 0.0 is allowed silently: the anchors overlapping
+    no object are then ignored, only the hard negatives touching an object being sampled as background, as the 0.1 of
+    the shipped detection configurations kept by the detection benchmark.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -256,14 +256,6 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
             errors.append(f"'RegionProposal.background_iou_threshold.max' ({background_threshold['max']}) must be <= "
                           f"'RegionProposal.foreground_iou_threshold.min' ({foreground_threshold['min']}), otherwise "
                           f"anchors can be labelled both background and foreground.")
-
-        # A background range starting above 0.0 ignores the anchors overlapping no object, the region proposal
-        # network then only learning from the hard negatives: allowed, but announced
-        if background_threshold["min"] > 0.0:
-            print_color(color="yellow",
-                        output=f"Warning: 'RegionProposal.background_iou_threshold.min' is "
-                               f"{background_threshold['min']}, above 0.0: the anchors whose best IoU is below it "
-                               f"are ignored, only the hard negatives being sampled as background.")
 
     # Anchors centred on the cell corners or on the cell centres
     anchor_centres = get_configuration_value(configuration=model_configuration,

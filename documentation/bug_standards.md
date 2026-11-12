@@ -556,7 +556,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 |---|---|---|---|
 | C3. DET and INS count their classes as dictionary keys | critical | fixed | on 2026-10-21: classes counted as distinct values, detection mapping checked |
 | C4. Run names collide for settings that change the weights | critical | fixed | on 2026-10-21: the anchors (`A<counts>.<smallest>-<largest>.<hash>`) and `last_max_pooling` (`LMP`) give tokens, and M17 keeps the classes of a run; its `dtype` and `input_channels` points are moot |
-| H1. The RPN never trains on plain background | high | fixed | `background_iou_threshold.min: 0.0` in the four DET and INS files, warning above 0 (`detection_checks.py:226-234`) |
+| H1. The RPN never trains on plain background | high | fixed | `background_iou_threshold.min: 0.0` in the four DET and INS files, warning above 0; on 2026-11-12 the DET files went back to 0.1, measured better by stage 2 of the detection benchmark (+0.0194 mAP@[0.5:0.95]), and the warning was removed |
 | H2. Ground truth boxes never added to the proposals | high | fixed (`a10bb7a`) | `add_ground_truth_proposals`, `two_stage_detector.py:456-461` |
 | H3. Validation crashes when samples x classes < maximum_detections | high | fixed (`a10bb7a`) | candidates padded before `topk` (`postprocessing.py:92-100`); validation still runs the unused postprocessing ([B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image)) |
 | H4. `residual_nets` does nothing in channel-changing blocks | high | dropped (user, 2026-11-05) | the projection shortcuts will not be added |

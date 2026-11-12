@@ -319,7 +319,7 @@ RegionProposal:
     max: 1.0
   background_iou_threshold:
     # Minimum IoU of a strict background anchor. At 0.0 any anchor overlapping no object can be background; above it,
-    # those are ignored and only hard negatives (anchors touching an object) are sampled, allowed with a yellow warning.
+    # those are ignored and only hard negatives (anchors touching an object) are sampled.
     min: 0.0
     # Maximum IoU of a strict background anchor.
     max: 0.3
