@@ -1,11 +1,15 @@
 """
 Tests of vision_training/evaluation/classification/class_metrics_report.py: the per-class rows of class_metrics.csv in
-class index order, with the recall interval and the threshold reaching the target precision of every class.
+class index order, with the recall interval and the threshold reaching the target precision of every class, and the
+rates of the per-class tables of the classification report listed as percent columns.
 """
 
 import pytest
 
-from vision_training.evaluation.classification.class_metrics_report import build_class_metrics_rows
+from vision_training.evaluation.classification.class_metrics_report import (build_class_metrics_rows,
+                                                                             build_class_metrics_table,
+                                                                             build_class_thresholds_table)
+from vision_training.evaluation.recall_intervals import CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table
 
 # Metrics of 3 classes, the last one without any evaluated sample and so without recall interval
 CLASS_NAMES = ["circle", "square", "hexagon"]
@@ -29,3 +33,39 @@ def test_class_metrics_rows() -> None:
     assert class_rows[2]["recall_lower"] is None and class_rows[2]["recall_upper"] is None
     assert class_rows[1]["threshold_at_target_precision"] is None
     assert class_rows[1]["recall_at_target_precision"] is None
+
+
+def test_classification_tables_list_their_rates_as_percent_columns() -> None:
+    """
+    Verifies the per-class tables of the classification report: every rate column (precision, recall, F1, recall at
+    the target precision, recall with its bounds) is a percent column and the thresholds are not, the target precisions
+    being written "99 %" in the headers and legends, while the k-nearest neighbour report of the self-supervised task
+    keeps its columns between 0 and 1.
+    """
+    class_rows = build_class_metrics_rows(class_names=CLASS_NAMES, metrics=METRICS,
+                                          class_thresholds=CLASS_THRESHOLDS * 2, target_precisions=[0.99, 0.955])
+    class_table = build_class_metrics_table(class_rows=class_rows, target_precision=0.99, support_column="Samples",
+                                            in_percent=True)
+    assert class_table["percent_columns"] == ["Precision", "Recall", "F1", "Recall\n@ P99 %"]
+    assert "Threshold\n@ P99 %" in class_table["columns"] and "the precision 99 % is never" in class_table["legend"]
+
+    # Thresholds of every target precision: the recalls in percent, the thresholds between 0 and 1
+    thresholds_table = build_class_thresholds_table(class_rows=class_rows, target_precisions=[0.99, 0.955])
+    assert thresholds_table["columns"] == ["Class", "Threshold\n@ P99 %", "Recall\n@ P99 %", "Threshold\n@ P95.5 %",
+                                           "Recall\n@ P95.5 %"]
+    assert thresholds_table["percent_columns"] == ["Recall\n@ P99 %", "Recall\n@ P95.5 %"]
+
+    # Recall with the bounds of its interval in percent, the confidence level written "95 %"
+    recall_table = build_recall_interval_table(class_rows=class_rows, support_key="samples", support_column="Samples",
+                                               recall_columns=[("recall", "Recall")],
+                                               interval_description=CLOPPER_PEARSON_DESCRIPTION, in_percent=True)
+    assert recall_table["columns"] == ["Class", "Samples", "Recall", "95 %\nLower", "95 %\nUpper"]
+    assert recall_table["percent_columns"] == ["Recall", "95 %\nLower", "95 %\nUpper"]
+
+    # Tables of the tasks kept between 0 and 1, the k-nearest neighbour classification and the other tasks
+    neighbour_table = build_class_metrics_table(class_rows=class_rows, target_precision=None, support_column="Samples")
+    kept_recall_table = build_recall_interval_table(class_rows=class_rows, support_key="samples",
+                                                    support_column="Samples", recall_columns=[("recall", "Recall")],
+                                                    interval_description=CLOPPER_PEARSON_DESCRIPTION)
+    assert neighbour_table["percent_columns"] == [] and kept_recall_table["percent_columns"] == []
+    assert kept_recall_table["columns"][3] == "95%\nLower"

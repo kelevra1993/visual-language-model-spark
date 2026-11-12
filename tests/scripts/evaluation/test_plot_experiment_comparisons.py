@@ -3,20 +3,22 @@ Tests of scripts/evaluation/plot_experiment_comparisons.py, the comparison figur
 the launch curves read from a results file (mean rows left out, unlabelled weights counted as trained), the mean of the
 launches of a setting on the iterations they all evaluated, the gap to the reference setting, the trained weights of a
 setting without moving average standing in the averaged-weights column, and the figures written for the stages of a
-registry, with one column per kind of weights evaluated for every launch of the stage, whatever its number of launches.
+registry, with one column per kind of weights evaluated for every launch of the stage, whatever its number of launches,
+the rates of the classification and sequence labelling written as percentages with their gaps in points.
 """
 
 import csv
 import pytest
 import yaml
 
+from matplotlib.figure import Figure
 from pathlib import Path
 from PIL import Image
 from typing import Any, Dict, List
 
 from scripts.evaluation.plot_experiment_comparisons import (LAUNCH_LINE_STYLES, collect_setting_curves,
-                                                            compute_gap_curve, compute_mean_curve, plot_registry,
-                                                            read_results_curves)
+                                                            compute_gap_curve, compute_mean_curve, draw_weights_column,
+                                                            plot_registry, read_results_curves, wrap_verdict)
 
 # Columns of the fake results file, as collect_experiment_results.py writes them: the metric at every evaluation, its
 # means, the swept settings and the run folder
@@ -221,3 +223,50 @@ def test_plot_registry_draws_a_setting_of_more_launches_than_line_styles(tmp_pat
                                  output_folder=tmp_path / "figures")
 
     assert figure_paths[0].is_file()
+
+
+@pytest.mark.parametrize(argnames="in_percent, expected_labels, expected_gaps, expected_ticks",
+                         argvalues=[(True, ["1e-3 40.00 %", "2e-3 60.00 %"], ["+20.00 points"], ["40 %", "+5"]),
+                                    (False, ["1e-3 0.4000", "2e-3 0.6000"], ["+0.2000"], ["0.40", "0.05"])])
+def test_draw_weights_column_writes_rates_as_percentages(in_percent: bool, expected_labels: List[str],
+                                                         expected_gaps: List[str], expected_ticks: List[str]) -> None:
+    """
+    Verifies the labels of a column of a comparison figure: the classification accuracy and the sequence labelling macro
+    F1 written as percentages with their gaps in points and percent axes, the detection mAP with 4 decimals.
+
+    Args:
+        in_percent (bool): Whether the metric is written as a percentage.
+        expected_labels (List[str]): The expected direct labels of the settings.
+        expected_gaps (List[str]): The expected gap labels.
+        expected_ticks (List[str]): The expected labels of the ticks 0.4 of the curve axis and 0.05 of the gap axis.
+    """
+    launch_curves = {("run_1", "ema"): {250: 0.5}, ("run_2", "ema"): {250: 0.3}, ("run_3", "ema"): {250: 0.7},
+                     ("run_4", "ema"): {250: 0.5}}
+    setting_curves = collect_setting_curves(comparison=TWO_SETTING_COMPARISON, launch_curves=launch_curves,
+                                            weights="ema")
+    figure = Figure()
+    curve_axis, gap_axis = figure.subplots(nrows=2)
+    _, _, gap_texts = draw_weights_column(curve_axis=curve_axis, gap_axis=gap_axis, setting_curves=setting_curves,
+                                          last_iteration=250, column_title="Averaged weights", metric_title="accuracy",
+                                          in_percent=in_percent)
+
+    # Direct labels of the settings, gap labels and tick labels of both panels
+    assert [annotation.get_text() for annotation in curve_axis.texts] == expected_labels
+    assert gap_texts == expected_gaps
+    tick_labels = [curve_axis.yaxis.get_major_formatter()(0.4, 0), gap_axis.yaxis.get_major_formatter()(0.05, 0)]
+    if in_percent:
+        assert tick_labels == expected_ticks
+        assert gap_axis.get_ylabel() == "Gap to 1e-3\n(points)"
+
+
+def test_verdict_lines_keep_every_number_with_its_unit() -> None:
+    """
+    Verifies the wrapping of a verdict under the title of a comparison figure: a line never ends on a percentage or a
+    gap without its unit, the words staying those of the verdict.
+    """
+    verdict = ("layer kept: the highest mean, 89.69 % against 85.81 % for none, a gap of about 3.6 points over the "
+               "last four evaluations, 97.93 % against 97.91 % for batch.")
+    lines = wrap_verdict(verdict=verdict, width=44).split("\n")
+    assert len(lines) > 3
+    assert not any(line.rstrip().endswith(("89.69", "85.81", "3.6", "97.93", "97.91")) for line in lines)
+    assert " ".join(lines).replace("\u00a0", " ") == verdict

@@ -4,19 +4,22 @@ temperature that made calibrated logits overconfident, the calibration error is 
 frequencies, the thresholds saved from the page are written next to it, those of other classes than its
 class_thresholds.json being refused, and the class logits written next to the page give it back with any other
 temperature and the thresholds of every class at it; read_explorer_data reads the data of a written page, and
-write_explorer_evaluation writes the evaluation folder of the serve script tests.
+write_explorer_evaluation writes the evaluation folder of the serve script tests. The percentages written by the
+script of the page are those of the report helpers (run with Node.js when it is installed).
 """
 
 import json
 import math
 import pytest
 import re
+import shutil
+import subprocess
 import torch
 
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
+from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME, TEMPLATE_PATH,
                                                                            build_explorer_data_from_logits,
                                                                            check_logit_temperature,
                                                                            check_saved_thresholds,
@@ -29,6 +32,7 @@ from vision_training.evaluation.classification.temperature_explorer import (SAVE
                                                                            save_class_logits,
                                                                            save_temperature_explorer,
                                                                            write_saved_thresholds)
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_label, format_points
 
 # Classes of the evaluations written by write_explorer_evaluation, their F1 ordering the classes on the page
 EXPLORER_CLASS_NAMES = ["square", "circle", "triangle"]
@@ -292,3 +296,28 @@ def test_page_written_before_the_save_button_is_refused(tmp_path: Path) -> None:
     page_path.write_text(data=page_path.read_text().replace('"class_indices"', '"former_class_indices"'))
     with pytest.raises(expected_exception=ValueError, match="written before the save button"):
         read_explorer_page_data(explorer_path=page_path)
+
+
+@pytest.mark.skipif(condition=shutil.which("node") is None, reason="Node.js runs the script of the page")
+def test_page_percentages_are_the_twins_of_the_report_helpers() -> None:
+    """
+    Verifies that formatPercent, formatPercentLabel and formatPoints of the page, run by Node.js from the template,
+    write the rates exactly as format_percentage, format_percentage_label and format_points of the reports, so that a
+    recall reads the same on the page, in Results.txt and on the figures.
+    """
+    template_text = TEMPLATE_PATH.read_text()
+    helper_match = re.search(pattern=r"  const PERCENT_DECIMALS = .*?\n(?=\n  // Threshold written)",
+                             string=template_text, flags=re.DOTALL)
+    assert helper_match is not None
+
+    # Rates, ticks and differences of the page, written by the script of the template
+    rates = [0.9403, 1.0, 0.0, 0.123456, 0.05, 0.876543]
+    labels = [0.99, 0.985, 0.2, 0.0, 1.0, 0.5]
+    differences = [0.0052, -0.0052, -0.000001, 0.0, 0.1234, -0.00004]
+    script = (f"{helper_match.group(0)}\nconsole.log(JSON.stringify(["
+              f"{rates}.map(formatPercent), {labels}.map(formatPercentLabel), {differences}.map(formatPoints)]));")
+    page_texts = json.loads(s=subprocess.run(args=["node", "-e", script], capture_output=True, text=True,
+                                             check=True).stdout)
+    assert page_texts == [[format_percentage(value=rate) for rate in rates],
+                          [format_percentage_label(value=label) for label in labels],
+                          [format_points(difference=difference) for difference in differences]]

@@ -570,7 +570,7 @@ class SegmentationTrainer(BaseTrainer):
         return {"evaluated_samples": f"{accumulator['number_images']} Test {self.SAMPLE_NAME}",
                 "metrics": headline_metrics, "notes": notes, "tables": tables, "scalars": dict(headline_metrics),
                 "class_scalars": build_segmentation_class_scalars(class_rows=class_rows), "images": images,
-                "files": files, "headline_metric": "Mean IoU"}
+                "files": files, "headline_metric": "Mean IoU", "percent_metrics": []}
 
     def describe_mask_classes(self, mask: torch.Tensor) -> str:
         """

@@ -8,7 +8,9 @@ probabilities of the test samples, exactly, and by the segmentation trainer from
 of the labelled test pixels (segmentation_metrics.py), exactly at the edges of their bins. With the thresholds of the
 classifiers at their target precisions, every threshold is marked on the precision-recall curves, and
 precision_recall_thresholds.png zooms on them with every threshold written in the colour of its curve, so that a
-threshold can be chosen from the image.
+threshold can be chosen from the image. The classification images write their rates as the percentages of the reports
+(axes "20 %", ROC AUC and average precision "98.58 %", target precisions "99 %"), the thresholds staying between 0 and
+1; the segmentation images keep 4 decimals and axes from 0 to 1 until the segmentation is moved to them.
 """
 
 import cv2
@@ -20,11 +22,13 @@ from matplotlib import colormaps
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from vision_training.evaluation.classification.confusion_matrix import IMAGE_DOTS_PER_INCH, MAXIMUM_NAME_LENGTH
-from vision_training.evaluation.report_formatting import format_report_value
+from vision_training.evaluation.report_formatting import (format_percentage_label, format_percentage_tick,
+                                                          format_report_value)
 
 # Names of the macro means in the headline metrics, and names of the curve metrics of every class in the per-class
 # tables and TensorBoard scalars, keyed by their column in class_metrics.csv
@@ -62,6 +66,11 @@ MAXIMUM_GRID_PANELS = 100
 OVERLAY_FIGURE_SIZE = (7.5, 6.5)
 PANEL_SIDE = 2.0
 GRID_TITLE_HEIGHT = 0.8
+
+# Largest number of intervals between the percent ticks of the horizontal axis of a panel of the grid, whose labels
+# ("50 %") would run into each other with the default ticks, and the steps between them (0.5, 0.25, 0.025...)
+PANEL_PERCENT_TICK_INTERVALS = 3
+PANEL_PERCENT_TICK_STEPS = [1, 2.5, 5, 10]
 
 # Colour map of the classes on the single plot, colour of the curve of the panels, and colour of the chance diagonal
 # of the ROC curves and of the target precision line of the precision-recall curves
@@ -362,7 +371,7 @@ def compute_threshold_view_limits(class_curves: List[ScoreCurves], target_precis
 
 
 def draw_reference_lines(axes: Axes, image_name: str, target_precisions: Optional[List[float]],
-                         add_labels: bool) -> None:
+                         add_labels: bool, in_percent: bool) -> None:
     """
     Draws the reference lines of a plot of curves: the chance diagonal of the ROC curves, and one line per target
     precision of the thresholds on the precision-recall curves when the evaluation gives thresholds, with their legend
@@ -374,13 +383,15 @@ def draw_reference_lines(axes: Axes, image_name: str, target_precisions: Optiona
         target_precisions (Optional[List[float]]): The precisions targeted by the thresholds, or None without
             thresholds.
         add_labels (bool): Whether the lines get legend entries.
+        in_percent (bool): Whether the target precisions of the legend are written as percentages ("99 %").
     """
     if image_name == "ROC Curves":
         axes.plot([0.0, 1.0], [0.0, 1.0], linestyle="--", linewidth=1.0, color=REFERENCE_LINE_COLOUR,
                   label="Chance" if add_labels else None)
     elif target_precisions:
         # One dotted line per target precision, a single legend entry naming them all
-        written_precisions = " · ".join(f"{target_precision:g}" for target_precision in target_precisions)
+        written_precisions = " · ".join(format_percentage_label(value=target_precision) if in_percent else
+                                        f"{target_precision:g}" for target_precision in target_precisions)
         for line_index, target_precision in enumerate(target_precisions):
             axes.axhline(y=target_precision, linestyle=":", linewidth=1.0, color=REFERENCE_LINE_COLOUR,
                          label=f"Target Precision {written_precisions}" if add_labels and line_index == 0 else None)
@@ -434,14 +445,17 @@ def draw_class_curve(axes: Axes, curves: ScoreCurves, image_name: str, colour: A
                                           "alpha": 0.85}, zorder=4)
 
 
-def format_axes(axes: Axes, font_size: int, view_limits: Optional[Tuple[float, float]] = None) -> None:
+def format_axes(axes: Axes, font_size: int, in_percent: bool,
+                view_limits: Optional[Tuple[float, float]] = None) -> None:
     """
     Sets the range, the aspect, the grid and the tick size of a plot of curves: the [0, 1] square, or the zoom of the
-    thresholds image starting at the given lower ends.
+    thresholds image starting at the given lower ends, the ticks written as percentages ("20 %") for the classification
+    images.
 
     Args:
         axes (Axes): The axes of the plot.
         font_size (int): The size of the tick labels.
+        in_percent (bool): Whether the ticks of both axes are written as percentages.
         view_limits (Optional[Tuple[float, float]]): The lower ends of the recall and precision axes of the thresholds
             image (compute_threshold_view_limits), or None for the whole square. Defaults to None.
     """
@@ -456,10 +470,13 @@ def format_axes(axes: Axes, font_size: int, view_limits: Optional[Tuple[float, f
         axes.set_ylim(bottom=minimum_precision, top=1.0 + 0.02 * (1.0 - minimum_precision))
     axes.grid(visible=True, alpha=0.3)
     axes.tick_params(labelsize=font_size)
+    if in_percent:
+        axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
+        axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
 
 
 def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], image_name: str, title: str,
-                      target_precisions: Optional[List[float]] = None) -> np.ndarray:
+                      target_precisions: Optional[List[float]] = None, in_percent: bool = False) -> np.ndarray:
     """
     Draws the ROC or precision-recall curves of every class of an evaluated checkpoint as an image, saved in its
     evaluation folder and logged to TensorBoard by the per-class report: up to MAXIMUM_OVERLAID_CLASSES classes on a
@@ -476,6 +493,8 @@ def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], i
         title (str): The title of the image.
         target_precisions (Optional[List[float]]): The precisions targeted by the thresholds, or None for an
             evaluation without thresholds (the segmentation). Defaults to None.
+        in_percent (bool): Whether the axes, the metric of every class and the target precisions are written as
+            percentages, True for the classification images. Defaults to False.
 
     Returns:
         np.ndarray: The [H, W, 3] uint8 RGB image.
@@ -499,11 +518,13 @@ def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], i
         canvas = FigureCanvasAgg(figure=figure)
         axes = figure.add_subplot()
         class_colour_map = colormaps[CLASS_COLOUR_MAP_NAME]
-        format_axes(axes=axes, font_size=8, view_limits=view_limits)
-        draw_reference_lines(axes=axes, image_name=image_name, target_precisions=target_precisions, add_labels=True)
+        format_axes(axes=axes, font_size=8, in_percent=in_percent, view_limits=view_limits)
+        draw_reference_lines(axes=axes, image_name=image_name, target_precisions=target_precisions, add_labels=True,
+                             in_percent=in_percent)
         for class_index, (curves, class_name) in enumerate(zip(class_curves, class_names)):
             # Thresholds written above right of the points of every other class and below left of the others
-            class_label = f"{class_name[:MAXIMUM_NAME_LENGTH]} · {format_report_value(value=curves[metric_key])}"
+            metric_text = format_report_value(value=curves[metric_key], in_percent=in_percent)
+            class_label = f"{class_name[:MAXIMUM_NAME_LENGTH]} · {metric_text}"
             draw_class_curve(axes=axes, curves=curves, image_name=image_name, colour=class_colour_map(class_index),
                              label=class_label, threshold_text_offset=None if view_limits is None else
                              THRESHOLD_TEXT_OFFSETS[class_index % len(THRESHOLD_TEXT_OFFSETS)])
@@ -532,14 +553,19 @@ def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], i
             axes.set_axis_off()
             continue
         class_index = drawn_classes[panel_index]
-        format_axes(axes=axes, font_size=6, view_limits=view_limits)
+        format_axes(axes=axes, font_size=6, in_percent=in_percent, view_limits=view_limits)
+        if in_percent:
+            # Fewer percent ticks along the narrow panel, so that their labels stay apart
+            axes.xaxis.set_major_locator(locator=MaxNLocator(nbins=PANEL_PERCENT_TICK_INTERVALS,
+                                                             steps=PANEL_PERCENT_TICK_STEPS))
         draw_reference_lines(axes=axes, image_name=image_name, target_precisions=target_precisions,
-                             add_labels=panel_index == 0)
+                             add_labels=panel_index == 0, in_percent=in_percent)
         draw_class_curve(axes=axes, curves=class_curves[class_index], image_name=image_name,
                          colour=PANEL_CURVE_COLOUR, label=None,
                          threshold_text_offset=None if view_limits is None else THRESHOLD_TEXT_OFFSETS[-1])
-        axes.set_title(label=f"{class_names[class_index][:MAXIMUM_NAME_LENGTH]}\n{metric_name} "
-                             f"{format_report_value(value=class_curves[class_index][metric_key])}", fontsize=7)
+        metric_text = format_report_value(value=class_curves[class_index][metric_key], in_percent=in_percent)
+        axes.set_title(label=f"{class_names[class_index][:MAXIMUM_NAME_LENGTH]}\n{metric_name} {metric_text}",
+                       fontsize=7)
 
         # Axis names and tick values on the lowest panel of every column and on the first column only
         is_lowest_panel = panel_index + number_columns >= len(drawn_classes)
@@ -561,8 +587,8 @@ def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], i
 
 
 def save_score_curve_images(class_curves: List[ScoreCurves], class_names: List[str], output_folder: Path,
-                            title_suffix: str, target_precisions: Optional[List[float]] = None
-                            ) -> Tuple[Dict[str, Path], Dict[str, np.ndarray]]:
+                            title_suffix: str, target_precisions: Optional[List[float]] = None,
+                            in_percent: bool = False) -> Tuple[Dict[str, Path], Dict[str, np.ndarray]]:
     """
     Draws the ROC and precision-recall curves of an evaluated checkpoint (draw_score_curves) and saves them as
     'roc_curves.png', 'precision_recall_curves.png' and, for the evaluations giving thresholds, the zoom on the
@@ -578,6 +604,8 @@ def save_score_curve_images(class_curves: List[ScoreCurves], class_names: List[s
         title_suffix (str): The text put after the name of the curves in the titles, e.g. ' · Iteration 4000'.
         target_precisions (Optional[List[float]]): The precisions targeted by the thresholds, or None for an
             evaluation without thresholds. Defaults to None.
+        in_percent (bool): Whether the images write their rates as percentages, True for the classification images.
+            Defaults to False.
 
     Returns:
         Tuple[Dict[str, Path], Dict[str, np.ndarray]]: The paths of the images keyed by '<name> Image', for the files
@@ -597,7 +625,8 @@ def save_score_curve_images(class_curves: List[ScoreCurves], class_names: List[s
         images[image_name] = draw_score_curves(
             class_curves=class_curves, class_names=class_names, image_name=image_name,
             title=f"{image_settings['title']}{title_suffix}\n{macro_name} "
-                  f"{format_report_value(value=macro_metrics[macro_name])}", target_precisions=target_precisions)
+                  f"{format_report_value(value=macro_metrics[macro_name], in_percent=in_percent)}",
+            target_precisions=target_precisions, in_percent=in_percent)
         image_paths[f"{image_name} Image"] = output_folder / image_settings["file_name"]
         cv2.imwrite(filename=str(image_paths[f"{image_name} Image"]),
                     img=cv2.cvtColor(src=images[image_name], code=cv2.COLOR_RGB2BGR))

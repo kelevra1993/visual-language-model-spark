@@ -9,7 +9,8 @@ every chart is written twice, its empty axes with the legend (the base image of 
 overlay, whose curves the scene uncovers while they are explained); the boxes of the panels and the means of the
 launches are the facts of the storyboards, with the launches counted per setting, the evaluated iterations, and the
 image size, layers and classes of the benchmark read from the run names of results.csv (describe_benchmark_run_name,
-also used by the classification figures).
+also used by the classification figures). The test accuracies are written as the percentages of the reports of the
+repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
 
 import csv
@@ -29,6 +30,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR, compute_pixel_box,
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Evaluated iterations of every launch, the columns of results.csv
 EVALUATED_ITERATIONS = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
@@ -196,6 +198,8 @@ def style_panel(axes: matplotlib.axes.Axes, title: str, y_limit: Tuple[float, fl
     axes.set_xticks(ticks=[iteration for iteration in [0] + EVALUATED_ITERATIONS
                            if x_limit[0] <= iteration <= x_limit[1]])
     axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
+    # Test accuracy ticks written as the percentages of the reports of the repository
+    axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
 
 
 def draw_single_class_line(axes: matplotlib.axes.Axes, x_limit: Tuple[float, float]) -> None:
@@ -209,7 +213,7 @@ def draw_single_class_line(axes: matplotlib.axes.Axes, x_limit: Tuple[float, flo
     axes.axhline(y=SINGLE_CLASS_ACCURACY, color=TEXT_SECONDARY_COLOUR, linewidth=1.5 * POINTS_PER_PIXEL,
                  linestyle=(0, (6, 5)), zorder=1)
     axes.text(x=x_limit[0] + 0.015 * (x_limit[1] - x_limit[0]), y=SINGLE_CLASS_ACCURACY + 0.025,
-              s=f"one class in nine: {SINGLE_CLASS_ACCURACY:.3f}", color=TEXT_SECONDARY_COLOUR,
+              s=f"one class in nine: {format_percentage(value=SINGLE_CLASS_ACCURACY)}", color=TEXT_SECONDARY_COLOUR,
               fontsize=17 * POINTS_PER_PIXEL, va="bottom")
 
 
@@ -273,7 +277,8 @@ def create_figure(column_count: int) -> Tuple[matplotlib.figure.Figure, List[mat
                                                                           CHART_HEIGHT / DOTS_PER_INCH),
                                      dpi=DOTS_PER_INCH, squeeze=False)
     figure.patch.set_facecolor(SURFACE_COLOUR)
-    figure.subplots_adjust(left=0.06, right=0.985, top=0.80, bottom=0.12, wspace=0.16)
+    # Margins leaving room for the percentage ticks of the accuracy axes and the name of the axis on their left
+    figure.subplots_adjust(left=0.075, right=0.985, top=0.80, bottom=0.12, wspace=0.2)
     return figure, list(panels[0])
 
 
@@ -464,10 +469,10 @@ def draw_moving_average_chart(output_folder: Path, launches: Dict[Tuple[str, str
                                     clip_to_panel=axes is zoom_axes)
         averaged_mean = draw_setting(axes=axes, launch_curves=averaged_launches, colour=SERIES_COLOURS[1],
                                      clip_to_panel=axes is zoom_axes)
-    label_point(axes=zoom_axes, iteration=2000, value=trained_mean[-1], text=f"{trained_mean[-1]:.3f}",
-                offset=(-30, -40), colour=SERIES_COLOURS[0])
-    label_point(axes=zoom_axes, iteration=2000, value=averaged_mean[-1], text=f"{averaged_mean[-1]:.3f}",
-                offset=(-30, 40), colour=SERIES_COLOURS[1])
+    label_point(axes=zoom_axes, iteration=2000, value=trained_mean[-1],
+                text=format_percentage(value=trained_mean[-1]), offset=(-30, -40), colour=SERIES_COLOURS[0])
+    label_point(axes=zoom_axes, iteration=2000, value=averaged_mean[-1],
+                text=format_percentage(value=averaged_mean[-1]), offset=(-30, 40), colour=SERIES_COLOURS[1])
     save_figure(figure=figure, output_path=output_folder / "benchmark_moving_average.png")
     facts = measure_panels(figure=figure, chart_name="moving_average", panels={"whole": whole_axes, "zoom": zoom_axes})
     pyplot.close(fig=figure)
@@ -542,10 +547,11 @@ def style_launch_panel(axes: matplotlib.axes.Axes, title: str, x_limit: Tuple[fl
     axes.spines["bottom"].set_color(GRID_COLOUR)
     axes.spines["bottom"].set_linewidth(POINTS_PER_PIXEL)
 
-    # Limits, the settings as row labels, the axis label and the title
+    # Limits, the settings as row labels, the accuracy ticks as percentages, the axis label and the title
     axes.set_xlim(left=x_limit[0], right=x_limit[1])
     axes.set_ylim(bottom=-0.7, top=len(setting_names) - 0.3)
     axes.set_yticks(ticks=list(range(len(setting_names))), labels=list(reversed(setting_names)))
+    axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     axes.tick_params(axis="both", colors=TEXT_SECONDARY_COLOUR, labelsize=18 * POINTS_PER_PIXEL, length=0, pad=8)
     axes.set_xlabel(xlabel="Mean test accuracy", color=TEXT_SECONDARY_COLOUR, fontsize=19 * POINTS_PER_PIXEL,
                     labelpad=8)
@@ -595,8 +601,9 @@ def draw_launch_noise_chart(output_folder: Path, results_path: Path) -> Dict[str
     whole_means, last_means = {}, {}
     for setting, names in LAUNCH_NOISE_LAUNCHES.items():
         whole_means[setting], last_means[setting] = read_launch_means(results_path=results_path, launch_names=names)
+    # Panels narrowed on the right so that the last percentage tick, "100 %", stays within the figure
     figure, (whole_axes, last_axes) = create_figure(column_count=2)
-    figure.subplots_adjust(left=0.15, right=0.985, top=0.80, bottom=0.14, wspace=0.42)
+    figure.subplots_adjust(left=0.15, right=0.97, top=0.80, bottom=0.14, wspace=0.42)
     add_header(figure=figure, description="Synthetic shapes, the same settings launched 6 times · tick: mean",
                legend_labels=list(LAUNCH_NOISE_LAUNCHES), legend_colours=SERIES_COLOURS[:2])
     style_launch_panel(axes=whole_axes, title="Mean of the 8 evaluations", x_limit=(0.84, 0.94),

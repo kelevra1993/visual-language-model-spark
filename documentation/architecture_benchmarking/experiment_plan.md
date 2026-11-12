@@ -4,6 +4,8 @@
 - **Dataset:** synthetic shapes classification, 9 classes (20 classes for stage 14, see Class Extension Stage), 500,000 train / 50,000 validation / 50,000 test images, resized to 256 pixels
 - **Launch folders:** `hyperparameter_experiments/run_1` to `run_44` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch
 
+If one compares a value of these tables with a figure, the scale differs. The tables and text of this plan, like `results.csv` from which the figures are drawn, give the accuracies between 0 and 1, while the verdicts of `experiment_comparisons.yaml` and the figures of `figures/classification/` write them as percentages with two decimals (0.8581 as 85.81 %) and the gap between two settings in points (0.0095 as +0.95 points).
+
 ## Strategy
 
 One parameter changes at a time. The best value of a stage is kept for all the following stages, and its launches serve as the reference of the next stage, so they are not trained again.

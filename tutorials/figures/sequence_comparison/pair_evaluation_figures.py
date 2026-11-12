@@ -4,7 +4,9 @@ tutorials/figures/sequence_comparison/figures.py from the README run of the task
 summary, its training and validation curves (an empty-axes base and its overlay, uncovered one panel at a time), its
 Results.txt, the confusion matrix, ROC and precision-recall curves of its last evaluation side by side, the probability
 of same_number_of_objects of every test pair with the thresholds of the evaluation, and the sample image of a wrong and
-of a right pair. Its facts are the metrics, losses, throughputs, thresholds and wrong pairs the narration quotes.
+of a right pair. Its facts are the metrics, losses, throughputs, thresholds and wrong pairs the narration quotes. The
+accuracies and the target precision drawn are written as the percentages of the reports of the repository ("94.03 %",
+"99 %"), the facts and the probability thresholds keeping their values between 0 and 1.
 """
 
 import csv
@@ -30,6 +32,8 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
                                                                                  read_interval_summaries,
                                                                                  read_predictions, read_scalar_curve,
                                                                                  write_text_lines)
+from vision_training.evaluation.report_formatting import (format_percentage, format_percentage_label,
+                                                          format_percentage_tick)
 
 # Smoothing of the training curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.95
@@ -69,13 +73,16 @@ def draw_curve_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
                                                                                    CHART_HEIGHT / DOTS_PER_INCH),
                                                          dpi=DOTS_PER_INCH)
     figure.patch.set_facecolor(SURFACE_COLOUR)
-    figure.subplots_adjust(left=0.06, right=0.985, top=0.80, bottom=0.12, wspace=0.16)
+    # Panels apart enough for the percentage ticks of the accuracy
+    figure.subplots_adjust(left=0.06, right=0.985, top=0.80, bottom=0.12, wspace=0.2)
     for axes, title, y_label, y_limit in [(loss_axes, "Total loss", "Loss", (0.0, 0.8)),
                                           (accuracy_axes, "Accuracy", "Accuracy", (0.0, 1.05))]:
         style_chart_panel(axes=axes, title=title, x_label="Iteration", y_label=y_label)
         axes.set_xlim(left=0, right=last_iteration)
         axes.set_ylim(bottom=y_limit[0], top=y_limit[1])
         axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
+    # Accuracy ticks written as the percentages of the reports of the repository, the loss keeping its decimals
+    accuracy_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     loss_axes.axhline(y=numpy.log(2), color=TEXT_SECONDARY_COLOUR, linewidth=1.5 * POINTS_PER_PIXEL, linestyle="--")
     loss_axes.annotate(text="ln 2 = 0.693, a uniform guess", xy=(last_iteration, numpy.log(2)), xytext=(-8, 8),
                        textcoords="offset points", ha="right", va="bottom", color=TEXT_SECONDARY_COLOUR,
@@ -103,9 +110,9 @@ def draw_curve_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
                        markersize=12 * POINTS_PER_PIXEL, markeredgecolor=SURFACE_COLOUR,
                        markeredgewidth=2 * POINTS_PER_PIXEL, zorder=4, clip_on=False)
     for test_iteration, test_accuracy in zip(test_iterations, test_accuracies):
-        accuracy_axes.annotate(text=f"{test_accuracy:.3f}", xy=(test_iteration, test_accuracy), xytext=(-12, -22),
-                               textcoords="offset points", ha="right", va="center", color=TEXT_PRIMARY_COLOUR,
-                               fontsize=17 * POINTS_PER_PIXEL)
+        accuracy_axes.annotate(text=format_percentage(value=test_accuracy), xy=(test_iteration, test_accuracy),
+                               xytext=(-12, -22), textcoords="offset points", ha="right", va="center",
+                               color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
     save_figure(figure=figure, output_path=output_folder / "evaluation" / "training_curves.png")
     facts = {}
     for panel_name, axes in [("loss", loss_axes), ("accuracy", accuracy_axes)]:
@@ -164,7 +171,8 @@ def draw_probability_figure(output_path: Path, predictions: List[Dict[str, str]]
         threshold = thresholds["classes"][class_name]["threshold"]
         position = threshold if class_name == same_name else 1.0 - threshold
         axes.axvline(x=position, color=TEXT_SECONDARY_COLOUR, linewidth=2 * POINTS_PER_PIXEL, linestyle=line_style)
-        axes.annotate(text=f"{class_name} at precision {thresholds['target_precision']}: "
+        axes.annotate(text=f"{class_name} at precision "
+                           f"{format_percentage_label(value=thresholds['target_precision'])}: "
                            f"p({class_name}) ≥ {threshold:.3f}", xy=(position, 1.0),
                       xycoords=("data", "axes fraction"), xytext=(-8, -12 if class_name == same_name else -40),
                       textcoords="offset points", ha="right", va="top", color=TEXT_PRIMARY_COLOUR,

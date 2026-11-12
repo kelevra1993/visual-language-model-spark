@@ -344,7 +344,7 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
             for row in class_rows],
         "columns": ["Class", "Objects", "Matched\nObjects", "Labelled\nKeypoints", CORRECT_KEYPOINTS_NAME,
                     "Mean\nOKS", "Mean Error\n(pixels)"],
-        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True,
+        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True, "percent_columns": [],
         "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first. {CORRECT_KEYPOINTS_NAME} : labelled keypoints within "
                   f"{CORRECT_KEYPOINT_FRACTION:g} of the longest box side, a missed object or keypoint counting as "
                   f"wrong; errors of the keypoints found, in network input pixels. — : no labelled keypoint."}
@@ -353,7 +353,7 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
             [row["class"], row["keypoint"], row["labelled"], row["found"], row["percentage_correct_keypoints"],
              row["mean_error_pixels"]] for row in keypoint_rows],
         "columns": ["Class", "Keypoint", "Labelled", "Found", CORRECT_KEYPOINTS_NAME, "Mean Error\n(pixels)"],
-        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True,
+        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True, "percent_columns": [],
         "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first, a missed keypoint counting as wrong; errors of the keypoints "
                   f"found, in network input pixels. — : keypoint never labelled or never found."}
 

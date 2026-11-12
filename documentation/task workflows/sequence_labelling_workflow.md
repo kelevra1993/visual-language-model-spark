@@ -4,7 +4,7 @@ This document follows one sequence labelling run (many to many, M2M: one class p
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training. The synthetic dataset of the configuration, `synthetic_changing_shapes` (250,000 training, 50,000 validation and 50,000 test sequences), is too large for short CPU runs, so a small one was generated in a temporary folder with `create_synthetic_dataset(task="sequence_labelling", image_size=128, maximum_objects=10, minimum_frames=2, maximum_frames=12)`: 500 training, 60 validation and 60 test sequences of 2 to 12 frames of 128 pixels. Every frame is labelled `no_change` (always the first frame), `appearing_<shape>` or `disappearing_<shape>`: 71 classes for the 35 shape classes, about half of the frames being `no_change`. The data folders and the mapping file of the configuration were redirected to it.
 - **Stages 1 and 2**: `configurations/sequence_labelling/configuration_synthetic_sequences.yaml` (sequences of at most 50 frames fed whole, 512 pixel frames, batch size 16, a GRU), with the run folder redirected to a temporary folder.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts mostly `no_change` (71 classes: a first loss near ln 71 = 4.263), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts mostly `no_change` (71 classes: a first loss near ln 71 = 4.263), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`. The rates of the recorded console summaries, reports and best checkpoint lines, the sequence exact match, the Edit Score and the Segment F1 included, are shown as the current code writes them, as percentages with two decimals (`27.87 %`, a change in points such as `+14.70 points`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
 
 ## Read This First
 The sequence labeller gives one class to every frame of a sequence (many to many): every frame goes through the shared backbone and the global pooling of `ClassificationHead`, a temporal module keeping the time axis relates every frame vector to the frames it may see, and the classification head classifies every frame vector, trained with the cross entropy of the labelled frames. The labels are the `frame_category_ids` of `labels.json`, one category per frame, and every sequence is fed whole. Choose it when the answer is a class per frame (where something happens in the sequence); choose the sequence classification (M2O, `sequence_classification_workflow.md`) for one class per sequence, the sequence comparison (CMP) for a before and an after sequence, and the frame selection (SEL, `frame_selection_workflow.md`) when every sequence must give exactly `Selection.frames_per_class` frames of every wanted class, chosen by a decoding over the whole sequence.
@@ -80,14 +80,14 @@ Should you start on sequences of your own, `configuration_example.yaml` holds th
 | `ExperimentConfiguration.evaluation.error_dumps` | `activated: False`, `maximum_per_class_pair: 20` | one image per wrong frame in `Errors/<TRUE>-TO-<PREDICTED>/` |
 
 ### What A Run Writes
-- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` and `Per Class Recall` tables (column `Frames`) with `per_class_report`, the second giving the frame recall of every class with its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst recall first.
+- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` and `Per Class Recall` tables (column `Frames`) with `per_class_report`, the second giving the frame recall of every class with its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst recall first. Every global metric, the sequence ones included, and every rate of the tables is written as a percentage with two decimals (`46.97 %`), the thresholds staying between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `class_metrics.csv` (its `samples` are labelled frames, `recall_lower` and `recall_upper` follow `recall`), `class_thresholds.json`, `confusion_matrix.csv`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png`; `predictions.csv` with `save_predictions`, one row per labelled frame (`sequence`, `frame`, `true_class`, `predicted_class`, `correct`, `probability_<class>`).
 - `Samples/<sequence>.png`: the frame grid of 8 fixed test sequences, 4 frames per row, every frame captioned `true/predicted` and `X` on the wrong ones; `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, one image per wrong frame, with `error_dumps.activated`.
 - TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss` and `Accuracy` (of the labelled frames), `Train/` also `Learning Rate`; `Test/` the global metrics, the `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
 - `data.json` counts the `frames` of every class in every split.
 
 ### Pitfalls
-- A run predicting `no_change` everywhere keeps a fair frame accuracy: the synthetic configuration trained 2000 iterations (README screenshots, `suggestions.md` K29) gives Accuracy 0.4697 (the share of `no_change` frames of `test_10000`), Balanced Accuracy 0.0141 (1/71), Macro F1 0.0090 and Sequence Exact Match 0.0589 (the 589 sequences without change). Its `predictions.csv` gives `no_change` a probability of 0.9999 on the 10,000 first frames, always `no_change`, and about 0.38 on the 59,918 others, their share of `no_change`: read the balanced accuracy, the macro F1 and the segment metrics. That run has no class weights; in the experiment plan, a launch without class weights stayed at the macro F1 of a model predicting only `no_change` for its 6000 iterations, and the plan kept `class_weighting: "balanced"` at the same learning rate, 1e-3 (`configuration_example.yaml`).
+- A run predicting `no_change` everywhere keeps a fair frame accuracy: the synthetic configuration trained 2000 iterations (README screenshots, `suggestions.md` K29) gives Accuracy 46.97 % (the share of `no_change` frames of `test_10000`), Balanced Accuracy 1.41 % (1/71), Macro F1 0.90 % and Sequence Exact Match 5.89 % (the 589 sequences without change). Its `predictions.csv` gives `no_change` a probability of 0.9999 on the 10,000 first frames, always `no_change`, and about 0.38 on the 59,918 others, their share of `no_change`: read the balanced accuracy, the macro F1 and the segment metrics. That run has no class weights; in the experiment plan, a launch without class weights stayed at the macro F1 of a model predicting only `no_change` for its 6000 iterations, and the plan kept `class_weighting: "balanced"` at the same learning rate, 1e-3 (`configuration_example.yaml`).
 - The frames of unmapped categories get the label -100: they are left out of the loss and the metrics, and end a segment. Nothing checks that `frame_category_ids` holds one label per frame (`suggestions.md` L10), and a batch without labelled frame gives a NaN loss while the sequences without labelled frame count as exact matches (L11, `sequence_losses.py`, `compute_sequence_exact_matches()`).
 - A causal module (`causal: True`, or a GRU or LSTM that is not bidirectional) with `Backbone.normalization.feature_map_normalization: "sequence"` still uses the future frames: the statistics of every backbone layer are those of the whole sequence (`bug_standards.md` B8).
 - `label_smoothing` above 0 with `class_weighting: "balanced"` pulls every frame towards the rarest classes (`suggestions.md` C2); on the synthetic training split the balanced weight of `no_change` would be 0.030 against 1.82 to 1.89 for a change class (819,173 of the 1,749,690 frames, `data.json`).
@@ -622,7 +622,7 @@ MLflow, step 4: {'train/Total Loss': 4.2365, 'train/Classification Loss': 4.2365
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :   4.2365
 Moving Average of Train Classification Loss            :   4.2365
-Moving Average of Train Accuracy                       :   0.0096
+Moving Average of Train Accuracy                       :   0.96 %
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:08.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -635,14 +635,14 @@ Moving Average of Train Total Loss                     :   3.9174  -0.1656 Best
 Moving Average of Valid Total Loss                     :   4.1790
 Moving Average of Train Classification Loss            :   3.9174  -0.1656 Best
 Moving Average of Valid Classification Loss            :   4.1790
-Moving Average of Train Accuracy                       :   0.4486  +0.1470 Best
-Moving Average of Valid Accuracy                       :   0.0000
+Moving Average of Train Accuracy                       :  44.86 % +14.70 points Best
+Moving Average of Valid Accuracy                       :   0.00 %
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:06.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ===========================================================================================================================================================
 ```
-The interval of iteration 8 (loss 4.0830, accuracy 0.3015) took 00:01:06, since it includes the test evaluation of iteration 6, so its throughput is 0.2 Sequences Per Second.
+The interval of iteration 8 (loss 4.0830, accuracy 30.15 %) took 00:01:06, since it includes the test evaluation of iteration 6, so its throughput is 0.2 Sequences Per Second.
 
 ### Step 3.15 — end of the loop
 The checkpoint of iteration 12 is already saved and evaluated inside its iteration, so the loop saves nothing more and evaluates nothing (see `classification_workflow.md`, Step 3.25).
@@ -756,7 +756,7 @@ notes             = ['Segments : 355 true and 114 predicted in 60 test sequences
                      'Error Images : 158 in 96 class pairs, at most 2 per pair', 'Sample Images : 8 fixed test sequences']
 headline_metric   = 'Accuracy'
 class_scalars     = 213 (71 classes x 3): Precision/no_change, Recall/no_change, F1/no_change, Precision/appearing_square, ...
-tables            = Per Class Metrics: Class, Frames, Precision, Recall, F1, Threshold @ P0.99, Recall @ P0.99
+tables            = Per Class Metrics: Class, Frames, Precision, Recall, F1, Threshold @ P99 %, Recall @ P99 %
 files             = confusion_matrix.csv, class_thresholds.json, class_metrics.csv, confusion_matrix.png, predictions.csv,
                     Errors, Samples          (Results.txt is printed as a link before them, by report_evaluation_results())
 ```
@@ -850,28 +850,28 @@ test_000032,test_000032/000002.png,no_change,no_change,1,0.017983, ...
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
 Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ───────────────────────────────────────────────
-  Accuracy               0.2787   Balanced Accuracy   0.0084
-  Macro F1               0.0067   Top-2 Accuracy      0.3466
-  Sequence Exact Match   0.0000   Edit Score          0.1424
-  Segment F1@10          0.2047   Segment F1@25       0.1151
-  Segment F1@50          0.0384
+  Accuracy               27.87 %   Balanced Accuracy   0.84 %
+  Macro F1               0.67 %    Top-2 Accuracy      34.66 %
+  Sequence Exact Match   0.00 %    Edit Score          14.24 %
+  Segment F1@10          20.47 %   Segment F1@25       11.51 %
+  Segment F1@50          3.84 %
   Segments : 355 true and 114 predicted in 60 test sequences, an unlabelled frame ending a segment
   Error Images : 158 in 96 class pairs, at most 2 per pair
   Sample Images : 8 fixed test sequences
 
   Per Class Metrics
-                                                                             Threshold    Recall
-   Class                              Frames   Precision   Recall       F1     @ P0.99   @ P0.99
-  ───────────────────────────────────────────────────────────────────────────────────────────────
-   appearing_square                        2      0.0000   0.0000   0.0000           —         —
-   appearing_circle                        6      0.0000   0.0000   0.0000           —         —
+                                                                               Threshold    Recall
+   Class                              Frames   Precision    Recall        F1     @ P99 %   @ P99 %
+  ─────────────────────────────────────────────────────────────────────────────────────────────────
+   appearing_square                        2      0.00 %    0.00 %    0.00 %           —         —
+   appearing_circle                        6      0.00 %    0.00 %    0.00 %           —         —
    ...
-   disappearing_hollow_semicircle          4      0.0000   0.0000   0.0000      0.0142    0.2500
-   disappearing_hollow_capsule             4      0.0000   0.0000   0.0000           —         —
-   no_change                             206      0.3876   0.5777   0.4639      0.0201    0.0097
+   disappearing_hollow_semicircle          4      0.00 %    0.00 %    0.00 %      0.0142   25.00 %
+   disappearing_hollow_capsule             4      0.00 %    0.00 %    0.00 %           —         —
+   no_change                             206     38.76 %   57.77 %   46.39 %      0.0201    0.97 %
    ...
-   appearing_semicircle                    0           —        —        —           —         —
-  Worst F1 first, ties in class order. — : no frames of the class, or the precision 0.99 is never reached.
+   appearing_semicircle                    0           —         —         —           —         —
+  Worst F1 first, ties in class order. — : no frames of the class, or the precision 99 % is never reached.
   - Results : Results.txt
   - ...
 ```
@@ -879,26 +879,26 @@ Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ─�
 **Example: the same block with the current code** (the README screenshot run of this configuration, 2000 iterations at 512 pixels, on `test_10000`; shortened)
 ```text
 Iteration 2000 · 10000 Test Sequences, 69918 Labelled Frames · 2026-10-23 05:38 ────────────────────────────────────────
-  Accuracy               0.4697   Balanced Accuracy         0.0141
-  Macro F1               0.0090   Top-2 Accuracy            0.4774
-  Macro ROC AUC          0.5826   Macro Average Precision   0.0194
-  Sequence Exact Match   0.0589   Edit Score                0.2581
-  Segment F1@10          0.2822   Segment F1@25             0.1833
-  Segment F1@50          0.0711
+  Accuracy               46.97 %   Balanced Accuracy         1.41 %
+  Macro F1               0.90 %    Top-2 Accuracy            47.74 %
+  Macro ROC AUC          58.26 %   Macro Average Precision   1.94 %
+  Sequence Exact Match   5.89 %    Edit Score                25.81 %
+  Segment F1@10          28.22 %   Segment F1@25             18.33 %
+  Segment F1@50          7.11 %
   Segments : 58133 true and 10000 predicted in 10000 test sequences, an unlabelled frame ending a segment
   Sample Images : 8 fixed test sequences
 
   Per Class Metrics
-                                                                                         Average   Threshold    Recall
-   Class                              Frames   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99
-  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   appearing_square                      559      0.0000   0.0000   0.0000    0.5835      0.0099           —         —
+                                                                                          Average   Threshold    Recall
+   Class                            Frames   Precision     Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   appearing_square                    559      0.00 %     0.00 %    0.00 %   58.35 %      0.99 %           —         —
    ...
-   no_change                           32843      0.4697   1.0000   0.6392    0.6571      0.7120      0.4075    0.3076
-  Worst F1 first, ties in class order. — : no frames of the class, no negative for the ROC AUC, or the precision 0.99 is
+   no_change                         32843     46.97 %   100.00 %   63.92 %   65.71 %     71.20 %      0.4075   30.76 %
+  Worst F1 first, ties in class order. — : no frames of the class, no negative for the ROC AUC, or the precision 99 % is
   never reached.
 ```
-That run gives `no_change` to every frame (`suggestions.md` K29): its 10,000 predicted segments are one per sequence.
+That run gives `no_change` to every frame (`suggestions.md` K29): its 10,000 predicted segments are one per sequence. With its 71 classes and the wider percentage columns, the table would pass the 120 characters of the report, so `build_table_renderable()` narrows the class column from 32 to 30 characters (`disappearing_hollow_parallelo…`) rather than letting rich cut the headers and values of the other columns.
 
 **Example: TensorBoard and MLflow after the two evaluations** (recorded before the curves)
 ```text
@@ -950,7 +950,7 @@ MLflow Run Created In The Experiment 'sequence_labelling' : 0a6b17420e9b4be1a981
 -------------------------------------------------------------
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
 -------------------------------------------------------------
-  - Best Checkpoint : iteration 12 (Accuracy 0.2981)
+  - Best Checkpoint : iteration 12 (Accuracy 29.81 %)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Match,Edit Score,Segment F1@10,Segment F1@25,Segment F1@50, ...
 12,0.2981366459627329,0.01309328968903437,0.010264086389393778,0.36024844720496896,0.0,0.12883116883116885,0.1927710843373494,0.10843373493975904,0.012048192771084338, ...
@@ -964,16 +964,16 @@ The file has 223 columns: the iteration, the 9 global metrics, then the precisio
 **Example output: the block of the checkpoint of iteration 12 on the 20 sequences** (shortened, recorded before the curves of Stage 4)
 ```text
 Iteration 12 · 20 Test Sequences, 161 Labelled Frames · 2026-10-18 08:49 ───────────────────────────────────────────────
-  Accuracy               0.2981   Balanced Accuracy   0.0131
-  Macro F1               0.0103   Top-2 Accuracy      0.3602
-  Sequence Exact Match   0.0000   Edit Score          0.1288
-  Segment F1@10          0.1928   Segment F1@25       0.1084
-  Segment F1@50          0.0120
+  Accuracy               29.81 %   Balanced Accuracy   1.31 %
+  Macro F1               1.03 %    Top-2 Accuracy      36.02 %
+  Sequence Exact Match   0.00 %    Edit Score          12.88 %
+  Segment F1@10          19.28 %   Segment F1@25       10.84 %
+  Segment F1@50          1.20 %
   Segments : 128 true and 38 predicted in 20 test sequences, an unlabelled frame ending a segment
   Error Images : 75 in 54 class pairs, at most 2 per pair
   Sample Images : 8 fixed test sequences
   ...
-   no_change                              78      0.3967   0.6154   0.4824      0.0201    0.0256
+   no_change                              78     39.67 %   61.54 %   48.24 %      0.0201    2.56 %
    ...
 ```
 The header and the segment note count the same 20 sequences, every sequence being evaluated whole.

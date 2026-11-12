@@ -6,7 +6,9 @@ list of experiment folders, the evaluation with the best value of a chosen test 
 block: the curves at that evaluation (global metrics, and per-class metrics expanded to one column per class), the
 settings of its training_configuration.yaml (the image size, the learning rate), and the totals and per-class counts of
 its splits read from its data.json (recomputed from the labels.json of the splits for the runs written before the
-classes were counted, after checking that the labels did not change since the run).
+classes were counted, after checking that the labels did not change since the run). The curves of the classification
+evaluations are rates written as the percentages of the reports ("94.03 %"); the curves of the tasks not yet moved to
+them keep their decimals.
 """
 
 import hashlib
@@ -21,6 +23,7 @@ from vision_training.data.data_record import (CLASS_NAMES_RECORD_KEY, CLASSES_RE
                                               build_class_records)
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.data.sequence.sequence_dataset import find_unselected_class_index
+from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.utilities.os_utilities import format_path_link, print_color, read_json
 
 # Placeholder of a column expanded to one column per class of the run, in class index order
@@ -252,7 +255,7 @@ def format_count_value(column: str, class_name: str, class_records: List[Dict[st
 
 
 def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: List[str],
-                  column_titles: Dict[str, str], number_decimals: int) -> Dict[str, str]:
+                  column_titles: Dict[str, str], number_decimals: int, curves_in_percent: bool) -> Dict[str, str]:
     """
     Builds the row of one run for the comparison tables: every column in its order of appearance, titled by
     column_titles (with the class name in place of the placeholder) or else by the column itself.
@@ -263,7 +266,8 @@ def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: Li
         columns (List[str]): The columns, in their order of appearance.
         column_titles (Dict[str, str]): The title of the columns not titled by themselves, e.g.
             {"Recall/{class}": "Recall {class}"}.
-        number_decimals (int): The number of decimals of the curve values.
+        number_decimals (int): The number of decimals of the curve values not written as percentages.
+        curves_in_percent (bool): Whether the curve values are rates written as percentages ("94.03 %").
 
     Returns:
         Dict[str, str]: The formatted value of every column title.
@@ -317,7 +321,9 @@ def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: Li
                 raise ValueError(f"No {curve_name} test curve at iteration {best_evaluation['iteration']} of "
                                  f"{format_path_link(path=run_folder)}, available curves : "
                                  f"{', '.join(best_evaluation['curves'])}")
-            row[title] = f"{best_evaluation['curves'][curve_name]:.{number_decimals}f}"
+            curve_value = best_evaluation["curves"][curve_name]
+            row[title] = (format_percentage(value=curve_value) if curves_in_percent else
+                          f"{curve_value:.{number_decimals}f}")
     return row
 
 
@@ -340,7 +346,7 @@ def format_markdown_table(title: str, rows: List[Dict[str, str]]) -> str:
 
 def compare_best_evaluations(experiment_folders: List[Path], best_metric: str, higher_is_better: bool,
                              evaluated_weights: List[str], columns: List[str], column_titles: Dict[str, str],
-                             table_grouping: str, number_decimals: int) -> str:
+                             table_grouping: str, number_decimals: int, curves_in_percent: bool) -> str:
     """
     Builds the Markdown tables comparing the best evaluation of every run of the experiment folders: one table per run,
     or one table for the runs sharing the same column titles (the runs of the same classes), in the order of the runs.
@@ -353,7 +359,8 @@ def compare_best_evaluations(experiment_folders: List[Path], best_metric: str, h
         columns (List[str]): The columns, in their order of appearance.
         column_titles (Dict[str, str]): The title of the columns not titled by themselves.
         table_grouping (str): "run" for one table per run, "columns" for one table per set of column titles.
-        number_decimals (int): The number of decimals of the curve values.
+        number_decimals (int): The number of decimals of the curve values not written as percentages.
+        curves_in_percent (bool): Whether the curve values are rates written as percentages ("94.03 %").
 
     Returns:
         str: The Markdown tables, separated by an empty line.
@@ -377,7 +384,8 @@ def compare_best_evaluations(experiment_folders: List[Path], best_metric: str, h
                         output=f"No Test Evaluation Yet, Left Out : {format_path_link(path=run_folder)}")
             continue
         row = build_run_row(run_folder=run_folder, best_evaluation=best_evaluation, columns=columns,
-                            column_titles=column_titles, number_decimals=number_decimals)
+                            column_titles=column_titles, number_decimals=number_decimals,
+                            curves_in_percent=curves_in_percent)
 
         # One table per run, or the runs of the same column titles together under the names of their experiments
         table_key = f"{run_folder.parent.name} · {run_folder.name}" if table_grouping == "run" else tuple(row)
@@ -425,7 +433,9 @@ if __name__ == "__main__":
                      "train_images/{class}": "Train {class}"}
     # "run" for one table per run, "columns" for one table gathering the runs of the same column titles (same classes)
     table_grouping = "run"
-    # Number of decimals of the curve values
+    # Whether the curve values are written as the percentages of the reports ("94.03 %"), True for the classification
+    # curves, which are all rates, and the number of decimals of the curve values otherwise
+    curves_in_percent = True
     number_decimals = 3
     # Markdown file receiving the tables, None to only print them
     output_path = None
@@ -433,7 +443,8 @@ if __name__ == "__main__":
     markdown_text = compare_best_evaluations(experiment_folders=experiment_folders, best_metric=best_metric,
                                              higher_is_better=higher_is_better, evaluated_weights=evaluated_weights,
                                              columns=columns, column_titles=column_titles,
-                                             table_grouping=table_grouping, number_decimals=number_decimals)
+                                             table_grouping=table_grouping, number_decimals=number_decimals,
+                                             curves_in_percent=curves_in_percent)
     print(markdown_text)
     if output_path is not None:
         Path(output_path).write_text(data=markdown_text + "\n", encoding="utf-8")

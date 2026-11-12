@@ -333,7 +333,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
                 "notes": error_analysis["notes"], "tables": tables,
                 "scalars": {**box_summary["scalars"], **mask_summary["scalars"], **proposal_recall["scalars"]},
                 "class_scalars": {**box_summary["class_scalars"], **mask_summary["class_scalars"]},
-                "images": error_analysis["images"], "files": files, "headline_metric": "Mask mAP@0.5/area"}
+                "images": error_analysis["images"], "files": files, "headline_metric": "Mask mAP@0.5/area",
+                "percent_metrics": []}
 
     def get_sample_masks(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
                          kept_detections: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:

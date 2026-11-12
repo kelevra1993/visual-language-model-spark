@@ -5,7 +5,9 @@ test sequences of the moving shapes dataset: the cosine similarities between the
 for the average pooling run (64 features) and the flatten run (4,096 features), the probabilities of four test
 sequences cut to different lengths alone and padded in one batch (the padding invariance), the accuracy of the
 flatten run on the first frames of every test sequence, and the parameters and checkpoint sizes of the three runs.
-The inference is reused from the previous build unless forced; its facts are the numbers the narration quotes.
+The inference is reused from the previous build unless forced; its facts are the numbers the narration quotes. The
+accuracies written on the truncation figure are the percentages of the reports of the repository ("94.03 %"), the facts
+keeping them between 0 and 1.
 """
 
 import json
@@ -28,6 +30,7 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences, read_sequence_frames
 from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
+from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.task_model import TaskModel
@@ -194,9 +197,12 @@ def draw_truncation_figure(output_path: Path, facts: Dict[str, Any]) -> Dict[str
                   markersize=10 * POINTS_PER_PIXEL, markeredgecolor=SURFACE_COLOUR,
                   markeredgewidth=2 * POINTS_PER_PIXEL)
         for length, value in zip(TRUNCATION_LENGTHS, values):
+            # The accuracy of every length written as the percentages of the reports, its axis shared with the
+            # probability, which stays between 0 and 1
             if fact_name == "accuracy":
-                axes.annotate(text=f"{value:.2f}", xy=(length, value), xytext=(0, 12), textcoords="offset points",
-                              ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
+                axes.annotate(text=format_percentage(value=value), xy=(length, value), xytext=(0, 12),
+                              textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
+                              fontsize=17 * POINTS_PER_PIXEL)
     style_chart_panel(axes=axes, title=f"Flatten run, iteration 1,000, on the first frames of the "
                                        f"{facts['truncation.sequences']} test sequences",
                       x_label="Frames kept from the start of every sequence (training sequences: 8 frames)",

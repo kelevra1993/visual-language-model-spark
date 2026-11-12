@@ -5,7 +5,8 @@ every iteration, read from the TensorBoard logs of the run, with the test accura
 two panels, the raw values drawn faintly under their curve smoothed like TensorBoard. Two PNG files are written: the
 empty axes with the legend, the base image of the scene, and the whole chart, its overlay, whose curves the scene
 uncovers while they are explained; the boxes of the panels (highlights and reveal regions) and the values of the
-curves are the facts of the storyboards.
+curves are the facts of the storyboards. The accuracies are written as the percentages of the reports of the
+repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
 
 import matplotlib
@@ -23,6 +24,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR, compute_pixel_box,
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Names of the figures, kept from the first tutorials
 FIGURE_NAME = "training_curves_readme_classification_run"
@@ -136,13 +138,14 @@ def make_training_curves_figure(output_folder: Path, run_folder: Path, run_label
     test_iterations, test_accuracies = read_scalars(log_folder=run_folder / "Tensorboard" / "Test", tag="Accuracy")
     last_iteration = int(curves[("Train", "Total Loss")][0][-1])
 
-    # Figure of the size of the viewport of a scene, a loss panel and an accuracy panel
+    # Figure of the size of the viewport of a scene, a loss panel and an accuracy panel, apart enough for the
+    # percentage ticks of the accuracy
     register_fonts()
     figure, (loss_axes, accuracy_axes) = pyplot.subplots(nrows=1, ncols=2, figsize=(CHART_WIDTH / DOTS_PER_INCH,
                                                                                  CHART_HEIGHT / DOTS_PER_INCH),
                                                          dpi=DOTS_PER_INCH)
     figure.patch.set_facecolor(SURFACE_COLOUR)
-    figure.subplots_adjust(left=0.06, right=0.985, top=0.80, bottom=0.12, wspace=0.16)
+    figure.subplots_adjust(left=0.06, right=0.985, top=0.80, bottom=0.12, wspace=0.2)
 
     # Header: the run and the smoothing, then the legend of the three series, saved with the empty panels as the base
     figure.text(x=0.012, y=0.955, s=run_label, color=TEXT_SECONDARY_COLOUR, fontsize=16 * POINTS_PER_PIXEL,
@@ -159,6 +162,8 @@ def make_training_curves_figure(output_folder: Path, run_folder: Path, run_label
     style_panel(axes=loss_axes, title="Total loss", last_iteration=last_iteration, y_limit=(0.0, 2.6), y_label="Loss")
     style_panel(axes=accuracy_axes, title="Accuracy", last_iteration=last_iteration, y_limit=(0.0, 1.0),
                 y_label="Accuracy")
+    # Accuracy ticks written as the percentages of the reports of the repository
+    accuracy_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     save_figure(figure=figure, output_path=output_folder / f"{FIGURE_NAME}_axes.png")
 
     # Curves of the training and validation batches on both panels, the test accuracy of every evaluation as points
@@ -171,7 +176,7 @@ def make_training_curves_figure(output_folder: Path, run_folder: Path, run_label
                        markersize=12 * POINTS_PER_PIXEL, markeredgecolor=SURFACE_COLOUR,
                        markeredgewidth=2 * POINTS_PER_PIXEL, zorder=4, clip_on=False)
     for test_iteration, test_accuracy in zip(test_iterations, test_accuracies):
-        accuracy_axes.annotate(text=f"{test_accuracy:.3f}", xy=(test_iteration, test_accuracy),
+        accuracy_axes.annotate(text=format_percentage(value=test_accuracy), xy=(test_iteration, test_accuracy),
                                xytext=(-12 * POINTS_PER_PIXEL, -22 * POINTS_PER_PIXEL), textcoords="offset points",
                                ha="right", va="center", color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
 

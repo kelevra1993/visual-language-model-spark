@@ -283,12 +283,13 @@ class BaseTrainer(ABC):
         # Weight of every loss of the model in the total loss, None when every loss counts once
         self.loss_weights = self.get_loss_weights()
 
-        # Metric tracking of the losses and batch metrics chosen by the task
+        # Metric tracking of the losses and batch metrics chosen by the task, its rates printed as percentages
         self.tracked_metrics_mapping = self.get_tracked_metrics()
         self.metric_tracker = MetricTracker(tracked_metrics_mapping=self.tracked_metrics_mapping,
                                             batch_size=self.batch_size,
                                             validation_iteration_ratio=self.validation_iteration_ratio,
-                                            sample_name=self.SAMPLE_NAME, counts_frames=self.COUNTS_FRAMES)
+                                            sample_name=self.SAMPLE_NAME, counts_frames=self.COUNTS_FRAMES,
+                                            percent_metric_keys=self.get_percent_tracked_metrics())
 
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
@@ -360,6 +361,17 @@ class BaseTrainer(ABC):
             Optional[Dict[str, float]]: The weight of every loss output, or None when every loss counts once.
         """
         return None
+
+    def get_percent_tracked_metrics(self) -> List[str]:
+        """
+        Lists the tracked batch metrics that are rates written as percentages in the console summary ("94.03 %", their
+        changes in points), read once when the trainer is built. None by default, every tracked value keeping 4
+        decimals; the classification trainer and the sequence trainers inheriting from it give their accuracy.
+
+        Returns:
+            List[str]: The tracked keys (keys of get_tracked_metrics) written as percentages.
+        """
+        return []
 
     @abstractmethod
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:

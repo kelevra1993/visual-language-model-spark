@@ -40,6 +40,7 @@ from vision_training.evaluation.classification.temperature_explorer import (MAXI
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
                                                          compute_clopper_pearson_intervals)
+from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
@@ -189,6 +190,18 @@ class ClassificationTrainer(BaseTrainer):
                                     "hidden_feature_correlation": "Hidden Feature Correlation"})
         tracked_metrics["accuracy"] = "Accuracy"
         return tracked_metrics
+
+    def get_percent_tracked_metrics(self) -> List[str]:
+        """
+        Lists the tracked batch metrics written as percentages in the console summary ("94.03 %", changes in points):
+        the accuracy of the training and validation batches, the losses and the correlation of the decorrelated
+        hidden features staying with 4 decimals. The sequence trainers inherit it; the frame selection trainer gives
+        none until it is moved to the percentages.
+
+        Returns:
+            List[str]: The tracked keys written as percentages.
+        """
+        return ["accuracy"]
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
@@ -673,18 +686,21 @@ class ClassificationTrainer(BaseTrainer):
                                               target_precisions=self.target_precisions, class_curves=class_curves)
         files["Class Metrics"] = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
 
-        # Confusion matrix image of the per-class report, saved and logged to TensorBoard
+        # Confusion matrix image of the per-class report, saved and logged to TensorBoard, its accuracies and shares
+        # written as percentages
         if self.output_mode == "multi_class" and self.per_class_report:
+            matrix_title = (f"Confusion Matrix · Iteration {iteration} · Accuracy "
+                            f"{format_percentage(value=metrics['accuracy'])} · Balanced Accuracy "
+                            f"{format_percentage(value=metrics['balanced_accuracy'])}")
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
                 confusion_matrix=confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder,
-                title=f"Confusion Matrix · Iteration {iteration} · Accuracy {metrics['accuracy']:.4f} · Balanced "
-                      f"Accuracy {metrics['balanced_accuracy']:.4f}")
+                title=matrix_title, in_percent=True)
 
         # ROC and precision-recall curve images of the per-class report, saved and logged to TensorBoard
         if class_curves is not None:
             curve_files, curve_images = save_score_curve_images(
                 class_curves=class_curves, class_names=self.class_names, output_folder=evaluation_folder,
-                title_suffix=f" · Iteration {iteration}", target_precisions=self.target_precisions)
+                title_suffix=f" · Iteration {iteration}", target_precisions=self.target_precisions, in_percent=True)
             files.update(curve_files)
             images.update(curve_images)
 
@@ -722,12 +738,12 @@ class ClassificationTrainer(BaseTrainer):
 
         # Per-class table at the main target precision, the recall intervals and the thresholds of every target
         # precision (when several are given) in tables of their own, so that the per-class table stays within the width
-        # of the report
+        # of the report, their rates written as percentages
         tables = [build_class_metrics_table(class_rows=class_rows, target_precision=self.target_precision,
-                                            support_column=support_column),
+                                            support_column=support_column, in_percent=True),
                   build_recall_interval_table(class_rows=class_rows, support_key="samples",
                                               support_column=support_column, recall_columns=[("recall", "Recall")],
-                                              interval_description=self.RECALL_INTERVAL_DESCRIPTION)]
+                                              interval_description=self.RECALL_INTERVAL_DESCRIPTION, in_percent=True)]
         if len(self.target_precisions) > 1:
             tables.append(build_class_thresholds_table(class_rows=class_rows, target_precisions=self.target_precisions,
                                                        class_curves=class_curves))
@@ -738,7 +754,9 @@ class ClassificationTrainer(BaseTrainer):
                 "class_scalars": build_class_metric_scalars(class_names=self.class_names, metrics=metrics,
                                                             class_curves=class_curves),
                 "images": images, "files": files,
-                "headline_metric": "Accuracy" if self.output_mode == "multi_class" else "Subset Accuracy"}
+                "headline_metric": "Accuracy" if self.output_mode == "multi_class" else "Subset Accuracy",
+                # Every headline metric of the classification-like tasks is a rate, written as a percentage
+                "percent_metrics": list(headline_metrics)}
 
     def get_label_caption(self, label: torch.Tensor) -> str:
         """

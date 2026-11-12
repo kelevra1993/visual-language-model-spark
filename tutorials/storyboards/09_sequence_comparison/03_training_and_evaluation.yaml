@@ -60,7 +60,7 @@ scenes:
       - {box: "{{sequence_comparison.training.accuracy_panel_box}}", sentences: [1]}
     narration:
       - "The training loss starts at {{sequence_comparison.training.train_total_loss.first:.2f}}, about the natural log of {{sequence_comparison.run.class_count_words}} for {{sequence_comparison.run.class_count_words}} classes, and ends at {{sequence_comparison.training.train_total_loss.last:.2f}} at iteration {{sequence_comparison.run.iteration:,}}, the validation batches following it."
-      - "The test accuracy is {{sequence_comparison.evaluation.accuracy.iteration_500:.1%}} at iteration {{sequence_comparison.evaluation.iterations[0]:,}}, and the same {{sequence_comparison.evaluation.accuracy.iteration_1000:.1%}} at iteration {{sequence_comparison.evaluation.iterations[1]:,}}."
+      - "The test accuracy is {{sequence_comparison.evaluation.accuracy.iteration_500:percent}} at iteration {{sequence_comparison.evaluation.iterations[0]:,}}, and the same {{sequence_comparison.evaluation.accuracy.iteration_1000:percent}} at iteration {{sequence_comparison.evaluation.iterations[1]:,}}."
 
   - kind: code
     title: "Results.txt"
@@ -78,9 +78,9 @@ scenes:
     literal_numbers: [top-1]
     narration:
       - "The results file gives the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-1 accuracy, equal to the accuracy as it counts the most probable class only, and the macro ROC AUC and average precision."
-      - "Same number of objects comes first, its F1 the lowest: a recall of {{sequence_comparison.evaluation_class.same_recall:.0%}}, but a precision of {{sequence_comparison.evaluation_class.same_precision:.1%}}."
-      - "Loss of object keeps a precision of {{sequence_comparison.evaluation_class.loss_precision:.0%}} with a recall of {{sequence_comparison.evaluation_class.loss_recall:.1%}}: every error is a missed loss."
-      - "The current code writes a top-{{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES}} accuracy instead, always one with {{sequence_comparison.run.class_count_words}} classes, and adds a Per Class Recall table: every recall with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval, the pairs being independent."
+      - "Same number of objects comes first, its F1 the lowest: a recall of {{sequence_comparison.evaluation_class.same_recall:percent}}, but a precision of {{sequence_comparison.evaluation_class.same_precision:percent}}."
+      - "Loss of object keeps a precision of {{sequence_comparison.evaluation_class.loss_precision:percent}} with a recall of {{sequence_comparison.evaluation_class.loss_recall:percent}}: every error is a missed loss."
+      - "The current code writes the rates as percentages, a top-{{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES}} accuracy instead, always at its maximum with {{sequence_comparison.run.class_count_words}} classes, and a Per Class Recall table: every recall with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval, the pairs being independent."
 
   - kind: image
     title: "The evaluation images"
@@ -91,7 +91,7 @@ scenes:
       - {box: "{{sequence_comparison.evaluation.composite.row_0_box}}", from_sentence: 1}
     narration:
       - "The confusion matrix of iteration {{sequence_comparison.run.iteration:,}}: {{sequence_comparison.errors.count_words}} loss pairs given same, and no same pair given loss."
-      - "The ROC and precision-recall curves of both classes stay close to the corner, a macro ROC AUC of {{sequence_comparison.evaluation.macro_roc_auc.iteration_1000:.1%}}, slightly below its {{sequence_comparison.evaluation.macro_roc_auc.iteration_500:.1%}} of iteration {{sequence_comparison.evaluation.iterations[0]:,}}."
+      - "The ROC and precision-recall curves of both classes stay close to the corner, a macro ROC AUC of {{sequence_comparison.evaluation.macro_roc_auc.iteration_1000:percent}}, slightly below its {{sequence_comparison.evaluation.macro_roc_auc.iteration_500:percent}} of iteration {{sequence_comparison.evaluation.iterations[0]:,}}."
       - "The current evaluation also draws the precision-recall curves zoomed on the threshold of every class, its value written beside it."
 
   - kind: image
@@ -113,8 +113,8 @@ scenes:
       - {box: "{{sequence_comparison.probabilities.panel_box}}", sentences: [0]}
     narration:
       - "The predictions file gives every pair with its {{sequence_comparison.run.class_count_words}} probabilities, here the probability of same for both true classes."
-      - "The thresholds file keeps a precision of {{sequence_comparison.probabilities.target_precision}} for each class: same needs a probability of {{sequence_comparison.probabilities.same_number_of_objects.threshold:.2f}}, which keeps a recall of {{sequence_comparison.probabilities.same_number_of_objects.recall:.2f}}."
-      - "Loss of object needs only {{sequence_comparison.probabilities.loss_of_object.threshold:.2f}}, and keeps a recall of {{sequence_comparison.probabilities.loss_of_object.recall:.2f}}, above the {{sequence_comparison.evaluation_class.loss_recall:.2f}} of the most probable class: in a situation where a deployment must not miss a loss, it reads these thresholds rather than the argmax."
+      - "The thresholds file keeps a precision of {{sequence_comparison.probabilities.target_precision:percent_label}} for each class: same needs a probability of {{sequence_comparison.probabilities.same_number_of_objects.threshold:.2f}}, which keeps a recall of {{sequence_comparison.probabilities.same_number_of_objects.recall:percent}}."
+      - "Loss of object needs only {{sequence_comparison.probabilities.loss_of_object.threshold:.2f}}, and keeps a recall of {{sequence_comparison.probabilities.loss_of_object.recall:percent}}, above the {{sequence_comparison.evaluation_class.loss_recall:percent}} of the most probable class: in a situation where a deployment must not miss a loss, it reads these thresholds rather than the argmax."
 
   - kind: html
     page: diagram
@@ -136,9 +136,9 @@ scenes:
     title: "Recap"
     items:
       - {text: "Console: pairs and real frames per second"}
-      - {text: "Accuracy {{sequence_comparison.evaluation.accuracy.iteration_1000:.3f}} at iterations {{sequence_comparison.evaluation.iterations[0]:,}} and {{sequence_comparison.evaluation.iterations[1]:,}}"}
+      - {text: "Accuracy {{sequence_comparison.evaluation.accuracy.iteration_1000:percent}} at iterations {{sequence_comparison.evaluation.iterations[0]:,}} and {{sequence_comparison.evaluation.iterations[1]:,}}"}
       - {text: "Every error a missed loss, given same"}
-      - {text: "class_thresholds.json: one threshold per class at precision {{sequence_comparison.probabilities.target_precision}}"}
+      - {text: "class_thresholds.json: one threshold per class at precision {{sequence_comparison.probabilities.target_precision:percent_label}}"}
       - {text: "Samples: before frames above after frames"}
       - {text: "Training: 2B padded sequences · export: members alone"}
     narration:

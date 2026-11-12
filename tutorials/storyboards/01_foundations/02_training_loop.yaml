@@ -98,15 +98,15 @@ scenes:
     image: "repository:README/interval_summary.png"
     views:
       - {box: [0, 20, 1060, 70], from_sentence: 0}
-      - {box: [0, 70, 700, 200], from_sentence: 1}
-      - {box: [480, 330, 720, 460], from_sentence: 2}
+      - {box: [0, 70, 760, 200], from_sentence: 1}
+      - {box: [480, 330, 760, 460], from_sentence: 2}
     highlights:
       - {box: [8, 34, 1040, 58], sentences: [0]}
-      - {box: [10, 76, 650, 196], sentences: [1]}
-      - {box: [505, 336, 700, 456], sentences: [2]}
+      - {box: [10, 76, 724, 196], sentences: [1]}
+      - {box: [496, 336, 724, 456], sentences: [2]}
     narration:
       - "Every summary opens with the iteration, the images seen, and the throughput of the interval."
-      - "Then the moving averages of the interval, training in blue and validation in yellow, each with its change since the previous summary."
+      - "Then the moving averages of the interval, training in blue and validation in yellow, each with its change since the previous summary, in points for an accuracy."
       - "Green marks an improvement, red a degradation, and Best a value at its best so far; the summary ends with the duration of the interval and its validation batches."
 
   - kind: image
@@ -123,7 +123,7 @@ scenes:
     narration:
       - "Here are the curves of the classification run, every iteration faint and smoothed as TensorBoard does: the loss of the training batches falls from {{foundations.training_curves.train_total_loss.first:.2f}} to about {{foundations.training_curves.train_total_loss.smoothed_last:.2f}}."
       - "The validation curve follows it with spikes: one validation batch at a time is a noisy estimate, so read its smoothed trend rather than its points."
-      - "The accuracy of the batches climbs to about {{foundations.training_curves.train_accuracy.smoothed_last:.2f}}, and the dots are the evaluations on the whole test split: {{foundations.training_curves.test_accuracy.iteration_500:.2f}}, {{foundations.training_curves.test_accuracy.iteration_1000:.2f}} and {{foundations.training_curves.test_accuracy.iteration_1500:.2f}}."
+      - "The accuracy of the batches climbs to about {{foundations.training_curves.train_accuracy.smoothed_last:percent}}, and the dots are the evaluations on the whole test split: {{foundations.training_curves.test_accuracy.iteration_500:percent}}, {{foundations.training_curves.test_accuracy.iteration_1000:percent}} and {{foundations.training_curves.test_accuracy.iteration_1500:percent}}."
       - "The batch curves tell whether the training learns; a model is judged by the test evaluations, which come with every evaluation checkpoint."
 
   - kind: terminal

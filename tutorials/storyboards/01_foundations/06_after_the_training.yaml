@@ -95,7 +95,7 @@ scenes:
     narration:
       - "To compare settings, train every launch in its own run folder of one experiment folder, run one, run two, and run twenty three b for a repeat launch of the same settings, then run the collect experiment results script."
       - "It writes one row per launch with the test metric at every evaluation, its mean and the mean of the last evaluations, then a mean row for the launches of the same settings."
-      - "Compare settings by their mean and the mean of their last evaluations, with at least two launches each: in the benchmark, {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of the same settings spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.1%}} in mean test accuracy."
+      - "Compare settings by their mean and the mean of their last evaluations, with at least two launches each: in the benchmark, {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of the same settings went from {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_minimum:percent}} to {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_maximum:percent}} in mean test accuracy."
 
   - kind: code
     title: "Comparing runs"

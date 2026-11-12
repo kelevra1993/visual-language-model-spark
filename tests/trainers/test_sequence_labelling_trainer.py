@@ -139,6 +139,10 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     segment_metric_names = ["Edit Score", "Segment F1@10", "Segment F1@25", "Segment F1@50"]
     assert list(results["metrics"])[-4:] == segment_metric_names
     assert all(0.0 <= results["metrics"][metric_name] <= 1.0 for metric_name in segment_metric_names)
+
+    # The sequence exact match and the segment metrics, the edit score included, are written as percentages like the
+    # frame metrics, their values staying between 0 and 1
+    assert results["percent_metrics"] == list(results["metrics"])
     assert results["notes"][0].startswith("Segments : ") and " in 3 test sequences" in results["notes"][0]
     assert results["tables"][0]["columns"][1] == "Frames"
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"

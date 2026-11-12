@@ -3,7 +3,9 @@ Metric tracking of the general trainer: the averages of the training and validat
 every console interval, divided by the number of batches the interval really ran (fewer than information_dump in the
 first interval of a resumed run), the throughput of the interval, the console summary printed at every information
 dump (with the change of every value since the previous summary) and the TensorBoard curves. The interval averages and
-the throughput are also sent to the MLflow run of the training by the general trainer.
+the throughput are also sent to the MLflow run of the training by the general trainer. The rates listed by the task
+(the accuracy of the classification-like tasks) are printed as the percentages of the reports, "94.03 %" with their
+changes in points, the other values with 4 decimals; TensorBoard and MLflow keep every value between 0 and 1.
 """
 
 import time
@@ -12,6 +14,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.evaluation.report_formatting import format_percentage, format_points, round_percentage
 from vision_training.utilities.os_utilities import color_text
 
 # Smallest width of the console summary, whose header spans the separator lines from end to end
@@ -62,7 +65,7 @@ class MetricTracker:
     """
 
     def __init__(self, tracked_metrics_mapping: Dict[str, str], batch_size: int, validation_iteration_ratio: int,
-                 sample_name: str, counts_frames: bool) -> None:
+                 sample_name: str, counts_frames: bool, percent_metric_keys: List[str]) -> None:
         """
         Keeps the settings of the console summaries.
 
@@ -74,8 +77,18 @@ class MetricTracker:
                 sequence comparison task.
             counts_frames (bool): Whether to count the real frames of the training batches (sequence tasks), to also
                 print the frame throughput, False for the image tasks.
+            percent_metric_keys (List[str]): The tracked keys that are rates printed as percentages with their changes
+                in points, e.g. ['accuracy'], the others printed with 4 decimals.
+
+        Raises:
+            ValueError: If a percent key is not a tracked key.
         """
+        unknown_keys = [metric_key for metric_key in percent_metric_keys if metric_key not in tracked_metrics_mapping]
+        if unknown_keys:
+            raise ValueError(f"Expected the percent keys to be among the tracked keys {list(tracked_metrics_mapping)}, "
+                             f"got {unknown_keys}.")
         self.tracked_metrics_mapping = tracked_metrics_mapping
+        self.percent_metric_keys = percent_metric_keys
         self.batch_size = batch_size
         self.validation_iteration_ratio = validation_iteration_ratio
         self.sample_name = sample_name
@@ -200,34 +213,41 @@ class MetricTracker:
         return metric_key.endswith(LOWER_IS_BETTER_SUFFIX) or metric_key in LOWER_IS_BETTER_KEYS
 
     @staticmethod
-    def format_change(change: float, lower_is_better: bool, neutral_color: str) -> str:
+    def format_change(change: float, lower_is_better: bool, neutral_color: str, in_percent: bool) -> str:
         """
         Formats the signed change of a console summary value since the previous summary, so that the progress of the
         training reads at a glance: green when it goes in the improving direction, red when it goes in the other one,
-        and in the colour of its line when it rounds to zero at the printed decimals.
+        and in the colour of its line when it rounds to zero at the printed decimals. The change of a rate printed as a
+        percentage is written in points ("+0.52 points").
 
         Args:
             change (float): The current value minus the previous one.
             lower_is_better (bool): True when the value improves by decreasing (losses, off-diagonal correlations),
                 False otherwise.
             neutral_color (str): The colour of a change rounding to zero, the colour of its line.
+            in_percent (bool): Whether the value is a rate printed as a percentage, its change written in points.
 
         Returns:
             str: The coloured signed change.
         """
         # A change rounding to zero is neither an improvement nor a degradation, and is printed as +0 rather than -0
-        if round(change, METRIC_DECIMALS) == 0:
-            return color_text(color=neutral_color, text=f"{0.0:>+{METRIC_COLUMN_WIDTH}.{METRIC_DECIMALS}f}")
+        if in_percent:
+            rounds_to_zero, change_text = round_percentage(value=change) == 0, format_points(difference=change)
+        else:
+            rounds_to_zero = round(change, METRIC_DECIMALS) == 0
+            change_text = f"{0.0 if rounds_to_zero else change:>+{METRIC_COLUMN_WIDTH}.{METRIC_DECIMALS}f}"
+        if rounds_to_zero:
+            return color_text(color=neutral_color, text=change_text)
 
         improved = change < 0 if lower_is_better else change > 0
-        return color_text(color="green" if improved else "red",
-                          text=f"{change:>+{METRIC_COLUMN_WIDTH}.{METRIC_DECIMALS}f}")
+        return color_text(color="green" if improved else "red", text=change_text)
 
     def format_metric_line(self, split_name: str, metric_key: str, display_name: str, current_value: float) -> str:
         """
         Builds one metric line of the console summary, the main training feedback read at every information dump: the
         interval mean, its change since the last summary that printed this split, and the best marker when it is the
-        best value of the run. Keeps the values for the next summary.
+        best value of the run, a rate listed in the percent keys printed as "94.03 %" with its change in points. Keeps
+        the values for the next summary.
 
         Args:
             split_name (str): "Train" or "Valid".
@@ -240,14 +260,18 @@ class MetricTracker:
         """
         line_color = SPLIT_COLORS[split_name]
         lower_is_better = self.is_lower_better(metric_key=metric_key)
+        in_percent = metric_key in self.percent_metric_keys
+        value_text = (format_percentage(value=current_value) if in_percent else
+                      f"{current_value:.{METRIC_DECIMALS}f}")
         line = color_text(color=line_color, text=f"Moving Average of {split_name} {display_name:30} : "
-                                                 f"{current_value:>{METRIC_COLUMN_WIDTH}.{METRIC_DECIMALS}f}")
+                                                 f"{value_text:>{METRIC_COLUMN_WIDTH}}")
 
         # Add the change since the previous summary and the best marker, once there is a value to compare with
         is_best = False
         if metric_key in self.previous_values[split_name]:
             change = current_value - self.previous_values[split_name][metric_key]
-            line += " " + self.format_change(change=change, lower_is_better=lower_is_better, neutral_color=line_color)
+            line += " " + self.format_change(change=change, lower_is_better=lower_is_better, neutral_color=line_color,
+                                             in_percent=in_percent)
             best_value = self.best_values[split_name][metric_key]
             is_best = current_value < best_value if lower_is_better else current_value > best_value
             if is_best:

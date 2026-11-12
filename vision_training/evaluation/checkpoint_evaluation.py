@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from vision_training.core.contracts import EvaluationResults
+from vision_training.evaluation.report_formatting import format_report_value
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
                                                          RUN_RECORD_FILE_NAME, DisabledTracker, ExperimentTracker,
                                                          create_experiment_tracker, read_run_record)
@@ -107,8 +108,9 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
 def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Path, iterations: List[int]) -> Path:
     """
     Evaluates the checkpoints one after the other through the trainer, writes the evaluation summary of their scalars
-    and prints the best iteration, or every tied iteration when several checkpoints share the best value, for
-    evaluate_checkpoints.
+    (between 0 and 1) and prints the best iteration, or every tied iteration when several checkpoints share the best
+    value, for evaluate_checkpoints, the value written as a percentage when the headline metric is one of the percent
+    metrics of the task ("Accuracy 94.03 %").
 
     Args:
         trainer (BaseTrainer): The trainer of the run.
@@ -119,7 +121,7 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         Path: The written evaluation summary.
     """
     summary_rows: List[Dict[str, Any]] = []
-    headline_metric = None
+    headline_metric, headline_in_percent = None, False
     best_checkpoints: Dict[str, Tuple[List[int], float]] = {}
     for iteration in iterations:
         checkpoint_path = get_checkpoint_file(weights_directory=experiment_folder / "Weights", iteration=iteration)
@@ -148,6 +150,7 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         # Best iterations of the headline metric for every kind of weights, the higher the better, the iterations
         # sharing the best value being all kept so that a tie is reported instead of one of them being picked
         headline_metric = results["headline_metric"]
+        headline_in_percent = headline_metric in results["percent_metrics"]
         for weights_label, weights_results in evaluated_weights.items():
             value = weights_results["scalars"][headline_metric]
             if weights_label not in best_checkpoints or value > best_checkpoints[weights_label][1]:
@@ -175,8 +178,10 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         if len(best_iterations) > 1:
             tied_iterations = ", ".join(str(best_iteration) for best_iteration in best_iterations)
             iterations_description = f"iterations {tied_iterations} tie"
+        # Best value written like in the report, as a percentage when the headline metric is a rate of the task
+        best_text = format_report_value(value=best_value, in_percent=headline_in_percent)
         print_color(color="green", output=f"Best Checkpoint{weights_description} : {iterations_description} "
-                                          f"({headline_metric} {best_value:.4f})", indent=1)
+                                          f"({headline_metric} {best_text})", indent=1)
     return summary_path
 
 

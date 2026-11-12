@@ -145,6 +145,17 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         return {"total_loss": "Total Loss", "classification_loss": "Classification Loss",
                 "selection_loss": "Selection Loss", "accuracy": "Accuracy"}
 
+    def get_percent_tracked_metrics(self) -> List[str]:
+        """
+        Keeps every tracked value of the frame selection with 4 decimals in the console summary, its accuracy included,
+        instead of the percentages of the classification trainer it inherits from, until the frame selection is moved
+        to the percentages of the reports.
+
+        Returns:
+            List[str]: No tracked key written as a percentage.
+        """
+        return []
+
     def get_sequence_predictions(self, batch: Dict[str, Any], predictions: Dict[str, Any],
                                  sample_index: int) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -345,7 +356,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                 "columns": ["Class", self.CLASS_SUPPORT_COLUMN, "Hungarian\nAccuracy", "Greedy\nAccuracy",
                             f"Top-{self.top_k}\nAccuracy", "Mean\nRank", f"Threshold\n@ P{self.target_precision:g}",
                             f"Recall\n@ P{self.target_precision:g}"],
-                "rows": rows, "sort_column": sort_column, "per_class": True,
+                "rows": rows, "sort_column": sort_column, "per_class": True, "percent_columns": [],
                 "legend": f"Worst {self.decoding} accuracy first, ties in class order. Accuracy : share of the true "
                           f"frames of the class chosen for it. Rank : mean rank of the true frames among the frames "
                           f"ordered by their probability for the class, 1 being the best. Threshold : probability "
@@ -576,7 +587,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         return {"evaluated_samples": self.describe_evaluated_samples(accumulator=accumulator),
                 "metrics": headline_metrics, "notes": notes, "tables": tables, "scalars": dict(headline_metrics),
                 "class_scalars": class_scalars, "images": images, "files": files,
-                "headline_metric": f"{self.decoding.capitalize()} Selection Accuracy"}
+                "headline_metric": f"{self.decoding.capitalize()} Selection Accuracy", "percent_metrics": []}
 
     def get_frame_captions(self, label: torch.Tensor, sequence_mask: torch.Tensor) -> Optional[List[str]]:
         """

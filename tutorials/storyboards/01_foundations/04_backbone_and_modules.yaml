@@ -346,7 +346,7 @@ scenes:
     literal_numbers: [three]
     narration:
       - "The repository was benchmarked on the synthetic shapes, one setting changed at a time with at least {{foundations.benchmark.minimum_launches_per_setting:words}} launches each, on a deeper backbone of {{foundations.benchmark.backbone_layer_count:words}} convolution layers trained for {{foundations.benchmark.last_iteration}} iterations."
-      - "Without residual shortcuts, this deep backbone never learns: both launches stay at one class in {{foundations.benchmark.class_count:words}}, while the shortcuts reach {{foundations.benchmark.model_settings.residual_on.accuracy_2000:.1%}}."
+      - "Without residual shortcuts, this deep backbone never learns: both launches stay at one class in {{foundations.benchmark.class_count:words}}, while the shortcuts reach {{foundations.benchmark.model_settings.residual_on.accuracy_2000:percent}}."
       - "With layer normalization of the feature maps, the network had not learned after {{foundations.benchmark.model_settings.layer_normalization_last_iteration}} iterations either, training about three times slower, so the batch normalization stays."
 
   - kind: image
@@ -364,8 +364,8 @@ scenes:
     # launches per setting
     literal_numbers: [twenty five, twenty, two]
     narration:
-      - "Squeeze and excitation was launched {{foundations.benchmark.launch_noise.launches_per_setting:words}} times on and {{foundations.benchmark.launch_noise.launches_per_setting:words}} times off: over the whole run, the mean test accuracy is {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_average:.1%}} on against {{foundations.benchmark.launch_noise.squeeze_excitation_off_whole_mean_average:.1%}} off, while the {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of one setting spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.1%}}."
-      - "Over the last evaluations, the means are {{foundations.benchmark.launch_noise.squeeze_excitation_on_last_mean_average:.1%}} on and {{foundations.benchmark.launch_noise.squeeze_excitation_off_last_mean_average:.1%}} off, inside the spread of the launches, while squeeze and excitation took twenty five gigabytes per launch instead of twenty, and about a third more time."
+      - "Squeeze and excitation was launched {{foundations.benchmark.launch_noise.launches_per_setting:words}} times on and {{foundations.benchmark.launch_noise.launches_per_setting:words}} times off: over the whole run, the mean test accuracy is {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_average:percent}} on against {{foundations.benchmark.launch_noise.squeeze_excitation_off_whole_mean_average:percent}} off, while the {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches with it on go from {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_minimum:percent}} to {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_maximum:percent}}."
+      - "Over the last evaluations, the means are {{foundations.benchmark.launch_noise.squeeze_excitation_on_last_mean_average:percent}} on and {{foundations.benchmark.launch_noise.squeeze_excitation_off_last_mean_average:percent}} off, inside the spread of the launches, while squeeze and excitation took twenty five gigabytes per launch instead of twenty, and about a third more time."
       - "These results come from synthetic shapes: when the goal is to choose settings for your own data, compare the ones that matter with at least two launches each."
 
   - kind: summary
