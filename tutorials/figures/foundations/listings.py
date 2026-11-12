@@ -25,6 +25,7 @@ from vision_training.configuration_processing.common_checks import SEQUENCE_TASK
 from vision_training.configuration_processing.configuration_loader import (load_configuration,
                                                                           load_experiment_configuration)
 from vision_training.core.task_registry import TASK_TRAINER_CLASSES
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.data.augmentations import (AUGMENTATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
 from vision_training.models.classification.image_classifier import ImageClassifier
@@ -67,7 +68,9 @@ def list_run_folder_tree(run_folder: Path) -> List[str]:
     """
     Lists the folder of a run as a tree for the run folder scene: its folders then its files; in Weights and
     Evaluation the first and last iteration folders with "..." between them, the last checkpoint expanded (the last
-    evaluation is listed apart by list_evaluation_folder); in Tensorboard the log folder of every split.
+    evaluation is listed apart by list_evaluation_folder); in Tensorboard the log folder of every split. The folders
+    written afterwards by scripts/evaluation/evaluate_checkpoint.py (Checkpoint_Evaluation and its NMS variants) are
+    left out, the scene showing what the training writes and the chapter on the tools after the training showing them.
 
     Args:
         run_folder (Path): The folder of the run.
@@ -76,7 +79,8 @@ def list_run_folder_tree(run_folder: Path) -> List[str]:
         List[str]: The lines of the tree.
     """
     lines = [f"{run_folder.name}/"]
-    top_entries = sorted(run_folder.iterdir(), key=order_folder_entry)
+    top_entries = sorted((entry for entry in run_folder.iterdir()
+                          if not entry.name.startswith(CHECKPOINT_EVALUATION_FOLDER_NAME)), key=order_folder_entry)
     for top_index, top_entry in enumerate(top_entries):
         top_is_last = top_index == len(top_entries) - 1
         lines.append(f"{'└── ' if top_is_last else '├── '}{top_entry.name}{'/' if top_entry.is_dir() else ''}")

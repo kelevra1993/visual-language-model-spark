@@ -70,8 +70,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder (the run folder), iteration (None, an integer or
-#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder
-#    in the main block of scripts/evaluation/evaluate_checkpoint.py
+#    "all"), test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair in the main block
+#    of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
@@ -942,7 +942,7 @@ The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 pe
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 pairs of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-10, before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit; the evaluation is written in the `Checkpoint_Evaluation/` folder of the run. A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file, the name of the run folder kept as its `run_name` and the transfer of the pretrained components turned off (`disable_pretrained_settings()`, `classification_workflow.md`, Step 5.2).
@@ -967,7 +967,7 @@ MLflow Run Created In The Experiment 'sequence_comparison' : 7f5220908af54c13aaf
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
 **Example output** (every checkpoint predicts `same_number_of_objects` for the 40 pairs, so the four iterations tie and are listed in their evaluation order)
 ```text
-Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/CMP_IN-KAR-64_..._MC2/Evaluation/evaluation_summary.csv
+Evaluation Summary Of 4 Checkpoints : file:///.../runs/CMP_IN-KAR-64_..._MC2/Checkpoint_Evaluation/evaluation_summary.csv
   - Best Checkpoint : iterations 12, 9, 6, 3 tie (Accuracy 0.5250)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-1 Accuracy,Precision/loss_of_object,Recall/loss_of_object,F1/loss_of_object, ...

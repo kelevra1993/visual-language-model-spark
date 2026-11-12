@@ -59,7 +59,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml"
 
 # Evaluation of the checkpoints of a run: set run_name, experiment_folder, iteration (None, a number or "all"),
-# test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder in its main block
+# test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair in its main block; it writes
+# in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # Export with the decoder and the ensembles: set experiment_folder, iteration, use_averaged_weights, formats,

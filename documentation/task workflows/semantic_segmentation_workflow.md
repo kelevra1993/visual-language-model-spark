@@ -68,8 +68,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation, output_folder and maximum_error_images_per_class_pair = None
-#    (Step 5.1) in the main block of scripts/evaluation/evaluate_checkpoint.py
+#    test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair = None (Step 5.1) in the
+#    main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # 4. Export (CUDA only): set experiment_folder, iteration and formats in the main block of
@@ -284,7 +284,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
-└── same as every task: loads training_configuration.yaml, builds the SegmentationTrainer in the output folder, then
+└── same as every task: loads training_configuration.yaml, builds the SegmentationTrainer writing in
+    <run>/Checkpoint_Evaluation/, then
     evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations() -> run_test_evaluation()
 ```
 
@@ -1101,7 +1102,7 @@ The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accura
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed. The segmentation configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the segmentation evaluation saves no error image.
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the output folder, since the counts are cached in the run folder of the trainer.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the `Checkpoint_Evaluation/` folder of the run, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the `Checkpoint_Evaluation/` folder, since the counts are cached in the folder of the trainer.
 
 ### Step 5.3 — `get_checkpoint_iterations()`
 **Example output**
@@ -1116,7 +1117,7 @@ MLflow Run Created In The Experiment 'semantic_segmentation' : 342ebb90469341998
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-**Example output** (the file name is a terminal link to `runs/evaluations/<run>/Evaluation/evaluation_summary.csv`)
+**Example output** (the file name is a terminal link to `runs/<run>/Checkpoint_Evaluation/evaluation_summary.csv`)
 ```text
 -------------------------------------------------------------
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv

@@ -42,6 +42,12 @@ Details of the training runs, completing the [Training](../../README.md#training
 ├── Evaluation/
 │   └── Iteration_<n>/                 # Files of the evaluation of iteration n
 │       └── EMA/                       # Files of the evaluation of the moving average of the weights, when it is on
+├── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py, written after the training
+│   ├── training_configuration.yaml    # Configuration of the evaluation, with its split and settings
+│   ├── data.json, label_dictionary.json # Data of the evaluated split and classes of the run
+│   ├── Results.txt, Tensorboard/Test/ # Report and test curves of the evaluated checkpoints
+│   ├── evaluation_summary.csv         # Every evaluated checkpoint compared, with iteration = "all"
+│   └── Iteration_<n>/[EMA/]           # Files of the evaluation of iteration n, as in Evaluation/
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 

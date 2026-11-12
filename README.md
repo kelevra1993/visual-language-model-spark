@@ -186,6 +186,7 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 ├── Tensorboard/                       # Train, Validation, Test and Test_EMA curves
 ├── Results.txt                        # Report of every evaluated checkpoint
 ├── Evaluation/Iteration_<n>/          # Files of the evaluation of iteration n, EMA/ for the averaged weights
+├── Checkpoint_Evaluation/            # Evaluations of scripts/evaluation/evaluate_checkpoint.py, laid out the same way
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
@@ -424,13 +425,13 @@ Backbone:
 The settings defining the layers of the component must be identical in both runs, which is checked before the training starts; the image size may differ. The averaged weights of the source are loaded when both runs keep a moving average of the weights. A component with class layers can also initialise a run with more classes, the classes of the source run coming first in the same order. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
 
 ## Evaluating Checkpoints
-`scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set `run_name`, `experiment_folder`, `iteration` (`None` for the last checkpoint, an iteration, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation`, `maximum_error_images_per_class_pair` and `output_folder` in its main block, then run:
+Should you need to evaluate the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, `scripts/evaluation/evaluate_checkpoint.py` does it without modifying the files of the training. Set `run_name`, `experiment_folder`, `iteration` (`None` for the last checkpoint, an iteration, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation` and `maximum_error_images_per_class_pair` in its main block, then run:
 
 ```bash
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-It writes `Results.txt`, `Tensorboard/Test` and `Evaluation/` in `<output_folder>/<run name>/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, a temperature dividing the class logits before the softmax spreads probabilities squeezed against 1: choose it on the `temperature_explorer.html` of the evaluation, served with the logits it keeps in `class_logits.npz`, then save and export it from the page ([Exporting A Classifier From Its Temperature Explorer](#exporting-a-classifier-from-its-temperature-explorer)). Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+It writes `Results.txt`, `Tensorboard/Test`, `evaluation_summary.csv` and one `Iteration_<n>/` folder per checkpoint in `<run>/Checkpoint_Evaluation/`, next to the `Evaluation/` folder of the training, and leaves the other files of the run untouched. With `iteration = "all"`, `Checkpoint_Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, a temperature dividing the class logits before the softmax spreads probabilities squeezed against 1: choose it on the `temperature_explorer.html` of the evaluation, served with the logits it keeps in `class_logits.npz`, then save and export it from the page ([Exporting A Classifier From Its Temperature Explorer](#exporting-a-classifier-from-its-temperature-explorer)). Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
 
 ## Comparing Launches
 Once the launches of a hyperparameter stage have trained, these scripts gather their test curves, compare the best evaluations of runs, and draw the comparison of every stage.

@@ -1,9 +1,9 @@
 """
 Evaluation of several checkpoints of a trained run on the test split, one after the other, writing
-'Evaluation/evaluation_summary.csv' with one row per iteration (the averaged weights of the runs keeping a moving
-average in 'ema_' columns) and printing the best iteration according to the headline metric of the task, for the
-trained and the averaged weights, tracked in its own MLflow run when the tracking is on. Called by
-scripts/evaluation/evaluate_checkpoint.py with iteration "all".
+'evaluation_summary.csv' next to the iteration folders of the evaluations with one row per iteration (the averaged
+weights of the runs keeping a moving average in 'ema_' columns) and printing the best iteration according to the
+headline metric of the task, for the trained and the averaged weights, tracked in its own MLflow run when the tracking
+is on. Called by scripts/evaluation/evaluate_checkpoint.py, which writes into '<run>/Checkpoint_Evaluation/'.
 """
 
 import csv
@@ -23,9 +23,10 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # Prefix of the columns of the averaged weights in the evaluation summary, next to those of the trained weights
 AVERAGED_WEIGHTS_COLUMN_PREFIX = "ema_"
 
-# Default folder of the evaluations of scripts/evaluation/evaluate_checkpoint.py next to the evaluated run folders,
-# '<runs>/evaluations/<run name>/', where the export also looks for the thresholds saved from the temperature explorer
-EVALUATIONS_FOLDER_NAME = "evaluations"
+# Folder of the evaluations of scripts/evaluation/evaluate_checkpoint.py inside the evaluated run folder, next to the
+# 'Evaluation' folder of its training: '<run>/Checkpoint_Evaluation/', holding the iteration folders directly, where the
+# export also looks for the thresholds saved from the temperature explorer
+CHECKPOINT_EVALUATION_FOLDER_NAME = "Checkpoint_Evaluation"
 
 
 def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
@@ -67,16 +68,18 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
     checkpoint to deploy: every checkpoint is loaded into the model of the trainer, with its moving average of the
     weights when the configuration keeps one, and evaluated like during the training (Results.txt, TensorBoard, the
     evaluation files of the task in the run folder of the trainer, the averaged weights next to the trained ones), then
-    'Evaluation/evaluation_summary.csv' gathers one row per evaluated iteration with every evaluation scalar (those of
-    every class only with the per-class report, the averaged weights in 'ema_' columns), and the best iteration
+    'evaluation_summary.csv', next to the iteration folders (evaluation_root of the trainer), gathers one row per
+    evaluated iteration with every evaluation scalar (those of every class only with the per-class report, the averaged
+    weights in 'ema_' columns), and the best iteration
     according to the headline metric of the task is printed, for the trained and the averaged weights. A checkpoint
     listed in the registry but deleted from the disk is skipped. When the tracking is on, the evaluations, the best
     headline metric and the summary go to an MLflow run of their own (start_evaluation_tracking), closed whatever ends
     the evaluation.
 
     Args:
-        trainer (BaseTrainer): The trainer of the run, built from its configuration, usually writing into a separate
-            evaluation folder (see scripts/evaluation/evaluate_checkpoint.py).
+        trainer (BaseTrainer): The trainer of the run, built from its configuration, usually writing into the
+            '<run>/Checkpoint_Evaluation/' folder of a standalone evaluation
+            (scripts/evaluation/evaluate_checkpoint.py).
         experiment_folder (Path): The trained run holding the 'Weights' folder of the checkpoints.
         iterations (List[int]): The iterations of the checkpoints to evaluate, in order.
 
@@ -156,7 +159,7 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
     column_names = ["iteration"]
     for summary_row in summary_rows:
         column_names += [column_name for column_name in summary_row if column_name not in column_names]
-    summary_path = trainer.experiment_folder / "Evaluation" / "evaluation_summary.csv"
+    summary_path = trainer.evaluation_root / "evaluation_summary.csv"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file=summary_path, mode="w", newline="") as summary_file:
         writer = csv.DictWriter(f=summary_file, fieldnames=column_names)

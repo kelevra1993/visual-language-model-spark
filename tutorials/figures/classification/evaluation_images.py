@@ -149,14 +149,15 @@ def draw_error_figure(evaluation_folder: Path, output_path: Path) -> Dict[str, A
     gives the box of the figure and of every image with its two names.
 
     Args:
-        evaluation_folder (Path): The folder of the standalone evaluation of the classification run.
+        evaluation_folder (Path): The folder of the standalone evaluation of the classification run,
+            '<run>/Checkpoint_Evaluation', holding its iteration folders.
         output_path (Path): The PNG file of the figure.
 
     Returns:
         Dict[str, Any]: The boxes, the probabilities of the shown errors, the counts of the error folders and images and
             the iteration evaluated, named evaluation.errors.*.
     """
-    errors_folder = evaluation_folder / "Evaluation" / f"Iteration_{ERROR_ITERATION}" / "Errors"
+    errors_folder = evaluation_folder / f"Iteration_{ERROR_ITERATION}" / "Errors"
     images = load_images(image_paths=[errors_folder / folder / file_name for folder, file_name in ERROR_IMAGES])
     image_width, image_height = images[0].size
     canvas = Image.new(mode="RGB", size=(len(images) * image_width + (len(images) - 1) * IMAGE_GAP * 2,

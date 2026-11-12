@@ -1,16 +1,17 @@
 """
 Tests of evaluate_checkpoints of vision_training/evaluation/checkpoint_evaluation.py on the dummy task: every checkpoint
 of the registry is evaluated, deleted checkpoints are skipped and the evaluation summary holds one row per iteration,
-with the columns and the best iteration of the averaged weights for a run keeping a moving average.
+with the columns and the best iteration of the averaged weights for a run keeping a moving average, and a standalone
+evaluation (scripts/evaluation/evaluate_checkpoint.py) writes only the Checkpoint_Evaluation folder of the run.
 """
 
 import csv
 import pytest
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-from vision_training.evaluation.checkpoint_evaluation import evaluate_checkpoints
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, evaluate_checkpoints
 from vision_training.trainers.checkpointing import get_checkpoint_file, get_checkpoint_iterations
 from tests.trainers.test_base_trainer import build_dummy_trainer
 
@@ -74,6 +75,58 @@ def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: py
     if moving_average_activated:
         assert (f"Best Checkpoint (EMA Weights) : "
                 f"{describe_expected_best(summary_rows=summary_rows, column_name='ema_Accuracy')}") in console_output
+
+
+def test_standalone_evaluation_writes_only_its_checkpoint_evaluation_folder(tmp_path: Path) -> None:
+    """
+    Verifies that a standalone evaluation of a trained run, pointed to the run as
+    scripts/evaluation/evaluate_checkpoint.py does, writes its iteration folders and its summary directly in
+    '<run>/Checkpoint_Evaluation/', next to the Evaluation folder of the training, without a Weights folder of its
+    own, and leaves every other file of the run as it was.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    run_folder = trainer.experiment_folder
+    run_files_before = list_run_files(run_folder=run_folder)
+
+    # Standalone evaluation of the last two checkpoints of the run
+    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5,
+                                             view_input_images=False, number_sample_images=0,
+                                             evaluated_run_folder=run_folder)
+    summary_path = evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=run_folder, iterations=[4, 5])
+
+    # Iteration folders and summary directly in the Checkpoint_Evaluation folder, with the results and test curves,
+    # those of the training staying in its Evaluation folder
+    evaluation_folder = run_folder / CHECKPOINT_EVALUATION_FOLDER_NAME
+    assert evaluation_trainer.experiment_folder == evaluation_trainer.evaluation_root == evaluation_folder
+    assert evaluation_trainer.get_evaluation_folder(iteration=4) == evaluation_folder / "Iteration_4"
+    assert trainer.get_evaluation_folder(iteration=4) == run_folder / "Evaluation" / "Iteration_4"
+    assert summary_path == evaluation_folder / "evaluation_summary.csv"
+    assert (evaluation_folder / "Results.txt").is_file() and (evaluation_folder / "Tensorboard" / "Test").is_dir()
+    assert not (evaluation_folder / "Evaluation").exists() and not (evaluation_folder / "Weights").exists()
+
+    # The files of the run itself untouched
+    assert list_run_files(run_folder=run_folder) == run_files_before
+
+
+def list_run_files(run_folder: Path) -> Dict[str, Tuple[int, int]]:
+    """
+    Lists the files of a run folder outside its Checkpoint_Evaluation folder with their size and modification time, to
+    check that a standalone evaluation leaves the files of the evaluated run as they were.
+
+    Args:
+        run_folder (Path): The run folder.
+
+    Returns:
+        Dict[str, Tuple[int, int]]: The size and modification time in nanoseconds of every file, by relative path.
+    """
+    return {path.relative_to(run_folder).as_posix(): (path.stat().st_size, path.stat().st_mtime_ns)
+            for path in run_folder.rglob(pattern="*")
+            if path.is_file() and path.relative_to(run_folder).parts[0] != CHECKPOINT_EVALUATION_FOLDER_NAME}
 
 
 def describe_expected_best(summary_rows: List[Dict[str, str]], column_name: str) -> str:

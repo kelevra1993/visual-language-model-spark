@@ -40,7 +40,8 @@ from vision_training.evaluation.classification.temperature_explorer import (CLAS
                                                                             read_explorer_page_data,
                                                                             render_explorer_page,
                                                                             write_saved_thresholds)
-from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -48,10 +49,11 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 REPOSITORY_ROOT = Path(__file__).absolute().parents[2]
 EXPORT_MODULE = "vision_training.deployment.explorer_export"
 
-# Evaluation folders looked for under every experiments folder, '<run>/Evaluation/Iteration_<n>' up to two folders
-# deeper ('evaluations/<run>/...' of evaluate_checkpoint.py, or runs grouped in a subfolder), without walking into the
-# image folders of the evaluations
-ITERATION_FOLDER_PATTERNS = ["*/Evaluation/Iteration_*", "*/*/Evaluation/Iteration_*", "*/*/*/Evaluation/Iteration_*"]
+# Evaluation folders looked for under every experiments folder, those of the training ('<run>/Evaluation/Iteration_<n>')
+# and of scripts/evaluation/evaluate_checkpoint.py ('<run>/Checkpoint_Evaluation/Iteration_<n>'), the runs up to two
+# folders deeper (grouped in subfolders), without walking into the image folders of the evaluations
+ITERATION_FOLDER_PATTERNS = [f"{run_depth}/{evaluation_folder_name}/Iteration_*" for run_depth in ["*", "*/*", "*/*/*"]
+                             for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
 
 # Template of the index page, its rows replacing the placeholder
 INDEX_TEMPLATE_PATH = (REPOSITORY_ROOT / "vision_training" / "evaluation" / "classification" /
@@ -236,8 +238,9 @@ def describe_export_availability(evaluation_folder: Path) -> Dict[str, Any]:
 
 def build_index_rows(evaluations: Dict[str, Path]) -> str:
     """
-    Builds the table rows of the index page: for every served evaluation, its run, iteration, weights, temperatures
-    (any one from its logits, or those of its written page), saved temperature and exports, with the link to its page.
+    Builds the table rows of the index page: for every served evaluation, its run, its evaluation folder (training or
+    checkpoint evaluation), iteration, weights, temperatures (any one from its logits, or those of its written page),
+    saved temperature and exports, with the link to its page.
 
     Args:
         evaluations (Dict[str, Path]): The evaluation folders, keyed by identifier.
@@ -251,7 +254,10 @@ def build_index_rows(evaluations: Dict[str, Path]) -> str:
         saved_state = read_saved_temperature_state(evaluation_folder=evaluation_folder)
         exports = list_checkpoint_exports(run_folder=checkpoint["run_folder"], iteration=checkpoint["iteration"],
                                           use_averaged_weights=checkpoint["use_averaged_weights"])
+        evaluation_name = (evaluation_folder.parent if checkpoint["use_averaged_weights"] else
+                           evaluation_folder).parent.name
         cells = [f'<a href="/explorer?evaluation={quote(identifier)}">{html.escape(checkpoint["run_folder"].name)}</a>',
+                 "Checkpoint evaluation" if evaluation_name == CHECKPOINT_EVALUATION_FOLDER_NAME else "Training",
                  str(checkpoint["iteration"]), "EMA" if checkpoint["use_averaged_weights"] else "Trained",
                  "Any" if (evaluation_folder / CLASS_LOGITS_FILE_NAME).is_file() else "Grid only",
                  "—" if saved_state is None else f"{saved_state['temperature']:g}",
@@ -561,7 +567,7 @@ def serve_temperature_explorers(experiments_roots: List[Path], port: int) -> Non
 
 if __name__ == "__main__":
     # Experiments folders whose evaluations are served: the folders of the repository root whose name holds
-    # 'experiments' (the runs, the evaluations of evaluate_checkpoint.py in their 'evaluations' subfolder)
+    # 'experiments', with the evaluations of the trainings and of evaluate_checkpoint.py in their run folders
     experiments_roots = sorted(folder for folder in REPOSITORY_ROOT.iterdir()
                                if folder.is_dir() and "experiments" in folder.name)
     # Local port of the index, opened at http://127.0.0.1:<port>/, not 8090 so that the server runs next to the

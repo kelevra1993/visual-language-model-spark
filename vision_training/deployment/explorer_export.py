@@ -19,10 +19,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from vision_training.deployment.export_model import export_experiment, hide_known_export_warnings
-from vision_training.evaluation.checkpoint_evaluation import EVALUATIONS_FOLDER_NAME
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_logit_temperature)
-from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -45,8 +45,8 @@ def describe_evaluation_folder(evaluation_folder: Path) -> Dict[str, Any]:
     """
     Reads the run, iteration and weights of an evaluation folder of a classifier, the checkpoint exported from its
     temperature explorer: '<run>/Evaluation/Iteration_<n>' (evaluation of the training) or
-    '<runs>/evaluations/<run>/Evaluation/Iteration_<n>' (scripts/evaluation/evaluate_checkpoint.py), followed by 'EMA'
-    for the moving average of the weights.
+    '<run>/Checkpoint_Evaluation/Iteration_<n>' (scripts/evaluation/evaluate_checkpoint.py), followed by 'EMA' for the
+    moving average of the weights.
 
     Args:
         evaluation_folder (Path): The evaluation folder of the checkpoint.
@@ -61,17 +61,14 @@ def describe_evaluation_folder(evaluation_folder: Path) -> Dict[str, Any]:
     use_averaged_weights = evaluation_folder.name == AVERAGED_WEIGHTS_FOLDER_NAME
     iteration_folder = evaluation_folder.parent if use_averaged_weights else evaluation_folder
     iteration_match = re.fullmatch(pattern=r"Iteration_(\d+)", string=iteration_folder.name)
-    if iteration_match is None or iteration_folder.parent.name != "Evaluation":
-        raise ValueError(f"Expected an evaluation folder <run>/Evaluation/Iteration_<n>"
-                         f"[/{AVERAGED_WEIGHTS_FOLDER_NAME}], got {evaluation_folder}.")
+    if iteration_match is None or iteration_folder.parent.name not in [EVALUATION_FOLDER_NAME,
+                                                                       CHECKPOINT_EVALUATION_FOLDER_NAME]:
+        raise ValueError(f"Expected an evaluation folder <run>/[{EVALUATION_FOLDER_NAME} or "
+                         f"{CHECKPOINT_EVALUATION_FOLDER_NAME}]/Iteration_<n>[/{AVERAGED_WEIGHTS_FOLDER_NAME}], got "
+                         f"{evaluation_folder}.")
 
-    # The run folder is the evaluated folder itself, or the run of the same name next to the evaluations folder
-    evaluated_folder = iteration_folder.parent.parent
-    if evaluated_folder.parent.name == EVALUATIONS_FOLDER_NAME:
-        run_folder = evaluated_folder.parent.parent / evaluated_folder.name
-    else:
-        run_folder = evaluated_folder
-    return {"run_folder": run_folder, "iteration": int(iteration_match.group(1)),
+    # Both evaluation folders sit in the run folder
+    return {"run_folder": iteration_folder.parent.parent, "iteration": int(iteration_match.group(1)),
             "use_averaged_weights": use_averaged_weights}
 
 

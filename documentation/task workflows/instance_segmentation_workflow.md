@@ -247,7 +247,7 @@ run_test_evaluation(iteration)   [STAGE 4]
 
 scripts/evaluation/evaluate_checkpoint.py   [STAGE 5]
 └── evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations()
-    -> run_test_evaluation() for every checkpoint, then Evaluation/evaluation_summary.csv
+    -> run_test_evaluation() for every checkpoint, then evaluation_summary.csv
 ```
 
 ---
@@ -1260,13 +1260,13 @@ MLflow refuses `@` in metric names, so it is written `_at_`; `best_` keeps the b
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the 5000-iteration run of Stage 3 (its 20 checkpoints, one every 250 iterations) with `iteration = "all"`, `batch_size = 64`, `track_evaluation = False`, a temporary output folder and, to keep it short, a test folder of the first 200 images of the test split (its `labels.json` reduced to these images and their 709 annotations, its `data/` folder linked). It ran on the GPU, shared with other trainings, in 25 minutes. Step 5.4 comes from an earlier, tracked evaluation of the four checkpoints of the CPU run, the tracking being off here. They were captured before the per-class recall intervals were added (2026-11-01, Stage 4).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the 5000-iteration run of Stage 3 (its 20 checkpoints, one every 250 iterations) with `iteration = "all"`, `batch_size = 64`, `track_evaluation = False`, the evaluation written in a temporary folder and, to keep it short, a test folder of the first 200 images of the test split (its `labels.json` reduced to these images and their 709 annotations, its `data/` folder linked). It ran on the GPU, shared with other trainings, in 25 minutes. Step 5.4 comes from an earlier, tracked evaluation of the four checkpoints of the CPU run, the tracking being off here. They were captured before the per-class recall intervals were added (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` to the run folder, choose the iterations, and run it. The pretrained settings are turned off (`disable_pretrained_settings()`), since every weight comes from the evaluated checkpoint, and the default `maximum_error_images_per_class_pair = 100000` of its main block turns the error images on whatever the configuration (`None` keeps `evaluation.error_dumps`).
 
 ### Step 5.2 — trainer construction
-The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, its run folder being `runs/evaluations/<run>/` (here `<output folder>/<run>/`).
+The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, writing in the `Checkpoint_Evaluation/` folder of the run (`<run>/Checkpoint_Evaluation/`).
 
 **Example: the lines of the launch information set by the main block**
 ```text
@@ -1303,7 +1303,7 @@ Evaluation Summary Of 20 Checkpoints : evaluation_summary.csv
   - Best Checkpoint (EMA Weights) : iteration 5000 (Mask mAP@0.5/area 0.7424)
 ```
 
-**Example: `<output folder>/<run>/Evaluation/evaluation_summary.csv`** (253 columns: the iteration, the 126 scalars of the trained weights, that is the 86 box, mask and proposal recall scalars of Step 4.10 and the box and mask `AP@0.5` of the 20 classes, then the same 126 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
+**Example: `<run>/Checkpoint_Evaluation/evaluation_summary.csv`** (253 columns: the iteration, the 126 scalars of the trained weights, that is the 86 box, mask and proposal recall scalars of Step 4.10 and the box and mask `AP@0.5` of the 20 classes, then the same 126 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
 ```text
 iteration   Mask mAP@0.5/area   mAP@0.5/area   Mask AP@0.5/hexagon   ema_Mask mAP@0.5/area   ema_Mask AP@0.5/hexagon
    5000       0.6287              0.6287         0.2877                0.7424                  0.8446
@@ -1318,12 +1318,11 @@ The checkpoints are ranked on the mask mAP. The 200 images give the same picture
 
 **Example: the evaluation folder**
 ```text
-<output folder>/<run>/
-├── Evaluation/evaluation_summary.csv
-├── Evaluation/Iteration_250/, Iteration_500/, ..., Iteration_5000/    the files of Steps 4.6 to 4.9, with their EMA/ folder
+<run>/Checkpoint_Evaluation/
+├── evaluation_summary.csv
+├── Iteration_250/, Iteration_500/, ..., Iteration_5000/    the files of Steps 4.6 to 4.9, with their EMA/ folder
 ├── Tensorboard/Test/, Tensorboard/Test_EMA/
-├── Weights/                                                           empty, the checkpoints staying in the evaluated run
-├── Results.txt                                                        5000 lines, the 40 reports
+├── Results.txt                                             5000 lines, the 40 reports
 └── anchor_recall.csv, data.json, label_dictionary.json, training_configuration.yaml
 ```
 

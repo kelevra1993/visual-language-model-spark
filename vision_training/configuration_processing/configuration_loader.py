@@ -76,8 +76,9 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     and model configurations. Archiving the yaml into the experiment folder is handled by the Trainer.
 
     This function extracts the 'ExperimentConfiguration' section, processes
-    its paths and types, adds the 'tracking_root' and 'run_name' (None) runtime keys read by the trainer, and returns
-    it alongside the rest of the configuration parameters. The label dictionary is built from the mapping file, or
+    its paths and types, adds the 'tracking_root', 'run_name' (None) and 'standalone_evaluation_folder' (None) runtime
+    keys read by the trainer, and returns it alongside the rest of the configuration parameters. The label dictionary is
+    built from the mapping file, or
     read from 'label_dictionary.json' when the file sits in a run folder holding one (the saved configuration of a
     run, loaded by the evaluation, export and model loading tools).
 
@@ -114,9 +115,14 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         experiment_configuration["tracking_root"] = experiment_configuration["experiment_folder"]
 
     # Name of the run folder inside 'experiment_folder', None to name it after the run settings (build_run_name). A
-    # standalone evaluation gives the name of the evaluated run folder, so that its output folder keeps the name of
-    # the run, with the tokens of the settings it turns off (the transfer of pretrained components)
+    # standalone evaluation gives the name of the evaluated run folder, so that it finds the run and keeps its name,
+    # with the tokens of the settings it turns off (the transfer of pretrained components)
     experiment_configuration["run_name"] = None
+
+    # Folder inside the run folder where a trainer that only evaluates the checkpoints of the run writes, set by
+    # scripts/evaluation/evaluate_checkpoint.py ('Checkpoint_Evaluation'): its iteration folders then sit directly in
+    # it, '<run>/Checkpoint_Evaluation/Iteration_<n>/', and it saves no weights. None for a training
+    experiment_configuration["standalone_evaluation_folder"] = None
 
     # Convert numerics
     int_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
