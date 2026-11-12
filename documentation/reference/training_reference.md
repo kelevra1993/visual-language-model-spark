@@ -46,8 +46,9 @@ Details of the training runs, completing the [Training](../../README.md#training
 │   ├── training_configuration.yaml    # Configuration of the evaluation, with its split and settings
 │   ├── data.json, label_dictionary.json # Data of the evaluated split and classes of the run
 │   ├── Results.txt, Tensorboard/Test/ # Report and test curves of the evaluated checkpoints
-│   ├── evaluation_summary.csv         # Every evaluated checkpoint compared, with iteration = "all"
+│   ├── evaluation_summary.csv         # One row per evaluated checkpoint, every checkpoint with iteration = "all"
 │   └── Iteration_<n>/[EMA/]           # Files of the evaluation of iteration n, as in Evaluation/
+├── Checkpoint_Evaluation_nms_<name>/  # The same for a DET or INS run evaluated with another final NMS (nms_criterion)
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
@@ -82,7 +83,7 @@ Details of the training runs, completing the [Training](../../README.md#training
     - Learning Rate       : 0.0005 (multiplier 0.5 x 0.001)
 ```
 
-- **Every `information_dump` iterations**: the averages of the interval (samples seen, throughput, real frames per second of the sequences, losses, metrics, duration). A run resumed between two summaries has a shorter first interval.
+- **Every `information_dump` iterations**: the averages of the interval (samples seen, throughput, real frames per second of the sequences, losses, metrics, duration). A run resumed between two summaries has a shorter first interval. The accuracy of CLS, M2O, M2M and CMP is written as a percentage, `94.03 %`, its change since the last summary in points, `+0.52 points`; the losses and the metrics of the other tasks keep 4 decimals.
 - **Dropped batches**: a batch that fails to load is skipped. Every distinct error is printed once in yellow, the first with its traceback, and the drops are counted under every summary:
 
 ```text
@@ -90,7 +91,7 @@ Training Batch Dropped : The image cannot be read : <file>
 - Dropped Batches Since The Last Summary : Training 2, Validation 1
 ```
 
-- **Every `weight_saving_iterations` iterations**: the evaluation report, also appended to `Results.txt`, then the `EMA Weights` report when the moving average is on.
+- **Every `weight_saving_iterations` iterations**: the evaluation report, also appended to `Results.txt`, then the `EMA Weights` report when the moving average is on. The reports of CLS, M2O, M2M and CMP write their rates as percentages, those of DET, INS, KPT, SEG, SEL and SSL between 0 and 1 with 4 decimals; `class_metrics.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
 
 ## Stopping And Resuming
 
@@ -193,7 +194,7 @@ Every test evaluation scores the trained weights, then the averaged weights of t
 | Output | Trained weights | Averaged weights |
 |---|---|---|
 | Console and `Results.txt` header | `Iteration <n> · <evaluated samples> · <date and time>` | `Iteration <n> · <evaluated samples> · EMA Weights · <date and time>` |
-| Evaluation files | `Evaluation/Iteration_<n>/` | `Evaluation/Iteration_<n>/EMA/` |
+| Evaluation files | `Evaluation/Iteration_<n>/` (`Checkpoint_Evaluation/Iteration_<n>/` for `evaluate_checkpoint.py`) | `Evaluation/Iteration_<n>/EMA/` (`Checkpoint_Evaluation/Iteration_<n>/EMA/`) |
 | TensorBoard | `Test` | `Test_EMA` |
 | MLflow | `test/`, `test_class/`, `test/best_<headline metric>` (tag `best_iteration`) | `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>` (tag `best_iteration_test_ema`) |
 | `evaluation_summary.csv` of `evaluate_checkpoint.py` | one column per scalar | the same columns prefixed by `ema_` |

@@ -85,7 +85,7 @@ The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, remo
 - `write_files = False` only lists the files to convert.
 
 ### Evaluation Outputs
-Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`, headed `Iteration <n> · <evaluated samples> · <date and time>`, with its global metrics, notes and tables, the per-class table and the per-class recall table sorted worst first. Its files go to `<run>/Evaluation/Iteration_<n>/`, and those of the moving average to its `EMA/` subfolder. `ExperimentConfiguration.evaluation.per_class_report: False` keeps the global metrics only, for runs with many classes, the files keeping the details.
+Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`, headed `Iteration <n> · <evaluated samples> · <date and time>`, with its global metrics, notes and tables, the per-class table and the per-class recall table sorted worst first. Its files go to `<run>/Evaluation/Iteration_<n>/`, and those of the moving average to its `EMA/` subfolder; `scripts/evaluation/evaluate_checkpoint.py` writes its `Results.txt` and iteration folders in `<run>/Checkpoint_Evaluation/` instead. CLS, M2O, M2M and CMP write the rates of the report as percentages (`94.03 %`, a target precision `99 %`), DET, INS, KPT, SEG, SEL and SSL between 0 and 1 with 4 decimals, and the files below keep every rate between 0 and 1. `ExperimentConfiguration.evaluation.per_class_report: False` keeps the global metrics only, for runs with many classes, the files keeping the details.
 
 | Output | Tasks | Written |
 |---|---|---|
@@ -109,7 +109,7 @@ Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`
 | `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/`, `Errors/<TRUE>-TO-<PREDICTED>/` | DET, INS | with `error_dumps.activated` |
 | `Samples/<sample>.png` and its Test image `Samples/<sample>` (table below) | all | with `number_sample_images` above 0 |
 | `Predicted_Masks/<image>.png` | SEG | with `save_predicted_masks` |
-| `Evaluation/evaluation_summary.csv` of `scripts/evaluation/evaluate_checkpoint.py` with `iteration = "all"` | all | per-class columns with `per_class_report` |
+| `Checkpoint_Evaluation/evaluation_summary.csv` of `scripts/evaluation/evaluate_checkpoint.py`, one row per evaluated checkpoint (every checkpoint with `iteration = "all"`) | all | per-class columns with `per_class_report` |
 
 | Tasks | Columns of `class_metrics.csv` |
 |---|---|

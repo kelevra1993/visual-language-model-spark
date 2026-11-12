@@ -151,7 +151,7 @@ scenes:
     narration:
       - "The precision recall curve of every class sweeps that threshold; the dotted line is the target precision, and every dot the threshold reaching it."
       - "The rectangle curve stays near {{classification.confusion.iteration_1500.precision.rectangle:percent}} whatever the threshold, an average precision of {{classification.class_metrics.rectangle.average_precision:percent}}, since the squares taken for rectangles get high rectangle probabilities; the ROC curves, saved next to it, read the same way."
-      - "Evaluations newer than this run also save precision recall thresholds png, which zooms on these dots and writes every threshold in the colour of its curve."
+      - "Evaluations newer than this run write the axes, the target precision and the average precisions of these curves as percentages, and also save precision recall thresholds png, which zooms on these dots and writes every threshold in the colour of its curve."
 
   - kind: image
     title: "Probabilities of right and wrong predictions"
@@ -181,14 +181,15 @@ scenes:
       - {type: text, position: [700, 160], text: "the same logits, T = 3", font: diagram_small, colour: dim, appear: 1}
       - {type: bars, box: [700, 200, 1260, 600], maximum: 1, values: [0.665, 0.245, 0.090], labels: ["square", "rectangle", "circle"], value_labels: ["0.665", "0.245", "0.090"], colours: [blue, aqua, violet], gap: 40, appear: 1, highlight: [1]}
       - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}}\nthe calibrated T\nclass_logits.npz next to it", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 3]}
-      - {type: box, box: [1340, 380, 1740, 600], text: "serve_temperature_explorer\nhttp://127.0.0.1:8091/\nany typed T\nSave Thresholds · Export", font: diagram_small, outline: aqua, appear: 4, highlight: [4]}
+      - {type: box, box: [1340, 380, 1740, 600], text: "serve_temperature_explorer\nhttp://127.0.0.1:8091/\nany typed T\nSave Thresholds · Export", font: diagram_small, outline: aqua, appear: 4, highlight: [4, 5]}
       - {type: text, position: [880, 680], text: "the order of the logits is kept: the same predicted class, the same accuracy · classification only", font: diagram_small, colour: dim, anchor: mm, appear: 1}
     narration:
       - "A well trained softmax often squeezes its probabilities against one, which leaves the thresholds little room: dividing the logits by a temperature before the softmax spreads them out."
       - "Say a square gets the logits six, three and zero: at a temperature of one, square takes 0.95; at three, it keeps the lead with 0.67, against 0.24 for rectangle and 0.09 for circle, so the predicted class and the accuracy never change."
       - "With the per class report on, every evaluation writes temperature explorer html, where a slider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}} redraws the probabilities, the thresholds and the calibration, next to the temperature that calibrates the test split best."
       - "Up to {{constant:vision_training/evaluation/classification/temperature_explorer.py#MAXIMUM_EXPLORER_CLASSES:words}} classes, it also keeps the test logits next to the page, in class logits npz, so that any other temperature can be drawn later without running the model."
-      - "The serve temperature explorer script lists these evaluations on a local page, where you type the temperature you want, save the thresholds of every class at it, and export the checkpoint at that temperature."
+      - "The serve temperature explorer script lists on a local page the evaluations of the trainings, and those of the evaluate checkpoint script, written in the checkpoint evaluation folder of their run."
+      - "There you type the temperature you want, save the thresholds of every class at it, and export the checkpoint at that temperature."
 
   - kind: image
     title: "Sample images"
@@ -283,14 +284,15 @@ scenes:
       - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax(logits / T) inside", font: diagram_small, outline: aqua, highlight: [0, 2]}
       - {type: box, box: [20, 420, 1000, 560], text: "Triton model: image_classifier_<format>\nTorchScript and ONNX\nfrom the page: <run>/Exports/Iteration_<n>[_EMA]_T<T>/", font: diagram_small, appear: 2, highlight: [2, 3]}
       - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 2}
-      - {type: box, box: [1080, 410, 1740, 600], text: "saved_temperature_thresholds.json\nof the exported checkpoint: its T built in,\ncopied next to the model as class_thresholds.json\nuse_saved_temperature off: T = 1, no thresholds", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 4]}
+      - {type: box, box: [1080, 410, 1740, 600], text: "saved_temperature_thresholds.json\nof the exported checkpoint: its T built in,\ncopied next to the model as class_thresholds.json\nuse_saved_temperature off: T = 1, no thresholds", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 4, 5]}
       - {type: box, box: [20, 625, 1740, 725], text: "preprocessing.json next to the model, and the metadata of the ONNX model: colour order · resize · size\ninterpolation · padding value and placement · layout · value range, read from the run and its data loaders", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
     narration:
       - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to {{classification.head.image_size}} pixels like the training, and returns the class probabilities only."
       - "So that a server builds these inputs as the training did, the export also writes their colour order, resize, size, interpolation, padding, layout and value range in the preprocessing file next to the model and in the ONNX metadata."
       - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it, after the logits are divided by the temperature saved on the explorer page, whose thresholds are copied next to the model as class thresholds json."
       - "Exported from that page, every checkpoint, weights and temperature gets its own Triton repository in the Exports folder of the run, with the record and the console output of the export."
-      - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights; run from export model with use saved temperature off, it keeps a temperature of one and copies no thresholds."
+      - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights, in the evaluation folder of the training or the checkpoint evaluation folder, never in both."
+      - "Run from export model with use saved temperature off, it keeps a temperature of one and copies no thresholds."
 
   - kind: summary
     title: "Recap"

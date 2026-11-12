@@ -186,7 +186,7 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 ├── Tensorboard/                       # Train, Validation, Test and Test_EMA curves
 ├── Results.txt                        # Report of every evaluated checkpoint
 ├── Evaluation/Iteration_<n>/          # Files of the evaluation of iteration n, EMA/ for the averaged weights
-├── Checkpoint_Evaluation/            # Evaluations of scripts/evaluation/evaluate_checkpoint.py, laid out the same way
+├── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py, laid out the same way
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
@@ -205,7 +205,7 @@ Every `information_dump` iterations, it prints the averages of the interval: the
   <img src="README/interval_summary.png" width="100%" />
 </p>
 
-Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt`: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first, followed by the recall of every class with its 95 % confidence interval, worst recall first (the bounds are also written to `class_metrics.csv`).
+Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt`: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first, followed by the recall of every class with its 95 % confidence interval, worst recall first (the bounds are also written to `class_metrics.csv`). CLS, M2O, M2M and CMP write their rates as percentages ("94.03 %"), as in the report below, while DET, INS, KPT, SEG, SEL and SSL keep them between 0 and 1 with 4 decimals; the files, TensorBoard and MLflow keep every rate between 0 and 1.
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
@@ -425,13 +425,13 @@ Backbone:
 The settings defining the layers of the component must be identical in both runs, which is checked before the training starts; the image size may differ. The averaged weights of the source are loaded when both runs keep a moving average of the weights. A component with class layers can also initialise a run with more classes, the classes of the source run coming first in the same order. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
 
 ## Evaluating Checkpoints
-Should you need to evaluate the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, `scripts/evaluation/evaluate_checkpoint.py` does it without modifying the files of the training. Set `run_name`, `experiment_folder`, `iteration` (`None` for the last checkpoint, an iteration, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation` and `maximum_error_images_per_class_pair` in its main block, then run:
+Should you need to evaluate the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, `scripts/evaluation/evaluate_checkpoint.py` does it without modifying the files of the training. Set `run_name`, `experiment_folder`, `iteration` (`None` for the last checkpoint, an iteration, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation` and `maximum_error_images_per_class_pair` in its main block, and if needed `target_precisions` (other precisions for the class thresholds) and, for DET and INS, `nms_criterion` and `nms_distance_exponent` (another final NMS), then run:
 
 ```bash
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-It writes `Results.txt`, `Tensorboard/Test`, `evaluation_summary.csv` and one `Iteration_<n>/` folder per checkpoint in `<run>/Checkpoint_Evaluation/`, next to the `Evaluation/` folder of the training, and leaves the other files of the run untouched. With `iteration = "all"`, `Checkpoint_Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, a temperature dividing the class logits before the softmax spreads probabilities squeezed against 1: choose it on the `temperature_explorer.html` of the evaluation, served with the logits it keeps in `class_logits.npz`, then save and export it from the page ([Exporting A Classifier From Its Temperature Explorer](#exporting-a-classifier-from-its-temperature-explorer)). Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+It writes `Results.txt`, `Tensorboard/Test`, `evaluation_summary.csv` and one `Iteration_<n>/` folder per checkpoint in `<run>/Checkpoint_Evaluation/`, next to the `Evaluation/` folder of the training, and leaves the other files of the run untouched; an NMS other than that of the run writes to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` instead. With `iteration = "all"`, `Checkpoint_Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, a temperature dividing the class logits before the softmax spreads probabilities squeezed against 1: choose it on the `temperature_explorer.html` of the evaluation, served with the logits it keeps in `class_logits.npz`, then save and export it from the page ([Exporting A Classifier From Its Temperature Explorer](#exporting-a-classifier-from-its-temperature-explorer)). Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
 
 ## Comparing Launches
 Once the launches of a hyperparameter stage have trained, these scripts gather their test curves, compare the best evaluations of runs, and draw the comparison of every stage.
@@ -465,7 +465,7 @@ Suppose a classifier only reaches the precision you target above a threshold of 
 uv run python -m scripts.evaluation.serve_temperature_explorer
 ```
 
-The index lists the classification evaluations written with `per_class_report` in the folders of the repository root whose name holds `experiments`, with their saved temperature and exports. On a page, type any temperature (with the `class_logits.npz` the evaluation keeps; an evaluation without it offers the temperatures of its slider), press **Save Thresholds At This Temperature**, then **Export At T = …**: the classifier is exported with that temperature and the thresholds of every class at it into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository of its own, with `export_record.json` and the console output of the export, `export_log.txt`. Another temperature can be saved and exported at any time, into its own folder; exporting the same temperature again replaces its folder. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
+The index lists the classification evaluations written with `per_class_report` in the folders of the repository root whose name holds `experiments`, by the training (`Evaluation/`) or by the evaluation script (`Checkpoint_Evaluation/`), with their saved temperature and exports. On a page, type any temperature (with the `class_logits.npz` the evaluation keeps; an evaluation without it offers the temperatures of its slider), press **Save Thresholds At This Temperature**, then **Export At T = …**: the classifier is exported with that temperature and the thresholds of every class at it into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository of its own, with `export_record.json` and the console output of the export, `export_log.txt`. Another temperature can be saved and exported at any time, into its own folder; exporting the same temperature again replaces its folder. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
 
 ### Export
 `vision_training/deployment/export_model.py` exports a trained run to the Triton model repository as TorchScript and ONNX, writes the Triton configuration of every model and checks every export against the PyTorch model. Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats`, `maximum_batch_size`, `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) and, for a classifier, `use_saved_temperature` (builds the temperature saved from the temperature explorer of the exported checkpoint into the model, with its thresholds) and `saved_thresholds_path` (`None` to look for the saved file in the evaluation folders of the checkpoint) in its main block, then run:

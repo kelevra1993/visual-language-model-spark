@@ -172,7 +172,7 @@ scenes:
       - "The README run trained {{sequence_labelling.training.last_iteration}} iterations at six to 13 sequences per second, with a validation batch every {{sequence_labelling.run.validation_iteration_ratio}} iterations."
       - "The training loss starts at {{sequence_labelling.training.train_total_loss.first:.2f}}, the {{sequence_labelling.dataset.uniform_cross_entropy:.2f}} of a uniform guess, and drops within the first {{sequence_labelling.training.early_iteration:words}} iterations."
       - "Then it stays around the dashed line of the position prior, {{sequence_labelling.dataset.prior_cross_entropy:.2f}}: its mean after iteration {{sequence_labelling.training.late_mean_start_iteration}} is {{sequence_labelling.training.train_total_loss.late_mean:.2f}}."
-      - "The accuracy goes to the share of no change frames, {{sequence_labelling.dataset.no_change_share:.2f}}, and stays there."
+      - "The accuracy goes to the share of no change frames, {{sequence_labelling.dataset.no_change_share:percent}}, and stays there."
       - "A model comparing the shapes of a frame with the previous one would go below that line; this one learned where a frame is, not what changed, and the next chapter proves it from the evaluation files."
 
   - kind: summary

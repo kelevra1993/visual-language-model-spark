@@ -890,7 +890,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). The examples of iterations 6 and 12 were also captured before the evaluation drew `precision_recall_thresholds.png` and wrote the probabilities of `predictions.csv` with nine significant digits (2026-10-28), before `class_thresholds.json` gave the `logit_temperature` of its probabilities (2026-10-30), and before the per-class recall intervals (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`. Steps 4.10 to 4.13 show the current files and report: the checkpoint of iteration 500 of the README run at 128 pixels (`M2O_IN-KAR-128_..._HFLAT.64_MC4` in `experiments/readme_screenshots/`, one `moving_left` sequence predicted `moving_down`) evaluated again by the current code on 2026-11-12, on the CPU, with the logic of `scripts/evaluation/evaluate_checkpoint.py` (batch size 16, the error images on with at most 2 per pair, the MLflow tracking off, the output in a temporary folder).
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). The examples of iterations 6 and 12 were also captured before the evaluation drew `precision_recall_thresholds.png` and wrote the probabilities of `predictions.csv` with nine significant digits (2026-10-28), before `class_thresholds.json` gave the `logit_temperature` of its probabilities (2026-10-30), and before the per-class recall intervals (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`. Steps 4.10 to 4.13 show the current files and report: the checkpoint of iteration 500 of the README run at 128 pixels (`M2O_IN-KAR-128_..._HFLAT.64_MC4` in `experiments/readme_screenshots/`, one `moving_left` sequence predicted `moving_down`) evaluated again by the current code on 2026-11-12, on the CPU, with the logic of `scripts/evaluation/evaluate_checkpoint.py` (batch size 16, the error images on with at most 2 per pair, the MLflow tracking off) on a copy of the run in a temporary folder, so that its files are those of `<run>/Checkpoint_Evaluation/` (Stage 5).
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation of the classification (see `classification_workflow.md`, Stage 4), every sample being a whole sequence. The test sequences are never augmented. The test loader shuffles its sequences, so the order of the rows of `predictions.csv` changes from one evaluation to the next.
@@ -1014,7 +1014,7 @@ For every class, the lowest probability threshold keeping a precision of at leas
 ```
 At iteration 12 only `moving_left` reaches the precision: threshold 0.22249144315719604, recall 0.019230769230769232 (1 of the 52 `moving_left` sequences).
 
-**Example: the current file, `Evaluation/Iteration_500/class_thresholds.json` of the README run evaluated again** (first lines): `logit_temperature` 1.0 says that the thresholds were found on the plain softmax of the logits, the sequence tasks having no temperature explorer to save another temperature
+**Example: the current file, `Checkpoint_Evaluation/Iteration_500/class_thresholds.json` of the README run evaluated again** (first lines): `logit_temperature` 1.0 says that the thresholds were found on the plain softmax of the logits, the sequence tasks having no temperature explorer to save another temperature
 ```text
 {
     "logit_temperature": 1.0,
@@ -1038,7 +1038,7 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 3,moving_down,47,0.235000,1.000000,0.380567,0.270371,0.021277
 ```
 
-**Example: the current layout, `Evaluation/Iteration_500/class_metrics.csv` of the README run evaluated again** (on the CPU, its thresholds differ by less than 0.0002 from those of its GPU evaluation of 2026-10-23)
+**Example: the current layout, `Checkpoint_Evaluation/Iteration_500/class_metrics.csv` of the README run evaluated again** (on the CPU, its thresholds differ by less than 0.0002 from those of its GPU evaluation of 2026-10-23)
 ```text
 class_index,class,samples,precision,recall,recall_lower,recall_upper,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
 0,moving_left,49,1.000000,0.979592,0.891458,0.999483,0.989691,1.000000,1.000000,0.213187,1.000000
@@ -1059,11 +1059,11 @@ test_000007,test_000007/000000.png,test_000007/000004.png,moving_down,moving_dow
 ```
 The probabilities are almost the same for every sequence: the checkpoint of iteration 6 of this example was trained for 5 steps only, since it was captured when a checkpoint was still saved before the step of its iteration (it now holds 6 steps, `classification_workflow.md`, Step 3.6).
 
-**Example: the current layout, `Evaluation/Iteration_500/predictions.csv` of the README run evaluated again** (first rows): every probability is written with nine significant digits, enough to tell every float32 apart, so that the thresholds found again from the file are those of `class_thresholds.json`
+**Example: the current layout, `Checkpoint_Evaluation/Iteration_500/predictions.csv` of the README run evaluated again** (first rows): every probability is written with nine significant digits, enough to tell every float32 apart, so that the thresholds found again from the file are those of `class_thresholds.json`
 ```text
 sequence,first_frame,last_frame,true_class,predicted_class,correct,probability_moving_left,probability_moving_right,probability_moving_up,probability_moving_down
-test_000105,test_000105/000000.png,test_000105/000007.png,moving_right,moving_right,1,1.1663858e-06,0.999503613,0.000386288535,0.000108962209
-test_000167,test_000167/000000.png,test_000167/000007.png,moving_down,moving_down,1,0.00037582044,0.00288830954,0.000132682428,0.996603251
+test_000081,test_000081/000000.png,test_000081/000007.png,moving_up,moving_up,1,0.00445238361,0.00363732711,0.991517425,0.000392897258
+test_000054,test_000054/000000.png,test_000054/000007.png,moving_up,moving_up,1,0.000470738305,0.000133719921,0.999380708,1.48730924e-05
 ```
 
 ### Step 4.13 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
@@ -1098,7 +1098,7 @@ Iteration 12 · 200 Test Sequences · 2026-10-18 08:48 ────────�
 
 **Example: the current layout, the block of the README run evaluated again** (the same text, without the links of the files, is appended to `Results.txt`)
 ```text
-Iteration 500 · 200 Test Sequences · 2026-11-12 17:40 ──────────────────────────────────────────────────────────────────
+Iteration 500 · 200 Test Sequences · 2026-11-12 20:53 ──────────────────────────────────────────────────────────────────
   Accuracy        99.50 %    Balanced Accuracy         99.49 %
   Macro F1        99.47 %    Top-5 Accuracy            100.00 %
   Macro ROC AUC   100.00 %   Macro Average Precision   100.00 %
@@ -1126,17 +1126,17 @@ Iteration 500 · 200 Test Sequences · 2026-11-12 17:40 ────────
    moving_down         46   100.00 %   92.29 %   100.00 %
   Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
   being independent. — : no samples of the class.
-  - Results : file:///.../Results.txt
-  - Confusion Matrix Table : file:///.../Evaluation/Iteration_500/confusion_matrix.csv
-  - Class Thresholds : file:///.../Evaluation/Iteration_500/class_thresholds.json
-  - Class Metrics : file:///.../Evaluation/Iteration_500/class_metrics.csv
-  - Confusion Matrix Image : file:///.../Evaluation/Iteration_500/confusion_matrix.png
-  - ROC Curves Image : file:///.../Evaluation/Iteration_500/roc_curves.png
-  - Precision Recall Curves Image : file:///.../Evaluation/Iteration_500/precision_recall_curves.png
-  - Precision Recall Thresholds Image : file:///.../Evaluation/Iteration_500/precision_recall_thresholds.png
-  - Predictions : file:///.../Evaluation/Iteration_500/predictions.csv
-  - Error Images : file:///.../Evaluation/Iteration_500/Errors
-  - Sample Images : file:///.../Evaluation/Iteration_500/Samples
+  - Results : file:///.../Checkpoint_Evaluation/Results.txt
+  - Confusion Matrix Table : file:///.../Checkpoint_Evaluation/Iteration_500/confusion_matrix.csv
+  - Class Thresholds : file:///.../Checkpoint_Evaluation/Iteration_500/class_thresholds.json
+  - Class Metrics : file:///.../Checkpoint_Evaluation/Iteration_500/class_metrics.csv
+  - Confusion Matrix Image : file:///.../Checkpoint_Evaluation/Iteration_500/confusion_matrix.png
+  - ROC Curves Image : file:///.../Checkpoint_Evaluation/Iteration_500/roc_curves.png
+  - Precision Recall Curves Image : file:///.../Checkpoint_Evaluation/Iteration_500/precision_recall_curves.png
+  - Precision Recall Thresholds Image : file:///.../Checkpoint_Evaluation/Iteration_500/precision_recall_thresholds.png
+  - Predictions : file:///.../Checkpoint_Evaluation/Iteration_500/predictions.csv
+  - Error Images : file:///.../Checkpoint_Evaluation/Iteration_500/Errors
+  - Sample Images : file:///.../Checkpoint_Evaluation/Iteration_500/Samples
 ```
 
 **Example: the run folder, TensorBoard and MLflow after the two evaluations**
