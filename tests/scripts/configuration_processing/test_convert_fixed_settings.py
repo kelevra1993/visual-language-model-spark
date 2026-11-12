@@ -3,8 +3,8 @@ Tests of scripts/configuration_processing/convert_fixed_settings.py, the convers
 before the fixed settings and the added sections and settings: the values changed by a conversion, the neck section
 added to the detection files, the box loss added to their detector section, the box loss of their region proposal
 section removed (a CIoU one leaving the file as it is), the turned off gradient clipping norm removed (a clipping file
-left as it is), the final NMS settings added to their detector section, the proposal selection added to their region
-proposal section, and the refusals of a conversion changing another setting or the backbone.
+left as it is), the final NMS settings added to their detector section, the proposal selection and the anchor centres
+added to their region proposal section, and the refusals of a conversion changing another setting or the backbone.
 """
 
 import pytest
@@ -254,10 +254,52 @@ def add_proposal_selection_text(configuration_text: str) -> str:
                                       f"{REGION_PROPOSAL_START_TEXT}{REGION_PROPOSAL_SELECTION_TEXT}")
 
 
-# The converted detection sections holding every added setting: the neck, the box loss, the final NMS settings and the
-# proposal selection
-CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = add_proposal_selection_text(
+# Lines the conversion writes after the proposal selection of the region proposal section, the anchors centred on the
+# cell corners
+REGION_PROPOSAL_ANCHOR_CENTRES_TEXT = (
+    '  # "cell_corners" (anchor centres at column x stride, as torchvision) or "cell_centres" ((column + 0.5) x '
+    'stride,\n'
+    '  # where RoIAlign and the convolutions place the cells, the offset 0.5 of Detectron2).\n'
+    '  anchor_centres: "cell_corners"\n')
+
+
+def add_anchor_centres_text(configuration_text: str) -> str:
+    """
+    Writes the lines of the anchor centres after the proposal selection of the region proposal section of a detection
+    text, as the conversion does, for the texts of the files converted after 2026-11-12.
+
+    Args:
+        configuration_text (str): The detection text, holding the proposal selection of the texts above.
+
+    Returns:
+        str: The text with the anchor centres.
+    """
+    return configuration_text.replace(REGION_PROPOSAL_SELECTION_TEXT,
+                                      f"{REGION_PROPOSAL_SELECTION_TEXT}{REGION_PROPOSAL_ANCHOR_CENTRES_TEXT}")
+
+
+def add_region_proposal_settings_text(configuration_text: str) -> str:
+    """
+    Writes the settings the conversion adds to the region proposal section of a detection text, the proposal selection
+    then the anchor centres, for the cases checking another added setting on a text holding all the others.
+
+    Args:
+        configuration_text (str): The detection text, holding the region proposal section of the texts above.
+
+    Returns:
+        str: The text with the proposal selection and the anchor centres.
+    """
+    with_proposal_selection = add_proposal_selection_text(configuration_text=configuration_text)
+    return add_anchor_centres_text(configuration_text=with_proposal_selection)
+
+
+# The converted detection sections of the files converted on 2026-11-11, with the proposal selection, then the sections
+# holding every added setting: the neck, the box loss, the final NMS settings, the proposal selection and the anchor
+# centres
+CONVERTED_DETECTION_TEXT_WITH_PROPOSAL_SELECTION = add_proposal_selection_text(
     configuration_text=CONVERTED_DETECTION_TEXT_WITH_NMS)
+CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = add_anchor_centres_text(
+    configuration_text=CONVERTED_DETECTION_TEXT_WITH_PROPOSAL_SELECTION)
 
 # The detection sections of the files converted between 2026-11-08 and 2026-11-10, holding the box loss of the region
 # proposal section as well
@@ -299,7 +341,7 @@ def test_conversion_adds_the_box_loss_to_the_detection_files(tmp_path: Path) -> 
             "  total_training_samples: 128\n", ""), task="object_detection", configuration_path=configuration_path)
     with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.box_loss\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS, task="object_detection",
-                         converted_text=add_proposal_selection_text(
+                         converted_text=add_region_proposal_settings_text(
                              configuration_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS),
                          configuration_path=configuration_path)
     complete_iou_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
@@ -462,7 +504,7 @@ def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path:
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: Detector\.nms_criterion, Detector\.nms_distance_exponent\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, task="object_detection",
-                         converted_text=add_proposal_selection_text(
+                         converted_text=add_region_proposal_settings_text(
                              configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS),
                          configuration_path=configuration_path)
     distance_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace('nms_criterion: "iou"',
@@ -510,7 +552,10 @@ def test_conversion_adds_the_proposal_selection_to_the_detection_files(tmp_path:
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: RegionProposal\.proposal_selection\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NMS, task="object_detection",
-                         converted_text=CONVERTED_DETECTION_TEXT_WITH_NMS, configuration_path=configuration_path)
+                         converted_text=CONVERTED_DETECTION_TEXT_WITH_NMS.replace(
+                             REGION_PROPOSAL_START_TEXT, f"{REGION_PROPOSAL_START_TEXT}"
+                                                         f"{REGION_PROPOSAL_ANCHOR_CENTRES_TEXT}"),
+                         configuration_path=configuration_path)
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: RegionProposal\.proposal_selection\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NMS, converted_text=per_level_text,
@@ -527,3 +572,59 @@ def test_conversion_adds_the_proposal_selection_to_the_detection_files(tmp_path:
         CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
     assert (configuration_folder / "previous_configurations" / "run-1_before_proposal_selection.yaml").read_text(
         encoding="utf-8") == CONVERTED_DETECTION_TEXT_WITH_NMS
+
+
+def test_conversion_adds_the_anchor_centres_to_the_detection_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the anchors centred on the cell corners of the runs written before the anchors
+    centred on the cell centres, "cell_corners" with its comment lines, right after the proposal selection of the
+    region proposal section of the detection and instance segmentation files, whichever the selection, and only there:
+    a classification file and a file holding the anchor centres are left as they are, the check refuses a converted
+    file lacking them or centring them on the cell centres, which would change its runs, and convert_fixed_settings
+    converts a launch file with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    for task in ["object_detection", "instance_segmentation"]:
+        for proposal_selection in ["joint", "per_level"]:
+            original_text = CONVERTED_DETECTION_TEXT_WITH_PROPOSAL_SELECTION.replace(
+                "task: object_detection", f"task: {task}").replace('proposal_selection: "joint"',
+                                                                   f'proposal_selection: "{proposal_selection}"')
+            converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                                   configuration_path=configuration_path)
+            assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
+                "task: object_detection", f"task: {task}").replace('proposal_selection: "joint"',
+                                                                   f'proposal_selection: "{proposal_selection}"')
+            assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                    configuration_path=configuration_path) == []
+
+    # Files of another task or already holding the anchor centres are left as they are
+    assert add_required_settings(configuration_text=CONVERTED_CLASSIFICATION_TEXT, task="classification",
+                                 configuration_path=configuration_path) == CONVERTED_CLASSIFICATION_TEXT
+    cell_centres_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace('anchor_centres: "cell_corners"',
+                                                                             'anchor_centres: "cell_centres"')
+    assert add_required_settings(configuration_text=cell_centres_text, task="object_detection",
+                                 configuration_path=configuration_path) == cell_centres_text
+
+    # Conversions without the anchor centres or centring them on the cell centres
+    for converted_text in [CONVERTED_DETECTION_TEXT_WITH_PROPOSAL_SELECTION, cell_centres_text]:
+        with pytest.raises(expected_exception=ValueError,
+                           match=r"than the fixed ones: RegionProposal\.anchor_centres\.$"):
+            check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_PROPOSAL_SELECTION,
+                             converted_text=converted_text, task="object_detection",
+                             configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=CONVERTED_DETECTION_TEXT_WITH_PROPOSAL_SELECTION,
+                                                     encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_anchor_centres")
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    assert (configuration_folder / "previous_configurations" / "run-1_before_anchor_centres.yaml").read_text(
+        encoding="utf-8") == CONVERTED_DETECTION_TEXT_WITH_PROPOSAL_SELECTION

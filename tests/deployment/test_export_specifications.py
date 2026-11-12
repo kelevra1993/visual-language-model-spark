@@ -4,7 +4,7 @@ and ONNX exports of the recurrent comparison model and of the comparison model w
 eager model, a second recurrent export keeps its dynamic frames, the comparisons of the segmenter and keypoint detector
 outputs report their differences, the inference models match the training path on full sequences, the logit
 temperature of the classifier softens its probabilities in the eager model and both exports, and the exports of the
-detector keep its DIoU-NMS and its selection of the proposals level by level.
+detector keep its DIoU-NMS, its selection of the proposals level by level and its anchors centred on the cell centres.
 """
 
 import numpy as np
@@ -314,6 +314,53 @@ def test_detector_exports_keep_the_proposal_selection_per_level(tmp_path: Path) 
         reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
         joint_outputs = convert_outputs_to_numpy(outputs=inference_models["joint"](**check_inputs))
     assert specification["compare_outputs"](reference=reference_outputs, candidate=joint_outputs,
+                                            **specification["comparison_tolerances"]) != []
+
+    # TorchScript export, traced on the example batch and run on the check batch
+    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    with torch.no_grad():
+        torchscript_outputs = convert_outputs_to_numpy(outputs=torch.jit.load(str(tmp_path / "model.pt"))(
+            **check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=torchscript_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+    # Dynamo ONNX export with a dynamic batch, run by ONNX Runtime on the check batch
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+
+def test_detector_exports_keep_the_centred_anchors(tmp_path: Path) -> None:
+    """
+    Verifies the TorchScript and ONNX exports of the inference detector whose anchors are centred on the cell centres
+    ('RegionProposal.anchor_centres' "cell_centres"): both reproduce the detections of the eager inference detector on a
+    batch of another size than the traced one, and these detections differ from those of the anchors centred on the
+    cell corners on the same weights, so that the exported graphs decode the proposals from the centred anchors.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    inference_models = {anchor_centres: build_inference_model(task="object_detection", model=build_test_detector(
+        dtype=torch.float32, anchor_centres=anchor_centres)) for anchor_centres in ["cell_corners", "cell_centres"]}
+    inference_model = inference_models["cell_centres"]
+    specification = get_export_specification(task="object_detection", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                        generator=torch.Generator().manual_seed(2))
+
+    # Detections of the centred anchors, different from those of the corner anchors
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+        corner_outputs = convert_outputs_to_numpy(outputs=inference_models["cell_corners"](**check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=corner_outputs,
                                             **specification["comparison_tolerances"]) != []
 
     # TorchScript export, traced on the example batch and run on the check batch
