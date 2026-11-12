@@ -119,7 +119,7 @@ scenes:
     # The edge weights fall to zero beyond the boundary distance, the shape of the weighting rather than a setting
     literal_numbers: [zero]
     narration:
-      - "The boundary loss is the same pixel cross entropy, weighted one on the true edges and falling to zero {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_distance:words}} pixels away, the boundary distance of the section."
+      - "The boundary loss is the plain pixel cross entropy, without class weights, weighted one on the true edges, less with every pixel away, and zero beyond {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_distance:words}} pixels, the boundary distance of the section."
       - "It is divided by the sum of these weights, so the errors near the edges count the most whatever the area of the regions."
       - "Like the cross entropy, it leaves the ignored pixels out and is computed in float32."
       - "Should you need to push the mean IOU further in the last part of a training, the IOU surrogate is often added then: it sorts the errors of every class and weighs them by the gradient of a convex extension of one minus IOU."

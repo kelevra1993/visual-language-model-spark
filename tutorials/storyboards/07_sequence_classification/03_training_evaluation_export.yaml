@@ -1,7 +1,8 @@
-# Sequence classification, chapter 3: the README run of the current configuration against the average pooling and
+# Sequence classification, chapter 3: the README run of the synthetic configuration against the average pooling and
 # flatten runs at 512 pixels: the console summary, the training loss, Results.txt, the confusion matrices and ROC
-# curves, the probabilities of the predictions file, the sample sequences, the accuracy on shorter sequences, the export
-# and the pitfalls of the task. The figures are made by tutorials/figures/sequence_classification.
+# curves, the probabilities of the predictions file, the sample sequences, the accuracy on shorter sequences, the
+# export with its input settings and the pitfalls of the task. The figures are made by
+# tutorials/figures/sequence_classification.
 series: sequence_classification
 series_title: "Sequence Classification (M2O)"
 chapter: 3
@@ -18,6 +19,7 @@ references:
   - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.write_predictions_file"
   - "vision_training/deployment/export_model.py"
   - "vision_training/deployment/export_specifications.py"
+  - "vision_training/deployment/input_contract.py · build_input_contract"
   - "documentation/suggestions.md"
   - "documentation/task workflows/sequence_classification_workflow.md"
 scenes:
@@ -28,7 +30,7 @@ scenes:
     # The chapter number of the footnote, the chapter key of this storyboard
     literal_numbers: ["3"]
     narration:
-      - "This chapter reads the README run of the current configuration: {{sequence_classification.run.number_iterations}} iterations at {{sequence_classification.run.image_size}} pixels, a checkpoint evaluated every {{sequence_classification.run.weight_saving_iterations}}."
+      - "This chapter reads the README run of the synthetic configuration: {{sequence_classification.run.number_iterations}} iterations at {{sequence_classification.run.image_size}} pixels, a checkpoint evaluated every {{sequence_classification.run.weight_saving_iterations}}."
       - "Then it sets it against the same task with average pooling, which never leaves chance, and ends with the export and the pitfalls."
 
   - kind: image
@@ -89,7 +91,7 @@ scenes:
       - {box: "{{sequence_classification.evaluation.composite.row_0_box}}", from_sentence: 1}
       - {box: "{{sequence_classification.evaluation.composite.row_1_box}}", from_sentence: 2}
     narration:
-      - "The evaluation folder holds the files of the image classification: the confusion matrix, the class metrics and thresholds, the ROC and precision-recall curves, the predictions, and the sample sequences."
+      - "The evaluation folder holds the files of the image classification without its temperature explorer: the confusion matrix, the class metrics and thresholds, the ROC and precision-recall curves, the predictions, and the sample sequences."
       - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, the flatten run has a diagonal confusion matrix and a ROC AUC of one for every class."
       - "The average pooling run predicts moving down for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:.2f}}, the share of moving down, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:.2f}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:.2f}}."
 
@@ -128,7 +130,7 @@ scenes:
     title: "The export"
     code_reference: "vision_training/models/sequence/inference_sequence_model.py · InferenceSequenceModel"
     elements:
-      - {type: box, box: [20, 120, 380, 380], text: "client\n\nevery frame resized\nand padded to {{sequence_classification.run.image_size}}\n(keep_ratio)", font: diagram_small, outline: border}
+      - {type: box, box: [20, 120, 380, 380], text: "client\n\nevery frame resized\nand padded to {{sequence_classification.run.image_size}}\n(keep_ratio)", font: diagram_small, outline: border, highlight: [3]}
       - {type: arrow, points: [[380, 250], [470, 250]], label: "images", label_position: [425, 220]}
       - {type: box, box: [470, 40, 1290, 460], text: null, outline: aqua, fill: null}
       - {type: text, position: [880, 64], text: "InferenceSequenceModel · Triton model sequence_classifier", font: diagram_bold, anchor: ma}
@@ -137,13 +139,15 @@ scenes:
       - {type: box, box: [1380, 150, 1740, 350], text: "class_probabilities\n[B, {{sequence_classification.export.output_classes}}]", font: diagram_text, outline: violet}
       - {type: text, position: [880, 520], text: "images {{sequence_classification.export.input_shape}} float32, BGR in [0, 255], T from 1 to {{sequence_classification.export.maximum_frames}}", font: diagram_monospace_small, anchor: ma, appear: 1, highlight: [1]}
       - {type: text, position: [880, 570], text: "traced on {{sequence_classification.export.example_shape}}, checked on {{sequence_classification.export.check_shape}}", font: diagram_monospace_small, colour: dim, anchor: ma, appear: 1}
-      - {type: text, position: [880, 640], text: "no mask in the graph: every frame of a request is a real frame", font: diagram_bold, colour: accent, anchor: ma, appear: 3}
+      - {type: box, box: [1380, 400, 1740, 620], text: "preprocessing.json\nand ONNX metadata\n\nthe input settings\nof the run, layout NTCHW", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+      - {type: text, position: [880, 640], text: "no mask in the graph: every frame of a request is a real frame", font: diagram_bold, colour: accent, anchor: ma, appear: 4}
     # The range of the byte values of the frames, and the single frame a request holds at least
     literal_numbers: [zero, "0", "255", "1"]
     narration:
       - "The export script wraps the run in InferenceSequenceModel, served by Triton as the sequence classifier."
       - "Its input is images: float32 BGR frames in the zero to 255 range at {{sequence_classification.run.image_size}} pixels, any number of frames up to {{sequence_classification.export.maximum_frames}}, traced on {{sequence_classification.export.traced_frames}} frames and checked on {{sequence_classification.export.checked_frames}}."
       - "The input normalization, the backbone, the pooling, the GRU, the head and the softmax are in the graph; the resizing stays with the client."
+      - "So that a server builds these frames as the training did, the export writes their resize, colour order, padding, value range and layout, the frames after the batch, in the preprocessing file next to the model and in the ONNX metadata."
       - "Take a client batching sequences of different lengths: the export runs the path without mask, where every frame counts, so it must not pad them, or the GRU reads the black frames as frames."
 
   - kind: html

@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import round_fact
 from tutorials.figures.self_supervised.ssl_sources import (build_view_augmenter, draw_sample_views, find_sample,
                                                           list_evaluated_iterations, read_image_settings,
-                                                          read_test_images, read_test_samples)
+                                                          read_images, read_test_samples)
 
 # Sample images of the evaluations whose views the figures show, in the order of the InfoNCE matrix: the star whose
 # views the first chapter details, then a circle, a triangle and a square
@@ -91,7 +91,7 @@ def make_view_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     # Every sample image with its two views, as the evaluation draws them
     for sample_index, file_name in enumerate(VIEW_SAMPLE_NAMES):
         sample = find_sample(samples=samples, file_name=file_name)
-        image = read_test_images(samples=[sample], image_size=image_size, keep_ratio=keep_ratio)
+        image = read_images(samples=[sample], image_size=image_size, keep_ratio=keep_ratio)
         first_view, second_view, first_report, second_report = draw_sample_views(
             augmenter=augmenter, image=image, sample_identifier=sample["identifier"])
         stem = Path(file_name).stem

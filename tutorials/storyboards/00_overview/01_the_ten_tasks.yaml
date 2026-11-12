@@ -70,7 +70,7 @@ scenes:
       - "Picture a short clip of an object: is it moving up or down? A single frame cannot tell, so sequence classification reads all the frames and gives one class for the whole sequence."
       - "Say you also need to know when something happens, the frame where an object appears or disappears: sequence labelling gives one class per frame."
       - "Suppose you film the same scene before and after an event and want to know what changed, for instance whether an object went missing: sequence comparison reads both sequences and gives one class per pair."
-      - "And when a sequence holds many frames but you only want the one showing each wanted shape, the circle, the triangle and the star here, frame selection picks, in every sequence, the frames of every wanted class."
+      - "And when a sequence holds many frames but you only want the best one of each wanted shape, here the largest circle, triangle and star, frame selection picks, in every sequence, the frames of every wanted class."
 
   - kind: html
     page: diagram
@@ -92,7 +92,7 @@ scenes:
       - {type: box, box: [1500, 250, 1740, 490], text: "pre-trained\nweights for\nevery other\ntask", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
     narration:
       - "Finally, picture a million images and no time to label them: the self-supervised task makes two random views of every image and trains the backbone so that both views give the same embedding."
-      - "No label is needed, and the backbone it learns becomes the starting point of every other task, which then begins from learnt features instead of random weights."
+      - "No label is needed, and the backbone it learns can be the starting point of any other task, which then begins from learnt features instead of random weights."
 
   - kind: html
     page: diagram

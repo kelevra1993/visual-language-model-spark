@@ -66,7 +66,7 @@ scenes:
     narration:
       - "Imagine a team whose images far outnumber its labels: with this task, the backbone learns from all of them, then initialises another task through the pre-trained settings of its backbone section."
       - "Only the backbone is transferred; the projection head that served the loss is thrown away."
-      - "The task reads the data set layout and the loaders of the image classifier, and the categories of the labels files only serve the evaluation, a nearest neighbour classification of the test images."
+      - "The task reads the data set layout and the loaders of the image classifier, and the categories of the labels files only serve the evaluation, a nearest neighbour classification of the labelled test images among labelled training images."
       - "An image without a mapped category is not dropped: it gets the ignored label, {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX:words}}, and is trained on like the others; should every image be labelled, train the classifier directly."
 
   - kind: terminal
@@ -90,6 +90,7 @@ scenes:
     source:
       file: vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml
       keys: [ExperimentConfiguration.batch_size, ExperimentConfiguration.evaluation.number_neighbours,
+             ExperimentConfiguration.evaluation.number_reference_images_per_class,
              ProjectionHead.global_pooling, ProjectionHead.fully_connected, ProjectionHead.fully_connected_normalization,
              ProjectionHead.method, ProjectionHead.simclr,
              ProjectionHead.barlow_twins]
@@ -98,12 +99,12 @@ scenes:
       - {match: "global_pooling", sentences: [0]}
       - {match: "fully_connected", sentences: [1]}
       - {match: "method:|temperature|off_diagonal_weight", sentences: [2]}
-      - {match: "batch_size|number_neighbours", sentences: [3]}
+      - {match: "batch_size|number_neighbours|number_reference_images_per_class", sentences: [3]}
     narration:
       - "The task adds one section, the projection head: its global pooling turns the last feature map into the representation, the vector that is evaluated, exported and transferred."
       - "Its fully connected layers map the representation to the embedding the loss compares: here one hidden layer of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[0]}} units with batch normalization, then an embedding of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[1]}} values."
-      - "The method is SimCLR or Barlow Twins, each with one setting, the temperature of SimCLR, {{self_supervised.run.temperature}} here, or the off-diagonal weight of Barlow Twins; both are checked whatever the method, so that one key switches between them."
-      - "The batch size weighs more than in a supervised task, every view being compared with the {{self_supervised.curves.other_view_count}} other views of its batch, and the evaluation votes with {{self_supervised.run.number_neighbours}} neighbours."
+      - "The method is SimCLR or Barlow Twins, each with one setting, the temperature of SimCLR, {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.simclr.temperature}} here, or the off-diagonal weight of Barlow Twins; both are checked whatever the method, so that one key switches between them."
+      - "The batch size weighs more than in a supervised task, every view being compared with the {{self_supervised.curves.other_view_count}} other views of its batch, and the evaluation votes with {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_neighbours}} neighbours among {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_reference_images_per_class}} training images per class."
 
   - kind: yaml
     title: "The views come from the augmentation"
@@ -191,7 +192,7 @@ scenes:
     title: "The checks at launch"
     code_reference: "vision_training/configuration_processing/self_supervised_checks.py · check_self_supervised_configuration"
     # The two methods (SELF_SUPERVISED_METHODS), the smallest batch of check_self_supervised_configuration (a batch of
-    # one refused, no constant) and the positive number of neighbours
+    # one refused, no constant) and the positive numbers of neighbours and of reference images
     literal_numbers: ["two", "0"]
     elements:
       - type: listing
@@ -204,12 +205,12 @@ scenes:
           - {match: "random_crop.probability' must|random_crop.activated' is True|drawn for every view", sentences: [1]}
           - {match: "ProjectionHead.method", sentences: [2]}
           - {match: "batch_size' must|compare the views", sentences: [2]}
-      - {type: text, position: [880, 640], text: "checked the same way: Data.grouped_batches, the head layers and their normalization, number_neighbours > 0", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
+      - {type: text, position: [880, 640], text: "checked the same way: Data.grouped_batches, the head layers, the k-NN neighbours and reference images > 0", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
     narration:
       - "At launch, the self-supervised checks run after the common ones, and every mistake is listed before the run stops: here the saved configuration of the run, given {{self_supervised.checks.error_count:words}} mistakes."
       - "The augmentation must be on, since its types draw the views, and the crop must be drawn for every view or turned off."
       - "The method must be one of the two, and a batch must hold at least two images, the losses comparing the images of a batch with each other."
-      - "The grouped batches, which fill a batch with blocks of images sharing a camera as hard negatives, the layers of the head and the number of neighbours are checked the same way."
+      - "The grouped batches, which fill a batch with blocks of images sharing a camera as hard negatives, the layers of the head, and the numbers of neighbours and of reference images per class are checked the same way."
 
   - kind: html
     page: diagram

@@ -16,6 +16,8 @@ The classification task (`task: "classification"`, run name code `CLS`) learns t
 
 ### The Task At A Glance
 
+To find your way in the stages below, the whole task fits in one diagram, from the manifest of a split to the exported classifier.
+
 ```text
 <split>/labels.json  {"id": 1, "file_name": "train_000000.png", "category_id": 6}    label_mapping.json {"1": 0, ..}
 <split>/data/train_000000.png ─► ClassificationDataset: read_image (BGR) + preprocess_image (512, keep_ratio)
@@ -32,13 +34,18 @@ batch metric: accuracy (argmax == label) ─► TensorBoard Train / Validation e
 every weight_saving_iterations: test split ─► confusion matrix, accuracy, balanced accuracy, macro F1, top-5,
    per class precision, recall with its 95% interval, F1, ROC AUC, average precision, threshold at precision 0.99
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion_matrix.csv/.png, class_metrics.csv,
-      class_thresholds.json, roc_curves.png, precision_recall_curves.png, temperature_explorer.html,
-      class_logits.npz, predictions.csv, Samples/, Errors/)
+      class_thresholds.json, roc_curves.png, precision_recall_curves.png, precision_recall_thresholds.png,
+      temperature_explorer.html, class_logits.npz, predictions.csv, Samples/, Errors/)
+temperature: serve_temperature_explorer.py, http://127.0.0.1:8091/ ─► a typed T ─► Save Thresholds At This Temperature
+   ─► saved_temperature_thresholds.json next to the page ─► Export At T ─► <run>/Exports/Iteration_<n>[_EMA]_T<T>/
 export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► class_logits / logit temperature ─► softmax
-   ─► class_probabilities [B, 9]
+   ─► class_probabilities [B, 9], preprocessing.json (input contract) and the saved thresholds as class_thresholds.json
+      next to the model
 ```
 
 ### Files To Know
+
+If you are looking for the code of a step, these are the files of the task and their main functions.
 
 | Role | File | Main functions or classes |
 |---|---|---|
@@ -55,10 +62,12 @@ export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► cl
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_classification_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (one shape per image, or with `multi_label` the distinct classes of the counted shapes images of `configuration_synthetic_counted_shapes.yaml`) |
 | Real dataset converters | `vision_training/data/classification/class_folder_manifests.py`, `imagenet_download.py` | one folder of images per class (`create_class_folder_manifests`), ImageNet-22k with one held-out image per class as both validation and test (`download_imagenet_22k`) |
-| Export | `vision_training/models/classification/inference_classifier.py`, `vision_training/deployment/export_model.py` | `InferenceClassifier` (model name `image_classifier`) |
+| Export | `vision_training/models/classification/inference_classifier.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceClassifier` (model name `image_classifier`), `export_experiment`, `build_input_contract`, `write_preprocessing_file` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
+
+In order to train and evaluate the synthetic shapes classifier from scratch, run these commands from the root of the repository, after setting the values of their main blocks.
 
 ```bash
 # 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
@@ -69,12 +78,18 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair in the main block
-#    of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
+#    test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and target_precisions in
+#    the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
+
+# 4. Temperature and export: serve the temperature explorers of the experiments folders, open http://127.0.0.1:8091/,
+#    save the thresholds of a temperature on the page of a checkpoint, then export it from that page
+uv run python -m scripts.evaluation.serve_temperature_explorer
 ```
 
 ### Configuration Keys To Know First
+
+Before changing the synthetic configuration, these are the keys that change the model, the loss or the evaluation the most.
 
 | Key | Value in the synthetic configuration | Effect |
 |---|---|---|
@@ -86,16 +101,21 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `ClassificationHead.label_smoothing` | `0.0` | above 0 gives `LS<rate>`; combined with balanced weights it favours the rare classes (pitfall below) |
 | `ClassificationHead.decorrelation` | `activated: False` | adds the squared off-diagonal correlations of one hidden layer to the loss, no run name token |
 | `ExperimentConfiguration.evaluation.target_precision` | `0.99` | the threshold of every class in `class_thresholds.json` and the `@ P0.99` columns; a list such as `[0.99, 0.95, 0.90]` adds the thresholds of the other precisions (Step 4.13) |
-| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class recall table, per-class scalars, confusion matrix image, ROC and precision-recall curves |
+| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class recall table, per-class scalars, confusion matrix image, ROC and precision-recall curves, temperature explorer with its logits |
 
 ### What A Run Writes
 
+Each time a checkpoint is evaluated, the run folder, TensorBoard and MLflow receive the following.
+
 - `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95% confidence interval) sorted by recall, worst first.
-- `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
-- `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
+- `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `saved_temperature_thresholds.json` once the thresholds of a temperature are saved from the served page; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
+- `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`.
+- `Exports/Iteration_<n>[_EMA]_T<temperature>/`: one Triton model repository per checkpoint, weights and temperature exported from the served temperature explorer, with `export_record.json` and `export_log.txt` (Step 4.13).
 - With the MLflow tracking: `test/<metric>`, `test_class/<metric>/<class>`, `test/best_Accuracy` and the tag `best_iteration`, and the files of `evaluation/iteration_<n>/`.
 
 ### Pitfalls
+
+Should a result of the task look wrong, check these behaviours first.
 
 - Blocks 2, 4 and 6 of the synthetic configuration (16 to 32, 32 to 64 and 64 to 128 channels, 2 layers each) add no residual shortcut: a block whose first layer changes the channel count starts its pairs at its second layer, so only blocks 3 and 5 add one, and the backbone summary lists `Residual Shortcuts` for them only (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`; `bug_standards.md` H4, dropped).
 - `label_smoothing` above 0 with `class_weighting: "balanced"` trains towards the rare classes: PyTorch also weights the smoothing term, so with the weights [1, 20, 1000] and a smoothing of 0.1 the loss of a class-0 image is lowest at the probabilities [0.027, 0.019, 0.954] (`compute_classification_loss()` of `classification_losses.py`; `suggestions.md` C2, open and latent, every shipped configuration having a smoothing of 0).
@@ -132,8 +152,8 @@ main()
 │   │   Prepares the configuration that every later stage reads. The YAML has 5 top-level sections:
 │   │   ExperimentConfiguration, Optimization, Data, Backbone, ClassificationHead. They are split in two:
 │   │     - experiment_configuration = 'ExperimentConfiguration' alone: task, experiment/train/validation/test
-│   │       folders, batch size, logging/checkpoint/validation frequencies, number of iterations, evaluation and
-│   │       MLflow tracking settings
+│   │       folders, run name suffix, batch size, learning rate, logging/checkpoint/validation frequencies, number of
+│   │       iterations, evaluation and MLflow tracking settings, allow_data_change_on_resume, diagnosis modes
 │   │     - model_configuration = all the other sections: how to load data, how to build the network, how to optimize
 │   │   It then fixes the values YAML reads with the wrong type: folders become Path objects, "1e10" becomes an int,
 │   │   the learning rate becomes a float, and the optimization numbers written without a dot become numbers. It adds
@@ -160,7 +180,8 @@ main()
 │       │
 │       ├── check_removed_settings()              a setting or section removed from the configuration files
 │       │                                         (resume_training, mixed_precision, Data.loading, evaluation.top_k,
-│       │                                         Data.view_augmentation...) is reported alone, with what replaced
+│       │                                         Data.view_augmentation, Optimization.gradient_clipping_norm...) is
+│       │                                         reported alone, with what replaced
 │       │                                         it, before the other checks
 │       ├── check_experiment_configuration()      task name is a known task, run name suffix, training loop
 │       │                                         settings, per-class report, number of sample images, MLflow
@@ -181,7 +202,9 @@ main()
 │               │               weighting, pretrained settings, and batches of at least 2 images with batch
 │               │               normalized hidden layers
 │               ├── decorrelation: flag, weight > 0, hidden layer among the hidden layers of the head
-│               └── evaluation: target_precision in [0, 1], error images only in multi_class mode
+│               └── evaluation: target_precision a probability or a list of distinct probabilities, the
+│                               save_predictions flag, error images (a positive maximum_per_class_pair) only in
+│                               multi_class mode
 │
 ├── get_trainer_class(task)
 │       Lookup in the TASK_TRAINER_CLASSES registry, which maps each task name to its trainer class
@@ -292,7 +315,8 @@ main()
 │       │   │   │   │       0.5] (input_normalization) and/or standardizes every image to zero mean and unit variance
 │       │   │   │   │       (per_sample_normalization).
 │       │   │   │   └── ConvolutionBlock(...)   one per entry of Backbone.convolutions
-│       │   │   │           N convolution layers (3x3, stride 1, padding 1), each followed by batch normalization and
+│       │   │   │           N convolution layers (3x3, stride 1, padding 1), each followed by the normalization of
+│       │   │   │           Backbone.normalization.feature_map_normalization (batch, layer or none) and
 │       │   │   │           ReLU, with the optional residual shortcuts (from block 2, one every pair of layers, the
 │       │   │   │           pairs of a block whose first layer changes the channel count starting at its second
 │       │   │   │           layer), squeeze-and-excitation or inception modules, then a 2x2 max pooling that halves
@@ -337,11 +361,11 @@ main()
 │       │       it will average them over every console interval, print them with their changes and write them to
 │       │       TensorBoard.
 │       ├── print_experiment_information()
-│       │   │   Prints the launch panel: run name, clickable folders, the settings changed since the last start of a
-│       │   │   resumed run, one block per transferred component, one line per split, iterations per epoch, batch
-│       │   │   size, checkpoint frequencies, learning rate, optimizer, schedule, weight initialisation,
-│       │   │   moving average of the weights, validation ratio and MLflow
-│       │   │   backend. Display only, except the split sizes, kept for MLflow.
+│       │   │   Prints the launch panel: run name, clickable folders and data record, the settings and the data
+│       │   │   changed since the last start of a resumed run, one block per transferred component, one line per
+│       │   │   split, iterations per epoch, batch size, total iterations, checkpoint frequencies, learning rate,
+│       │   │   optimizer, schedule, moving average of the weights, validation ratio and MLflow backend. Display
+│       │   │   only, except the split sizes, kept for MLflow.
 │       │   │
 │       │   └── describe_split() -> count_split_samples()
 │       │           Reads the labels.json of a split and returns its number of samples and categories, e.g. '50000
@@ -362,8 +386,8 @@ main()
 │           │       Reads the first line of Weights/full-checkpoint (e.g. model_checkpoint_path: "Iteration_12") and
 │           │       returns 12; without a readable registry, the newest complete Iteration_N folder; 0 without any.
 │           └── load_model() -> load_checkpoint()
-│                   load_checkpoint reads Weights/Iteration_N/model_00000N.pt with torch.load, mapped to the current
-│                   device. load_model puts its model_state in the model and its optimizer_state in the optimizer,
+│                   load_checkpoint reads Weights/Iteration_N/model_<N on 6 digits>.pt (model_000012.pt) with
+│                   torch.load, mapped to the current device. load_model puts its model_state in the model and its optimizer_state in the optimizer,
 │                   and restores the moving average of the weights from its exponential_moving_average_state.
 │
 └── trainer.run_training_loop()  [STAGE 3]
@@ -393,7 +417,8 @@ main()
         │           accuracy: 0.0}: the sums and the batch count that accumulate() fills during an interval.
         ├── start_experiment_tracking()
         │       With tracking.activated: creates the MLflow tracker (or reopens the run of mlflow_run.json for a
-        │       resumed run), sends the parameters, the tags and the configuration file. A background thread writes
+        │       resumed run), sends the parameters, the tags, the configuration file and data.json when this launch
+        │       wrote it. A background thread writes
         │       everything, so MLflow never slows down or stops the training. Without tracking it does nothing.
         ├── for each training_iteration:
         │   │   One pass of the loop body, from start_iteration (1 for a new run) to number_iterations.
@@ -414,8 +439,9 @@ main()
         │   │       Counts the real frames of the batch for the frame throughput of the sequence tasks; nothing for
         │   │       images.
         │   ├── set_training_mode()
-        │   │       model.train(): dropout is active and the batch normalization layers update their statistics.
-        │   │       Needed again after every evaluation and validation, which switch to model.eval().
+        │   │       model.train(): dropout is active and the batch normalization layers update their statistics,
+        │   │       except those of the frozen transferred components, kept in eval mode. Needed again after every
+        │   │       evaluation and validation, which switch to model.eval().
         │   ├── run_model_iteration()
         │   │   │   The same function runs a training batch and a validation batch: prepare, augment (training only),
         │   │   │   forward, losses, metrics, tracking. It returns the total loss, which the loop then back-propagates.
@@ -431,7 +457,9 @@ main()
         │   │   ├── forward_pass() -> ImageClassifier.forward()
         │   │   │   │   Calls model(input_tensor=images, labels=labels), in bfloat16 autocast (mixed precision).
         │   │   │   │   Returns class_logits [B, K], class_probabilities [B, K] and classification_loss (a scalar,
-        │   │   │   │   since the labels are given).
+        │   │   │   │   since the labels are given). With ClassificationHead.decorrelation on, the head runs
+        │   │   │   │   compute_logits, which keeps the chosen hidden layer, and compute_decorrelation_loss adds
+        │   │   │   │   decorrelation_loss and hidden_feature_correlation to the outputs.
         │   │   │   │
         │   │   │   ├── Backbone.forward()
         │   │   │   │       Normalizes the pixels (x / 255 - 0.5 with input_normalization), then runs the image through
@@ -448,7 +476,8 @@ main()
         │   │   │           "multi_label" mode.
         │   │   ├── compute_batch_metrics()
         │   │   │       Accuracy of the batch, from the logits already computed (no second forward pass): the share of
-        │   │   │       images whose highest logit is the true class.
+        │   │   │       images whose highest logit is the true class; with the decorrelation on, it also passes on
+        │   │   │       hidden_feature_correlation.
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   │           accumulate adds each tracked metric of the batch to the sums of the interval and counts the
         │   │           batch. log_to_tensorboard writes each metric of the batch at the current iteration.
@@ -462,8 +491,8 @@ main()
         │   │       Called right after the step when the iteration is a multiple of weight_saving_iterations
         │   │       (checkpoint, evaluated at the end of the iteration) or of intermediate_weight_saving_iterations
         │   │       (checkpoint only), so that Weights/Iteration_N holds the weights after N steps. Writes
-        │   │       Weights/Iteration_N/model_00000N.pt (model, optimizer, task, run name, label dictionary, MLflow
-        │   │       run, transfer sources, moving average of the weights when on) through a temporary file, then adds
+        │   │       Weights/Iteration_N/model_<N on 6 digits>.pt (model, optimizer, task, run name, label
+        │   │       dictionary, MLflow run, transfer sources, moving average of the weights when on) through a temporary file, then adds
         │   │       the iteration to Weights/full-checkpoint.
         │   ├── validation pass: run_model_iteration() without augmentation
         │   │       Every validation_iteration_ratio iterations: model.eval(), no gradients, next validation batch,
@@ -493,12 +522,13 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   training loop at every weight_saving_iterations checkpoint, and by Stage 5 for each evaluated checkpoint. It puts
 │   the model in eval mode, runs the test loader without gradients, accumulates the predictions, draws the sample
 │   images, computes the metrics, then prints, writes and logs them. With the moving average of the weights on, the
-│   same evaluation runs again on the averaged weights, reported as "EMA Weights" in Evaluation/Iteration_N/EMA/ and
-│   Tensorboard/Test_EMA.
+│   same evaluation runs again on the averaged weights once the average was updated at least once, reported as "EMA
+│   Weights" in Evaluation/Iteration_N/EMA/ and Tensorboard/Test_EMA.
 │
 ├── create_evaluation_accumulator()
-│       Returns the empty collection filled during the loop: lists for probabilities, labels and sample identifiers, the
-│       folder Evaluation/Iteration_N/Errors for the error images and their counter per class pair.
+│       Returns the empty collection filled during the loop: lists for probabilities, labels, sample identifiers and
+│       logits (filled for the temperature explorer only), the folder Evaluation/Iteration_N/Errors for the error
+│       images and their counter per class pair.
 ├── for each test batch:
 │   │   A progress bar "Test Evaluation Iteration N" follows the loader.
 │   │
@@ -532,7 +562,10 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       From the diagonal and the row and column sums: accuracy, balanced accuracy, macro F1 and, for each class,
 │   │       precision, recall, F1, support (number of test images of the class) and true positives (the diagonal).
 │   ├── compute_top_k_accuracy()
-│   │       Share of images whose true class is among the 5 highest probabilities (TOP_K_ACCURACY_CLASSES).
+│   │       Share of images whose true class is among the 5 highest probabilities (TOP_K_ACCURACY_CLASSES). In
+│   │       multi_label mode, compute_multi_label_metrics replaces the steps from compute_confusion_matrix to
+│   │       save_confusion_matrix_table: Subset Accuracy, Micro F1 and Macro F1 of the class decisions at a
+│   │       probability of 0.5, without top-k accuracy nor confusion matrix.
 │   ├── save_confusion_matrix_table()
 │   │       Writes the matrix to Evaluation/Iteration_N/confusion_matrix.csv, with the class names as headers.
 │   ├── find_class_thresholds()
@@ -560,17 +593,19 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       precision_recall_thresholds.png (the zoom on the thresholds, written). The same images are later sent to
 │   │       TensorBoard.
 │   ├── save_temperature_explorer() + save_class_logits()   (only with per_class_report)
-│   │       Divides the kept logits by every temperature of a grid from 0.5 to 10 and writes temperature_explorer.html:
-│   │       for each temperature the histograms of every class, its thresholds and the calibration (Step 4.13). Up
-│   │       to 100 classes the logits are written next to it, class_logits.npz, for the serve script.
+│   │       Divides the kept logits by every temperature of a grid from 0.5 to 10, plus the calibrated temperature,
+│   │       and writes temperature_explorer.html: for each temperature the histograms of up to 100 classes (the
+│   │       lowest F1 first), their thresholds and the calibration (Step 4.13). Up to 100 classes the logits are
+│   │       written next to it, class_logits.npz, for the serve script.
 │   ├── write_predictions_file()   (only with save_predictions)
 │   │       Writes predictions.csv: one row per test image with its file name, true class, predicted class, whether it
 │   │       is correct and the probability of every class.
 │   └── build_class_metrics_table() + build_recall_interval_table() + build_class_metric_scalars()
 │           Prepare what is displayed: the per-class table (columns, rows, sort by F1, legend), the per-class recall
-│           table (recall and 95% bounds, sort by recall, legend) and the per-class TensorBoard scalars
-│           Precision/<class>, Recall/<class>, F1/<class> (and with per_class_report ROC AUC/<class>,
-│           Average Precision/<class>).
+│           table (recall and 95% bounds, sort by recall, legend), with several target precisions the table of
+│           build_class_thresholds_table (the threshold and recall of every class at each of them), and the
+│           per-class TensorBoard scalars Precision/<class>, Recall/<class>, F1/<class> (and with per_class_report
+│           ROC AUC/<class>, Average Precision/<class>).
 └── report_evaluation()
     │
     ├── report_evaluation_results()
@@ -587,14 +622,17 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 │   of a trained run without training. Its settings are variables at the top of its main block (no command line): the
 │   run name and its folder, the iteration ("all" for every checkpoint from the last one, None for the last one, or an
 │   integer), an optional other labelled test folder, the evaluation batch size, whether the evaluation is tracked in
-│   MLflow and the maximum number of error images per pair of classes. It writes in <run>/Checkpoint_Evaluation/.
+│   MLflow, the maximum number of error images per pair of classes, the target precisions of the class thresholds
+│   (a probability or a list such as [0.99, 0.95, 0.90]) and the final NMS of the detection tasks (skipped with a
+│   warning for a classifier). It writes in <run>/Checkpoint_Evaluation/.
 │
 ├── load_experiment_configuration() + get_trainer_class() + trainer construction   (same as Stages 1-2)
 │       Loads training_configuration.yaml from the trained run (its classes from the label_dictionary.json next to
-│       it), sets test_data_folder, batch_size, tracking.activated and evaluation.error_dumps to the given values,
-│       points the trainer to <run>/Checkpoint_Evaluation/ (point_to_checkpoint_evaluation(), the run name kept),
-│       turns off the transfer of pretrained components, then builds the same trainer as for a training. It writes
-│       its iteration folders directly in Checkpoint_Evaluation/ and saves no weights.
+│       it), sets test_data_folder, batch_size, tracking.activated, evaluation.error_dumps (turned on with the given
+│       limit) and evaluation.target_precision to the given values, points the trainer to
+│       <run>/Checkpoint_Evaluation/ (point_to_checkpoint_evaluation(), the run name kept), turns off the transfer
+│       of pretrained components, then builds the same trainer as for a training. It writes its iteration folders
+│       directly in Checkpoint_Evaluation/ and saves no weights.
 ├── get_checkpoint_iterations() / get_last_checkpoint_iteration()
 │       Read Weights/full-checkpoint of the trained run: all the recorded iterations, evaluated from the last one
 │       ("all"), or only the last one (None). An integer iteration is used as given.
@@ -605,9 +643,10 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
     │       With tracking: a new MLflow run '<run name>-evaluation' in the backend of the trained run, tagged with the
     │       MLflow run of the training ('evaluation_of'). The MLflow run of the training is never modified.
     └── summarise_checkpoint_evaluations()
-        │   For each iteration: skips it with a warning if its file is missing, loads its weights into the trainer's
-        │   model, runs the test evaluation, and keeps the scalars. At the end writes evaluation_summary.csv
-        │   (one row per iteration) and prints the best iteration of the headline metric.
+        │   For each iteration: skips it with a warning if its file is missing, loads its weights (and their moving
+        │   average when on) into the trainer's model, runs the test evaluation, and keeps the scalars. At the end
+        │   writes evaluation_summary.csv (one row per iteration, the averaged weights in ema_ columns) and
+        │   prints the best iteration of the headline metric for every kind of weights, tied iterations listed.
         │
         └── run_test_evaluation()  for each checkpoint  -> [STAGE 4]
                 The same function as in the training loop, so the same Results.txt block, TensorBoard Test curves,
@@ -618,7 +657,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 
 ## Stage 1 — Entry Point and Configuration Loading
 
-> The examples below are real outputs from running the loader on `configurations/classification/configuration_example.yaml` (ImageNet-1k, 1000 classes).
+> The examples below are real outputs from running the loader on `configurations/classification/configuration_example.yaml` when it read ImageNet-1k (1000 classes); it reads ImageNet-22k (21,841 classes) since 2026-11-11.
 
 ### Step 1.1 — `main()`
 This is the entry point of the whole project, the same for every task. It first turns on the expandable segments of the CUDA allocator (`enable_expandable_cuda_segments()` of `vision_training/utilities/os_utilities.py` adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF` before anything reaches the GPU). `parse_configuration_path()` then reads the path to the YAML file of the experiment from the command line (`--configuration_path`, absolute or relative to the current folder; `parser.error()` stops with "No configuration file at ..." when it is not a file), so any configuration, of this task or of another one, is trained without editing the code. It loads and validates that file (Step 1.2), asks the registry which trainer fits `experiment_configuration["task"]` (Step 1.6), builds that trainer with both dictionaries and the YAML path (Stage 2) and starts training (Stage 3). It returns nothing. Everything after this point happens inside the trainer.
@@ -709,10 +748,10 @@ get_trainer_class(task="segmentation")
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `configurations/classification/configuration_example.yaml` (ImageNet-1k, 1000 classes, 256 pixel images), with the run folder redirected to a temporary folder. Nothing is trained in this stage: it only prepares everything that Stage 3 needs. The whole construction took 12.3 s on CPU. On this machine a GPU is available, so a normal run prints `cuda` where the example below, run on CPU, prints `cpu`.
+> The examples below are real outputs from building the trainer on `configurations/classification/configuration_example.yaml` when it read ImageNet-1k (1000 classes, 256 pixel images; ImageNet-22k and its 21,841 classes since 2026-11-11), with the run folder redirected to a temporary folder. Nothing is trained in this stage: it only prepares everything that Stage 3 needs. The whole construction took 12.3 s on CPU. On this machine a GPU is available, so a normal run prints `cuda` where the example below, run on CPU, prints `cpu`.
 
 ### Step 2.1 — `ClassificationTrainer.__init__()`
-`main()` builds the trainer with both dictionaries from Stage 1 and the YAML path. Before calling the shared constructor of `BaseTrainer`, this one stores the classification settings that its hooks read later: `output_mode`, `class_weighting` and whether `ClassificationHead.decorrelation` is on (`decorrelation_activated`, always False for the sequence tasks sharing this trainer), `top_k`, the k of the top-k accuracy fixed at 5 (`TOP_K_ACCURACY_CLASSES`), and `target_precision`, `save_predictions` and `error_dumps` from `evaluation`. They must be stored first because `BaseTrainer.__init__()` already calls the hooks (`build_dataloaders()`, `build_model()`, `get_tracked_metrics()`), which use them.
+`main()` builds the trainer with both dictionaries from Stage 1 and the YAML path. Before calling the shared constructor of `BaseTrainer`, this one stores the classification settings that its hooks read later: `output_mode`, `class_weighting` and whether `ClassificationHead.decorrelation` is on (`decorrelation_activated`, always False for the sequence tasks sharing this trainer), `top_k`, the k of the top-k accuracy fixed at 5 (`TOP_K_ACCURACY_CLASSES`), and from `evaluation` the `target_precisions` (`target_precision` as a list), `target_precision`, its first one, `save_predictions` and `error_dumps`. They must be stored first because `BaseTrainer.__init__()` already calls the hooks (`build_dataloaders()`, `build_model()`, `get_tracked_metrics()`), which use them.
 
 **Example: the attributes set before `super().__init__()`**
 ```text
@@ -720,6 +759,7 @@ self.output_mode                = 'multi_class'
 self.class_weighting            = 'balanced'
 self.decorrelation_activated    = False
 self.top_k                      = 5
+self.target_precisions          = [0.99]
 self.target_precision           = 0.99
 self.save_predictions           = False
 self.error_dumps_configuration  = {'activated': False, 'maximum_per_class_pair': 20}
@@ -767,7 +807,7 @@ The run folder is `experiment_folder / <run name>`. The name is built from the s
 | `HFLAT.512.256` | head: `flatten` pooling, then hidden layers of 512 and 256 units |
 | `HLN` | `fully_connected_normalization: "layer"`: the hidden layers are layer normalized (`HBN` for `"batch"`) |
 | `CWB` | `class_weighting: "balanced"` |
-| `MC1000` | `multi_class` output, 1000 classes |
+| `MC1000` | `multi_class` output, 1000 classes (`MC21841` with the current file, which reads ImageNet-22k) |
 
 ```text
 CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000
@@ -816,7 +856,7 @@ This hook of `ClassificationTrainer` builds the loaders of the three splits (Ste
 trainer.class_names[:5] -> ['n01440764', 'n01443537', 'n01484850', 'n01491361', 'n01494475']
 ```
 
-Once the loaders exist, `check_loaders_give_batches()` refuses a training split or a test split whose loader gives no batch, and a validation split too when `validation_iteration_ratio > 0`, with a `ValueError` naming the split, the number of samples its dataset keeps and its folder: an empty split, or a split whose every sample has a category left out by the label mapping, would otherwise make the training loop wait for a batch that never comes. `BaseTrainer.__init__()` then writes `data.json` in the run folder (`save_data_record()`, with `build_class_records()`, `record_split()` and `build_split_record()` of `vision_training/data/data_record.py`). It starts with the classes of the run in class index order (`classes`): for every class its `class_index`, its `class_name` (given by `list_class_names()`, which a run adding classes to this one compares with its own, Step 2.19), the `category_ids` of the manifest mapped to it and its number of `images` in every split, counted in the `labels.json` files. For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. Changed labels were already refused by `check_resumed_data()` (Step 2.6) unless `allow_data_change_on_resume` is true: with that switch, or when only the data folder moved, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
+Once the loaders exist, `check_loaders_give_batches()` refuses a training split or a test split whose loader gives no batch, and a validation split too when `validation_iteration_ratio > 0`, with a `ValueError` naming the split, the number of samples its dataset keeps and its folder: an empty split, or a split whose every sample has a category left out by the label mapping, would otherwise make the training loop wait for a batch that never comes. `BaseTrainer.__init__()` then writes `data.json` in the run folder (`save_data_record()` and its hook `record_split()` of `BaseTrainer`, with `build_class_records()` and `build_split_record()` of `vision_training/data/data_record.py`). It starts with the classes of the run in class index order (`classes`): for every class its `class_index`, its `class_name` (given by `list_class_names()`, which a run adding classes to this one compares with its own, Step 2.19), the `category_ids` of the manifest mapped to it and its number of `images` in every split, counted in the `labels.json` files. For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. Changed labels were already refused by `check_resumed_data()` (Step 2.6) unless `allow_data_change_on_resume` is true: with that switch, or when only the data folder moved, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
 
 **Example: the start of `data.json` for ImageNet-1k (2.4 seconds to build, 69 MB for the 1,271,167 training images; every class record is written here on one line, the file giving every value its own line)**
 ```text
@@ -1118,7 +1158,7 @@ iterations_per_epoch     = 4966
 ```
 
 ### Step 2.25 — `view_input_batches()`
-This only runs with `diagnosis_modes.view_input_images: True`. It shows what the network will really receive: an augmented training image (Step 3.13) next to a validation image, in two windows titled `Training` and `Validation`, centred on the screen. Each image is followed by a black information panel (`build_viewer_window()` → `build_information_panel()`) giving its class (`Class : n04456115`) and, for the training image, the augmentations drawn for it with their values, written by `describe_input_augmentations()` from the report of `augment_batch()` (`random_rotation : -12.4 degrees`, `brightness_contrast_saturation : brightness +18.0 levels, ...`), the validation image giving `Augmentations : none (validation sample)`. The panels are not printed in the terminal, which only receives the title of the viewer in red, `View Of The Training And Validation Images That Are Fed To The Neural Network`, and its keys in green, `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit` (and, without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow). SPACE shows the next images and ENTER closes the viewer, after which `sys.exit()` ends the program before any training, and no run folder was created (Step 2.6).
+This only runs with `diagnosis_modes.view_input_images: True`. It shows what the network will really receive: an augmented training image (Step 3.13) next to a validation image, in two windows titled `Training` and `Validation`, centred on the screen. Each image is followed by a black information panel (`build_viewer_window()` → `build_information_panel()`) giving its class (`Class : n04456115`) and, for the training image, the augmentations drawn for it with their values, written by `describe_input_augmentations()` from the report of `augment_batch()` (one line per type, such as `random_rotation : <angle> degrees`, the angle within 5 degrees either way (`SUPERVISED_AUGMENTATION_STRENGTHS`), or `brightness_contrast_saturation : brightness +18.0 levels, ...`), the validation image giving `Augmentations : none (validation sample)`. The panels are not printed in the terminal, which only receives the title of the viewer in red, `View Of The Training And Validation Images That Are Fed To The Neural Network`, and its keys in green, `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit` (and, without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow). SPACE shows the next images and ENTER closes the viewer, after which `sys.exit()` ends the program before any training, and no run folder was created (Step 2.6).
 
 ### Step 2.26 — `restore_last_model()`
 This always runs, a run always resuming from its last checkpoint. It asks Step 2.27 for the last saved iteration. Without any checkpoint it returns 1 and the run starts from the random weights (or from the pretrained components of Step 2.19, which the message then names: `No Checkpoint Of This Run Found, The New Model Starts From Pretrained Components Of Other Runs : Backbone.` and `Every Other Layer Is Trained From Scratch.`). Otherwise it loads that checkpoint (Step 2.28) and returns the iteration + 1, which becomes `start_iteration`: the training loop continues exactly where it stopped, up to `number_iterations`, the total of the run. The run of Stage 3 built again with `number_iterations: 12` therefore trains nothing more (Step 3.1): `number_iterations` must be raised to train it further.
@@ -1136,7 +1176,7 @@ We Loaded A Model That Was Previously Saved At Iteration 12           -> start_i
 ```
 
 ### Step 2.27 — `get_last_checkpoint_iteration()`
-This reads the first line of the registry file `Weights/full-checkpoint`, which always names the last checkpoint saved (`save_model()` rewrites it, Step 3.6), and returns its iteration. When the registry is missing, or cannot be read (empty, or with cut lines, announced by a yellow line), it takes the newest `Iteration_N` folder holding its complete `model_00000N.pt` instead; it returns 0 for a run without any checkpoint. The standalone evaluation of Stage 5 uses it too.
+This reads the first line of the registry file `Weights/full-checkpoint`, which always names the last checkpoint saved (`save_model()` rewrites it, Step 3.6), and returns its iteration. When the registry is missing, or cannot be read (empty, or with cut lines, announced by a yellow line), it takes the newest `Iteration_N` folder holding its complete `model_<N on 6 digits>.pt` instead; it returns 0 for a run without any checkpoint. The standalone evaluation of Stage 5 uses it too.
 
 **Example: `Weights/full-checkpoint` of the run of Stage 3, which saved checkpoints at iterations 3, 6, 9 and 12**
 ```text
@@ -1150,7 +1190,7 @@ get_last_checkpoint_iteration(weights_directory=...) -> 12
 ```
 
 ### Step 2.28 — `load_model()` → `load_checkpoint()`
-`load_checkpoint()` reads `Weights/Iteration_N/model_00000N.pt` with `torch.load`, mapping every tensor to the current device. `load_model()` then puts `model_state` into the model and `optimizer_state` into the optimizer, which restores the weights and the moving averages of Adam. With the moving average of the weights on, `load_exponential_moving_average()` restores it from `exponential_moving_average_state`; a checkpoint saved without it (the average was just turned on) restarts the average from the loaded weights, with a yellow message. The checkpoint also stores the task, the run name, the label dictionary of the run (`label_dictionary`, its keys written as text as in `label_dictionary.json`), the MLflow run and the source runs of the transferred components, which tools such as the model transfer check.
+`load_checkpoint()` reads `Weights/Iteration_N/model_<N on 6 digits>.pt` with `torch.load`, mapping every tensor to the current device. `load_model()` then puts `model_state` into the model and `optimizer_state` into the optimizer, which restores the weights and the moving averages of Adam. With the moving average of the weights on, `load_exponential_moving_average()` restores it from `exponential_moving_average_state`; a checkpoint saved without it (the average was just turned on) restarts the average from the loaded weights, with a yellow message. The checkpoint also stores the task, the run name, the label dictionary of the run (`label_dictionary`, its keys written as text as in `label_dictionary.json`), the MLflow run and the source runs of the transferred components, which tools such as the model transfer check.
 
 **Example: the keys of a checkpoint of the run of Stage 3**
 ```text
@@ -1165,7 +1205,7 @@ pretrained_backbone = None    pretrained_classification_head = None
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of `configurations/classification/configuration_synthetic_shapes.yaml` (9 shape classes) shortened to: 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, the validation every 10 iterations (`validation_iteration_ratio`), with the error images and the MLflow tracking turned on. Its run name is `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9`: the run was recorded on 2026-10-09, when the configuration file had an `average` pooling, plain hidden layers and no class weighting; the same shortening of the current file gives `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`. Step 3.9 uses real ImageNet images instead, because their sizes show the padding better.
+> The examples below are real outputs from a run on CPU of `configurations/classification/configuration_synthetic_shapes.yaml` (9 shape classes) shortened to: 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, the validation every 10 iterations (`validation_iteration_ratio`), with the error images and the MLflow tracking turned on. Its run name is `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9`: the run was recorded on 2026-10-09, when the configuration file had an `average` pooling, plain hidden layers, no class weighting and `learning_rate: 1.0e-3` (2.0e-4 now); the same shortening of the current file gives `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`. Step 3.9 uses real ImageNet images instead, because their sizes show the padding better.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 This is the training itself. `run_training_loop()` runs `run_training_iterations()` and, whatever ends it, closes the MLflow run with its status: `FINISHED`, `KILLED` after a Ctrl+C, `FAILED` after too many errors (or an unexpected error, raised again once the run is closed). `number_iterations` is the total of iterations of the run: the loop runs the iterations from `start_iteration` to `number_iterations`, so that a resumed run only trains the iterations left. A run whose last checkpoint already reaches `number_iterations` trains nothing and prints in green `The Run Is Already Complete: Its Last Checkpoint Is At Iteration <n> And 'number_iterations' Is <N>, The Total Of The Run. Raise 'number_iterations' To Train It Further.`
@@ -1204,7 +1244,7 @@ This returns a dictionary with one sum per tracked metric (see Step 2.21), the n
 ```
 
 ### Step 3.5 — `start_experiment_tracking()`
-With `ExperimentConfiguration.tracking.activated: True`, this creates the MLflow tracker of the run (`create_experiment_tracker()`), right after the loader iterators exist, so that the loader worker processes are forked before the tracker starts its thread. The tracker writes to the server of `tracking.tracking_uri`, or to the local database `mlflow.db` of the experiments root folder (its artifacts in `mlartifacts/` next to it), in the MLflow experiment named after the task unless `tracking.experiment_name` is set. It sends the parameters of the run (every configuration section flattened, plus the number of parameters, the split sizes, the iterations per epoch, the device and the library versions), the tags (task, run name, run folder, source runs of the transferred components, host, git commit and whether the working tree had changes), the configuration file and, when this start wrote it, `data.json` (Step 2.7). Every call only puts an event in a queue: a background thread opens the MLflow run and writes in batches, retrying while MLflow is unavailable, so MLflow never slows down nor stops the training, and any MLflow error only prints one warning (an artifact whose write keeps failing with a permanent error, such as a read-only artifact folder, holds back every later write until the run closes, `bug_standards.md` B16, dropped). The run is recorded in `mlflow_run.json` of the run folder, so that a resumed training reopens the same MLflow run. Without tracking, the tracker stays a `DisabledTracker`.
+With `ExperimentConfiguration.tracking.activated: True`, this creates the MLflow tracker of the run (`create_experiment_tracker()`), right after the loader iterators exist, so that the loader worker processes are forked before the tracker starts its thread. The tracker writes to the server of `tracking.tracking_uri`, or to the local database `mlflow.db` of the experiments root folder (its artifacts in `mlartifacts/` next to it), in the MLflow experiment named after the task unless `tracking.experiment_name` is set. It sends the parameters of the run (every configuration section flattened, plus the number of parameters, the split sizes, the iterations per epoch, the device and the library versions), the tags (task, run name, run folder, source runs of the transferred components, host, git commit and whether the working tree had changes), the configuration file and, when this start wrote it, `data.json` (Step 2.7). Every call only puts an event in a queue: a background thread opens the MLflow run and writes in batches, retrying while MLflow is unavailable, so MLflow never slows down nor stops the training, and any MLflow error only prints one warning (an artifact whose write keeps failing with a system error, such as a read-only artifact folder, is retried and holds back every later write until the run closes, `bug_standards.md` B16, dropped; a write MLflow rejects is dropped with a warning). The run is recorded in `mlflow_run.json` of the run folder, so that a resumed training reopens the same MLflow run. Without tracking, the tracker stays a `DisabledTracker`.
 
 **Example: the line printed once the background thread opened the run** (here during the first evaluation, since creating the local database takes a few seconds), and `mlflow_run.json`
 ```text
@@ -1233,10 +1273,10 @@ artifacts:  Results.txt, configuration/training_configuration.yaml, metric_names
             evaluation/iteration_6/ and iteration_12/: class_metrics.csv, class_thresholds.json, confusion_matrix.png
 ```
 
-This run predates the record of the data and the ROC and precision-recall curves. The MLflow run of the README run (`5bcd8d21be0149b6b25b94b04621705c` in `experiments/readme_screenshots/mlflow.db`) shows what the current code sends: 158 parameters, the same tags with `best_iteration: '1500'`, the metrics `test/Macro ROC AUC` and `test/Macro Average Precision` next to the four others, 45 `test_class/<metric>/<class>` (5 metrics x 9 classes, `ROC AUC` and `Average Precision` included), and the artifacts `data/data.json` and, for every evaluated iteration, `roc_curves.png` and `precision_recall_curves.png` next to the three files above.
+This run predates the record of the data and the ROC and precision-recall curves. The MLflow run of the README run (`5bcd8d21be0149b6b25b94b04621705c` in `experiments/readme_screenshots/mlflow.db`) shows what the code sent once it had the record of the data and the curves: 158 parameters, the same tags with `best_iteration: '1500'`, the metrics `test/Macro ROC AUC` and `test/Macro Average Precision` next to the four others, 45 `test_class/<metric>/<class>` (5 metrics x 9 classes, `ROC AUC` and `Average Precision` included), and the artifacts `data/data.json` and, for every evaluated iteration, `roc_curves.png` and `precision_recall_curves.png` next to the three files above. Its 158 parameters include settings removed since (`evaluation.top_k`, `resume_training`, `gradient_clipping_norm`, `mixed_precision`, `Data.loading`), and its `test/Top-2 Accuracy` the k of that time: a run of the current code sends fewer parameters, `test/Top-5 Accuracy`, and `precision_recall_thresholds.png` with the curves.
 
 ### Step 3.6 — `save_model()` → `save_checkpoint()`
-This runs right after the training step (Step 3.22) of an iteration that is a multiple of `weight_saving_iterations` (a checkpoint evaluated at the end of the same iteration, Step 3.7) or of `intermediate_weight_saving_iterations` (a checkpoint only). `save_checkpoint()` writes `Weights/Iteration_N/model_00000N.pt` with the model, the optimizer, the task, the run name, the label dictionary of the run (`label_dictionary`, its keys written as text), the MLflow run (`None` without tracking, or while the background thread is still opening the run), the source run of the transferred components and, when it is on, the moving average of the weights (`exponential_moving_average_state`: the averaged weights and the number of updates). It writes to a temporary file and renames it, so a checkpoint on disk is complete or absent, and it ignores Ctrl+C meanwhile. Then it records the iteration in `Weights/full-checkpoint`, the registry of Step 2.27.
+This runs right after the training step (Step 3.22) of an iteration that is a multiple of `weight_saving_iterations` (a checkpoint evaluated at the end of the same iteration, Step 3.7) or of `intermediate_weight_saving_iterations` (a checkpoint only). `save_checkpoint()` writes `Weights/Iteration_N/model_<N on 6 digits>.pt` with the model, the optimizer, the task, the run name, the label dictionary of the run (`label_dictionary`, its keys written as text), the MLflow run (`None` without tracking, or while the background thread is still opening the run), the source run of the transferred components and, when it is on, the moving average of the weights (`exponential_moving_average_state`: the averaged weights and the number of updates). It writes to a temporary file and renames it, so a checkpoint on disk is complete or absent, and it ignores Ctrl+C meanwhile. Then it records the iteration in `Weights/full-checkpoint`, the registry of Step 2.27.
 
 **Good to know:** the checkpoint of iteration N is saved after the training step N, so it holds the weights after N steps, and a run resumed from it starts at iteration N + 1. After the loop, a last checkpoint is only saved for the steps taken since the last one (Step 3.25).
 
@@ -1307,7 +1347,7 @@ changed per image: [False, False, True, True, True, True, False, False]      pix
 ### Step 3.14 — `forward_pass()` → `ImageClassifier.forward()`
 This calls the model with the images and the labels, so that it also returns the loss. The trainer only passes the batch: everything else happens inside the model, in the next four steps. For a test batch the trainer calls `predict_batch()` instead, which omits the labels (Step 4.4).
 
-**Example: the dictionary returned**
+**Example: the dictionary returned** (recorded before the forward pass always ran in bfloat16 autocast: the logits now come out as `torch.bfloat16`, the probabilities too on the CPU, the loss as `torch.float32`)
 ```text
 class_logits          [8, 9] torch.float32
 class_probabilities   [8, 9] torch.float32
@@ -1454,7 +1494,7 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ```
 
 ### Step 3.25 — end of the loop: last checkpoint, closing
-After the last iteration, after a Ctrl+C, or after more than 5 consecutive errors, the loop saves a checkpoint of the last iteration whose step was taken, only when that iteration is not saved yet: the steps taken since the last checkpoint are never lost, and a checkpoint saved right after the last step (iteration 12 here, a multiple of `weight_saving_iterations`) is kept as it is. It then prints in green `Last Checkpoint Saved At Iteration <n>. Exiting Training.` Nothing is evaluated after the loop, since the checkpoints of `weight_saving_iterations` are evaluated inside their iteration (Step 3.7): when the last checkpoint saved by this launch is one of them and was left unevaluated (a Ctrl+C between its save and its evaluation, or a failed evaluation), a yellow line names it, `The Checkpoint Of Iteration <n> Was Not Evaluated: scripts/evaluation/evaluate_checkpoint.py Evaluates It.` (Stage 5). The loop then closes the TensorBoard writers, and `run_training_loop()` sends `Results.txt` to MLflow and closes the MLflow run with its status (`FINISHED` here). An exception inside an iteration is printed in yellow with a counter and the loop moves on to the next iteration.
+After the last iteration, after a Ctrl+C, or after more than 5 consecutive errors, the loop saves a checkpoint of the last iteration whose step was taken, only when that iteration is not saved yet: the steps taken since the last checkpoint are never lost, and a checkpoint saved right after the last step (iteration 12 here, a multiple of `weight_saving_iterations`) is kept as it is. It then prints in green `Last Checkpoint Saved At Iteration <n>. Exiting Training.` Nothing is evaluated after the loop, since the checkpoints of `weight_saving_iterations` are evaluated inside their iteration (Step 3.7): when the last checkpoint saved by this launch is one of them and was left unevaluated (a Ctrl+C between its save and its evaluation, or a failed evaluation), a yellow line names it, `The Checkpoint Of Iteration <n> Was Not Evaluated: scripts/evaluation/evaluate_checkpoint.py Evaluates It.` (Stage 5). The loop then closes the training and validation TensorBoard writers, and `run_training_loop()` stops the loader worker processes (`shutdown_loader_workers()`), then sends `Results.txt` to MLflow and closes the MLflow run with its status (`FINISHED` here). An exception inside an iteration is printed in yellow with a counter and the loop moves on to the next iteration.
 
 **Example output: the end of iteration 12 and of the loop**
 ```text
@@ -1491,9 +1531,9 @@ Test Evaluation Iteration 6: 100%|██████████| 625/625 [00:47
 **Good to know:** the weights evaluated at iteration N are those of the checkpoint saved right after the training step N (Step 3.6), i.e. after N training steps, the evaluation being the last thing the iteration does (Step 3.7).
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-This creates the empty storage filled during the test loop. The predictions of all the batches are kept so that the metrics can be computed on the whole split at once: three lists (class probabilities, labels and sample identifiers, one tensor per batch), the folder where the error images will be written and an empty counter of error images per pair of classes.
+This creates the empty storage filled during the test loop. The predictions of all the batches are kept so that the metrics can be computed on the whole split at once: four lists (class probabilities, labels, sample identifiers and the class logits, filled only when the temperature explorer is written, one tensor per batch), the folder where the error images will be written and an empty counter of error images per pair of classes.
 
-**Example output**
+**Example output** (recorded before the `logits` list was added)
 ```text
 {'probabilities': [], 'labels': [], 'sample_identifiers': [],
  'errors_folder': PosixPath('.../Evaluation/Iteration_6/Errors'), 'error_counts': {}}
@@ -1512,7 +1552,7 @@ class_probabilities   [8, 9] torch.float32      (no 'classification_loss' key)
 ```
 
 ### Step 4.5 — `accumulate_evaluation_batch()`
-This keeps the useful part of the batch on the CPU. The probabilities (as `float64`), the labels and the sample identifiers of the kept samples (the `sample_indices` of Step 4.1) are appended to the accumulator lists, so the GPU memory is released after every batch. The identifiers let the predictions file and the error images name the image of each prediction. If `error_dumps.activated` is true, it also calls `dump_errors()` while the images are still in the batch.
+This keeps the useful part of the batch on the CPU. The probabilities (as `float64`), the labels and the sample identifiers of the kept samples (the `sample_indices` of Step 4.1) are appended to the accumulator lists, so the GPU memory is released after every batch, with the class logits (as `float32`) when the temperature explorer is written (`per_class_report`, Step 4.13). The identifiers let the predictions file and the error images name the image of each prediction. If `error_dumps.activated` is true, it also calls `dump_errors()` while the images are still in the batch.
 
 **Example: the accumulator at the end of the loop**
 ```text
@@ -1547,7 +1587,7 @@ note of the report: "Sample Images : 8 fixed test images"
 ```
 
 ### Step 4.8 — `compute_evaluation_results()`
-Once the loop is done, this function concatenates the accumulated batches, computes every metric, writes the evaluation files (Steps 4.9 to 4.16) and organizes what must be displayed (Step 4.17). The notes are the extra notes of the task (`describe_extra_notes()`, none for classification) followed by the error images line. It does not display anything: it returns a dictionary, the `EvaluationResults`, that `report_evaluation()` shows (Step 4.18) and that Stage 5 keeps to compare the checkpoints. The files are written in `Evaluation/Iteration_N/` of the run, whatever `per_class_report`, except the confusion matrix image and the two curve images, which need it.
+Once the loop is done, this function concatenates the accumulated batches, computes every metric, writes the evaluation files (Steps 4.9 to 4.16) and organizes what must be displayed (Step 4.17). The notes are the extra notes of the task (`describe_extra_notes()`, none for classification) followed by the error images line. It does not display anything: it returns a dictionary, the `EvaluationResults`, that `report_evaluation()` shows (Step 4.18) and that Stage 5 keeps to compare the checkpoints. The files are written in `Evaluation/Iteration_N/` of the run, whatever `per_class_report`, except the confusion matrix image, the three curve images, the temperature explorer and its logits, which need it.
 
 **Example: the headline part of the results of iteration 6** (after Step 4.1 added the sample images)
 ```text
@@ -1625,7 +1665,9 @@ octagon,0,0,590,0,0,0,0,0,0
 ### Step 4.13 — `find_class_thresholds()`
 A deployment can ask for a prediction to be trusted only above a probability threshold. For every class, treated one against the rest, this function sorts the test images by decreasing probability of the class and looks for the lowest threshold where the precision stays at or above `target_precision` (0.99 here), together with the recall kept at this threshold. If no threshold reaches the target precision, or the class has no sample, the result is `null`. The thresholds are saved in `class_thresholds.json`, for the deployment of the checkpoint. With a list of target precisions, e.g. `target_precision: [0.99, 0.95, 0.90]`, the thresholds are found for each: the first precision stays the main target, in `target_precision` and `classes` as below, and the others follow in `additional_targets`, a list of `{"target_precision": ..., "classes": {...}}` of the same form.
 
-The probabilities are the softmax of the class logits, a temperature of 1 recorded as `logit_temperature` in the file. A cross-entropy classifier is often overconfident, its probabilities squeezed against 1, so that its thresholds end up at 0.999 or above. A temperature above 1 spreads them without changing the predicted class: with two classes the recall at the target precision stays the same and only the threshold moves, with more classes it can move a little. With `per_class_report`, `save_temperature_explorer()` writes `temperature_explorer.html`, a self-contained page whose slider divides the logits by temperatures from 0.5 to 10. For every temperature it shows the histograms of the probability of every class over its images and over the other images, the thresholds and recalls at every target precision (found by this function), the negative log likelihood, the calibration error and the reliability diagram. It also suggests the calibrated temperature, the one of lowest negative log likelihood. Up to 100 classes, `save_class_logits()` writes the logits next to the page, `class_logits.npz`. `scripts/evaluation/serve_temperature_explorer.py` serves the page again from them with the current template and any typed temperature; its **Save Thresholds At This Temperature** button writes `saved_temperature_thresholds.json` next to the page, in the format of this file (`build_class_thresholds_file()`), with the chosen temperature and the thresholds found at it by `compute_temperature_thresholds()`, and its **Export** button exports the classifier with that temperature and these thresholds into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/` (`explorer_export.py`), as `export_model.py` does with `use_saved_temperature`.
+The probabilities are the softmax of the class logits, a temperature of 1 recorded as `logit_temperature` in the file. A cross-entropy classifier is often overconfident, its probabilities squeezed against 1, so that its thresholds end up at 0.999 or above. A temperature above 1 spreads them without changing the predicted class: with two classes the recall at the target precision stays the same and only the threshold moves, with more classes it can move a little. With `per_class_report`, `save_temperature_explorer()` writes `temperature_explorer.html`, a self-contained page whose slider divides the logits by temperatures from 0.5 to 10. For every temperature it shows the histograms of the probability of every class over its images and over the other images, the thresholds and recalls at every target precision (found by this function), the negative log likelihood, the calibration error and the reliability diagram. It also suggests the calibrated temperature, the one of lowest negative log likelihood, added to the temperatures of the slider. The page draws at most 100 classes, those of the lowest F1 first. Up to 100 classes, `save_class_logits()` writes the logits next to the page, `class_logits.npz`, with everything the page is built from.
+
+So that a temperature reaches the deployment, `scripts/evaluation/serve_temperature_explorer.py` (`uv run python -m scripts.evaluation.serve_temperature_explorer`) serves the evaluations of the folders of the repository root whose name holds `experiments`, its index at `http://127.0.0.1:8091/` listing their run, iteration, weights, temperatures, saved temperature and exports. Every page is built again with the current template: from `class_logits.npz`, any temperature from 0.05 to 100 can be typed (`check_logit_temperature()`, the range of the calibrated temperature); an evaluation without it offers the temperatures of its slider only (`Grid only` in the index), and a page written before the save button must be evaluated again. The **Save Thresholds At This Temperature** button writes `saved_temperature_thresholds.json` next to the page, in the format of this file (`build_class_thresholds_file()`), with the chosen temperature and the thresholds of every class found at it by `compute_temperature_thresholds()`, checked against `class_thresholds.json` (`check_saved_thresholds()`). The **Export At T = …** button exports the checkpoint at the saved temperature, with the formats, Triton version, maximum batch size and TensorRT precision chosen on the page (those of the main block of `export_model.py` shown first), in a separate process whose console output the page shows; one export runs at a time, and saving is refused while that checkpoint is exported. `explorer_export.py` writes the export into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository of its own, through a `.partial` folder holding its job and `export_log.txt`, then adds `export_record.json`; the finished folder replaces an earlier export of the same temperature. The export is `export_experiment()` with `use_saved_temperature` and `saved_thresholds_path`, which `check_saved_thresholds_location()` checks to be the evaluation of the exported run, iteration and weights. Opened as a plain file, the page downloads the saved file instead, which `export_model.py` reads with `use_saved_temperature` once it is placed next to the page.
 
 **Example: `Evaluation/Iteration_6/class_thresholds.json`** (only `hexagon` reaches it, with a single image)
 ```text
@@ -1722,7 +1764,7 @@ Precision/square, Recall/square, F1/square, Precision/circle, ... , F1/octagon  
 With the curves, the README run writes 45 per-class scalars (9 classes x 5 metrics): `Precision/square`, `Recall/square`, `F1/square`, `ROC AUC/square`, `Average Precision/square`, `Precision/circle`, ...
 
 ### Step 4.18 — `report_evaluation()` → `report_evaluation_results()`
-This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC and precision-recall curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the tables, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
+This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC, precision-recall and threshold curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the tables, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
 
 **Example output: the block of iteration 6** (the same text, without the links, is appended to `Results.txt`; recorded before the curves, see the block of the README run below for the current layout)
 ```text
@@ -1756,7 +1798,7 @@ Iteration 6 · 5000 Test Images · 2026-10-09 09:53 ─────────�
   - Sample Images : file:///.../Evaluation/Iteration_6/Samples
 ```
 
-**Example output: the block of iteration 1500 of the README run**, in the current layout (its `Results.txt`, then the links the console prints after it, shown by their names; the error images were off)
+**Example output: the block of iteration 1500 of the README run**, recorded on 2026-10-23 (its `Results.txt`, then the links the console prints after it, shown by their names; the error images were off). The current evaluation also prints the `Per Class Recall` table after `Per Class Metrics` and the links `Precision Recall Thresholds Image`, `Temperature Explorer` and `Class Logits`.
 ```text
 Iteration 1500 · 50000 Test Images · 2026-10-23 02:38 ──────────────────────────────────────────────────────────────────
   Accuracy        0.8273   Balanced Accuracy         0.8264
@@ -1808,7 +1850,7 @@ Tensorboard/Test: 31 scalars (4 global + 27 per class), 9 images
 The `Tensorboard/Test` of the README run holds 51 scalars (6 global + 45 per class) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`), at the steps 500, 1000 and 1500, and its evaluation folders also hold `roc_curves.png` and `precision_recall_curves.png`.
 
 ### Step 4.19 — `track_evaluation()`
-With the MLflow tracking on, this sends the evaluation to the MLflow run at the iteration of the checkpoint: the global scalars as `test/<name>`, the per-class scalars as `test_class/<name>` only with `per_class_report` (they would be thousands for 1000 classes), the best value so far of the headline metric as `test/best_<metric>` with the tag `best_iteration` (for the averaged weights `test_ema/best_<metric>` with the tag `best_iteration_test_ema`), and the small evaluation files (`TRACKED_EVALUATION_FILES` of `base_trainer.py`: `class_metrics.csv` and `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png`) under `evaluation/iteration_<n>/` (`evaluation/iteration_<n>/ema/` for the averaged weights). The predictions, the error images and the sample images grow with the test split, so they stay in the run folder only. Without tracking it does nothing. The example below was recorded before the curves.
+With the MLflow tracking on, this sends the evaluation to the MLflow run at the iteration of the checkpoint: the global scalars as `test/<name>`, the per-class scalars as `test_class/<name>` only with `per_class_report` (they would be thousands for 1000 classes), the best value so far of the headline metric as `test/best_<metric>` with the tag `best_iteration` (for the averaged weights `test_ema/best_<metric>` with the tag `best_iteration_test_ema`), and the small evaluation files (`TRACKED_EVALUATION_FILES` of `base_trainer.py`: `class_metrics.csv` and `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png`) under `evaluation/iteration_<n>/` (`evaluation/iteration_<n>/ema/` for the averaged weights). The predictions, the error images and the sample images grow with the test split, so they stay in the run folder only. Without tracking it does nothing. The example below was recorded before the curves.
 
 **Example: what MLflow received at iteration 6**
 ```text
@@ -1838,9 +1880,11 @@ This separate script evaluates checkpoints of a run that has already been traine
 | `batch_size` | batch size of the evaluation, `128` by default (no gradient is kept, so it can be larger than the training one), `None` to keep the one of the run |
 | `track_evaluation` | `True` or `False` to track the evaluation in an MLflow run of its own, `None` to keep `tracking.activated` of the run |
 | `maximum_error_images_per_class_pair` | turns the error images on with at most this number of images per pair of true and predicted classes, the first ones met, a number above the number of test samples saving every error; `None` to keep `evaluation.error_dumps` of the run |
+| `target_precisions` | the precision of the class thresholds, or a list of distinct precisions whose first one is the main target (e.g. `[0.99, 0.95, 0.90]`, Step 4.13), checked like the configuration (`apply_target_precisions()`); `None` to keep `evaluation.target_precision` of the run |
+| `nms_criterion`, `nms_distance_exponent` | the final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
 
 ### Step 5.2 — `load_experiment_configuration()` + `get_trainer_class()` + trainer construction (same as Stages 1–2)
-The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks), the label dictionary being read from the `label_dictionary.json` saved next to it, so that the classes of the run keep their meaning when the mapping file was edited or moved since (a run started before the file existed takes the mapping file). It then sets `test_data_folder`, `batch_size`, `tracking.activated` and `evaluation.error_dumps` (turned on with `maximum_error_images_per_class_pair`) when they are given, and points the trainer to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()`: `experiment_folder` becomes the folder holding the run, `run_name` the name of the evaluated run folder (the trainer otherwise builds the name from the settings, which lose the `PT` tokens once the transfer is turned off) and `standalone_evaluation_folder` is set to `Checkpoint_Evaluation`, so that the trainer writes in `<run>/Checkpoint_Evaluation/`, with its iteration folders directly in it, and creates no `Weights/` folder. It finally calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates `<run>/Checkpoint_Evaluation/` with its copy of the configuration, `data.json` and `label_dictionary.json`. The trainer keeps a `DisabledTracker` until Step 5.4.
+The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks), the label dictionary being read from the `label_dictionary.json` saved next to it, so that the classes of the run keep their meaning when the mapping file was edited or moved since (a run started before the file existed takes the mapping file). It then sets `test_data_folder`, `batch_size`, `tracking.activated`, `evaluation.error_dumps` (turned on with `maximum_error_images_per_class_pair`) and `evaluation.target_precision` (`target_precisions`) when they are given, and points the trainer to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()`: `experiment_folder` becomes the folder holding the run, `run_name` the name of the evaluated run folder (the trainer otherwise builds the name from the settings, which lose the `PT` tokens once the transfer is turned off) and `standalone_evaluation_folder` is set to `Checkpoint_Evaluation`, so that the trainer writes in `<run>/Checkpoint_Evaluation/`, with its iteration folders directly in it, and creates no `Weights/` folder. It finally calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates `<run>/Checkpoint_Evaluation/` with its copy of the configuration, `data.json` and `label_dictionary.json`. The trainer keeps a `DisabledTracker` until Step 5.4.
 
 **Example output:** the construction prints the launch panel of Step 2.22 with the evaluation folder. The evaluation folder holds no weights, so no model is loaded here: the weights are loaded by Step 5.5.
 ```text
@@ -1885,10 +1929,10 @@ metrics:  test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-2 Accur
 artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3 files each), evaluation_summary.csv,
            metric_names.json
 ```
-`test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric (`bug_standards.md` B15, dropped). These artifacts also predate the curves, which add `roc_curves.png` and `precision_recall_curves.png` to every `evaluation/iteration_<n>/` with `per_class_report`.
+`test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric (`bug_standards.md` B15, dropped). These artifacts also predate the curves, which add `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to every `evaluation/iteration_<n>/` with `per_class_report`.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_00000N.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Checkpoint_Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Checkpoint_Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
 
 **Example output** (after the four evaluations)
 ```text
@@ -1904,7 +1948,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/square,Re
 ```
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
-This is exactly the function of Stage 4, so a checkpoint evaluated here gives the same block in the console and in `Results.txt`, the same TensorBoard curves (`Tensorboard/Test`), the same sample images and the same evaluation files (`Iteration_N/`, as in `Evaluation/` during the training) as during the training, only in `<run>/Checkpoint_Evaluation/`, on the split chosen in the script, and tracked in the MLflow run of the evaluation. The evaluation folder is the same whatever the evaluated split, so evaluating the same run twice reuses it: `Results.txt` receives new blocks, the files of the `Iteration_N` folders are rewritten and the error images of both evaluations end up in the same `Errors/` folders (`bug_standards.md` B19).
+This is exactly the function of Stage 4, so a checkpoint evaluated here gives the same block in the console and in `Results.txt`, the same TensorBoard curves (`Tensorboard/Test`), the same sample images and the same evaluation files (`Iteration_N/`, as in `Evaluation/` during the training) as during the training, only in `<run>/Checkpoint_Evaluation/`, on the split chosen in the script, and tracked in the MLflow run of the evaluation. The evaluation folder is the same whatever the evaluated split, so evaluating the same run twice reuses it: `Results.txt` receives new blocks, the files of the `Iteration_N` folders are rewritten and the error images of both evaluations end up in the same `Errors/` folders (`bug_standards.md` B19). With `per_class_report`, a classifier evaluated here also gets its `temperature_explorer.html` and `class_logits.npz`, which `serve_temperature_explorer.py` lists with those of the training (Step 4.13): the thresholds saved on its page land in this `Iteration_N` folder, one of the two folders where `export_model.py` looks for them with `use_saved_temperature` (`find_saved_thresholds_path()`, which refuses the export when both `Evaluation/` and `Checkpoint_Evaluation/` hold a saved file for the checkpoint). The tree below was recorded before the curves and the temperature explorer.
 
 **Example output: the block of the checkpoint of iteration 9 on the 300 images** (the console prints the same links as in Step 4.18, then the next checkpoint starts with its `Evaluating :` line)
 ```text

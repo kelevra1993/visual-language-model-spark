@@ -4,10 +4,10 @@ This document follows one frame selection run (SEL: in every whole sequence, the
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training. The synthetic dataset of the configuration, `synthetic_selected_shapes`, was not on this machine when they were recorded (it was generated on 2026-10-21 for the README screenshot run, with the settings of the main block of the generator: 2,000 training, 200 validation and 200 test sequences of 4 to 12 frames of 256 pixels), so a small one was generated in a temporary folder with `create_synthetic_dataset(task="frame_selection")`: 500 training, 60 validation and 60 test sequences of 4 to 12 frames of 128 pixels, every sequence holding one frame of each of the 3 wanted classes (`circle`, `triangle`, `star`), its other frames being `unselected`. The data folders and the mapping file of the configuration were redirected to it.
 - **Stages 1 and 2**: `configurations/frame_selection/configuration_synthetic_sequences.yaml` (a maximum sequence length of 50 frames, 256 pixel frames, batch size 16, a bidirectional GRU, Hungarian decoding, one frame per class, selection loss weight 1), with the run folder redirected to a temporary folder.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network gives the most probability to `unselected` on every frame and almost the same probabilities to all the frames of a sequence, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (then a setting; every loader now has 1), with the error images and the MLflow tracking turned on. After 12 iterations the network gives the most probability to `unselected` on every frame and almost the same probabilities to all the frames of a sequence, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Read This First
-The frame selector chooses, in every whole sequence, exactly `Selection.frames_per_class` frames for every wanted class, every class of the label mapping except `Selection.unselected_category` being wanted. Its network is the sequence labeller (`sequence_labelling_workflow.md`): one probability vector per frame over the wanted classes and the unselected class, trained with the per-frame cross entropy plus a selection loss in which the frames of a sequence compete for every wanted class. The frames are then chosen from these probabilities by the Hungarian assignment or a greedy rule, both scored at every evaluation, the one of `Selection.decoding` being drawn, giving the confidence thresholds and run by the deployed decoder. Choose it rather than the sequence labelling (M2M) when every sequence must give a fixed number of frames of every class and the right frame depends on the other frames of its sequence (the sharpest view of each side of an object among the photos of a visit, in the README); choose M2M when every frame has a class of its own, any number of frames possibly holding it.
+The frame selector chooses, in every whole sequence, exactly `Selection.frames_per_class` frames for every wanted class, every class of the label mapping except `Selection.unselected_category` being wanted. Its network is the sequence labeller (`sequence_labelling_workflow.md`): one probability vector per frame over the wanted classes and the unselected class, trained with the per-frame cross entropy plus a selection loss in which the frames of a sequence compete for every wanted class. The frames are then chosen from these probabilities by the Hungarian assignment or a greedy rule, both scored at every evaluation, the one of `Selection.decoding` being drawn, giving the confidence thresholds and run by the deployed decoder. Choose it rather than the sequence labelling (M2M) when every sequence must give a fixed number of frames of every class and the right frame depends on the other frames of its sequence (the sharpest view of each side of an object, the example of the README); choose M2M when every frame has a class of its own, any number of frames possibly holding it.
 
 ### The Task At A Glance
 ```text
@@ -29,7 +29,8 @@ test    probabilities [T, 4] of every sequence ─> hungarian and greedy decodin
         ▼
 Evaluation/Iteration_<n>/   class_thresholds.json   class_metrics.csv   confusion_matrix.csv .png (decoded frames)
                             selections.csv   Samples/<sequence>.png   Errors/<CLASS>/<sequence>.png
-export  frame_selector_<format>: images [B, T, 3, 256, 256] ─> class_probabilities [B, T, 4]
+export  frame_selector_<format>: images [B, T, 3, 256, 256] ─> class_probabilities [B, T, 4], with preprocessing.json
+        (and the ONNX metadata): the input contract, keep_ratio 256 linear, padding 0 centred, BGR, 0-255, NTCHW
         frame_selector_decoder (Python backend, CPU) ─> selected_frames, selected_probabilities, low_confidence,
         candidate_frames, candidate_probabilities; frame_selector_<format>_ensemble chains both
 ```
@@ -46,7 +47,7 @@ export  frame_selector_<format>: images [B, T, 3, 256, 256] ─> class_probabili
 | Metrics and images | `vision_training/evaluation/sequence/frame_selection_metrics.py`, `vision_training/utilities/visualization.py` | `compute_selection_metrics`, `compute_ranking_metrics`, `find_selection_thresholds`, `build_frame_selection_image`; `compute_bootstrap_recall_intervals` and `build_recall_interval_table` of `vision_training/evaluation/recall_intervals.py` |
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_frame_selection_configuration`, `check_selection_configuration` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_selection_sequence`, `SELECTION_CATEGORIES` |
-| Export and deployment | `vision_training/deployment/export_model.py`, `frame_selection_deployment.py`, `frame_selection_decoder_backend.py`, `deployment_utilities.py` | `build_decoding_settings`, `export_frame_selection_decoding`, `TritonPythonModel` of the decoder |
+| Export and deployment | `vision_training/deployment/export_model.py`, `frame_selection_deployment.py`, `frame_selection_decoder_backend.py`, `deployment_utilities.py`, `input_contract.py` | `build_decoding_settings`, `export_frame_selection_decoding`, `TritonPythonModel` of the decoder, `build_input_contract`, `write_preprocessing_file` |
 
 ### Run It
 ```bash
@@ -59,12 +60,13 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml"
 
 # Evaluation of the checkpoints of a run: set run_name, experiment_folder, iteration (None, a number or "all"),
-# test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair in its main block; it writes
-# in <run>/Checkpoint_Evaluation/
+# test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and target_precisions (None
+# or a single number, a list being refused for this task) in its main block; it writes in
+# <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # Export with the decoder and the ensembles: set experiment_folder, iteration, use_averaged_weights, formats,
-# maximum_batch_size and tensorrt_precision in its main block
+# maximum_batch_size and tensorrt_precision in its main block, use_saved_temperature staying False (classification only)
 uv run python -m vision_training.deployment.export_model
 ```
 
@@ -90,10 +92,10 @@ uv run python -m vision_training.deployment.export_model
 - `data.json` counts the frames of every class, the frames of unmapped categories with the unselected class.
 
 ### Pitfalls
-- Every sequence must hold exactly `frames_per_class` frames of every wanted class, otherwise the training stops at startup with the list of the first 20 such sequences (Step 2.8, `describe_selection_problem()`); a wanted class left out of the label mapping turns its frames into unselected ones (README, Frame Selection; `SequenceDataset`).
+- Every sequence must hold exactly `frames_per_class` frames of every wanted class, otherwise the training stops at startup with the list of the first 20 such sequences (Step 2.8, `describe_selection_problem()`); a wanted class left out of the label mapping turns its frames into unselected ones (`SequenceDataset`).
 - The Hungarian decoding maximises the probability of the whole labelling, not the number of right frames: on the 20 sequences of Stage 5, the checkpoint of iteration 3 gets 3 true triangle frames with the greedy decoding and 1 with the Hungarian one (Step 5.6). The best checkpoint, the thresholds and the deployment follow `Selection.decoding` only.
-- Tied probabilities give every tied frame the best rank, so a model giving the same probabilities to every frame scores a Top-k Selection Accuracy and a Mean True Frame Rank of 1.0 (`bug_standards.md` B52, dropped; `compute_frame_ranks()`).
-- A class never reaching `target_precision` gets a `null` threshold, every frame chosen for it being flagged low confidence (Step 4.14). A checkpoint exported without its evaluation folder gets thresholds of 0, so nothing is flagged, and `decoding_settings.json` names its wanted classes by their indices (`build_decoding_settings()`); an export of the averaged weights reads the thresholds of the trained weights (`bug_standards.md` B17, dropped).
+- Tied probabilities give every tied frame the best rank, so a model giving the same probabilities to every frame scores a Top-k Selection Accuracy and a Mean True Frame Rank of 1.0 (`compute_frame_ranks()`, kept as it is).
+- A class never reaching `target_precision` gets a `null` threshold, every frame chosen for it being flagged low confidence (Step 4.14). A checkpoint exported without its evaluation folder gets thresholds of 0, so no chosen frame is flagged, and `decoding_settings.json` names its wanted classes by their indices (`build_decoding_settings()`); an export of the averaged weights reads the thresholds of the trained weights (`Evaluation/Iteration_<n>/class_thresholds.json`, not those of its `EMA` subfolder), a limit kept as it is.
 - The synthetic configuration is solved quickly: the README screenshot run reaches a Hungarian selection accuracy of 0.9950 at iteration 1000 and 1.0000 at iteration 2000, so its sample images show no wrong choice (`suggestions.md` K34). Its 3 wrong choices of iteration 1000 are triangles (`selections.csv`: `test_000004`, `test_000134`, `test_000052`), the last one chosen at 0.4446, above the triangle threshold of 0.1830, so not flagged.
 - The exported network has no sequence mask: the sequences of one request must have the same number of frames, from 1 to `maximum_sequence_length` (`InferenceSequenceModel`, README Deployment), and the decoding runs in the Python backend on the CPU, after the network.
 
@@ -122,7 +124,8 @@ main()
 │   └── check_configuration()
 │       ├── common checks
 │       └── check_frame_selection_configuration()
-│               ├── the data, head and evaluation checks of the classification
+│               ├── the data, head and evaluation checks of the classification, a single target_precision
+│               ├── evaluation.top_k                      a positive integer
 │               ├── check_sequence_settings()             maximum_sequence_length: a positive integer, the
 │               │                                         longest sequence fed whole
 │               ├── check_temporal_model_configuration()  an ordered module only (GRU, LSTM, transformer, temporal
@@ -260,7 +263,7 @@ dict: {1: 0, 2: 1, 3: 2, 4: 3}       <- categories unselected, circle, triangle,
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_frame_selection_configuration()`: the checks of the sequence labelling, `Data.sequence_settings` taking only `maximum_sequence_length` as for every sequence task, then `check_selection_configuration()` checks the `Selection` section. Whether the unselected category is in the manifests is checked later, by the dataset (Step 2.8).
+The common checks run first, then `check_frame_selection_configuration()`: the checks of the sequence labelling, `Data.sequence_settings` taking only `maximum_sequence_length` as for every sequence task, with a single `evaluation.target_precision` (a list is refused, the deployed decoder keeping one threshold per class) and a positive integer `evaluation.top_k`, then `check_selection_configuration()` checks the `Selection` section. Whether the unselected category is in the manifests is checked later, by the dataset (Step 2.8).
 
 **Example: output with `Selection.decoding: "beam"` and `Selection.selection_loss_weight: -1.0` in the YAML**
 ```text
@@ -341,8 +344,9 @@ SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_F
 ├── Tensorboard/
 ├── Weights/
 ├── label_dictionary.json          50 bytes       the class index of every category of the run
-└── training_configuration.yaml    32,832 bytes   the copy of the launched configuration file, comments included
+└── training_configuration.yaml    19,287 bytes   the copy of the launched configuration file, comments included
 ```
+The size of `training_configuration.yaml` is the one of the configuration file on 2026-11-12, its comments shortened and its fixed settings removed since the record.
 
 ### Step 2.7 — `build_dataloaders()` → `get_sequence_dataloaders(label_type="selection")` + `save_data_record()`
 The loaders of the sequence labelling, every dataset receiving the `Selection` section. The trainer then reads the unselected class of the three datasets, which must be the same, and lists the wanted classes (`get_wanted_class_indices()`: every class but the unselected one, in class order), the rows of every selection of the evaluation. Right after the loaders, `check_loaders_give_batches()` refuses a split whose loader gives no batch; the training loader leaves out its last incomplete batch only with a batch normalized classification head (`sequence_classification_workflow.md`, Step 2.8), which is not the case here. Then `save_data_record()` writes `data.json` next to the configuration: the classes with their frames in every split, the frames of the categories the label mapping leaves out being counted in the unselected class, as the loaders give them (`get_unmapped_class_index()`), and for every split its data folder, the SHA-256 of its `labels.json` and its frames.
@@ -604,7 +608,7 @@ Accuracy             1: 0.6364, 2: 0.6364, 3: 0.6250, 4: 0.6250, 5: 0.5556, 6: 0
 The total loss of iteration 1 is 1.3489 + 2.0299 = 3.3788. Over the 12 iterations the classification loss goes down from 1.3489 to 0.9288, while the selection loss stays between 1.8282 and 2.2086.
 
 ### Step 3.13 — `training_loss.backward()` + `step_optimizer()` + validation pass
-**Example output**
+**Example: the norm of the gradients of the first steps, measured for this document and applied as they are, the learning rate and the validation batch**
 ```text
 gradient norm: iteration 1: 1.0351   iteration 2: 0.9668   iteration 3: 0.839        learning rate 0.001 (constant)
 Tensorboard/Validation at iteration 10: Total Loss 3.3946, Classification Loss 1.2079, Selection Loss 2.1867, Accuracy 0.6667

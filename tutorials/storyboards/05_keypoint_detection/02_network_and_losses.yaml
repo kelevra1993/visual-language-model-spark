@@ -177,7 +177,7 @@ scenes:
         value_width: 110
         appear: 2
     narration:
-      - "On the test image with every cell at the prior of {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}}, each of the {{keypoint_detection.loss_positive_cells}} key point cells costs {{keypoint_detection.loss_prior_stride_4_keypoint_cells:.2f}} at each stride, while the other {{keypoint_detection.loss_cells_stride_4:,}} cells of stride {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}} add only {{keypoint_detection.loss_prior_stride_4_other_cells:.2f}}."
+      - "On the test image with every cell at the prior of {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}}, each of the {{keypoint_detection.loss_positive_cells}} key point cells costs {{keypoint_detection.loss_prior_stride_4_keypoint_cells:.2f}} at each stride, while all the other cells of the {{keypoint_detection.loss_cells_stride_4:,}} of stride {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}} add only {{keypoint_detection.loss_prior_stride_4_other_cells:.2f}}."
       - "That is the point of the prior: millions of empty cells start almost free, and the gradient goes to the few cells that matter."
       - "With the trained weights of iteration {{keypoint_detection.checkpoint_iteration}}, the heat map loss of this image falls to {{keypoint_detection.loss_trained_total:.2f}}."
 

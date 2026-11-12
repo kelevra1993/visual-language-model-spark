@@ -55,7 +55,7 @@ scenes:
     narration:
       - "Suppose the class needs several frames, as in the synthetic moving shapes, where one shape moves left, right, up or down and no single frame shows the direction: choose this task."
       - "Take the image classifier when one image carries the class, the sequence labeller or the frame selector when the answer is per frame, and the comparator when a before and an after sequence are compared."
-      - "Its trainer extends the image classification trainer: the loss, the batch accuracy and the whole evaluation are those of the classification, computed on sequences."
+      - "Its trainer extends the image classification trainer: the loss, the batch accuracy and the evaluation are those of the classification, computed on sequences."
 
   - kind: html
     page: diagram
@@ -117,7 +117,7 @@ scenes:
       - {match: "random_left_right_flip", sentences: [3]}
       - {match: "independent_frames|shuffle_frames", sentences: [4]}
     narration:
-      - "The task adds the sequence settings, the temporal module and the frame pooling of the head to a classification configuration."
+      - "The task adds the sequence settings and the temporal module to a classification configuration, the global pooling of its head now turning every frame into a vector."
       - "The maximum sequence length, {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#Data.sequence_settings.maximum_sequence_length}} here, is the longest sequence a run accepts, and the number of learned frame positions of a transformer."
       - "The frames are read at {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#Data.image_settings.size}} pixels, and the flatten pooling keeps the whole last feature map of every frame: the next chapter shows why this run needs it."
       - "The augmentation draws once per sequence, so all its frames share the same crop, rotation and colour change; the flips stay off, since a mirrored movement keeps its label but reverses its direction."

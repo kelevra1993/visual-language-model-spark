@@ -59,7 +59,7 @@ scenes:
       - {type: arrow, points: [[1170, 140], [1260, 405]], colour: violet, appear: 3}
       - {type: arrow, points: [[1175, 460], [1215, 460]], colour: violet, appear: 3}
     narration:
-      - "Every iteration takes one batch prefetched by the loader workers, augments it on the GPU, and runs the forward pass in bfloat16, the mixed precision of every run."
+      - "Every iteration takes one batch prefetched by the worker of the training loader, augments it on the GPU, and runs the forward pass in bfloat16, the mixed precision of every run."
       - "The task trainer returns its losses and batch metrics, the backward pass follows, then one optimizer step: the learning rate of the schedule, and the moving average of the weights when it is on."
       - "Every validation ratio iterations, one validation batch goes through the model without augmentation and without any update, for the validation curves."
       - "Every value goes to the metric tracker, which writes it to TensorBoard at every iteration and averages it over the interval for the console."

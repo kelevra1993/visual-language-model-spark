@@ -20,6 +20,7 @@ references:
   - "vision_training/models/keypoints/inference_keypoint_detector.py · InferenceKeypointDetector"
   - "vision_training/deployment/export_specifications.py · compare_keypoints"
   - "vision_training/deployment/deployment_utilities.py · load_inference_inputs"
+  - "vision_training/deployment/input_contract.py · write_preprocessing_file"
   - "documentation/bug_standards.md"
 scenes:
   - kind: title_card
@@ -89,7 +90,7 @@ scenes:
       - "The grouping runs on the CPU, class by class: the candidates of the first key point of the class start one object each."
       - "The candidates of every next key point are matched to the objects so far by the Hungarian method, the cost being the tag distance to the mean tag of the object rounded to whole units, times {{constant:vision_training/models/keypoints/keypoint_grouping.py#TAG_DISTANCE_COST:.0f}}, minus the score."
       - "The {{keypoint_detection.grouping_capsule_objects:words}} capsules have mean tags only {{keypoint_detection.tags_same_class_distance:.2f}} apart, so every rounded distance is zero, both assignments cost the same, and the candidates go to the objects in the order of their scores: {{keypoint_detection.grouping_exchanged_count}} key points join the other capsule."
-      - "An object scores the sum of its key point scores over the key points of its class; the evaluation keeps every object, the sample images and the deployment those scoring above {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.object_score_threshold}}."
+      - "An object scores the sum of its key point scores over the key points of its class; the evaluation keeps every object, the sample images and the deployment those scoring at least {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.object_score_threshold}}."
 
   - kind: image
     title: "The sample image of the evaluation"
@@ -120,16 +121,16 @@ scenes:
         y_range: [0, 1]
         x_ticks: [{value: 0, label: "0"}, {value: 10, label: "10"}, {value: 20, label: "20"}, {value: 30, label: "30"}]
         y_ticks: [{value: 0.5, label: "0.5"}, {value: 1.0, label: "1.0"}]
-        x_label: "distance of one key point to its ground truth, pixels"
+        x_label: "distance of every key point to its ground truth, pixels"
         y_label: "OKS"
         appear: 1
       - {type: text, position: [1300, 200], text: "trapezoid, area {{keypoint_detection.oks_trapezoid_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_trapezoid_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_trapezoid_pck_tolerance:.2f}} px", font: diagram_small, colour: blue, appear: 1}
       - {type: text, position: [1300, 360], text: "capsule, area {{keypoint_detection.oks_capsule_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_capsule_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_capsule_pck_tolerance:.2f}} px", font: diagram_small, colour: aqua, appear: 1}
-      - {type: box, box: [80, 655, 1680, 725], text: "a labelled key point not found counts 0: half the key points missing never reaches OKS 0.5", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [80, 655, 1680, 725], text: "a labelled key point not found counts 0: half the key points missing caps the OKS at 0.5", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
     narration:
       - "An object found is scored against the ground truth objects of its class with the COCO object key point similarity, which replaces the box IOU of detection."
-      - "With the default sigma of {{keypoint_detection.oks_default_sigma:.3g}}, a key point about {{keypoint_detection.oks_trapezoid_half_distance:.0f}} pixels away brings the similarity down to one half on the trapezoid, but only about {{keypoint_detection.oks_capsule_half_distance:.0f}} pixels away on the smaller capsule."
-      - "A labelled key point that was not found counts zero, so an object missing half its key points never reaches an OKS of one half."
+      - "With the default sigma of {{keypoint_detection.oks_default_sigma:.3g}}, key points about {{keypoint_detection.oks_trapezoid_half_distance:.0f}} pixels away bring the similarity down to one half on the trapezoid, but only about {{keypoint_detection.oks_capsule_half_distance:.0f}} pixels away on the smaller capsule."
+      - "A labelled key point that was not found counts zero, so an object missing half its key points has an OKS of one half at most, only with the others exact."
 
   - kind: html
     page: diagram
@@ -158,7 +159,7 @@ scenes:
           - {row: 6, column: 4, sentences: [3]}
       - {type: text, position: [330, 640], text: "{{keypoint_detection.metrics_test_images}} test images, {{keypoint_detection.metrics_test_objects:,}} objects with key points · mean error at {{keypoint_detection.checkpoint_iteration}}: {{keypoint_detection.metrics_trained_6000_error:.2f}} px", font: diagram_small, colour: dim}
     narration:
-      - "Every evaluation runs on {{keypoint_detection.metrics_test_images}} test images holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
+      - "Every evaluation of this run covers the first {{keypoint_detection.metrics_test_images}} test images, holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
       - "From iteration {{keypoint_detection.metrics_first_iteration}} to {{keypoint_detection.checkpoint_iteration}}, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:.2f}} to {{keypoint_detection.metrics_trained_6000_map_0_5:.2f}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:.2f}} to {{keypoint_detection.metrics_trained_6000_map_0_95:.2f}}."
       - "At iteration {{keypoint_detection.metrics_first_iteration}} the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:.2f}} at 0.95; by {{keypoint_detection.checkpoint_iteration}} they are within a hundredth of the trained weights."
       - "This run was scored before a match needed an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}, when a ground truth matched any object with an OKS above zero, so {{keypoint_detection.metrics_trained_6000_matched:.2%}} matched sits next to a mean error of {{keypoint_detection.metrics_trained_6000_error:.1f}} pixels."
@@ -187,7 +188,8 @@ scenes:
       - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
-      - "To reproduce it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration set to {{keypoint_detection.run_iterations}} iterations and a cosine decay over {{keypoint_detection.run_decay_iterations}}."
+      - "To train a run like it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration set to {{keypoint_detection.run_iterations}} iterations and a cosine decay over {{keypoint_detection.run_decay_iterations}}."
+      - "The run shown predates the current augmentation probabilities and the haze, which the configuration now turns on."
       - "The evaluation script skips its maximum error images per class pair with a yellow warning, key point detection saving no error images."
       - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
 
@@ -205,10 +207,12 @@ scenes:
       - {type: text, position: [875, 140], text: "candidate_positions  [B, {{keypoint_detection.channels_total}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}}, 2]\ncandidate_scores     [B, {{keypoint_detection.channels_total}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}}]\ncandidate_tags       [B, {{keypoint_detection.channels_total}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}}]", font: diagram_monospace}
       - {type: arrow, points: [[1200, 270], [1200, 350]], colour: aqua, appear: 1}
       - {type: box, box: [660, 360, 1740, 510], text: "client: group_keypoint_candidates (NumPy, SciPy)\nwith the channel table rebuilt from the training labels.json", font: diagram_text, outline: aqua, appear: 1, highlight: [1]}
-      - {type: box, box: [40, 560, 1740, 700], text: "export check: compare_keypoints pairs the candidates by position, not by rank\n(a cell tied with its neighbour can become a local maximum in one runtime only)", font: diagram_text, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 360, 610, 510], text: "preprocessing.json and ONNX metadata:\ncolour order, resize, size, padding,\nlayout and value range of the run", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 560, 1740, 700], text: "export check: compare_keypoints pairs the candidates by position, not by rank\n(a cell tied with its neighbour can become a local maximum in one runtime only)", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "The exported network stops at the candidates: the positions, scores and tags of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}} candidates per channel, served by Triton as Torch Script or ONNX."
       - "Imagine a client receiving these outputs: it groups them with the same function, rebuilding the channel table from the categories of the training labels, since the export writes no channel names."
+      - "So that the client resizes and pads its photos as the data loaders did, the export writes the colour order, resize, size, padding, layout and value range of the run in a preprocessing file next to the model and in the ONNX metadata."
       - "The export check pairs the candidates by position rather than by rank: a cell tied with its neighbour can become a local maximum in one runtime only and shift the ranks."
 
   - kind: summary

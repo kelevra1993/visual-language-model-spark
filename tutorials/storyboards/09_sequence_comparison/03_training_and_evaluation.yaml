@@ -46,6 +46,7 @@ scenes:
       - "Every {{sequence_comparison.run.information_dump}} iterations, the summary gives the pairs per second, and the real frames of both members per second."
       - "The first interval ran at {{sequence_comparison.console.first_throughput}} pairs and {{sequence_comparison.console.first_frame_throughput}} frames per second, in {{sequence_comparison.console.first_interval_time}}; the next ones at {{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second."
       - "At {{sequence_comparison.run.image_size}} pixels a pair costs far more than a sequence of the classifier at {{sequence_comparison.classifier.image_size}} pixels, which ran at more than {{sequence_comparison.classifier.throughput_bound}} sequences per second."
+      - "Both runs predate the bfloat16 mixed precision that every run now uses: they were trained in float32."
 
   - kind: image
     title: "Training curves"
@@ -83,6 +84,7 @@ scenes:
 
   - kind: image
     title: "The evaluation images"
+    code_reference: "vision_training/evaluation/classification/score_curves.py · save_score_curve_images"
     image: "figures:sequence_comparison/evaluation/evaluation_images.png"
     views:
       - {box: "{{sequence_comparison.evaluation.composite.row_0_image_0_box}}", from_sentence: 0}
@@ -90,6 +92,7 @@ scenes:
     narration:
       - "The confusion matrix of iteration {{sequence_comparison.run.iteration:,}}: {{sequence_comparison.errors.count_words}} loss pairs given same, and no same pair given loss."
       - "The ROC and precision-recall curves of both classes stay close to the corner, a macro ROC AUC of {{sequence_comparison.evaluation.macro_roc_auc.iteration_1000:.1%}}, slightly below its {{sequence_comparison.evaluation.macro_roc_auc.iteration_500:.1%}} of iteration {{sequence_comparison.evaluation.iterations[0]:,}}."
+      - "The current evaluation also draws the precision-recall curves zoomed on the threshold of every class, its value written beside it."
 
   - kind: image
     title: "A wrong pair"
@@ -120,7 +123,7 @@ scenes:
     elements:
       - {type: box, box: [40, 40, 860, 230], text: "training and export paths\n2B padded sequences, members alone:\nthe same to {{sequence_comparison.batch.path_difference:.0e}} in evaluation mode", font: diagram_text, outline: yellow, highlight: [0]}
       - {type: box, box: [900, 40, 1720, 230], text: "the dataset on this machine\nmembers of {{sequence_comparison.lengths.minimum_member}} to {{sequence_comparison.lengths.maximum_member}} frames of {{sequence_comparison.dataset.frame_size}} pixels,\nread at {{sequence_comparison.run.image_size}}", font: diagram_text, outline: yellow, highlight: [1]}
-      - {type: box, box: [40, 270, 860, 460], text: "{{sequence_comparison.run.image_size}} pixel pairs\n{{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second", font: diagram_text, outline: yellow, highlight: [1]}
+      - {type: box, box: [40, 270, 860, 460], text: "{{sequence_comparison.run.image_size}} pixel pairs in float32\n{{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second", font: diagram_text, outline: yellow, highlight: [1]}
       - {type: box, box: [900, 270, 1720, 460], text: "Fusion keys\nrequired for every type,\nSNP only with sequence normalization", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [40, 500, 860, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(count_split_pairs)", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [900, 500, 1720, 690], text: "predictions.csv\npair names only,\nrows reshuffled at every evaluation", font: diagram_text, outline: yellow, highlight: [2]}

@@ -92,6 +92,28 @@ def smooth_values(values: numpy.ndarray, weight: float) -> numpy.ndarray:
     return smoothed_values
 
 
+def fit_axis_limits(limits: Tuple[float, float], values: List[numpy.ndarray]) -> Tuple[float, float]:
+    """
+    Widens the value axis of a panel so that every value it draws stays inside: a side of the designed limits is kept
+    when the values of the run stay within it, and moved past the farthest value by a tenth of the designed span
+    otherwise, a margin for the labels above the points, so that a run trained again with other views or for longer
+    never draws outside its panel.
+
+    Args:
+        limits (Tuple[float, float]): The designed bottom and top of the value axis.
+        values (List[numpy.ndarray]): The values drawn in the panel, the reference lines included.
+
+    Returns:
+        Tuple[float, float]: The bottom and top of the value axis.
+    """
+    margin = 0.1 * (limits[1] - limits[0])
+    lowest = min(float(numpy.nanmin(array)) for array in values)
+    highest = max(float(numpy.nanmax(array)) for array in values)
+    bottom = limits[0] if lowest >= limits[0] else lowest - margin
+    top = limits[1] if highest <= limits[1] else highest + margin
+    return bottom, top
+
+
 def draw_reference_line(axes: Any, value: float, label: str, right: float) -> None:
     """
     Draws a dashed horizontal reference of a panel (the loss of random embeddings, a chance level, the spread of
@@ -152,7 +174,11 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
         last_iteration = int(train_iterations[-1])
         style_chart_panel(axes=axes, title=panel["title"], x_label="Iteration", y_label=panel["y_label"])
         axes.set_xlim(left=0, right=last_iteration)
-        axes.set_ylim(bottom=panel["limits"][0], top=panel["limits"][1])
+        reference_value = {"info_nce": references["info_nce"],
+                           "positive_pair_accuracy": references["positive_pair_accuracy"]}.get(panel["name"], 1.0)
+        bottom, top = fit_axis_limits(limits=panel["limits"], values=[train_values, validation_values,
+                                                                      numpy.array([reference_value])])
+        axes.set_ylim(bottom=bottom, top=top)
         axes.set_xticks(ticks=list(range(0, last_iteration + 1, ITERATION_TICK_STEP)))
         axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
 
@@ -233,15 +259,19 @@ def draw_early_validation(output_folder: Path, run_folder: Path) -> Dict[str, An
         axes = figure.add_axes(rect=(0.07 + panel_index * 0.5, 0.14, 0.40, 0.72))
         style_chart_panel(axes=axes, title=title, x_label="Iteration", y_label="Value" if panel_index == 0 else "Loss")
         axes.set_xlim(left=0, right=EARLY_ITERATIONS)
-        axes.set_ylim(bottom=limits[0], top=limits[1])
         axes.set_xticks(ticks=list(range(0, EARLY_ITERATIONS + 1, EARLY_TICK_STEP)))
 
-        # Training values of every iteration and the validation values, raw
+        # Training values of every iteration and the validation values, raw, the value axis holding all of them
         train_iterations, train_values = read_scalars(log_folder=run_folder / "Tensorboard" / "Train", tag=tag)
         validation_iterations, validation_values = read_scalars(log_folder=run_folder / "Tensorboard" /
                                                                 "Validation", tag=tag)
         train_kept = train_iterations <= EARLY_ITERATIONS
         validation_kept = validation_iterations <= EARLY_ITERATIONS
+        drawn_values = [train_values[train_kept], validation_values[validation_kept]]
+        if name == "loss":
+            drawn_values.append(numpy.array([math.log(2 * batch_size - 1)]))
+        bottom, top = fit_axis_limits(limits=limits, values=drawn_values)
+        axes.set_ylim(bottom=bottom, top=top)
         axes.plot(train_iterations[train_kept], train_values[train_kept], color=SERIES_COLOURS[0],
                   linewidth=2 * POINTS_PER_PIXEL, label="training batches (batch statistics)")
         axes.plot(validation_iterations[validation_kept], validation_values[validation_kept], color=SERIES_COLOURS[3],
@@ -268,9 +298,17 @@ def draw_early_validation(output_folder: Path, run_folder: Path) -> Dict[str, An
     _, validation_spreads = read_scalars(log_folder=run_folder / "Tensorboard" / "Validation",
                                          tag="Embedding Standard Deviation")
     at_random = numpy.abs(validation_losses - math.log(2 * batch_size - 1)) < 0.005
+    if not at_random[0]:
+        raise ValueError(f"The first validation loss of {run_folder} is {validation_losses[0]:.4f}, not the "
+                         f"ln({2 * batch_size - 1}) = {math.log(2 * batch_size - 1):.4f} of random embeddings: reword "
+                         f"the first validations scene of the third self-supervised chapter, which says it is.")
     facts["early.validations_at_random"] = int(numpy.argmin(at_random)) if not at_random.all() else len(at_random)
     facts["early.last_iteration_at_random"] = int(validation_iterations[facts["early.validations_at_random"] - 1])
-    facts["early.spread_half_iteration"] = int(validation_iterations[numpy.nonzero(validation_spreads >= 0.5)[0][0]])
+    half_spread_indices = numpy.nonzero(validation_spreads >= 0.5)[0]
+    if len(half_spread_indices) == 0:
+        raise ValueError(f"The validation embedding standard deviation of {run_folder} never reaches 0.5: reword the "
+                         f"first validations scene of the third self-supervised chapter, which says when it does.")
+    facts["early.spread_half_iteration"] = int(validation_iterations[half_spread_indices[0]])
     save_figure(figure=figure, output_path=output_folder / "training" / "early_validation.png")
     pyplot.close(fig=figure)
     return facts

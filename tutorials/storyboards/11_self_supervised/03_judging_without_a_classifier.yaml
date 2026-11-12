@@ -1,9 +1,8 @@
 # Self-supervised learning, chapter 3: how a checkpoint is judged without any classifier (the k-NN of the test images
-# among reference training images, the real neighbourhood of a star of the test split, and the effective rank), the
-# test metrics of the run across its
-# checkpoints, its sample images and nearest images, Results.txt, the batch normalization pitfall of the first
-# validations, the standalone evaluation, the export of the encoder, the transfer of the backbone and the
-# pitfalls of the task. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top
+# among reference training images, the real neighbourhood of a star of the test split among them, and the effective
+# rank), the test metrics of the run across its checkpoints, its sample images and the nearest reference images of the
+# star, Results.txt, the batch normalization pitfall of the first validations, the standalone evaluation, the export of
+# the encoder with its input contract, the transfer of the backbone and the pitfalls of the task. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top
 # left corner); the figures named figures:self_supervised/... are made by tutorials/figures/self_supervised from the
 # SimCLR run of tutorial_sources.yaml (key self_supervised), the sample images read from the run folder itself.
 series: self_supervised
@@ -47,7 +46,7 @@ scenes:
       - {match: "scatter_add_|argmax", sentences: [3]}
     narration:
       - "Every test image is encoded without views, as in deployment, and the representations of the whole split are kept on the CPU until the end: {{self_supervised.results.test_images:,}} here."
-      - "Every labelled test image is then compared by cosine similarity with a fixed sample of labelled training images, encoded by the same weights, never with the other test images."
+      - "Every labelled test image is then compared by cosine similarity with the reference images, at most {{self_supervised.run.number_reference_images_per_class}} labelled training images per class, the same at every evaluation and encoded by the same weights, never with the other test images."
       - "Its {{self_supervised.run.number_neighbours}} nearest training images vote for their class, each weighing the exponential of its similarity over {{self_supervised.knn.temperature}}."
       - "The class with the most weight is the prediction, scored like a classifier with the accuracy, the balanced accuracy, the macro F1 and the metrics of every class; no classifier is ever trained."
 
@@ -60,17 +59,16 @@ scenes:
     # The distance of the layout, square root of 1 - cosine similarity
     literal_numbers: ["1"]
     elements:
-      - {type: text, position: [40, 30], text: "{{self_supervised.knn.query_class}} among the first {{self_supervised.knn.subset_size:,}} test images · iteration {{self_supervised.knn.last_iteration:,}}", font: diagram_bold}
+      - {type: text, position: [40, 30], text: "{{self_supervised.knn.query_class}} among {{self_supervised.knn.reference_count:,}} reference images · iteration {{self_supervised.knn.last_iteration:,}}", font: diagram_bold}
       - {type: text, position: [40, 700], text: "distance from the centre: square root of 1 - cosine similarity to the query", font: diagram_tiny, colour: dim}
       - {type: text, position: [1000, 70], text: "weighted vote of the {{self_supervised.run.number_neighbours}} neighbours", font: diagram_bold, appear: 2}
       - {type: bars, box: [1000, 120, 1720, 600], orientation: horizontal, values: "{{self_supervised.knn.vote_shares}}", labels: "{{self_supervised.knn.vote_labels}}", value_labels: "{{self_supervised.knn.vote_value_labels}}", colours: "{{self_supervised.knn.vote_colours}}", maximum: 1.0, label_width: 170, appear: 2, highlight: [3]}
       - {type: text, position: [1000, 640], text: "prediction: {{self_supervised.knn.query_prediction_last}}", font: diagram_text, colour: accent, appear: 3}
     narration:
-      - "Here is the star of the sample images among the first {{self_supervised.knn.subset_size:,}} test images, encoded by the last checkpoint: every dot is a test image, farther from the centre as its cosine similarity to the star falls."
+      - "Here is the star of the sample images, a test image, with its nearest images among the {{self_supervised.knn.reference_count:,}} reference images of the run, encoded by the last checkpoint: every dot is a training image, farther from the centre as its cosine similarity to the star falls."
       - "Its {{self_supervised.run.number_neighbours}} nearest images fall inside the ring, from a similarity of {{self_supervised.knn.query_nearest_similarity_last:.2f}} down to {{self_supervised.knn.query_last_neighbour_similarity_last:.2f}}, and {{self_supervised.knn.query_same_class_neighbours_last}} of them are stars."
-      - "So close in similarity, they weigh almost the same, the nearest counting {{self_supervised.knn.weight_ratio:.1f}} times the farthest of them, and the vote is close to a count."
-      - "The vote goes to {{self_supervised.knn.query_prediction_last}}: after {{self_supervised.run.number_iterations:,}} iterations, the neighbourhoods are still mixed."
-      - "This run was scored when the vote ran among the test images, as drawn here; the evaluation now draws the neighbours from the training images."
+      - "Each weighs the exponential of its similarity over {{self_supervised.knn.temperature}}, so the nearest counts {{self_supervised.knn.weight_ratio:.1f}} times the farthest of them."
+      - "The vote goes to {{self_supervised.knn.query_prediction_last}}, the class of the largest total weight; the k-NN accuracy is the share of the labelled test images whose vote gives their own class."
 
   - kind: image
     title: "The test metrics of the run"
@@ -83,9 +81,9 @@ scenes:
       - {box: "{{self_supervised.test.effective_rank_panel_box}}", sentences: [1]}
       - {box: "{{self_supervised.test.representation_standard_deviation_panel_box}}", sentences: [2]}
     narration:
-      - "Over the evaluations of the whole test split, the k-NN accuracy rises from {{self_supervised.test.knn_accuracy_first:.1%}} to {{self_supervised.test.knn_accuracy_last:.1%}}, almost twice the chance of one in {{self_supervised.test.class_count}}, and was still rising when the run stopped."
-      - "The effective rank stays near {{self_supervised.test.effective_rank_last:.0f}} of the {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} directions of the representation."
-      - "The spread of the representations falls from {{self_supervised.test.representation_standard_deviation_first:.2f}} to {{self_supervised.test.representation_standard_deviation_last:.2f}} while the rank holds and the accuracy rises: never negative after the ReLU and the pooling, the representations cover only part of the sphere, so read the spread as a trend next to the other two, a collapse driving it towards zero."
+      - "Over the evaluations of the whole test split, the k-NN accuracy goes from {{self_supervised.test.knn_accuracy_first:.1%}} to {{self_supervised.test.knn_accuracy_last:.1%}}, {{self_supervised.test.knn_accuracy_last_over_chance:.1f}} times the chance of one in {{self_supervised.test.class_count}}."
+      - "The effective rank goes from {{self_supervised.test.effective_rank_first:.0f}} to {{self_supervised.test.effective_rank_last:.0f}} of the {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} directions of the representation."
+      - "The spread of the representations goes from {{self_supervised.test.representation_standard_deviation_first:.2f}} to {{self_supervised.test.representation_standard_deviation_last:.2f}}: never negative after the ReLU and the pooling, the representations cover only part of the sphere, so read the spread as a trend next to the other two, a collapse driving it towards zero."
 
   - kind: code
     title: "The effective rank"
@@ -124,8 +122,8 @@ scenes:
     code_reference: "vision_training/models/self_supervised/inference_encoder.py · InferenceEncoder"
     image: "figures:self_supervised/representations/neighbour_mosaic.png"
     narration:
-      - "The {{constant:tutorials/figures/self_supervised/representation_figures.py#MOSAIC_NEIGHBOUR_COUNT:words}} nearest test images of the star, at the first and at the last evaluation, among the same {{self_supervised.knn.subset_size:,}} images."
-      - "At both checkpoints, none of them is a star: octagons, squares, a pentagon, a circle and a hexagon, in red and pink tones close to those of the star, which they share far more than its shape; the colour cue of the previous chapter is still the strongest signal of this short run."
+      - "The {{constant:tutorials/figures/self_supervised/representation_figures.py#MOSAIC_NEIGHBOUR_COUNT:words}} nearest reference images of the star, at the first and at the last evaluation, among the same {{self_supervised.knn.reference_count:,}} training images."
+      - "The stars among them go from {{self_supervised.knn.mosaic_same_class_neighbours_first:words}} to {{self_supervised.knn.mosaic_same_class_neighbours_last:words}}; read the colours of the others too, a neighbour sharing the colour of the star rather than its shape being the colour cue of the previous chapter."
 
   - kind: html
     page: diagram
@@ -144,14 +142,14 @@ scenes:
           - {match: "Labelled Test Images|neighbours among|Sample Images", sentences: [0]}
           - {match: "Per Class|Precision", sentences: [1]}
       - {type: text, position: [1060, 40], text: "k-NN F1 per class · iteration {{self_supervised.results.last_iteration:,}}", font: diagram_bold, appear: 1}
-      - {type: bars, box: [1060, 100, 1720, 600], orientation: horizontal, values: "{{self_supervised.classes.f1_values}}", labels: "{{self_supervised.classes.f1_labels}}", value_labels: "{{self_supervised.classes.f1_value_labels}}", colour: blue, maximum: 0.5, label_width: 160, appear: 1, highlight: [2]}
+      - {type: bars, box: [1060, 100, 1720, 600], orientation: horizontal, values: "{{self_supervised.classes.f1_values}}", labels: "{{self_supervised.classes.f1_labels}}", value_labels: "{{self_supervised.classes.f1_value_labels}}", colour: blue, maximum: "{{self_supervised.classes.f1_bar_maximum}}", label_width: 160, appear: 1, highlight: [2]}
       - {type: text, position: [1060, 650], text: "class_metrics.csv: the same metrics in class order", font: diagram_small, colour: dim, appear: 1}
-      - {type: text, position: [1060, 690], text: "newer evaluations: k-NN recall with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval", font: diagram_small, colour: dim, appear: 3, highlight: [3]}
+      - {type: text, position: [1060, 690], text: "then: k-NN recall with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval", font: diagram_small, colour: dim, appear: 3, highlight: [3]}
     narration:
-      - "Results.txt keeps one block per evaluation: the five global metrics, the labelled test images, the number of neighbours and the sample images."
+      - "Results.txt keeps one block per evaluation: the five global metrics, the labelled test images, the neighbours and reference training images of the k-NN, and the sample images."
       - "Then the table of the classes, worst F1 first, the class metrics file holding the same rows in class order."
-      - "The {{self_supervised.classes.best_class}} and the {{self_supervised.classes.second_class}} lead with an F1 of {{self_supervised.classes.best_f1:.2f}} and {{self_supervised.classes.second_f1:.2f}}, while {{self_supervised.classes.bottom_four}} stay near {{self_supervised.classes.worst_f1:.2f}}: the shapes closest to a disc are the ones this backbone still mixes up."
-      - "Evaluations newer than this run add a per class k-NN recall table, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} confidence interval of every recall over the labelled test images of its class."
+      - "The {{self_supervised.classes.best_class}} and the {{self_supervised.classes.second_class}} lead with an F1 of {{self_supervised.classes.best_f1:.2f}} and {{self_supervised.classes.second_f1:.2f}}, while {{self_supervised.classes.bottom_four}} trail, down to {{self_supervised.classes.worst_f1:.2f}}."
+      - "A per class k-NN recall table follows, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} confidence interval of every recall over the labelled test images of its class."
 
   - kind: image
     title: "The first validations"
@@ -201,21 +199,23 @@ scenes:
       - {type: box, box: [920, 90, 1200, 230], text: "L2\nnormalization", font: diagram_small, outline: aqua, highlight: [0]}
       - {type: arrow, points: [[1210, 160], [1280, 160]], colour: dim}
       - {type: box, box: [1290, 90, 1720, 230], text: "representations\n[B, {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}}]\ndot product = cosine", font: diagram_small, outline: blue, highlight: [0]}
-      - {type: box, box: [470, 260, 830, 330], text: "no projection head", font: diagram_small, outline: red, appear: 1, highlight: [1]}
+      - {type: box, box: [920, 260, 1720, 330], text: "preprocessing.json: the input contract", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [470, 260, 830, 330], text: "no projection head", font: diagram_small, outline: red, appear: 2, highlight: [2]}
       # The transfer to another task
-      - {type: text, position: [40, 400], text: "transfer: Backbone.pretrained of any task", font: diagram_bold, appear: 2}
+      - {type: text, position: [40, 400], text: "transfer: Backbone.pretrained of any task", font: diagram_bold, appear: 3}
       - type: listing
         box: [40, 450, 1000, 700]
         font: diagram_monospace_small
-        appear: 2
+        appear: 3
         source: {file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml, keys: [Backbone.pretrained.experiment_folder, Backbone.pretrained.iteration, Backbone.pretrained.freeze], comments: false}
         highlights:
-          - {match: "experiment_folder", sentences: [2]}
-      - {type: box, box: [1060, 450, 1720, 700], text: "same blocks, modules\nand normalization as the SSL run\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+          - {match: "experiment_folder", sentences: [3]}
+      - {type: box, box: [1060, 450, 1720, 700], text: "same modules and normalization,\nthe same blocks or the first ones,\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
     narration:
       - "The export wraps the trained model in the inference encoder, served by Triton as the image encoder: float32 BGR images of {{self_supervised.run.image_size}} pixels in, L2-normalized representations of {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} values out, so that a dot product is a cosine similarity."
+      - "Next to the model, the export also writes the input contract of the run: how a photo is resized, padded and laid out before the encoder takes it."
       - "The projection head is not in the graph: the export serves the representation, for similarity searches and nearest neighbour classifications."
-      - "When the goal is to start another task from this backbone, give the run folder as the experiment folder of its backbone pre-trained settings; its blocks, modules and normalization must be those of this run, and only the backbone is loaded."
+      - "When the goal is to start another task from this backbone, give the run folder as the experiment folder of its backbone pre-trained settings; its modules and normalization must be those of this run, its blocks the same or the first of them, and only the backbone is loaded."
 
   - kind: text_panel
     title: "Pitfalls"

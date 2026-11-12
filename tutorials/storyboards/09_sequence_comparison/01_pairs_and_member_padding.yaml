@@ -134,7 +134,7 @@ scenes:
       - "The comparator reads the keys of the sequence classifier, and a Fusion section."
       - "The maximum length applies to every member: a pair with a longer member is left out of its split, with a red warning naming the pair."
       - "This configuration reads the frames at {{config:vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml#Data.image_settings.size}} pixels, averages the frame vectors of a member with a mean pooling, and fuses the two members with their difference."
-      - "Average pooling is right here, since the class is a count of objects, not a position, the opposite of the moving shapes; and the flips are on, since a mirrored pair keeps its objects."
+      - "Average pooling is right here, since the class is a count of objects, not a position, the opposite of the moving shapes; and the left-right flip is on, since a mirrored pair keeps its objects."
       - "Should your fusion type ignore the number of heads, the dropout or the normalization scope of the fusion, they are all still required, as for every fusion type."
 
   - kind: code
@@ -177,7 +177,7 @@ scenes:
       - {type: text, position: [930, 98], text: "after", font: diagram_small, colour: magenta, anchor: md}
       - {type: text, position: [1200, 200], text: "longest member: {{sequence_comparison.mask.longest_member}} frames\n\npadding in this batch: {{sequence_comparison.mask.padding_share:.0%}}\n\nover the training split: {{sequence_comparison.lengths.padding_share:.0%}}", font: diagram_text, appear: 1}
     narration:
-      - "One training batch of the run, as the loaders build it: {{sequence_comparison.run.batch_size_words}} pairs padded to their longest member of {{sequence_comparison.mask.longest_member_words}} frames, the before members on the left and the after members on the right, the real frames in green."
+      - "A training batch of the run's data, as the loaders build it: {{sequence_comparison.run.batch_size_words}} pairs padded to their longest member of {{sequence_comparison.mask.longest_member_words}} frames, the before members on the left and the after members on the right, the real frames in green."
       - "{{sequence_comparison.mask.padding_share:.0%}} of its frames are padding, and {{sequence_comparison.lengths.padding_share:.0%}} over the batches of the training split: they are transferred, but never encoded."
 
   - kind: image

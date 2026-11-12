@@ -1,8 +1,9 @@
 # Image classification, chapter 2: judging and shipping a classifier: the evaluation settings, the report block of
 # Results.txt, the confusion matrices of the three evaluations, the per-class F1 and the thresholds at the target
 # precision, the precision-recall curves, the probabilities of predictions.csv, the logit temperature and its explorer
-# page, the sample and error images, the measured effects of the head settings in the architecture benchmark, the
-# pitfalls and the export with its temperature and its input settings. Coordinates of the
+# page, served to save the thresholds of a temperature and export the checkpoint at it, the sample and error images,
+# the measured effects of the head settings in the architecture benchmark, the pitfalls and the export with its
+# temperature, its thresholds, its export folder and its input settings. Coordinates of the
 # html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures and facts
 # named classification.* are made by tutorials/figures/classification from the synthetic shapes run of
 # tutorial_sources.yaml, the images under runs: are the files its evaluation wrote.
@@ -20,6 +21,10 @@ references:
   - "vision_training/evaluation/classification/score_curves.py · save_score_curve_images"
   - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.dump_errors"
   - "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
+  - "vision_training/evaluation/classification/temperature_explorer.py · save_class_logits"
+  - "vision_training/evaluation/classification/temperature_explorer.py · compute_temperature_thresholds"
+  - "vision_training/deployment/explorer_export.py · build_export_folder"
+  - "vision_training/deployment/export_model.py · check_saved_thresholds_location"
   - "vision_training/deployment/export_model.py · find_saved_thresholds_path"
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
   - "scripts/evaluation/serve_temperature_explorer.py"
@@ -165,23 +170,25 @@ scenes:
     title: "The logit temperature"
     code_reference: "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
     # The made-up logits of a square and their probabilities at the temperatures one and three, the decimals listed
-    # first so that the "0" of the logits leaves them whole
+    # first so that the "0" of the logits leaves them whole; 8091 is the port of the main block of
+    # scripts/evaluation/serve_temperature_explorer.py (port = 8091), a local variable that no placeholder reads
     literal_numbers: ["0.950", "0.047", "0.002", "0.665", "0.245", "0.090", "0.95", "0.67", "0.24", "0.09", six, three,
-                      zero, "6", "3", "0", "1"]
+                      zero, "6", "3", "0", "1", "8091"]
     elements:
       - {type: box, box: [40, 30, 1260, 110], text: "probabilities = softmax(logits / T)", font: diagram_bold, outline: blue, highlight: [0]}
       - {type: text, position: [40, 160], text: "a square, logits 6 · 3 · 0, T = 1", font: diagram_small, colour: dim}
       - {type: bars, box: [40, 200, 600, 600], maximum: 1, values: [0.950, 0.047, 0.002], labels: ["square", "rectangle", "circle"], value_labels: ["0.950", "0.047", "0.002"], colours: [blue, aqua, violet], gap: 40, highlight: [1]}
       - {type: text, position: [700, 160], text: "the same logits, T = 3", font: diagram_small, colour: dim, appear: 1}
       - {type: bars, box: [700, 200, 1260, 600], maximum: 1, values: [0.665, 0.245, 0.090], labels: ["square", "rectangle", "circle"], value_labels: ["0.665", "0.245", "0.090"], colours: [blue, aqua, violet], gap: 40, appear: 1, highlight: [1]}
-      - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}}\nthe calibrated T", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
-      - {type: box, box: [1340, 380, 1740, 600], text: "Save Thresholds\nAt This Temperature\nthen the export with\nuse_saved_temperature", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}}\nthe calibrated T\nclass_logits.npz next to it", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 3]}
+      - {type: box, box: [1340, 380, 1740, 600], text: "serve_temperature_explorer\nhttp://127.0.0.1:8091/\nany typed T\nSave Thresholds · Export", font: diagram_small, outline: aqua, appear: 4, highlight: [4]}
       - {type: text, position: [880, 680], text: "the order of the logits is kept: the same predicted class, the same accuracy · classification only", font: diagram_small, colour: dim, anchor: mm, appear: 1}
     narration:
       - "A well trained softmax often squeezes its probabilities against one, which leaves the thresholds little room: dividing the logits by a temperature before the softmax spreads them out."
       - "Say a square gets the logits six, three and zero: at a temperature of one, square takes 0.95; at three, it keeps the lead with 0.67, against 0.24 for rectangle and 0.09 for circle, so the predicted class and the accuracy never change."
       - "With the per class report on, every evaluation writes temperature explorer html, where a slider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}} redraws the probabilities, the thresholds and the calibration, next to the temperature that calibrates the test split best."
-      - "Once you have chosen one, the save button of the page, opened with the serve temperature explorer script, writes the thresholds found at that temperature next to it, and the export reads them with use saved temperature."
+      - "Up to {{constant:vision_training/evaluation/classification/temperature_explorer.py#MAXIMUM_EXPLORER_CLASSES:words}} classes, it also keeps the test logits next to the page, in class logits npz, so that any other temperature can be drawn later without running the model."
+      - "The serve temperature explorer script lists these evaluations on a local page, where you type the temperature you want, save the thresholds of every class at it, and export the checkpoint at that temperature."
 
   - kind: image
     title: "Sample images"
@@ -265,23 +272,25 @@ scenes:
     page: diagram
     title: "The export"
     code_reference: "vision_training/models/classification/inference_classifier.py · InferenceClassifier.forward"
-    # The range of the raw 8-bit pixels the model takes
-    literal_numbers: [zero, "0", "255"]
+    # The range of the raw 8-bit pixels the model takes, and the temperature of 1 of an export without the saved
+    # thresholds (the use_saved_temperature off branch of export_experiment in vision_training/deployment/export_model.py)
+    literal_numbers: [zero, "0", "255", "1"]
     elements:
       - {type: box, box: [20, 110, 460, 330], text: "images\n[B, {{classification.head.input_channels}}, {{classification.head.image_size}}, {{classification.head.image_size}}] float32\nBGR, 0 to 255\nresized and padded", font: diagram_small, outline: blue, highlight: [0, 1]}
       - {type: arrow, points: [[468, 220], [532, 220]]}
       - {type: box, box: [540, 110, 1000, 330], text: "InferenceClassifier\nthe ImageClassifier\nwithout labels nor loss", font: diagram_small, outline: violet, highlight: [0]}
       - {type: arrow, points: [[1008, 220], [1072, 220]]}
       - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax(logits / T) inside", font: diagram_small, outline: aqua, highlight: [0, 2]}
-      - {type: box, box: [20, 420, 1000, 560], text: "Triton model: image_classifier_<format>\nTorchScript and ONNX", font: diagram_small, appear: 2, highlight: [2]}
+      - {type: box, box: [20, 420, 1000, 560], text: "Triton model: image_classifier_<format>\nTorchScript and ONNX\nfrom the page: <run>/Exports/Iteration_<n>[_EMA]_T<T>/", font: diagram_small, appear: 2, highlight: [2, 3]}
       - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 2}
-      - {type: box, box: [1080, 410, 1740, 600], text: "class_thresholds.json of that checkpoint\nits T built in, the file copied next to it\na class accepted above its threshold", font: diagram_small, outline: yellow, appear: 2, highlight: [3]}
+      - {type: box, box: [1080, 410, 1740, 600], text: "saved_temperature_thresholds.json\nof the exported checkpoint: its T built in,\ncopied next to the model as class_thresholds.json\nuse_saved_temperature off: T = 1, no thresholds", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 4]}
       - {type: box, box: [20, 625, 1740, 725], text: "preprocessing.json next to the model, and the metadata of the ONNX model: colour order · resize · size\ninterpolation · padding value and placement · layout · value range, read from the run and its data loaders", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
     narration:
       - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to {{classification.head.image_size}} pixels like the training, and returns the class probabilities only."
       - "So that a server builds these inputs as the training did, the export also writes their colour order, resize, size, interpolation, padding, layout and value range in the preprocessing file next to the model and in the ONNX metadata."
-      - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it: given the class thresholds file of the exported checkpoint, the export divides the logits by its temperature and copies the file next to the model, so its thresholds apply to the outputs as they are."
-      - "Faced with several evaluated checkpoints, deploy the thresholds of the exported one: they are computed again at every evaluation, from the probabilities of that checkpoint."
+      - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it, after the logits are divided by the temperature saved on the explorer page, whose thresholds are copied next to the model as class thresholds json."
+      - "Exported from that page, every checkpoint, weights and temperature gets its own Triton repository in the Exports folder of the run, with the record and the console output of the export."
+      - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights; run from export model with use saved temperature off, it keeps a temperature of one and copies no thresholds."
 
   - kind: summary
     title: "Recap"
@@ -291,7 +300,8 @@ scenes:
       - {text: "class_thresholds.json: thresholds at precision {{classification.class_metrics.target_precision}}, the temperature"}
       - {text: "predictions.csv: every probability, no model run needed"}
       - {text: "Errors/<TRUE>-TO-<PREDICTED>/<sample>_<probability>.png", monospace: true}
+      - {text: "serve_temperature_explorer: save a temperature, export from the page"}
       - {text: "Export: image_classifier, class probabilities [B, {{classification.head.number_classes}}]"}
     narration:
-      - "To recap: read the report with the confusion matrices, check the thresholds and the probabilities of the errors, choose a temperature if they are squeezed, and ship the exported probabilities with the thresholds of the same checkpoint."
+      - "To recap: read the report with the confusion matrices, check the thresholds and the probabilities of the errors, choose a temperature on the explorer page if they are squeezed, and export the checkpoint from that page with the thresholds found at it."
       - "The next series covers object detection: boxes with their class and score, the anchors, the region proposals and the detection heads."
