@@ -133,14 +133,16 @@ def describe_expected_best(summary_rows: List[Dict[str, str]], column_name: str)
     """
     Gives the expected best checkpoint description printed by summarise_checkpoint_evaluations, computed from the
     written evaluation summary: the best iteration, or every iteration sharing the best value in the evaluation order
-    followed by 'tie', with the best value.
+    followed by 'tie', with the best value written as a percentage, the accuracy of the dummy task being one of its
+    percent metrics while the summary keeps it between 0 and 1.
 
     Args:
         summary_rows (List[Dict[str, str]]): The rows of the evaluation summary, in the evaluation order.
         column_name (str): The column of the headline metric, 'ema_' prefixed for the averaged weights.
 
     Returns:
-        str: The expected description, e.g. 'iteration 4 (Accuracy 0.5000)' or 'iterations 5, 4 tie (Accuracy 0.5000)'.
+        str: The expected description, e.g. 'iteration 4 (Accuracy 50.00 %)' or 'iterations 5, 4 tie (Accuracy
+            50.00 %)'.
     """
     # Best value of the column and the iterations reaching it, in the evaluation order
     best_value = max(float(summary_row[column_name]) for summary_row in summary_rows)
@@ -148,4 +150,6 @@ def describe_expected_best(summary_rows: List[Dict[str, str]], column_name: str)
                        if float(summary_row[column_name]) == best_value]
     iterations_description = f"iteration {best_iterations[0]}" if len(best_iterations) == 1 else (
         f"iterations {', '.join(best_iterations)} tie")
-    return f"{iterations_description} (Accuracy {best_value:.4f})"
+    # The summary keeps the accuracy between 0 and 1, the console line writes it as a percentage
+    assert 0.0 <= best_value <= 1.0
+    return f"{iterations_description} (Accuracy {100.0 * best_value:.2f} %)"

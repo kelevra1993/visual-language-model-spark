@@ -12,12 +12,28 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationTable
 from vision_training.evaluation.classification.score_curves import CURVE_METRIC_NAMES, ScoreCurves
+from vision_training.evaluation.report_formatting import format_percentage_label
 
 # Name of the per-class table of the report and of its sort column, the worst classes being shown first, and name of
 # the table of the thresholds of every target precision
 CLASS_TABLE_TITLE = "Per Class Metrics"
 CLASS_TABLE_SORT_COLUMN = "F1"
 CLASS_THRESHOLDS_TABLE_TITLE = "Per Class Thresholds"
+
+
+def write_target_precision(target_precision: float, in_percent: bool) -> str:
+    """
+    Writes a target precision of the configuration in the headers and legends of the per-class tables: "99 %" with the
+    percentages of the classification report, "0.99" for the reports kept between 0 and 1.
+
+    Args:
+        target_precision (float): The target precision, e.g. 0.99.
+        in_percent (bool): Whether the report writes its rates as percentages.
+
+    Returns:
+        str: The written target precision.
+    """
+    return format_percentage_label(value=target_precision) if in_percent else f"{target_precision:g}"
 
 
 def get_threshold_column_names(target_index: int, target_precision: float) -> Tuple[str, str]:
@@ -100,14 +116,16 @@ def build_class_metrics_rows(class_names: List[str], metrics: Dict[str, Any],
 
 def build_class_metrics_table(class_rows: List[Dict[str, Any]], target_precision: Optional[float],
                               support_column: str, title: str = CLASS_TABLE_TITLE, legend_introduction: str = "",
-                              support_description: Optional[str] = None) -> EvaluationTable:
+                              support_description: Optional[str] = None, in_percent: bool = False) -> EvaluationTable:
     """
     Builds the per-class table of the report of an evaluated checkpoint, shown with the per-class report and sorted by
     ascending F1 so that the worst classes come first: the evaluated samples of every class (named by the task, e.g.
     'Samples', 'Positives' in multi-label mode, 'Frames' for sequence labelling), its precision, recall and F1, its ROC
     AUC and average precision when the rows hold them (with the per-class report), and, with a target precision, the
     threshold reaching it with the recall it keeps. A class without evaluated samples has no precision, recall nor F1
-    in the table, like in the macro averages, and is listed last.
+    in the table, like in the macro averages, and is listed last. The classification report writes the rates as
+    percentages ("94.03 %") and the target precision as "99 %", the thresholds staying between 0 and 1; the k-nearest
+    neighbour report of the self-supervised task keeps 4 decimals.
 
     Args:
         class_rows (List[Dict[str, Any]]): The metrics of every class (build_class_metrics_rows), with or without the
@@ -119,6 +137,8 @@ def build_class_metrics_table(class_rows: List[Dict[str, Any]], target_precision
         legend_introduction (str): The sentences put before the legend, describing the evaluation. Defaults to "".
         support_description (Optional[str]): The evaluated samples named in the legend for a class without any, e.g.
             "labelled test image", or None for the lowered support column. Defaults to None.
+        in_percent (bool): Whether the rates are written as percentages and the target precision as "99 %". Defaults to
+            False.
 
     Returns:
         EvaluationTable: The per-class table.
@@ -139,18 +159,24 @@ def build_class_metrics_table(class_rows: List[Dict[str, Any]], target_precision
             row += [class_row["threshold_at_target_precision"], class_row["recall_at_target_precision"]]
         rows.append(row)
 
-    # Columns and legend, the curve and threshold columns and their part of the legend only when they are given
+    # Columns and legend, the curve and threshold columns and their part of the legend only when they are given, the
+    # rates listed as percent columns for the classification report (every column but the class, its samples and the
+    # threshold)
     columns = ["Class", support_column, "Precision", "Recall", CLASS_TABLE_SORT_COLUMN]
     legend = (f"{legend_introduction}Worst F1 first, ties in class order. — : no "
               f"{support_column.lower() if support_description is None else support_description} of the class")
     if has_curve_metrics:
         columns += ["ROC AUC", "Average\nPrecision"]
         legend += ", no negative for the ROC AUC"
+    threshold_columns = []
     if target_precision is not None:
-        columns += [f"Threshold\n@ P{target_precision:g}", f"Recall\n@ P{target_precision:g}"]
-        legend += f", or the precision {target_precision:g} is never reached"
+        written_precision = write_target_precision(target_precision=target_precision, in_percent=in_percent)
+        threshold_columns = [f"Threshold\n@ P{written_precision}"]
+        columns += threshold_columns + [f"Recall\n@ P{written_precision}"]
+        legend += f", or the precision {written_precision} is never reached"
+    percent_columns = [column for column in columns[2:] if column not in threshold_columns] if in_percent else []
     return {"title": title, "columns": columns, "rows": rows, "sort_column": CLASS_TABLE_SORT_COLUMN,
-            "per_class": True, "legend": f"{legend}."}
+            "per_class": True, "legend": f"{legend}.", "percent_columns": percent_columns}
 
 
 def build_class_thresholds_table(class_rows: List[Dict[str, Any]], target_precisions: List[float],
@@ -161,7 +187,8 @@ def build_class_thresholds_table(class_rows: List[Dict[str, Any]], target_precis
     stays within the width of the report): the threshold of every class reaching every target precision with the
     recall it keeps, in class index order, to choose a threshold from the report. With the curves, every threshold is
     written as on precision_recall_thresholds.png, with the fewest decimals selecting the same samples
-    (format_threshold_label), otherwise with the 4 decimals of the report.
+    (format_threshold_label), otherwise with the 4 decimals of the report. The recalls are written as percentages
+    ("94.03 %") and the target precisions as "99 %", like in the per-class table of the classification report.
 
     Args:
         class_rows (List[Dict[str, Any]]): The metrics of every class (build_class_metrics_rows), with the threshold
@@ -186,15 +213,18 @@ def build_class_thresholds_table(class_rows: List[Dict[str, Any]], target_precis
             row += [threshold, class_row[recall_column]]
         rows.append(row)
 
-    # Two columns per target precision, the main one first
-    columns = ["Class"]
-    for target_precision in target_precisions:
-        columns += [f"Threshold\n@ P{target_precision:g}", f"Recall\n@ P{target_precision:g}"]
-    written_precisions = " or ".join(f"{target_precision:g}" for target_precision in target_precisions)
+    # Two columns per target precision, the main one first, the recalls written as percentages
+    written_precisions = [write_target_precision(target_precision=target_precision, in_percent=True)
+                          for target_precision in target_precisions]
+    columns, recall_columns = ["Class"], []
+    for written_precision in written_precisions:
+        recall_columns.append(f"Recall\n@ P{written_precision}")
+        columns += [f"Threshold\n@ P{written_precision}", recall_columns[-1]]
     legend = (f"Lowest score threshold of every class keeping the precision, which gives the highest recall, in class "
-              f"order, exact in class_thresholds.json. — : the precision {written_precisions} is never reached.")
+              f"order, exact in class_thresholds.json. — : the precision {' or '.join(written_precisions)} is never "
+              f"reached.")
     return {"title": CLASS_THRESHOLDS_TABLE_TITLE, "columns": columns, "rows": rows, "sort_column": None,
-            "per_class": True, "legend": legend}
+            "per_class": True, "legend": legend, "percent_columns": recall_columns}
 
 
 def build_class_metric_scalars(class_names: List[str], metrics: Dict[str, Any], tag_prefix: str = "",

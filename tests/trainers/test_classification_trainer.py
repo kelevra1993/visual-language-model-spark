@@ -147,8 +147,14 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     assert "Per Class Metrics" in results_blocks[0]["text"] and "ROC AUC" in results_blocks[0]["text"]
     assert [table["title"] for table in results["tables"]] == ["Per Class Metrics", "Per Class Recall",
                                                               "Per Class Thresholds"]
-    assert "@ P0.1" not in "".join(results["tables"][0]["columns"])
-    assert "Per Class Thresholds" in results_blocks[0]["text"] and "@ P0.1" in results_blocks[0]["text"]
+    assert "@ P10 %" not in "".join(results["tables"][0]["columns"])
+    assert "Per Class Thresholds" in results_blocks[0]["text"] and "@ P10 %" in results_blocks[0]["text"]
+
+    # Every headline metric is a rate written as a percentage in Results.txt, its value staying between 0 and 1
+    assert results["percent_metrics"] == list(results["metrics"])
+    assert f"{100.0 * results['metrics']['Accuracy']:.2f} %" in results_blocks[0]["text"].splitlines()[0]
+    assert all(set(table["percent_columns"]) <= set(table["columns"][2:]) and table["percent_columns"]
+               for table in results["tables"])
     assert list(results["images"]) == ["Confusion Matrix", "ROC Curves", "Precision Recall Curves",
                                        "Precision Recall Thresholds"]
     assert all(image.ndim == 3 for image in results["images"].values())

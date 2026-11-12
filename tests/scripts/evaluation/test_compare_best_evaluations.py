@@ -1,7 +1,7 @@
 """
 Tests of scripts/evaluation/compare_best_evaluations.py, the Markdown tables comparing the best test evaluation of
 several trained runs: the best evaluation over the trained and averaged weights, the columns expanded per class and
-titled, and the counts of data.json.
+titled, the curves written as percentages ("90.00 %") or with their decimals, and the counts of data.json.
 """
 
 import hashlib
@@ -105,7 +105,7 @@ def build_curves(balanced_accuracies: Dict[int, float]) -> Dict[str, Dict[int, f
 
 
 def run_comparison(experiment_folders: List[Path], columns: List[str], table_grouping: str = "run",
-                   evaluated_weights: Optional[List[str]] = None) -> str:
+                   evaluated_weights: Optional[List[str]] = None, curves_in_percent: bool = True) -> str:
     """
     Runs the comparison with the balanced accuracy as best metric and the titles of the tests.
 
@@ -114,6 +114,8 @@ def run_comparison(experiment_folders: List[Path], columns: List[str], table_gro
         columns (List[str]): The columns, in their order of appearance.
         table_grouping (str): "run" or "columns". Defaults to "run".
         evaluated_weights (Optional[List[str]]): The competing weights, trained and averaged when None.
+        curves_in_percent (bool): Whether the curves are written as percentages, as for the classification, or with 3
+            decimals. Defaults to True.
 
     Returns:
         str: The Markdown tables.
@@ -121,7 +123,7 @@ def run_comparison(experiment_folders: List[Path], columns: List[str], table_gro
     return compare_best_evaluations(experiment_folders=experiment_folders, best_metric="Balanced Accuracy",
                                     higher_is_better=True, evaluated_weights=evaluated_weights or ["trained", "ema"],
                                     columns=columns, column_titles=COLUMN_TITLES, table_grouping=table_grouping,
-                                    number_decimals=3)
+                                    number_decimals=3, curves_in_percent=curves_in_percent)
 
 
 def test_best_evaluation_over_trained_and_averaged_weights(tmp_path: Path) -> None:
@@ -145,7 +147,12 @@ def test_best_evaluation_over_trained_and_averaged_weights(tmp_path: Path) -> No
         "| Image Size | best_iteration | Balanced Accuracy | Recall cat | Recall dog | Validation cat | Validation dog "
         "| train_images |",
         "|---|---|---|---|---|---|---|---|",
-        "| 256 | 400 (EMA) | 0.900 | 0.950 | 0.850 | 1 | 2 | 4 |"]
+        "| 256 | 400 (EMA) | 90.00 % | 95.00 % | 85.00 % | 1 | 2 | 4 |"]
     trained_table = run_comparison(experiment_folders=[run_folder], columns=["best_iteration", "Balanced Accuracy"],
                                    evaluated_weights=["trained"])
-    assert trained_table.splitlines()[-1] == "| 400 | 0.850 |"
+    assert trained_table.splitlines()[-1] == "| 400 | 85.00 % |"
+
+    # Curves of a task not moved to the percentages, with their decimals
+    decimal_table = run_comparison(experiment_folders=[run_folder], columns=["best_iteration", "Balanced Accuracy"],
+                                   evaluated_weights=["trained"], curves_in_percent=False)
+    assert decimal_table.splitlines()[-1] == "| 400 | 0.850 |"

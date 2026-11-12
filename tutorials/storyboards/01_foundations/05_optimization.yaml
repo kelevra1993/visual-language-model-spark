@@ -103,7 +103,7 @@ scenes:
     literal_numbers: [two, five, ten-thousandths, thousand, seven hundred and fifty]
     narration:
       - "The learning rate sets the size of the steps, and the benchmark of the repository tried {{foundations.benchmark.learning_rate.value_count:words}} values on the synthetic shapes, {{foundations.benchmark.learning_rate.launches_per_value:words}} launches each."
-      - "One and two ten-thousandths learn within a thousand iterations, at {{foundations.benchmark.learning_rate.learning_rate_1e_4.accuracy_1000:.1%}} and {{foundations.benchmark.learning_rate.learning_rate_2e_4.accuracy_1000:.1%}}, while from five ten-thousandths on, the launches stay near one class in {{foundations.benchmark.class_count:words}} for at least seven hundred and fifty iterations."
+      - "One and two ten-thousandths learn within a thousand iterations, at {{foundations.benchmark.learning_rate.learning_rate_1e_4.accuracy_1000:percent}} and {{foundations.benchmark.learning_rate.learning_rate_2e_4.accuracy_1000:percent}}, while from five ten-thousandths on, the launches stay near one class in {{foundations.benchmark.class_count:words}} for at least seven hundred and fifty iterations."
       - "Two ten-thousandths had the highest mean over the {{foundations.benchmark.evaluation_count:words}} evaluations and became the value of the synthetic shapes classifier: the largest usable value lies between two and five ten-thousandths."
 
   - kind: image
@@ -161,7 +161,7 @@ scenes:
     narration:
       - "The moving average keeps a second copy of the model, never trained itself, which moves towards the trained weights after every step: the decay times the average, plus one minus the decay times the weights."
       - "In the benchmark, the mean of the averaged weights of {{foundations.benchmark.moving_average.launch_count:words}} launches was ahead of the trained weights at every evaluated iteration, and steadier: the trained weights dip, the average does not."
-      - "At the last evaluation, they reach {{foundations.benchmark.moving_average.averaged_weights.accuracy_2000:.2%}} against {{foundations.benchmark.moving_average.trained_weights.accuracy_2000:.2%}}."
+      - "At the last evaluation, they reach {{foundations.benchmark.moving_average.averaged_weights.accuracy_2000:percent}} against {{foundations.benchmark.moving_average.trained_weights.accuracy_2000:percent}}."
       - "A decay of {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#Optimization.exponential_moving_average.decay}} averages about the last {{foundations.configuration.moving_average_horizon}} steps, the first updates using a smaller decay so that the random starting weights fade quickly."
 
   - kind: html

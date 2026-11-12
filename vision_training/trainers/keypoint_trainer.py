@@ -304,7 +304,7 @@ class KeypointTrainer(CocoSplitTrainer):
                 "metrics": accuracy_summary["metrics"], "notes": [], "tables": tables,
                 "scalars": {**average_precision_summary["scalars"], **accuracy_summary["scalars"]},
                 "class_scalars": average_precision_summary["class_scalars"], "images": {}, "files": files,
-                "headline_metric": KEYPOINT_HEADLINE_METRIC}
+                "headline_metric": KEYPOINT_HEADLINE_METRIC, "percent_metrics": []}
 
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """

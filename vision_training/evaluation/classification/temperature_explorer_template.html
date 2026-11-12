@@ -5,7 +5,10 @@ the probabilities of the class logits of a classification evaluation divided by 
 page is self-contained (no library), so that it opens from the evaluation folder of the checkpoint, its save button
 downloading the thresholds of the temperature shown. Served by scripts/evaluation/serve_temperature_explorer.py (its
 data then naming the evaluation), it shows any typed temperature, saves the thresholds next to the evaluation and
-exports the checkpoint at the saved temperature.
+exports the checkpoint at the saved temperature. Its rates (shares, recalls, calibration error) are written as the
+percentages of the reports by formatPercent, formatPercentLabel and formatPoints, the twins of format_percentage,
+format_percentage_label and format_points of vision_training/evaluation/report_formatting.py; the probabilities,
+confidences, thresholds and temperatures stay between 0 and 1.
 -->
 <html lang="en">
 <head>
@@ -94,7 +97,7 @@ exports the checkpoint at the saved temperature.
   th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
   th { color: var(--text-secondary); font-weight: 600; }
-  .delta { color: var(--text-muted); font-size: 11px; }
+  .delta { display: block; color: var(--text-muted); font-size: 11px; }
   .tooltip { position: fixed; pointer-events: none; z-index: 5; background: var(--surface); color: var(--text-primary);
              border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px;
              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); display: none; max-width: 280px; }
@@ -213,7 +216,22 @@ exports the checkpoint at the saved temperature.
 
   // Short writing of a number, a temperature with up to 3 significant digits
   function formatTemperature(value) { return String(Number(value.toPrecision(3))); }
-  function formatPercent(value) { return (100 * value).toFixed(value >= 0.1 ? 1 : 2) + " %"; }
+
+  // Percentages of the rates, as in the reports (twins of vision_training/evaluation/report_formatting.py): two
+  // decimals and a space before the sign for a measured rate, the fewest decimals for an axis tick or a target
+  // precision, a difference in points with its sign, the single multiplication by 100 in toPercentage
+  const PERCENT_DECIMALS = 2;
+  function toPercentage(value) { return 100 * value; }
+  function roundPercentage(value) {
+    // Adding 0 turns the negative zero of a tiny negative difference into a positive zero
+    return Number(toPercentage(value).toFixed(PERCENT_DECIMALS)) + 0;
+  }
+  function formatPercent(value) { return `${roundPercentage(value).toFixed(PERCENT_DECIMALS)} %`; }
+  function formatPercentLabel(value) { return `${String(roundPercentage(value))} %`; }
+  function formatPoints(difference) {
+    const rounded = roundPercentage(difference);
+    return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(PERCENT_DECIMALS)} points`;
+  }
 
   // Threshold written with enough decimals to show how close it is to 1 (two digits of 1 - threshold)
   function formatThreshold(value) {
@@ -267,8 +285,10 @@ exports the checkpoint at the saved temperature.
     svg.setAttribute("viewBox", `0 0 ${left + width + 6} ${top + plotHeight + 18}`);
 
     // Scale of the shares of each half, at the top and the bottom of the plot
-    addText(svg, left - 4, top + 8, view.logScale ? "100 %" : formatPercent(largestPositiveShare), "end");
-    addText(svg, left - 4, top + plotHeight, view.logScale ? "100 %" : formatPercent(largestNegativeShare), "end");
+    addText(svg, left - 4, top + 8, view.logScale ? formatPercentLabel(1) : formatPercent(largestPositiveShare),
+            "end");
+    addText(svg, left - 4, top + plotHeight,
+            view.logScale ? formatPercentLabel(1) : formatPercent(largestNegativeShare), "end");
 
     // Bars of the images of the class (above) and of the other images (below), 2 pixels apart
     [[positiveShares, largestPositiveShare, classState.positive_counts, -1, "var(--series-class)",
@@ -294,13 +314,14 @@ exports the checkpoint at the saved temperature.
       const threshold = classState.thresholds[targetIndex];
       const labelY = 10 + 12 * targetIndex;
       if (threshold === null) {
-        addText(svg, left, labelY, `P${targetPrecision}: not reached`);
+        addText(svg, left, labelY, `P${formatPercentLabel(targetPrecision)}: not reached`);
         return;
       }
       const x = left + threshold[0] * width;
       createSvgElement("line", {x1: x, x2: x, y1: labelY + 2, y2: top + plotHeight, stroke: "var(--text-secondary)",
                                 "stroke-width": 1.5, "stroke-dasharray": targetIndex === 0 ? "4 3" : "2 3"}, svg);
-      const label = `P${targetPrecision} ≥ ${formatThreshold(threshold[0])} · recall ${threshold[1].toFixed(3)}`;
+      const label = `P${formatPercentLabel(targetPrecision)} ≥ ${formatThreshold(threshold[0])} · ` +
+                    `recall ${formatPercent(threshold[1])}`;
       addText(svg, x > left + width * 0.55 ? x - 3 : x + 3, labelY, label, x > left + width * 0.55 ? "end" : "start");
     });
   }
@@ -313,8 +334,8 @@ exports the checkpoint at the saved temperature.
     const total = state.calibration_counts.reduce((sum, count) => sum + count, 0);
     const shares = state.calibration_counts.map(count => total ? count / total : 0);
     const largestShare = Math.max(...shares), binWidth = width / DATA.number_calibration_bins;
-    addText(svg, left - 4, top + 8, view.logScale ? "100 %" : formatPercent(largestShare), "end");
-    addText(svg, left - 4, top + plotHeight, "0", "end");
+    addText(svg, left - 4, top + 8, view.logScale ? formatPercentLabel(1) : formatPercent(largestShare), "end");
+    addText(svg, left - 4, top + plotHeight, formatPercentLabel(0), "end");
     shares.forEach((share, binIndex) => {
       const barHeight = scaleShare(share, largestShare) * plotHeight;
       if (barHeight <= 0) return;
@@ -333,10 +354,11 @@ exports the checkpoint at the saved temperature.
     const svg = document.getElementById("reliability-chart");
     svg.replaceChildren();
     const left = 40, width = 560, top = 10, plotHeight = 260, binWidth = width / DATA.number_calibration_bins;
+    // Shares of right decisions on the vertical axis, as percentages
     [0, 0.5, 1].forEach(tick => {
       const y = top + plotHeight - tick * plotHeight;
       createSvgElement("line", {x1: left, x2: left + width, y1: y, y2: y, stroke: "var(--grid)"}, svg);
-      addText(svg, left - 4, y + 3, String(tick), "end");
+      addText(svg, left - 4, y + 3, formatPercentLabel(tick), "end");
     });
     state.calibration_frequencies.forEach((frequency, binIndex) => {
       if (frequency === null) return;
@@ -354,13 +376,15 @@ exports the checkpoint at the saved temperature.
     drawProbabilityAxis(svg, left, width, top + plotHeight);
   }
 
-  // Values of a temperature, and those of the temperature 1 below them
+  // Values of a temperature, and those of the temperature 1 below them: the calibration error, a gap between the share
+  // of right decisions and the confidence, as a percentage, the mean confidence (a probability) between 0 and 1
   function renderTiles(state) {
     const reference = DATA.states[findStateIndex(1)];
     const tiles = [
       ["Negative Log Likelihood", state.negative_log_likelihood.toFixed(4),
        `T = 1: ${reference.negative_log_likelihood.toFixed(4)}`],
-      ["Calibration Error", state.calibration_error.toFixed(4), `T = 1: ${reference.calibration_error.toFixed(4)}`],
+      ["Calibration Error", formatPercent(state.calibration_error),
+       `T = 1: ${formatPercent(reference.calibration_error)}`],
       ["Mean Confidence", state.mean_confidence.toFixed(4), `T = 1: ${reference.mean_confidence.toFixed(4)}`],
       ["Calibrated Temperature", formatTemperature(DATA.calibrated_temperature), "lowest negative log likelihood"]];
     const container = document.getElementById("tiles");
@@ -383,8 +407,8 @@ exports the checkpoint at the saved temperature.
       `Thresholds At T = ${formatTemperature(state.temperature)}`;
     const table = document.getElementById("threshold-table");
     const headers = ["Class", "Images"];
-    DATA.target_precisions.forEach(targetPrecision => headers.push(`Threshold @ P${targetPrecision}`,
-                                                                   `Recall @ P${targetPrecision}`));
+    DATA.target_precisions.forEach(targetPrecision => headers.push(
+      `Threshold @ P${formatPercentLabel(targetPrecision)}`, `Recall @ P${formatPercentLabel(targetPrecision)}`));
     const rows = [`<tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr>`];
     DATA.class_names.forEach((className, classIndex) => {
       const cells = [escapeHtml(className), String(DATA.positives[classIndex])];
@@ -395,10 +419,11 @@ exports the checkpoint at the saved temperature.
           cells.push("—", "—");
           return;
         }
-        let recallText = threshold[1].toFixed(3);
-        if (referenceThreshold !== null && Math.abs(threshold[1] - referenceThreshold[1]) >= 0.0005) {
-          const change = threshold[1] - referenceThreshold[1];
-          recallText += ` <span class="delta">(${change > 0 ? "+" : ""}${change.toFixed(3)} from T = 1)</span>`;
+        // Recall as a percentage, with its change from T = 1 in points when it shows at the written decimals
+        let recallText = formatPercent(threshold[1]);
+        if (referenceThreshold !== null && roundPercentage(threshold[1] - referenceThreshold[1]) !== 0) {
+          const changeText = formatPoints(threshold[1] - referenceThreshold[1]);
+          recallText += ` <span class="delta">(${changeText} from T = 1)</span>`;
         }
         cells.push(formatThreshold(threshold[0]), recallText);
       });

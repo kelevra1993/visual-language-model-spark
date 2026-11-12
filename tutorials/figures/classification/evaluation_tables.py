@@ -7,6 +7,8 @@ counts, the per-class metrics and the thresholds at the target precision of the 
 class_thresholds.json) as the values and labels of the bars, the headline metrics of every evaluation read from the
 Test logs of TensorBoard, the size of the predictions file, and the temperatures of the slider of the temperature
 explorer page. Nothing is drawn: the scenes draw these values with the grid and bars elements of the diagram engine.
+The labels of the bars write the F1 and recalls as the percentages of the reports of the repository ("94.03 %"), the
+facts keeping every rate between 0 and 1.
 """
 
 import csv
@@ -20,6 +22,7 @@ from typing import Any, Dict, List, Tuple
 from tutorials.figures.figure_utilities import round_fact
 from tutorials.figures.foundations.training_curves import read_scalars
 from vision_training.evaluation.classification.temperature_explorer import TEMPERATURE_GRID
+from vision_training.evaluation.report_formatting import format_percentage
 
 # Evaluated checkpoints of the classification run whose confusion matrices the scene shows, and the last one, whose
 # per-class metrics and thresholds the bars show
@@ -161,12 +164,12 @@ def describe_class_metrics(run_folder: Path) -> Dict[str, Any]:
     facts = {"class_metrics.iteration": LAST_ITERATION, "class_metrics.target_precision": thresholds["target_precision"],
              "class_metrics.sorted_class_names": [row["class"] for row in sorted_rows],
              "class_metrics.sorted_f1": [round_fact(value=row["f1"]) for row in sorted_rows],
-             "class_metrics.sorted_f1_labels": [f"{row['f1']:.3f}" for row in sorted_rows],
+             "class_metrics.sorted_f1_labels": [format_percentage(value=row["f1"]) for row in sorted_rows],
              "class_metrics.sorted_recall_at_target": [round_fact(value=row["recall_at_target_precision"] or 0.0)
                                                        for row in sorted_rows],
              "class_metrics.sorted_recall_at_target_labels": [
-                 f"{row['recall_at_target_precision']:.4f}" if row["recall_at_target_precision"] is not None
-                 else MISSING_VALUE_TEXT for row in sorted_rows]}
+                 format_percentage(value=row["recall_at_target_precision"])
+                 if row["recall_at_target_precision"] is not None else MISSING_VALUE_TEXT for row in sorted_rows]}
 
     # Every class with its metrics, checked against the thresholds file the deployment reads
     never_reaching = []

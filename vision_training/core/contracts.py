@@ -66,7 +66,8 @@ class EvaluationTable(TypedDict):
     raw cells (text, integers, floats with 4 decimals, None written "—"), the per-class rows stored in class index
     order. The rows are shown by ascending value of the sort column, the worst classes first (None last, ties in
     stored order), or in stored order without one. A per-class table is only shown with the per-class report, and its
-    legend is written below it.
+    legend is written below it. The percent columns hold rates between 0 and 1 written as percentages ("94.03 %"),
+    their cells staying raw so that the sort is unchanged; the tasks not yet moved to the percentages give none.
     """
     title: str
     columns: List[str]
@@ -74,6 +75,7 @@ class EvaluationTable(TypedDict):
     sort_column: Optional[str]
     per_class: bool
     legend: str
+    percent_columns: List[str]
 
 
 class EvaluationResults(TypedDict):
@@ -87,7 +89,10 @@ class EvaluationResults(TypedDict):
     the per-class tables. The sample images (the fixed test samples drawn with their targets and predictions by the
     build_sample_image hook of the task) are added by the general trainer, not by the task, and written to
     TensorBoard at every evaluation, whatever the per-class report. Every image is an [H, W, 3] uint8 RGB array. The
-    headline metric is the name of the scalar comparing the checkpoints of a run, the higher the better.
+    headline metric is the name of the scalar comparing the checkpoints of a run, the higher the better. The percent
+    metrics are the global metrics that are rates written as percentages in the report and in the best checkpoint line
+    ("94.03 %"), the metrics and scalars themselves staying between 0 and 1; the tasks not yet moved to the
+    percentages give none.
     """
     evaluated_samples: str
     metrics: Dict[str, float]
@@ -99,6 +104,7 @@ class EvaluationResults(TypedDict):
     sample_images: Dict[str, np.ndarray]
     files: Dict[str, Path]
     headline_metric: str
+    percent_metrics: List[str]
 
 
 class ClassificationBatch(TypedDict):

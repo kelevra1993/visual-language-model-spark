@@ -135,6 +135,11 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     assert results["headline_metric"] == "Hungarian Selection Accuracy"
     assert [row[0] for row in results["tables"][0]["rows"]] == SELECTION_WANTED_SHAPES
 
+    # The frame selection keeps its rates between 0 and 1 in the report and the console summary, unlike the
+    # classification trainer it inherits from, until it is moved to the percentages
+    assert results["percent_metrics"] == [] and all(not table["percent_columns"] for table in results["tables"])
+    assert trainer.metric_tracker.percent_metric_keys == []
+
     # Files of the evaluation folder
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [

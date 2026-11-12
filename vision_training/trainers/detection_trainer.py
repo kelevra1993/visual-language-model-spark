@@ -508,7 +508,7 @@ class DetectionTrainer(CocoSplitTrainer):
                 "notes": error_analysis["notes"], "tables": tables,
                 "scalars": {**summary["scalars"], **proposal_recall["scalars"]},
                 "class_scalars": summary["class_scalars"], "images": error_analysis["images"], "files": files,
-                "headline_metric": "mAP@0.5/area"}
+                "headline_metric": "mAP@0.5/area", "percent_metrics": []}
 
     def save_proposal_recall(self, accumulator: Dict[str, Any], iteration: int) -> Dict[str, Any]:
         """

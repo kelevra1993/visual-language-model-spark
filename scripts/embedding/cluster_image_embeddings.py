@@ -1685,7 +1685,7 @@ def build_kept_images_table(source: Dict[str, Any], clustering_name: str,
             "columns": ["Layer", "Category", "Initial\nImages", "Image\nClusters", "Isolated\nImages",
                         "Isolated\nShare", "Kept\nRepresentatives", "Kept Isolated\nImages", "Kept\nImages",
                         "Kept\nShare"],
-            "rows": rows, "sort_column": None, "per_class": False,
+            "rows": rows, "sort_column": None, "per_class": False, "percent_columns": [],
             "legend": "Isolated images: in no cluster, too far from every other image. Kept images: the "
                       "representatives closest to the centre of every cluster and the kept isolated images, as many "
                       "being kept at random and evenly spaced per group. Shares of the initial images."}

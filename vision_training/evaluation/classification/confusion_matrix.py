@@ -3,7 +3,9 @@ Drawing and saving of the confusion matrix of an evaluated checkpoint: the CSV t
 folder of the checkpoint, and the matplotlib image (with the recall of every true class, the precision of every
 predicted class and the accuracy), saved and logged to TensorBoard when the per-class report is on. Used by the
 classification trainer and the trainers inheriting from it, by the segmentation trainer for its pixels, and by the
-detection trainers for the detections matched to the objects, with a background row and column.
+detection trainers for the detections matched to the objects, with a background row and column. The classification
+image writes its shares, recalls, precisions and accuracy as the percentages of the reports ("94.03 %"), with larger
+cells for their two decimals; the other tasks keep their earlier "94.0%" until they are moved to them.
 """
 
 import csv
@@ -16,9 +18,11 @@ from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.colors import Colormap, Normalize
 from matplotlib.figure import Figure
-from matplotlib.ticker import PercentFormatter
+from matplotlib.ticker import FuncFormatter, PercentFormatter
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Largest number of classes whose cells show their count and share of the true class, show their count only, and
 # show the class names as tick labels (class indices above, matching the 'class_index' column of class_metrics.csv)
@@ -29,9 +33,10 @@ MAXIMUM_CLASSES_WITH_NAMES = 60
 # Number of characters of the class names kept in the tick labels
 MAXIMUM_NAME_LENGTH = 24
 
-# Side of the matrix in inches (0.4 inch per class, clipped), width of the recall and precision strips in inches, and
-# resolution of the image
+# Side of the matrix in inches (0.4 inch per class, 0.65 inch with the two decimals of the percentages, clipped), width
+# of the recall and precision strips in inches, and resolution of the image
 MATRIX_SIDE_PER_CLASS = 0.4
+PERCENT_MATRIX_SIDE_PER_CLASS = 0.65
 MINIMUM_MATRIX_SIDE = 4.0
 MAXIMUM_MATRIX_SIDE = 16.0
 STRIP_WIDTH = 0.7
@@ -66,8 +71,25 @@ def compute_text_colour(cell_colour: Tuple[float, float, float, float]) -> str:
     return LIGHT_TEXT_COLOUR if luminance < LIGHT_TEXT_LUMINANCE else DARK_TEXT_COLOUR
 
 
+def format_share(share: float, in_percent: bool) -> str:
+    """
+    Writes a share of the confusion matrix image (the share of a cell in its true class, a recall, a precision or the
+    accuracy): as the percentages of the reports for the classification image ("94.03 %"), with one decimal and no
+    space for the tasks not yet moved to them ("94.0%").
+
+    Args:
+        share (float): The share, between 0 and 1.
+        in_percent (bool): Whether the image writes the percentages of the reports.
+
+    Returns:
+        str: The written share.
+    """
+    return format_percentage(value=share) if in_percent else f"{100.0 * share:.1f}%"
+
+
 def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_map: Colormap,
-                     normalization: Normalize, show_counts: bool, background_index: Optional[int]) -> None:
+                     normalization: Normalize, show_counts: bool, background_index: Optional[int],
+                     in_percent: bool) -> None:
     """
     Writes the count of every cell of the matrix of a confusion matrix image, with its share of the true class up to
     20 classes, the diagonal counts (the right predictions) in bold and the empty off-diagonal cells left blank.
@@ -83,6 +105,7 @@ def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_
         show_counts (bool): Whether the cells show their count, or only their share of the true class.
         background_index (Optional[int]): The index of the background class of the detection matrices, None for the
             other tasks.
+        in_percent (bool): Whether the shares are written as the percentages of the reports (format_share).
     """
     number_classes = counts.shape[0]
     show_shares = number_classes <= MAXIMUM_CLASSES_WITH_SHARES
@@ -99,9 +122,10 @@ def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_
             if not show_counts:
                 if np.isnan(share):
                     continue
-                text = f"{100.0 * share:.1f}%"
+                text = format_share(share=share, in_percent=in_percent)
             else:
-                text = f"{count}\n{100.0 * share:.1f}%" if show_shares and not np.isnan(share) else str(count)
+                text = (f"{count}\n{format_share(share=share, in_percent=in_percent)}" if show_shares and
+                        not np.isnan(share) else str(count))
             cell_colour = colour_map(normalization(share)) if not np.isnan(share) else (0.9, 0.9, 0.9, 1.0)
             axes.text(x=predicted_index, y=true_index, s=text, ha="center", va="center", fontsize=font_size,
                       fontweight="bold" if is_diagonal else "normal",
@@ -109,7 +133,7 @@ def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_
 
 
 def write_strip_texts(axes: Axes, values: np.ndarray, colour_map: Colormap, normalization: Normalize,
-                      vertical: bool) -> None:
+                      vertical: bool, in_percent: bool) -> None:
     """
     Writes the value of every cell of a strip of a confusion matrix image (the recall of every true class, or the
     precision of every predicted class) as a percentage, up to 40 classes.
@@ -120,13 +144,14 @@ def write_strip_texts(axes: Axes, values: np.ndarray, colour_map: Colormap, norm
         colour_map (Colormap): The colour map of the values, giving the colour behind every text.
         normalization (Normalize): The normalization of the values into the colour map.
         vertical (bool): True for the recall column, False for the precision row.
+        in_percent (bool): Whether the values are written as the percentages of the reports (format_share).
     """
     font_size = 8 if len(values) <= MAXIMUM_CLASSES_WITH_SHARES else 6
     for class_index, value in enumerate(values.tolist()):
         if np.isnan(value):
             continue
-        axes.text(x=0 if vertical else class_index, y=class_index if vertical else 0, s=f"{100.0 * value:.1f}%",
-                  ha="center", va="center", fontsize=font_size,
+        axes.text(x=0 if vertical else class_index, y=class_index if vertical else 0,
+                  s=format_share(share=value, in_percent=in_percent), ha="center", va="center", fontsize=font_size,
                   color=compute_text_colour(cell_colour=colour_map(normalization(value))))
 
 
@@ -157,7 +182,8 @@ def set_class_ticks(axes: Axes, class_names: List[str], along_columns: bool) -> 
 
 
 def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str], title: str,
-                          show_counts: bool = True, background_index: Optional[int] = None) -> np.ndarray:
+                          show_counts: bool = True, background_index: Optional[int] = None,
+                          in_percent: bool = False) -> np.ndarray:
     """
     Draws the confusion matrix of an evaluated checkpoint as an image, saved in its evaluation folder and logged to
     TensorBoard by the per-class report: every cell coloured by its share of the samples of its true class, with its
@@ -167,16 +193,19 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
     pyplot, its size growing with the number of classes (capped). The detection matrices have a background row (the
     false positives) and a background column (the missed objects): their background cell, the recall of the background
     and its precision are undefined and left blank, and the accuracy is the share of the right detections among the
-    objects, the false positives and the confusions.
+    objects, the false positives and the confusions. The classification image writes the percentages of the reports
+    ("94.03 %", colour bar "20 %") in cells of 0.65 inch per class, the other tasks keep "94.0%" and "20%".
 
     Args:
         confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
         class_names (List[str]): The name of every class.
-        title (str): The title of the image, e.g. 'Confusion Matrix · Iteration 4000 · Accuracy 0.8123'.
+        title (str): The title of the image, e.g. 'Confusion Matrix · Iteration 4000 · Accuracy 81.23 %'.
         show_counts (bool): Whether the cells show their count, False for counts too large to print (pixels), the
             cells then showing their share of the true class only. Defaults to True.
         background_index (Optional[int]): The index of the background row and column of the detection matrices, None
             for a matrix without background. Defaults to None.
+        in_percent (bool): Whether the shares, recalls, precisions, accuracy and colour bar are written as the
+            percentages of the reports. Defaults to False.
 
     Returns:
         np.ndarray: The [H, W, 3] uint8 RGB image.
@@ -202,7 +231,8 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
     normalization = Normalize(vmin=0.0, vmax=1.0)
 
     # Figure laid out as the matrix, the recall column, the colour bar, the precision row and the accuracy corner
-    matrix_side = min(max(MATRIX_SIDE_PER_CLASS * number_classes, MINIMUM_MATRIX_SIDE), MAXIMUM_MATRIX_SIDE)
+    side_per_class = PERCENT_MATRIX_SIDE_PER_CLASS if in_percent else MATRIX_SIDE_PER_CLASS
+    matrix_side = min(max(side_per_class * number_classes, MINIMUM_MATRIX_SIDE), MAXIMUM_MATRIX_SIDE)
     figure = Figure(figsize=(matrix_side + STRIP_WIDTH + COLOUR_BAR_WIDTH + 3.0, matrix_side + STRIP_WIDTH + 3.0),
                     dpi=IMAGE_DOTS_PER_INCH, layout="constrained")
     canvas = FigureCanvasAgg(figure=figure)
@@ -226,7 +256,8 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
     matrix_axes.set_ylabel(ylabel="True Class", fontsize=10, fontweight="bold")
     if number_classes <= MAXIMUM_CLASSES_WITH_COUNTS:
         write_cell_texts(axes=matrix_axes, counts=counts, shares=shares, colour_map=colour_map,
-                         normalization=normalization, show_counts=show_counts, background_index=background_index)
+                         normalization=normalization, show_counts=show_counts, background_index=background_index,
+                         in_percent=in_percent)
 
         # Thin white separators between the cells
         matrix_axes.set_xticks(ticks=np.arange(-0.5, number_classes, 1.0), minor=True)
@@ -243,12 +274,13 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
                          interpolation="nearest", aspect="auto")
     if number_classes <= MAXIMUM_CLASSES_WITH_COUNTS:
         write_strip_texts(axes=recall_axes, values=recalls, colour_map=colour_map, normalization=normalization,
-                          vertical=True)
+                          vertical=True, in_percent=in_percent)
         write_strip_texts(axes=precision_axes, values=precisions, colour_map=colour_map, normalization=normalization,
-                          vertical=False)
+                          vertical=False, in_percent=in_percent)
     if not np.isnan(accuracy):
         accuracy_colour = compute_text_colour(cell_colour=colour_map(normalization(accuracy)))
-        accuracy_axes.text(x=0, y=0, s=f"{100.0 * accuracy:.1f}%", ha="center", va="center", fontsize=8,
+        accuracy_axes.text(x=0, y=0, s=format_share(share=accuracy, in_percent=in_percent), ha="center", va="center",
+                           fontsize=8,
                            fontweight="bold", color=accuracy_colour)
 
     # Strip labels, without ticks of their own
@@ -262,7 +294,8 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
 
     # Colour bar of the shares, as percentages
     colour_bar = figure.colorbar(mappable=image, cax=colour_bar_axes)
-    colour_bar.ax.yaxis.set_major_formatter(formatter=PercentFormatter(xmax=1.0))
+    colour_bar.ax.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick) if in_percent else
+                                            PercentFormatter(xmax=1.0))
     colour_bar.set_label(label="Share Of The True Class", fontsize=9)
     figure.suptitle(t=title, fontsize=12, fontweight="bold")
 
@@ -297,8 +330,8 @@ def save_confusion_matrix_table(confusion_matrix: torch.Tensor, class_names: Lis
 
 
 def save_confusion_matrix_image(confusion_matrix: torch.Tensor, class_names: List[str], output_folder: Path,
-                                title: str, show_counts: bool = True,
-                                background_index: Optional[int] = None) -> Tuple[Path, np.ndarray]:
+                                title: str, show_counts: bool = True, background_index: Optional[int] = None,
+                                in_percent: bool = False) -> Tuple[Path, np.ndarray]:
     """
     Draws the confusion matrix of an evaluated checkpoint (draw_confusion_matrix) and saves it as
     'confusion_matrix.png' in its evaluation folder, for the per-class report, which also logs the returned image to
@@ -313,13 +346,15 @@ def save_confusion_matrix_image(confusion_matrix: torch.Tensor, class_names: Lis
             True.
         background_index (Optional[int]): The index of the background row and column of the detection matrices, None
             for a matrix without background. Defaults to None.
+        in_percent (bool): Whether the image writes the percentages of the reports, True for the classification image.
+            Defaults to False.
 
     Returns:
         Tuple[Path, np.ndarray]: The path of the image and the [H, W, 3] uint8 RGB image.
     """
     output_folder.mkdir(parents=True, exist_ok=True)
     image = draw_confusion_matrix(confusion_matrix=confusion_matrix, class_names=class_names, title=title,
-                                  show_counts=show_counts, background_index=background_index)
+                                  show_counts=show_counts, background_index=background_index, in_percent=in_percent)
     image_path = output_folder / "confusion_matrix.png"
     cv2.imwrite(filename=str(image_path), img=cv2.cvtColor(src=image, code=cv2.COLOR_RGB2BGR))
     return image_path, image

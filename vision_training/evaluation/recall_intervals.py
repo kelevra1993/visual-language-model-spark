@@ -15,6 +15,7 @@ from scipy.stats import beta, norm, t
 from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationTable
+from vision_training.evaluation.report_formatting import format_percentage_label
 
 # Confidence level of every recall interval, the same for every task
 CONFIDENCE_LEVEL = 0.95
@@ -224,13 +225,16 @@ def compute_bootstrap_recall_intervals(group_true_positives: np.ndarray, group_t
 
 def build_recall_interval_table(class_rows: List[Dict[str, Any]], support_key: str, support_column: str,
                                 recall_columns: List[Tuple[str, str]], interval_description: str,
-                                title: str = RECALL_TABLE_TITLE, legend_introduction: str = "") -> EvaluationTable:
+                                title: str = RECALL_TABLE_TITLE, legend_introduction: str = "",
+                                in_percent: bool = False) -> EvaluationTable:
     """
     Builds the per-class recall table of the report of an evaluated checkpoint, shown with the per-class report next
     to the per-class table (kept within the width of the report) and sorted by ascending first recall so that the
     classes the model misses most come first: the true samples of every class and, for every recall, its value with
     the bounds of its confidence interval, read from the rows of class_metrics.csv ('<recall>', '<recall>_lower' and
-    '<recall>_upper'). A class without true samples has no recall nor interval and is listed last.
+    '<recall>_upper'). A class without true samples has no recall nor interval and is listed last. The tasks moved to
+    the percentages (classification and the sequence trainers) write the recalls and their bounds as percentages
+    ("94.03 %") and the confidence level as "95 %", the others keep 4 decimals and "95%".
 
     Args:
         class_rows (List[Dict[str, Any]]): The metrics of every class, keyed like class_metrics.csv, in class order.
@@ -245,11 +249,13 @@ def build_recall_interval_table(class_rows: List[Dict[str, Any]], support_key: s
         title (str): The title of the table. Defaults to RECALL_TABLE_TITLE.
         legend_introduction (str): The sentences put before the legend, describing the recalls, e.g. the overlaps of
             the detection tasks. Defaults to "".
+        in_percent (bool): Whether the recalls and their bounds are written as percentages. Defaults to False.
 
     Returns:
         EvaluationTable: The per-class recall table.
     """
-    level_name = f"{CONFIDENCE_LEVEL:.0%}"
+    # Confidence level of the headers and the legend, "95 %" with the percentages of the report, "95%" otherwise
+    level_name = format_percentage_label(value=CONFIDENCE_LEVEL) if in_percent else f"{CONFIDENCE_LEVEL:.0%}"
     columns = ["Class", support_column]
     for _, recall_name in recall_columns:
         columns += [recall_name, f"{level_name}\nLower", f"{level_name}\nUpper"]
@@ -268,4 +274,4 @@ def build_recall_interval_table(class_rows: List[Dict[str, Any]], support_key: s
     legend = (f"{legend_introduction}Worst {first_recall_name} first, ties in class order. {level_name} Lower and "
               f"Upper : {interval_description}. — : no {support_column.lower()} of the class.")
     return {"title": title, "columns": columns, "rows": rows, "sort_column": recall_columns[0][1], "per_class": True,
-            "legend": legend}
+            "legend": legend, "percent_columns": columns[2:] if in_percent else []}

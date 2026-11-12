@@ -76,13 +76,13 @@ scenes:
     highlights:
       - {match: "Accuracy  |Macro F1|Macro ROC AUC", sentences: [0]}
       - {match: "^   moving_left ", sentences: [1]}
-      - {match: "Threshold|@ P0.99|Worst F1 first", sentences: [3]}
+      - {match: "Threshold|@ P0.99|@ P99 %|Worst F1 first", sentences: [3]}
     narration:
       - "The results file gets one block per evaluated checkpoint: the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-k accuracy, the macro ROC AUC and the macro average precision."
       - "At iteration {{sequence_classification.evaluation.flatten_128.first_iteration}}, one test sequence is wrong: sequence {{sequence_classification.evaluation.flatten_128.first_wrong.number}}, a {{sequence_classification.evaluation.flatten_128.first_wrong.true_class}} shape given {{sequence_classification.evaluation.flatten_128.first_wrong.predicted_class}} at {{sequence_classification.evaluation.flatten_128.first_wrong.probability:.2f}}, hence the recall of moving left."
-      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, every metric of the block is {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:.0f}}."
-      - "The per-class table is sorted by F1, worst first, with the lowest threshold keeping a precision of {{sequence_classification.run.target_precision}} and the recall it keeps."
-      - "Evaluations newer than this run also add a Per Class Recall table: the recall of every class with its exact Clopper-Pearson {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} confidence interval, the test sequences being independent."
+      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, every metric of the block is {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:percent}}."
+      - "The per-class table is sorted by F1, worst first, with the lowest threshold keeping a precision of {{sequence_classification.run.target_precision:percent_label}} and the recall it keeps."
+      - "Evaluations newer than this run write every rate as a percentage, and add a Per Class Recall table: the recall of every class with its exact Clopper-Pearson {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval, the test sequences being independent."
 
   - kind: image
     title: "Flatten against average"
@@ -92,8 +92,8 @@ scenes:
       - {box: "{{sequence_classification.evaluation.composite.row_1_box}}", from_sentence: 2}
     narration:
       - "The evaluation folder holds the files of the image classification without its temperature explorer: the confusion matrix, the class metrics and thresholds, the ROC and precision-recall curves, the predictions, and the sample sequences."
-      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, the flatten run has a diagonal confusion matrix and a ROC AUC of one for every class."
-      - "The average pooling run predicts moving down for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:.2f}}, the share of moving down, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:.2f}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:.2f}}."
+      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, the flatten run has a diagonal confusion matrix and a ROC AUC of {{sequence_classification.evaluation.flatten_128.macro_roc_auc.iteration_1000:percent}} for every class."
+      - "The average pooling run predicts moving down for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:percent}}, the share of moving down, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:percent}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:percent}}."
 
   - kind: image
     title: "The probability of the true class"
@@ -122,7 +122,7 @@ scenes:
     highlights:
       - {box: "{{sequence_classification.truncation.panel_box}}", sentences: [0]}
     narration:
-      - "The run only ever saw sequences of {{sequence_classification.dataset.disk_frames_words}} frames: on the first frames of the test sequences, which show less of the movement, its checkpoint reaches an accuracy of {{sequence_classification.truncation.frames_2.accuracy:.2f}} with {{sequence_classification.truncation.lengths[0]:words}} frames, {{sequence_classification.truncation.frames_4.accuracy:.2f}} with {{sequence_classification.truncation.lengths[2]}}, and {{sequence_classification.truncation.frames_8.accuracy:.2f}} with all {{sequence_classification.dataset.disk_frames}}."
+      - "The run only ever saw sequences of {{sequence_classification.dataset.disk_frames_words}} frames: on the first frames of the test sequences, which show less of the movement, its checkpoint reaches an accuracy of {{sequence_classification.truncation.frames_2.accuracy:percent}} with {{sequence_classification.truncation.lengths[0]:words}} frames, {{sequence_classification.truncation.frames_4.accuracy:percent}} with {{sequence_classification.truncation.lengths[2]}}, and {{sequence_classification.truncation.frames_8.accuracy:percent}} with all {{sequence_classification.dataset.disk_frames}}."
       - "Let's consider a deployment that sends shorter sequences: the model accepts any length, but what it learnt comes from sequences of {{sequence_classification.dataset.disk_frames_words}} frames, so check those lengths against the training data."
 
   - kind: html
@@ -171,7 +171,7 @@ scenes:
     title: "Recap"
     items:
       - {text: "Console: sequences and real frames per second"}
-      - {text: "Flatten at {{sequence_classification.image_sizes.flatten_128}} pixels: every metric {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:.1f}} at iteration {{sequence_classification.checkpoints.flatten_128.iteration:,}}"}
+      - {text: "Flatten at {{sequence_classification.image_sizes.flatten_128}} pixels: every metric {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:percent}} at iteration {{sequence_classification.checkpoints.flatten_128.iteration:,}}"}
       - {text: "Average pooling: moving_down for every sequence, loss at ln {{sequence_classification.run.number_classes}}"}
       - {text: "The evaluation files of CLS, one row per sequence"}
       - {text: "Export: images {{sequence_classification.export.input_shape}}, every frame real"}

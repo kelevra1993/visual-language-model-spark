@@ -158,7 +158,7 @@ def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], objec
     table: EvaluationTable = {
         "title": f"Anchor Recall Of The {split_name} Objects",
         "columns": ["Objects", "Count"] + [f"Block {level}" for level in levels] + ["All Levels"], "rows": table_rows,
-        "sort_column": None, "per_class": False,
+        "sort_column": None, "per_class": False, "percent_columns": [],
         "legend": f"Share of the objects whose best anchor overlaps them by at least "
                   f"{intersection_over_union_threshold:g} ({threshold_setting}), sizes by box area in network input "
                   f"pixels. An object under RegionProposal.foreground_iou_threshold.min in every level only gets its "
@@ -273,7 +273,7 @@ def summarise_proposal_recall(proposal_accumulator: Dict[str, Any]) -> Dict[str,
         "title": "Proposal Recall", "columns": ["Objects", "Count", "Recall@0.5", "Recall@0.7", "Proposals\nPer Image"],
         "rows": [[row_name, row["objects"], row["recall_50"], row["recall_70"], row["proposals_per_image"]]
                  for row_name, row in zip(row_names, rows, strict=True)],
-        "sort_column": None, "per_class": False,
+        "sort_column": None, "per_class": False, "percent_columns": [],
         "legend": "Share of the test objects overlapped by a proposal of the region proposal network by at least the "
                   "IoU, sizes by box area in network input pixels. A block row keeps the proposals of that block "
                   "only. — : no object of the size."}

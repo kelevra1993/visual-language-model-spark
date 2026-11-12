@@ -205,7 +205,7 @@ Every `information_dump` iterations, it prints the averages of the interval: the
   <img src="README/interval_summary.png" width="100%" />
 </p>
 
-Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt`: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first, followed by the recall of every class with its 95% confidence interval, worst recall first (the bounds are also written to `class_metrics.csv`).
+Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt`: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first, followed by the recall of every class with its 95 % confidence interval, worst recall first (the bounds are also written to `class_metrics.csv`).
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
@@ -274,7 +274,7 @@ CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1; DET, INS, KPT and SEG p
 ### Classification (CLS)
 Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`, softmax) or every class present in it (`"multi_label"`, sigmoid). The manifest lists every image with its `category_id` (or `category_ids`). `vision_training/data/classification/class_folder_manifests.py` converts one folder of images per class without copying them, and `imagenet_download.py` downloads ImageNet-22k ([ImageNet-22k](#imagenet-22k)).
 - **Configuration**: `classification/configuration_example.yaml`, with `ClassificationHead` (global pooling, fully connected layers and their normalization, label smoothing, class weighting, decorrelation of the hidden features) and the evaluation keys `target_precision`, `save_predictions` and `error_dumps`.
-- **Evaluation**: accuracy, balanced accuracy, macro F1, top-5 accuracy, the precision, recall, F1, ROC AUC and average precision of every class, the confusion matrix, the score threshold of every class reaching `target_precision` (a number, or a list such as `[0.99, 0.95, 0.90]` giving the threshold and recall of every class at each precision, written on `precision_recall_thresholds.png`), and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/`.
+- **Evaluation**: accuracy, balanced accuracy, macro F1, top-5 accuracy, the precision, recall, F1, ROC AUC and average precision of every class, the confusion matrix, the score threshold of every class reaching `target_precision` (a number, or a list such as `[0.99, 0.95, 0.90]` giving the threshold and recall of every class at each precision, written on `precision_recall_thresholds.png`), and the misclassified images in `Errors/<TRUE>-TO-<PREDICTED>/`. The report, the console summaries, the figures and the temperature explorer write these rates as percentages ("94.03 %"), a change as points ("+0.52 points"), while `class_metrics.csv`, `class_thresholds.json`, `predictions.csv`, the evaluation summaries and the TensorBoard and MLflow scalars keep them between 0 and 1; the thresholds, probabilities, temperatures and losses stay between 0 and 1 everywhere. The sequence classification, sequence labelling and sequence comparison runs share this display.
 
 <p align="center">
   <img src="README/classification_sample.png" width="60%" />

@@ -3,7 +3,8 @@ Helpers shared by the figure scripts of the sequence labelling (M2M) and frame s
 (tutorials/figures/sequence_labelling and tutorials/figures/frame_selection), which make_figures.py runs with the Python
 of the repository at every build: the test sequences of a real run read by the SequenceDataset of the repository and
 batched by its collate function, its checkpoint rebuilt on the CPU, the parameter count of every component of the model,
-the evaluation block of an iteration read from Results.txt for the listings of the report scenes, and the frames of a
+the evaluation block of an iteration read from Results.txt for the listings of the report scenes (its headline metrics
+read back between 0 and 1, whether the report wrote them as percentages or with decimals), and the frames of a
 sequence drawn as captioned thumbnails on the card colour of the videos, so that every figure shows the files and the
 code of the repository as they are. The settings typed in the main block of a script of the repository (the synthetic
 dataset generator, the split subset script) are read from its source, so that the narration quoting them follows the
@@ -27,6 +28,7 @@ from tutorial_builder.figure_context import find_repository_root, read_thread_co
 from tutorials.figures.figure_utilities import read_reused_facts
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
+from vision_training.evaluation.report_formatting import PERCENT_DECIMALS, PERCENT_SIGN
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_checkpoint_path
@@ -34,8 +36,13 @@ from vision_training.trainers.checkpointing import get_checkpoint_path
 # Pattern of the first line of an evaluation block of Results.txt, "Iteration 1000 · 200 Test Sequences, ..."
 RESULTS_BLOCK_HEADER_PATTERN = re.compile(pattern=r"^Iteration (\d+) · ")
 
-# Metric of a headline line of an evaluation block: its name, then its value after at least two spaces
-METRIC_PATTERN = re.compile(pattern=r"([A-Za-z][\w@\- ]*?[\w@])\s{2,}(\d+\.\d+)")
+# Metric of a headline line of an evaluation block: its name, then its value after at least two spaces, followed by the
+# percent sign of the reports when the value is a rate written as a percentage ("94.03 %", the reports written since
+# the percentages; "0.9403" before them and for the tasks keeping their decimals)
+METRIC_PATTERN = re.compile(pattern=r"([A-Za-z][\w@\- ]*?[\w@])\s{2,}(\d+\.\d+)(" + re.escape(PERCENT_SIGN) + r")?")
+
+# Decimals of a rate read back from its percentage, the two decimals of the percentage and the two of the division
+RATE_DECIMALS = PERCENT_DECIMALS + 2
 
 
 def read_run_sections(run_folder: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -184,22 +191,27 @@ def parse_block_metrics(block_lines: List[str], fact_prefix: str) -> Dict[str, f
     """
     Reads the headline metrics of an evaluation block of Results.txt, every "<name>   <value>" pair of its lines
     before the per-class table, as facts named after the metric ("Segment F1@10" giving <prefix>.segment_f1_10), so
-    that the narration quotes the report of the run.
+    that the narration quotes the report of the run. A rate written as a percentage by the reports ("94.03 %") is read
+    back between 0 and 1 (0.9403), like the "0.9403" of the reports written before the percentages, so that the facts
+    keep one scale whichever code evaluated the run.
 
     Args:
         block_lines (List[str]): The lines of the block (read_results_block).
         fact_prefix (str): The prefix of the fact names, e.g. "evaluation".
 
     Returns:
-        Dict[str, float]: The value of every metric.
+        Dict[str, float]: The value of every metric, between 0 and 1 for a rate.
     """
     metrics = {}
     for line in block_lines[1:]:
         if line.strip().startswith("Per Class"):
             break
-        for metric_name, metric_value in METRIC_PATTERN.findall(string=line):
+        for metric_name, metric_value, percent_sign in METRIC_PATTERN.findall(string=line):
             fact_name = re.sub(pattern=r"[^a-z0-9]+", repl="_", string=metric_name.lower()).strip("_")
-            metrics[f"{fact_prefix}.{fact_name}"] = float(metric_value)
+
+            # A percentage divided back to its rate, rounded to the decimals it was written with
+            value = float(metric_value)
+            metrics[f"{fact_prefix}.{fact_name}"] = round(value / 100.0, RATE_DECIMALS) if percent_sign else value
     return metrics
 
 

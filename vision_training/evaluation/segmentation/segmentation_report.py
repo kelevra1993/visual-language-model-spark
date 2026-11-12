@@ -85,7 +85,7 @@ def build_segmentation_class_table(class_rows: List[Dict[str, Any]]) -> Evaluati
     rows = [[class_row["class"], class_row["pixels"]] + [class_row[metric_key] for metric_key in metric_names]
             for class_row in class_rows]
     return {"title": CLASS_TABLE_TITLE, "columns": ["Class", "Pixels"] + list(metric_names.values()), "rows": rows,
-            "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "legend": f"{legend}."}
+            "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "percent_columns": [], "legend": f"{legend}."}
 
 
 def build_segmentation_class_scalars(class_rows: List[Dict[str, Any]]) -> Dict[str, float]:

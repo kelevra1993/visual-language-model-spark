@@ -464,7 +464,7 @@ class SelfSupervisedTrainer(BaseTrainer):
 
         return {"evaluated_samples": f"{len(labels)} Test {self.SAMPLE_NAME}", "metrics": metrics, "notes": notes,
                 "tables": tables, "scalars": dict(metrics), "class_scalars": class_scalars, "images": {},
-                "files": files, "headline_metric": headline_metric}
+                "files": files, "headline_metric": headline_metric, "percent_metrics": []}
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """

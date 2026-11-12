@@ -5,12 +5,14 @@ learning rate variants (classification and classification_learning_rates of tuto
 launches the README compares in MLflow): the validation accuracy of every iteration of the first 600 iterations of the
 four runs, smoothed like TensorBoard, and their mean validation accuracy over the last 50 of these iterations next to
 the test accuracy of their first evaluation (600 for the variants, 500 for the run). The facts give these numbers with
-the learning rate of every run, read from its saved configuration.
+the learning rate of every run, read from its saved configuration. The accuracies are written as the percentages of
+the reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
 
 import numpy
 
 from matplotlib import pyplot
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -19,6 +21,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 compute_pixel_box, read_run_configuration, read_tutorial_sources,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.foundations.training_curves import read_scalars, smooth_values
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Iterations compared: the length of the variants, and the window of the last iterations averaged
 COMPARED_ITERATIONS = 600
@@ -103,12 +106,12 @@ def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run
                    list_learning_rate_runs(experiments_folder=experiments_folder, run_folder=run_folder)],
                   key=read_learning_rate)
 
-    # Curve panel on the left, the bars of the two accuracies on the right
+    # Curve panel on the left, the bars of the two accuracies on the right, wide enough for their percentage labels
     register_fonts()
     figure = pyplot.figure(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH)
     figure.patch.set_facecolor(SURFACE_COLOUR)
-    curve_axes = figure.add_axes(rect=[0.06, 0.13, 0.52, 0.76])
-    bar_axes = figure.add_axes(rect=[0.67, 0.13, 0.32, 0.76])
+    curve_axes = figure.add_axes(rect=[0.075, 0.13, 0.48, 0.76])
+    bar_axes = figure.add_axes(rect=[0.635, 0.13, 0.355, 0.76])
     style_chart_panel(axes=curve_axes, title="Validation accuracy, smoothed", x_label="Iteration", y_label="Accuracy")
     style_chart_panel(axes=bar_axes, title="Validation (last 50) and test", x_label="Learning rate", y_label=None)
 
@@ -127,19 +130,24 @@ def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run
                       title="learning rate", title_fontsize=16 * POINTS_PER_PIXEL)
     curve_axes.get_legend().get_title().set_color(TEXT_PRIMARY_COLOUR)
 
-    # Two bars per run: its last validation mean, plain, and its first test accuracy, hatched, with their values
+    # Two bars per run: its last validation mean, plain, and its first test accuracy, hatched, with their values; the
+    # bars are wide enough for every percentage label to stay above its own bar, clear of the bar next to it
     positions = numpy.arange(len(runs))
-    bar_width = 0.38
+    bar_width = 0.45
     for run_index, run in enumerate(runs):
         colour = SERIES_COLOURS[run_index]
         bar_axes.bar(x=positions[run_index] - bar_width / 2, height=run["last_mean"], width=bar_width, color=colour)
         bar_axes.bar(x=positions[run_index] + bar_width / 2, height=run["test_accuracy"], width=bar_width,
                      color=SURFACE_COLOUR, edgecolor=colour, linewidth=2.5 * POINTS_PER_PIXEL, hatch="//")
         for offset, value in [(-bar_width / 2, run["last_mean"]), (bar_width / 2, run["test_accuracy"])]:
-            bar_axes.text(x=positions[run_index] + offset, y=value + 0.015, s=f"{value:.2f}", ha="center",
-                          color=TEXT_PRIMARY_COLOUR, fontsize=15 * POINTS_PER_PIXEL)
+            bar_axes.text(x=positions[run_index] + offset, y=value + 0.015, s=format_percentage(value=value),
+                          ha="center", color=TEXT_PRIMARY_COLOUR, fontsize=14 * POINTS_PER_PIXEL)
     bar_axes.set_xticks(ticks=positions, labels=[f"{run['learning_rate']:g}" for run in runs])
     bar_axes.set_ylim(bottom=0, top=1)
+
+    # Accuracy ticks of both panels written as the percentages of the reports of the repository
+    for axes in [curve_axes, bar_axes]:
+        axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     # Note of the bars: the test iteration of most runs, and the runs evaluated first at another iteration
     test_iterations = [run["test_iteration"] for run in runs]
     usual_iteration = max(set(test_iterations), key=test_iterations.count)

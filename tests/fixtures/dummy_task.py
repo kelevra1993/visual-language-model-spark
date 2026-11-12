@@ -323,9 +323,9 @@ class DummyTrainer(BaseTrainer):
 
         return {"evaluated_samples": f"{number_samples} Test Samples", "metrics": {"Accuracy": accuracy}, "notes": [],
                 "tables": [{"title": "Per Class Recall", "columns": ["Class", "Samples", "Recall"], "rows": rows,
-                            "sort_column": "Recall", "per_class": True, "legend": ""}],
+                            "sort_column": "Recall", "per_class": True, "legend": "", "percent_columns": ["Recall"]}],
                 "scalars": {"Accuracy": accuracy}, "class_scalars": class_scalars, "images": {}, "files": {},
-                "headline_metric": "Accuracy"}
+                "headline_metric": "Accuracy", "percent_metrics": ["Accuracy"]}
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """

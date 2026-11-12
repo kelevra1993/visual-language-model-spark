@@ -1,7 +1,8 @@
 """
 Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics over the
 batches really accumulated, the real frames counted for the frame throughput, the validation changes of the interval
-summary compared with the last interval that ran validation, and the off-diagonal correlations improving when they fall.
+summary compared with the last interval that ran validation, the off-diagonal correlations improving when they fall,
+and the rates of the task printed as percentages with their changes in points.
 """
 
 import pytest
@@ -24,7 +25,8 @@ def build_metric_tracker(sample_name: str, counts_frames: bool) -> MetricTracker
         MetricTracker: The tracker.
     """
     return MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss", "accuracy": "Accuracy"}, batch_size=2,
-                         validation_iteration_ratio=2, sample_name=sample_name, counts_frames=counts_frames)
+                         validation_iteration_ratio=2, sample_name=sample_name, counts_frames=counts_frames,
+                         percent_metric_keys=["accuracy"])
 
 
 def test_interval_average_over_the_accumulated_batches() -> None:
@@ -116,7 +118,8 @@ def test_correlations_improve_when_they_decrease(metric_key: str) -> None:
     the diagonal correlation of Barlow Twins still improves when it rises.
     """
     tracker = MetricTracker(tracked_metrics_mapping={metric_key: "Correlation"}, batch_size=2,
-                            validation_iteration_ratio=0, sample_name="Images", counts_frames=False)
+                            validation_iteration_ratio=0, sample_name="Images", counts_frames=False,
+                            percent_metric_keys=[])
     assert MetricTracker.is_lower_better(metric_key=metric_key)
     assert not MetricTracker.is_lower_better(metric_key="cross_correlation_diagonal")
 
@@ -130,3 +133,32 @@ def test_correlations_improve_when_they_decrease(metric_key: str) -> None:
     assert color_text(color="blue", text="Best") in falling_line
     assert color_text(color="red", text=" +0.2000") in rising_line
     assert color_text(color="blue", text="Best") not in rising_line
+
+
+def test_rates_are_printed_as_percentages_with_changes_in_points() -> None:
+    """
+    Verifies the lines of a rate listed in the percent keys (the accuracy of the classification-like tasks): its value
+    written "50.00 %", its change in points, green when it rises, neutral "+0.00 points" when it rounds to zero, while
+    the loss keeps 4 decimals; a percent key that is not tracked is refused.
+    """
+    tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
+    first_line = tracker.format_metric_line(split_name="Train", metric_key="accuracy", display_name="Accuracy",
+                                            current_value=0.5)
+    rising_line = tracker.format_metric_line(split_name="Train", metric_key="accuracy", display_name="Accuracy",
+                                             current_value=0.6)
+    still_line = tracker.format_metric_line(split_name="Train", metric_key="accuracy", display_name="Accuracy",
+                                            current_value=0.6000001)
+    loss_line = tracker.format_metric_line(split_name="Train", metric_key="total_loss", display_name="Total Loss",
+                                           current_value=0.25)
+
+    # Value in percent, its change in points coloured by its direction, the loss with 4 decimals
+    assert first_line == color_text(color="blue", text=f"Moving Average of Train {'Accuracy':30} :  50.00 %")
+    assert color_text(color="green", text="+10.00 points") in rising_line
+    assert color_text(color="blue", text="Best") in rising_line
+    assert color_text(color="blue", text="+0.00 points") in still_line
+    assert "  0.2500" in loss_line and "%" not in loss_line
+
+    # A percent key must be one of the tracked keys
+    with pytest.raises(ValueError, match="percent keys"):
+        MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss"}, batch_size=2, validation_iteration_ratio=0,
+                      sample_name="Images", counts_frames=False, percent_metric_keys=["accuracy"])

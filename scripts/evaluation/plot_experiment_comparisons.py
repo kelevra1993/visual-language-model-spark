@@ -7,7 +7,9 @@ results files kept next to the experiment plans (collect_experiment_results.py a
 the git-ignored hyperparameter_experiments folder, the plans keep a copy). Each figure shows, for the trained and the
 averaged weights, every launch as a thin line and the mean of the launches of each setting as a thick one, with the gap
 of every setting to the reference setting of the stage below; the figures are written to
-documentation/architecture_benchmarking/figures/<experiment>/ and linked from the experiment plans.
+documentation/architecture_benchmarking/figures/<experiment>/ and linked from the experiment plans. The accuracy of
+the classification and the macro F1 of the sequence labelling are written as the percentages of the reports (labels
+"85.81 %", gaps "+0.95 points", axes "86 %"); the detection mAP keeps 4 decimals until the detection is moved to them.
 """
 
 import csv
@@ -19,9 +21,12 @@ import yaml
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.evaluation.report_formatting import (format_percentage, format_percentage_tick, format_points,
+                                                          format_points_tick)
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Folder of the experiment plans, their results files, the comparison registry and the figures
@@ -32,6 +37,10 @@ BENCHMARKING_FOLDER = Path(__file__).resolve().parents[2] / "documentation" / "a
 EXPERIMENT_TITLES = {"classification": "Classification", "sequence_labelling": "Sequence labelling",
                      "object_detection": "Object detection"}
 METRIC_TITLES = {"accuracy": "accuracy", "macro_f1": "Macro F1", "map_50_95": "mAP@[0.5:0.95]"}
+
+# Metric prefixes written as the percentages of the reports, their gaps in points: the classification and sequence
+# labelling rates, the detection mAP keeping 4 decimals
+PERCENT_METRICS = ["accuracy", "macro_f1"]
 WEIGHTS_TITLES = {"trained": "Trained weights", "ema": "Averaged weights (EMA)"}
 
 # Metric column of a results file, the metric prefix followed by the evaluated iteration (map_50_95_15000)
@@ -48,6 +57,10 @@ SURFACE_COLOR, TEXT_PRIMARY_COLOR, TEXT_SECONDARY_COLOR, GRID_COLOR = "#fcfcfb",
 LAUNCH_LINE_STYLES = ["-", "--", ":", "-."]
 LAUNCH_STYLE_NAMES = ["solid", "dashed", "dotted", "dash-dotted"]
 MINIMUM_LABEL_SPACING_POINTS = 11.0
+
+# Space before the unit of a percentage or a gap in points of a verdict ("85.81 %", "+0.95 points"), replaced by a
+# non-breaking space before wrapping so that a number never ends a line without its unit
+VERDICT_UNIT_PATTERN = re.compile(pattern=r"(?<=\d) (?=%|points\b)")
 
 
 def read_results_curves(results_path: Path) -> Tuple[str, Dict[Tuple[str, str], Dict[int, float]]]:
@@ -249,10 +262,12 @@ def style_axis(axis: Axes) -> None:
 
 
 def draw_weights_column(curve_axis: Axes, gap_axis: Axes, setting_curves: List[Dict[str, Any]], last_iteration: int,
-                        column_title: str, metric_title: str) -> Tuple[float, List[Tuple[int, float]], List[str]]:
+                        column_title: str, metric_title: str,
+                        in_percent: bool) -> Tuple[float, List[Tuple[int, float]], List[str]]:
     """
     Draws the curves of one kind of weights: every launch thin, the mean of each setting thick with its direct label
-    at the compared iteration, and below the gap of every compared setting to the reference setting.
+    at the compared iteration, and below the gap of every compared setting to the reference setting. A rate is written
+    as a percentage on its labels and axis ("85.81 %"), its gaps in points ("+0.95 points").
 
     Args:
         curve_axis (Axes): The upper panel.
@@ -261,6 +276,7 @@ def draw_weights_column(curve_axis: Axes, gap_axis: Axes, setting_curves: List[D
         last_iteration (int): The iteration the stage compares at.
         column_title (str): The title of the column (the weights, and whether the stage compares them).
         metric_title (str): The name of the test metric.
+        in_percent (bool): Whether the metric is a rate written as a percentage, its gaps in points.
 
     Returns:
         Tuple[float, List[Tuple[int, float]], List[str]]: The largest absolute gap drawn, so that both columns share
@@ -288,7 +304,9 @@ def draw_weights_column(curve_axis: Axes, gap_axis: Axes, setting_curves: List[D
                         marker="o", markersize=3.5, label=legend_label)
         label_iteration = find_label_iteration(curve=setting["mean_curve"], last_iteration=last_iteration)
         label_points.append((label_iteration, setting["mean_curve"][label_iteration]))
-        label_texts.append(f"{setting['label']} {setting['mean_curve'][label_iteration]:.4f}")
+        label_value = setting["mean_curve"][label_iteration]
+        label_texts.append(f"{setting['label']} "
+                           f"{format_percentage(value=label_value) if in_percent else f'{label_value:.4f}'}")
 
     # Fix the limits before placing the direct labels, whose spacing is computed on the screen
     value_margin = 0.04 * (max(plotted_values) - min(plotted_values) or 1.0)
@@ -323,13 +341,21 @@ def draw_weights_column(curve_axis: Axes, gap_axis: Axes, setting_curves: List[D
                       markersize=3.5)
         gap_iteration = find_label_iteration(curve=gap_curve, last_iteration=last_iteration)
         gap_label_points.append((gap_iteration, gap_curve[gap_iteration]))
-        gap_label_texts.append(f"{gap_curve[gap_iteration]:+.4f}")
+        gap_value = gap_curve[gap_iteration]
+        gap_label_texts.append(format_points(difference=gap_value) if in_percent else f"{gap_value:+.4f}")
         largest_gap = max(largest_gap, max(abs(gap) for gap in gap_curve.values()))
 
     # Titles, axis labels and the recessive style
     curve_axis.set_title(column_title, color=TEXT_PRIMARY_COLOR, fontsize=12, loc="left")
     curve_axis.set_ylabel(f"Test {metric_title}", color=TEXT_SECONDARY_COLOR)
-    gap_axis.set_ylabel(f"Gap to {reference_setting['label']}", color=TEXT_SECONDARY_COLOR)
+    # The unit of the gaps on a line of its own, so that a long reference label still fits the height of the panel
+    gap_axis.set_ylabel(f"Gap to {reference_setting['label']}" + ("\n(points)" if in_percent else ""),
+                        color=TEXT_SECONDARY_COLOR)
+
+    # Rates on percent axes, their gaps in points
+    if in_percent:
+        curve_axis.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
+        gap_axis.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_points_tick))
     gap_axis.set_xlabel("Iteration", color=TEXT_SECONDARY_COLOR)
     for axis in [curve_axis, gap_axis]:
         style_axis(axis=axis)
@@ -348,6 +374,22 @@ def make_figure_name(comparison: Dict[str, Any]) -> str:
     """
     title_words = re.sub(pattern=r"[^a-z0-9]+", repl="_", string=comparison["title"].lower()).strip("_")
     return f"stage_{comparison['stage']}_{title_words}.png"
+
+
+def wrap_verdict(verdict: str, width: int) -> str:
+    """
+    Wraps the verdict of a stage written under the title of its comparison figure, keeping every percentage and gap in
+    points with its unit ("85.81 %", "+0.95 points") on one line, since textwrap breaks at any space.
+
+    Args:
+        verdict (str): The verdict of the stage, from the registry.
+        width (int): The largest number of characters of a line.
+
+    Returns:
+        str: The wrapped verdict, its lines separated by newlines.
+    """
+    # A non-breaking space between a number and its unit, which textwrap does not take as a break
+    return textwrap.fill(text=VERDICT_UNIT_PATTERN.sub(repl=" ", string=verdict), width=width)
 
 
 def plot_comparison(comparison: Dict[str, Any], benchmarking_folder: Path, output_folder: Path) -> Path:
@@ -386,7 +428,7 @@ def plot_comparison(comparison: Dict[str, Any], benchmarking_folder: Path, outpu
         largest_gap, gap_label_points, gap_label_texts = draw_weights_column(
             curve_axis=axes[0][column_index], gap_axis=axes[1][column_index], setting_curves=setting_curves,
             last_iteration=comparison["last_iteration"], column_title=column_title,
-            metric_title=METRIC_TITLES[metric_prefix])
+            metric_title=METRIC_TITLES[metric_prefix], in_percent=metric_prefix in PERCENT_METRICS)
         largest_gaps.append(largest_gap)
         gap_labels.append((gap_label_points, gap_label_texts))
 
@@ -412,7 +454,7 @@ def plot_comparison(comparison: Dict[str, Any], benchmarking_folder: Path, outpu
                       title=f"thin: each launch ({style_order})")
     figure.suptitle(f"{EXPERIMENT_TITLES[comparison['experiment']]}, stage {comparison['stage']}: "
                     f"{comparison['title']}", color=TEXT_PRIMARY_COLOR, fontsize=13, x=0.01, y=0.985, ha="left")
-    verdict_text = textwrap.fill(text=comparison["verdict"], width=int(24 * 7.2 * len(weights_kinds) / 1.6))
+    verdict_text = wrap_verdict(verdict=comparison["verdict"], width=int(24 * 7.2 * len(weights_kinds) / 1.6))
     figure.text(x=0.01, y=0.955, s=verdict_text, color=TEXT_SECONDARY_COLOR, fontsize=9, ha="left", va="top")
     figure.tight_layout(rect=(0, 0, 1, 0.95 - 0.018 * verdict_text.count("\n")))
 

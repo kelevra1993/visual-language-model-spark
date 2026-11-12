@@ -4,7 +4,7 @@ This document follows one sequence comparison run (CMP: one class per pair of se
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
 - **Stages 1 and 2**: `vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (synthetic object loss pairs, 2 classes `loss_of_object` and `same_number_of_objects`, members of 2 to 6 frames, a maximum sequence length of 50 frames per member, frames read at 512 pixels, batch size 16, a mean pooling and a difference fusion), with the run folder redirected to a temporary folder. The dataset is the one the configuration points to on this machine (`/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs`, read by the README run), generated before the generator drew 2 to 12 frames of 512 pixels per member: its members hold 2 to 6 frames of 128 pixels. The dataset of `configuration_example.yaml` is not on this machine.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting then, now fixed at 1), with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `same_number_of_objects` for every test pair (2 classes: a loss near ln 2 = 0.693), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-10, before the ROC and precision-recall curves joined the evaluation (2026-10-20): the steps say where the current code prints more, and the README run of `experiments/readme_screenshots/` (`CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2`, the synthetic configuration trained for 1,000 iterations and evaluated on 2026-10-23) gives the outputs of the evaluation with the curves. These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 1`), so their reports show `Top-1 Accuracy`, equal to the accuracy, where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 1.0 for the 2 classes of the synthetic pairs. Both runs also predate the fixed mixed precision (2026-10-29): they ran their training and validation forward passes in float32 (`mixed_precision: False`, a setting then), which now always run in bfloat16 autocast (Step 3.9).
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting then, now fixed at 1), with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `same_number_of_objects` for every test pair (2 classes: a loss near ln 2 = 0.693), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-10, before the ROC and precision-recall curves joined the evaluation (2026-10-20): the steps say where the current code prints more, and the README run of `experiments/readme_screenshots/` (`CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2`, the synthetic configuration trained for 1,000 iterations and evaluated on 2026-10-23) gives the outputs of the evaluation with the curves. These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 1`), so their reports show `Top-1 Accuracy`, equal to the accuracy, where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 100.00 % for the 2 classes of the synthetic pairs. Both runs also predate the fixed mixed precision (2026-10-29): they ran their training and validation forward passes in float32 (`mixed_precision: False`, a setting then), which now always run in bfloat16 autocast (Step 3.9). The rates of the recorded console summaries, reports and best checkpoint lines are shown as the current code writes them, as percentages with two decimals (`46.00 %`, a change in points such as `+31.25 points`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
 
 In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`) showing the name of the file or folder, underlined; the examples write the `file://` URI the link opens, except where they show that name.
 
@@ -102,7 +102,7 @@ If one wishes to change what the comparator learns or how it reads the pairs, th
 
 Whenever a run saves and evaluates a checkpoint, its run folder receives the files below.
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table and the `Per Class Recall` table (the recall of every class with its exact 95% confidence interval over the test pairs, worst recall first); the note `Sample Images : 8 fixed test pairs`.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table and the `Per Class Recall` table (the recall of every class with its exact 95% confidence interval over the test pairs, worst recall first); the note `Sample Images : 8 fixed test pairs`. Every rate is written as a percentage with two decimals (`98.50 %`), as for CLS, the thresholds staying between 0 and 1.
 - `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv` and `.png`, `class_metrics.csv`, `class_thresholds.json`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png`), `class_thresholds.json` starting with `"logit_temperature": 1.0`, the temperature of the probabilities its thresholds were found on, and no `temperature_explorer.html` nor `class_logits.npz`, which only the image classification writes (`saves_temperature_explorer()` of `classification_trainer.py`); `predictions.csv` with `save_predictions`, one row per test pair, its `pair` name before the classes and probabilities; `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png`, the numbered grid of the real before frames (`0 before`, ...) above the grid of the real after frames, 4 columns, under the caption `true -> predicted probability` (2068 pixels wide and 1064, 1580 or 2096 pixels high in the README run, each member taking 1 or 2 rows of 512 pixel frames).
 - `data.json`: the `pairs` of every class in every split, and the frames of both members of every pair of every split.
 - `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of both classes, the images `Samples/<pair>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`; `Train` and `Validation` as in M2O.
@@ -745,7 +745,7 @@ MLflow, step 4: {'train/Total Loss': 0.6882, 'train/Classification Loss': 0.6882
 -----------------------------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :   0.6882
 Moving Average of Train Classification Loss            :   0.6882
-Moving Average of Train Accuracy                       :   0.5625
+Moving Average of Train Accuracy                       :  56.25 %
 -----------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:02.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -758,8 +758,8 @@ Moving Average of Train Total Loss                     :   0.5920  -0.0947 Best
 Moving Average of Valid Total Loss                     :   0.6939
 Moving Average of Train Classification Loss            :   0.5920  -0.0947 Best
 Moving Average of Valid Classification Loss            :   0.6939
-Moving Average of Train Accuracy                       :   0.8750  +0.3125 Best
-Moving Average of Valid Accuracy                       :   0.5000
+Moving Average of Train Accuracy                       :  87.50 % +31.25 points Best
+Moving Average of Valid Accuracy                       :  50.00 %
 -----------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:01.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
@@ -901,18 +901,18 @@ The block of the report and the links of the files written by the evaluation (se
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
 Iteration 12 · 200 Test Pairs · 2026-10-10 07:10 ───────────────────────────────────────────────────────────────────────
-  Accuracy   0.4600   Balanced Accuracy   0.5000
-  Macro F1   0.3151   Top-1 Accuracy      0.4600
+  Accuracy   46.00 %   Balanced Accuracy   50.00 %
+  Macro F1   31.51 %   Top-1 Accuracy      46.00 %
   Error Images : 2 in 1 class pairs, at most 2 per pair
   Sample Images : 8 fixed test pairs
 
   Per Class Metrics
-                                                                    Threshold    Recall
-   Class                    Samples   Precision   Recall       F1     @ P0.99   @ P0.99
-  ──────────────────────────────────────────────────────────────────────────────────────
-   loss_of_object               108      0.0000   0.0000   0.0000      0.4760    0.1944
-   same_number_of_objects        92      0.4600   1.0000   0.6301           —         —
-  Worst F1 first, ties in class order. — : no samples of the class, or the precision 0.99 is never reached.
+                                                                       Threshold    Recall
+   Class                    Samples   Precision     Recall        F1     @ P99 %   @ P99 %
+  ─────────────────────────────────────────────────────────────────────────────────────────
+   loss_of_object               108      0.00 %     0.00 %    0.00 %      0.4760   19.44 %
+   same_number_of_objects        92     46.00 %   100.00 %   63.01 %           —         —
+  Worst F1 first, ties in class order. — : no samples of the class, or the precision 99 % is never reached.
   - Results : file:///.../Results.txt
   - Confusion Matrix Table : file:///.../Evaluation/Iteration_12/confusion_matrix.csv
   - ...
@@ -922,18 +922,18 @@ Iteration 12 · 200 Test Pairs · 2026-10-10 07:10 ─────────�
 **Example: the layout with the curves, the first block of `Results.txt` of the README run** (`CMP_IN-KAR-512_..._MC2`, trained on GPU with the error images off)
 ```text
 Iteration 500 · 200 Test Pairs · 2026-10-23 04:12 ──────────────────────────────────────────────────────────────────────
-  Accuracy        0.9850   Balanced Accuracy         0.9861
-  Macro F1        0.9849   Top-1 Accuracy            0.9850
-  Macro ROC AUC   0.9962   Macro Average Precision   0.9960
+  Accuracy        98.50 %   Balanced Accuracy         98.61 %
+  Macro F1        98.49 %   Top-1 Accuracy            98.50 %
+  Macro ROC AUC   99.62 %   Macro Average Precision   99.60 %
   Sample Images : 8 fixed test pairs
 
   Per Class Metrics
-                                                                                Average   Threshold    Recall
-   Class                    Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99
-  ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   same_number_of_objects        92      0.9684   1.0000   0.9840    0.9962      0.9946      0.9447    0.6304
-   loss_of_object               108      1.0000   0.9722   0.9859    0.9962      0.9974      0.3798    0.9815
-  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99
+                                                                                   Average   Threshold    Recall
+   Class                    Samples   Precision     Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %
+  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   same_number_of_objects        92     96.84 %   100.00 %   98.40 %   99.62 %     99.46 %      0.9447   63.04 %
+   loss_of_object               108    100.00 %    97.22 %   98.59 %   99.62 %     99.74 %      0.3798   98.15 %
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
   is never reached.
 ```
 
@@ -980,7 +980,7 @@ MLflow Run Created In The Experiment 'sequence_comparison' : 7f5220908af54c13aaf
 **Example output** (every checkpoint predicts `same_number_of_objects` for the 40 pairs, so the four iterations tie and are listed in their evaluation order)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/CMP_IN-KAR-64_..._MC2/Checkpoint_Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iterations 12, 9, 6, 3 tie (Accuracy 0.5250)
+  - Best Checkpoint : iterations 12, 9, 6, 3 tie (Accuracy 52.50 %)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-1 Accuracy,Precision/loss_of_object,Recall/loss_of_object,F1/loss_of_object, ...
 12,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
@@ -995,17 +995,17 @@ The columns are the scalars of every evaluation (`build_summary_columns()`), tho
 ```text
 Evaluating : file:///.../runs/CMP_IN-KAR-64_..._MC2/Weights/Iteration_9/model_000009.pt
 Iteration 9 · 40 Test Pairs · 2026-10-10 07:10 ─────────────────────────────────────────────────────────────────────────
-  Accuracy   0.5250   Balanced Accuracy   0.5000
-  Macro F1   0.3443   Top-1 Accuracy      0.5250
+  Accuracy   52.50 %   Balanced Accuracy   50.00 %
+  Macro F1   34.43 %   Top-1 Accuracy      52.50 %
   Error Images : 2 in 1 class pairs, at most 2 per pair
   Sample Images : 8 fixed test pairs
 
   Per Class Metrics
-                                                                    Threshold    Recall
-   Class                    Samples   Precision   Recall       F1     @ P0.99   @ P0.99
-  ──────────────────────────────────────────────────────────────────────────────────────
-   loss_of_object                19      0.0000   0.0000   0.0000      0.4871    0.1053
-   same_number_of_objects        21      0.5250   1.0000   0.6885      0.5129    0.1905
-  Worst F1 first, ties in class order. — : no samples of the class, or the precision 0.99 is never reached.
+                                                                       Threshold    Recall
+   Class                    Samples   Precision     Recall        F1     @ P99 %   @ P99 %
+  ─────────────────────────────────────────────────────────────────────────────────────────
+   loss_of_object                19      0.00 %     0.00 %    0.00 %      0.4871   10.53 %
+   same_number_of_objects        21     52.50 %   100.00 %   68.85 %      0.5129   19.05 %
+  Worst F1 first, ties in class order. — : no samples of the class, or the precision 99 % is never reached.
 ```
 The sample pairs were chosen from the 40 pairs of this split, so they are not the same pairs as in Stage 4.

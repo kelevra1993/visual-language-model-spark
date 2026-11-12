@@ -4,7 +4,7 @@ This document follows one classification run from `main()` to the evaluation of 
 
 The examples come from two real runs, both on CPU so that the GPU stayed free for another training (some steps add the outputs of a third one, the README run trained on the GPU, described below):
 - **Stages 1 and 2**: `configurations/classification/configuration_example.yaml` (ImageNet-1k, 1000 classes, 256 pixel images, batch size 256, flattened head), with the run folder redirected to a temporary folder. The file read ImageNet-1k when these outputs were recorded and reads ImageNet-22k (21,841 classes, `MC21841`) since 2026-11-11; the ImageNet-1k examples below are kept as records.
-- **Stages 3, 4 and 5**: `configurations/classification/configuration_synthetic_shapes.yaml` (9 shape classes), shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network is still close to chance (9 classes: 1/9 = 11.1% accuracy, a loss near ln 9 = 2.197), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-09, with the configuration file and the synthetic dataset of that day: an `average` pooling, plain hidden layers and no class weighting (its run name ends with `HAVG.128_MC9`), a test split of 5,000 images, and an evaluation without the ROC and precision-recall curves. The steps say where the current code prints more; the README run of `experiments/readme_screenshots/` (`CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`, the current synthetic configuration trained for 1,500 iterations with a batch of 64, on the 9-class dataset of 500,000, 50,000 and 50,000 images) gives the current outputs. Both runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`.
+- **Stages 3, 4 and 5**: `configurations/classification/configuration_synthetic_shapes.yaml` (9 shape classes), shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network is still close to chance (9 classes: 1/9 = 11.11 % accuracy, a loss near ln 9 = 2.197), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-09, with the configuration file and the synthetic dataset of that day: an `average` pooling, plain hidden layers and no class weighting (its run name ends with `HAVG.128_MC9`), a test split of 5,000 images, and an evaluation without the ROC and precision-recall curves. The steps say where the current code prints more; the README run of `experiments/readme_screenshots/` (`CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`, the current synthetic configuration trained for 1,500 iterations with a batch of 64, on the 9-class dataset of 500,000, 50,000 and 50,000 images) gives the current outputs. Both runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`. The rates of the recorded console summaries, reports, best checkpoint lines and images are shown as the current code writes them, as percentages with two decimals (`10.96 %`, a change in points such as `-3.12 points`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
 
 In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`): it shows the name of the file or folder, underlined, and opens its `file://` URI. The examples of Stages 1 and 2 show these names; those of Stages 3 to 5 write the URI the link opens, as the README does.
 
@@ -100,14 +100,14 @@ Before changing the synthetic configuration, these are the keys that change the 
 | `ClassificationHead.class_weighting` | `"balanced"` | class weights N / (K x N_k) in the cross entropy (`CWB`) |
 | `ClassificationHead.label_smoothing` | `0.0` | above 0 gives `LS<rate>`; combined with balanced weights it favours the rare classes (pitfall below) |
 | `ClassificationHead.decorrelation` | `activated: False` | adds the squared off-diagonal correlations of one hidden layer to the loss, no run name token |
-| `ExperimentConfiguration.evaluation.target_precision` | `0.99` | the threshold of every class in `class_thresholds.json` and the `@ P0.99` columns; a list such as `[0.99, 0.95, 0.90]` adds the thresholds of the other precisions (Step 4.13) |
+| `ExperimentConfiguration.evaluation.target_precision` | `0.99` | the threshold of every class in `class_thresholds.json` and the `@ P99 %` columns; a list such as `[0.99, 0.95, 0.90]` adds the thresholds of the other precisions (Step 4.13) |
 | `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class recall table, per-class scalars, confusion matrix image, ROC and precision-recall curves, temperature explorer with its logits |
 
 ### What A Run Writes
 
 Each time a checkpoint is evaluated, the run folder, TensorBoard and MLflow receive the following.
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95% confidence interval) sorted by recall, worst first.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95% confidence interval) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`82.73 %`), the thresholds staying between 0 and 1; the files, TensorBoard and MLflow keep every rate between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `saved_temperature_thresholds.json` once the thresholds of a temperature are saved from the served page; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`.
 - `Exports/Iteration_<n>[_EMA]_T<temperature>/`: one Triton model repository per checkpoint, weights and temperature exported from the served temperature explorer, with `export_record.json` and `export_log.txt` (Step 4.13).
@@ -357,9 +357,9 @@ main()
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
 │       │       get_tracked_metrics returns {total_loss, classification_loss, accuracy} with their display names
 │       │       (with decorrelation_loss and hidden_feature_correlation when ClassificationHead.decorrelation is on).
-│       │       MetricTracker stores them with batch_size, validation_iteration_ratio and the kind of sample ("Images"):
-│       │       it will average them over every console interval, print them with their changes and write them to
-│       │       TensorBoard.
+│       │       MetricTracker stores them with batch_size, validation_iteration_ratio, the kind of sample ("Images")
+│       │       and the keys printed as percentages (get_percent_tracked_metrics: accuracy): it will average them over
+│       │       every console interval, print them with their changes and write them to TensorBoard.
 │       ├── print_experiment_information()
 │       │   │   Prints the launch panel: run name, clickable folders and data record, the settings and the data
 │       │   │   changed since the last start of a resumed run, one block per transferred component, one line per
@@ -1064,7 +1064,7 @@ param groups: 1    base_learning_rates: [0.0002]
 ```
 
 ### Step 2.21 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-`get_tracked_metrics()` lists what is followed on every training and validation batch: the keys that the model or the trainer produce and their display names. The `MetricTracker` stores this list with `batch_size`, `validation_iteration_ratio` and the kind of sample (`"Images"`, which names the throughput). In Stage 3 it averages the metrics over every console interval and prints them (Step 3.24), and writes them to TensorBoard (Step 3.20). It also keeps the values of the previous summary and the best value of the run of every metric, empty for now, for the changes printed in the summaries.
+`get_tracked_metrics()` lists what is followed on every training and validation batch: the keys that the model or the trainer produce and their display names. The `MetricTracker` stores this list with `batch_size`, `validation_iteration_ratio`, the kind of sample (`"Images"`, which names the throughput) and the keys printed as percentages with their changes in points, given by `get_percent_tracked_metrics()` (`['accuracy']`, the losses keeping 4 decimals). In Stage 3 it averages the metrics over every console interval and prints them (Step 3.24), and writes them to TensorBoard (Step 3.20). It also keeps the values of the previous summary and the best value of the run of every metric, empty for now, for the changes printed in the summaries.
 
 **Example output**
 ```text
@@ -1406,9 +1406,9 @@ accuracy    = 0 / 8 = 0.0
 **Example: the console value is the mean of the TensorBoard points of the interval**
 ```text
 Tensorboard/Train Accuracy at iterations 1 to 4:  0.0, 0.25, 0.125, 0.125      sum = 0.5      mean = 0.125
-console at iteration 4:  Moving Average of Train Accuracy : 0.1250
+console at iteration 4:  Moving Average of Train Accuracy : 12.50 %
 Tensorboard/Train Accuracy at iterations 5 to 8:  0.0, 0.0, 0.125, 0.25        sum = 0.375    mean = 0.09375
-console at iteration 8:  Moving Average of Train Accuracy : 0.0938
+console at iteration 8:  Moving Average of Train Accuracy : 9.38 %
 ```
 
 ### Step 3.21 — `training_loss.backward()`
@@ -1444,7 +1444,7 @@ console at iteration 12: Validation Iterations In This Interval: 1 (Ratio: Every
 ```
 
 ### Step 3.24 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()` + `report_dropped_batches()`
-Every `information_dump` iterations, the loop divides the training and the validation sums by the number of batches each really ran (`interval_batches`). The training interval usually holds `information_dump` batches, but the first interval of a run resumed between two summaries holds fewer, and the number of validation batches depends on the ratio. `log_interval_metrics()` sends the averages to MLflow (`train/<name>` and, when a validation batch ran, `validation/<name>`), with the throughput, the duration of the interval and the learning rate. `print_interval_summary()` prints the summary, and the loop starts fresh trackers. The summary gives the throughput and the moving average of every metric for the training and, if a validation batch ran in the interval, for the validation. After each value comes its change since the previous summary of the run, in green when it improved (a loss decreasing, an accuracy increasing) and in red when it got worse, and `Best` when it is the best value of the run so far. The duration includes everything between the two summaries, evaluations and checkpoints included. Right after the summary, `report_dropped_batches()` prints in yellow the batches of every split dropped since the previous summary because their loading failed (Step 3.8), e.g. `- Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)`, then starts the counts again; it prints nothing when no batch was dropped.
+Every `information_dump` iterations, the loop divides the training and the validation sums by the number of batches each really ran (`interval_batches`). The training interval usually holds `information_dump` batches, but the first interval of a run resumed between two summaries holds fewer, and the number of validation batches depends on the ratio. `log_interval_metrics()` sends the averages to MLflow (`train/<name>` and, when a validation batch ran, `validation/<name>`), with the throughput, the duration of the interval and the learning rate. `print_interval_summary()` prints the summary, and the loop starts fresh trackers. The summary gives the throughput and the moving average of every metric for the training and, if a validation batch ran in the interval, for the validation. After each value comes its change since the previous summary of the run, in green when it improved (a loss decreasing, an accuracy increasing) and in red when it got worse, and `Best` when it is the best value of the run so far. The accuracy is written as a percentage with its change in points (`9.38 % -3.12 points`), the losses with 4 decimals; TensorBoard and MLflow keep the accuracy between 0 and 1. The duration includes everything between the two summaries, evaluations and checkpoints included. Right after the summary, `report_dropped_batches()` prints in yellow the batches of every split dropped since the previous summary because their loading failed (Step 3.8), e.g. `- Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)`, then starts the counts again; it prints nothing when no batch was dropped.
 
 **Example: the sums and the averages of the first interval**
 ```text
@@ -1461,7 +1461,7 @@ MLflow, step 4: {'train/Total Loss': 2.205, 'train/Classification Loss': 2.205, 
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :   2.2050
 Moving Average of Train Classification Loss            :   2.2050
-Moving Average of Train Accuracy                       :   0.1250
+Moving Average of Train Accuracy                       :  12.50 %
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:03.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -1472,7 +1472,7 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :   2.1895  -0.0154 Best        <- green: the loss decreased
 Moving Average of Train Classification Loss            :   2.1895  -0.0154 Best
-Moving Average of Train Accuracy                       :   0.0938  -0.0312             <- red: the accuracy decreased
+Moving Average of Train Accuracy                       :   9.38 % -3.12 points         <- red: the accuracy decreased
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:48.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -1485,8 +1485,8 @@ Moving Average of Train Total Loss                     :   2.2103  +0.0208      
 Moving Average of Valid Total Loss                     :   2.1964                      <- first Valid value: no change
 Moving Average of Train Classification Loss            :   2.2103  +0.0208
 Moving Average of Valid Classification Loss            :   2.1964
-Moving Average of Train Accuracy                       :   0.0938  +0.0000             <- line colour: no change
-Moving Average of Valid Accuracy                       :   0.1250
+Moving Average of Train Accuracy                       :   9.38 % +0.00 points         <- line colour: no change
+Moving Average of Valid Accuracy                       :  12.50 %
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:01.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
@@ -1613,6 +1613,7 @@ files             = Confusion Matrix Table, Class Thresholds, Class Metrics, Con
 images            = Confusion Matrix, ROC Curves, Precision Recall Curves
 class_scalars     = 45: Precision/square, Recall/square, F1/square, ROC AUC/square, Average Precision/square, ...
 ```
+The current results also hold `percent_metrics`, the names of the global metrics written as percentages in the report and in the best checkpoint line (every headline metric of the classification), and every table its `percent_columns`; `metrics` and the scalars keep their values between 0 and 1.
 
 ### Step 4.9 — `compute_confusion_matrix()`
 This counts, for every pair (true class, predicted class), the number of test images. The result is a `[K, K]` table (K = number of classes): the row is the true class, the column the predicted class, so the diagonal holds the correct predictions. It is computed with a single `bincount` over `true × K + predicted`. It is used in multi-class mode only: in multi-label mode an image has several classes, so no single matrix exists.
@@ -1665,7 +1666,7 @@ octagon,0,0,590,0,0,0,0,0,0
 ### Step 4.13 — `find_class_thresholds()`
 A deployment can ask for a prediction to be trusted only above a probability threshold. For every class, treated one against the rest, this function sorts the test images by decreasing probability of the class and looks for the lowest threshold where the precision stays at or above `target_precision` (0.99 here), together with the recall kept at this threshold. If no threshold reaches the target precision, or the class has no sample, the result is `null`. The thresholds are saved in `class_thresholds.json`, for the deployment of the checkpoint. With a list of target precisions, e.g. `target_precision: [0.99, 0.95, 0.90]`, the thresholds are found for each: the first precision stays the main target, in `target_precision` and `classes` as below, and the others follow in `additional_targets`, a list of `{"target_precision": ..., "classes": {...}}` of the same form.
 
-The probabilities are the softmax of the class logits, a temperature of 1 recorded as `logit_temperature` in the file. A cross-entropy classifier is often overconfident, its probabilities squeezed against 1, so that its thresholds end up at 0.999 or above. A temperature above 1 spreads them without changing the predicted class: with two classes the recall at the target precision stays the same and only the threshold moves, with more classes it can move a little. With `per_class_report`, `save_temperature_explorer()` writes `temperature_explorer.html`, a self-contained page whose slider divides the logits by temperatures from 0.5 to 10. For every temperature it shows the histograms of the probability of every class over its images and over the other images, the thresholds and recalls at every target precision (found by this function), the negative log likelihood, the calibration error and the reliability diagram. It also suggests the calibrated temperature, the one of lowest negative log likelihood, added to the temperatures of the slider. The page draws at most 100 classes, those of the lowest F1 first. Up to 100 classes, `save_class_logits()` writes the logits next to the page, `class_logits.npz`, with everything the page is built from.
+The probabilities are the softmax of the class logits, a temperature of 1 recorded as `logit_temperature` in the file. A cross-entropy classifier is often overconfident, its probabilities squeezed against 1, so that its thresholds end up at 0.999 or above. A temperature above 1 spreads them without changing the predicted class: with two classes the recall at the target precision stays the same and only the threshold moves, with more classes it can move a little. With `per_class_report`, `save_temperature_explorer()` writes `temperature_explorer.html`, a self-contained page whose slider divides the logits by temperatures from 0.5 to 10. For every temperature it shows the histograms of the probability of every class over its images and over the other images, the thresholds and recalls at every target precision (found by this function; columns `Threshold @ P99 %` and `Recall @ P99 %`, the recalls written as percentages with their change from T = 1 in points below them, e.g. `(+0.36 points from T = 1)`), the negative log likelihood and the mean confidence (between 0 and 1), the calibration error (a percentage) and the reliability diagram (its vertical axis from `0 %` to `100 %`). It also suggests the calibrated temperature, the one of lowest negative log likelihood, added to the temperatures of the slider. The page draws at most 100 classes, those of the lowest F1 first. Up to 100 classes, `save_class_logits()` writes the logits next to the page, `class_logits.npz`, with everything the page is built from.
 
 So that a temperature reaches the deployment, `scripts/evaluation/serve_temperature_explorer.py` (`uv run python -m scripts.evaluation.serve_temperature_explorer`) serves the evaluations of the folders of the repository root whose name holds `experiments`, its index at `http://127.0.0.1:8091/` listing their run, iteration, weights, temperatures, saved temperature and exports. Every page is built again with the current template: from `class_logits.npz`, any temperature from 0.05 to 100 can be typed (`check_logit_temperature()`, the range of the calibrated temperature); an evaluation without it offers the temperatures of its slider only (`Grid only` in the index), and a page written before the save button must be evaluated again. The **Save Thresholds At This Temperature** button writes `saved_temperature_thresholds.json` next to the page, in the format of this file (`build_class_thresholds_file()`), with the chosen temperature and the thresholds of every class found at it by `compute_temperature_thresholds()`, checked against `class_thresholds.json` (`check_saved_thresholds()`). The **Export At T = …** button exports the checkpoint at the saved temperature, with the formats, Triton version, maximum batch size and TensorRT precision chosen on the page (those of the main block of `export_model.py` shown first), in a separate process whose console output the page shows; one export runs at a time, and saving is refused while that checkpoint is exported. `explorer_export.py` writes the export into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository of its own, through a `.partial` folder holding its job and `export_log.txt`, then adds `export_record.json`; the finished folder replaces an earlier export of the same temperature. The export is `export_experiment()` with `use_saved_temperature` and `saved_thresholds_path`, which `check_saved_thresholds_location()` checks to be the evaluation of the exported run, iteration and weights. Opened as a plain file, the page downloads the saved file instead, which `export_model.py` reads with `use_saved_temperature` once it is placed next to the page.
 
@@ -1720,28 +1721,31 @@ class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshol
 ### Step 4.15 — `save_confusion_matrix_image()` + `save_score_curve_images()`   (only with `per_class_report`)
 `save_score_curve_images()` draws the curves of Step 4.14 and saves them as `roc_curves.png` and `precision_recall_curves.png`, the same image arrays being returned to be logged to TensorBoard as `ROC Curves` and `Precision Recall Curves` (Step 4.18) and to MLflow (Step 4.19). Up to 10 classes, every class is a curve of its own colour on a single plot, its ROC AUC or average precision in the legend; above, every class has a small panel titled with its metric, 10 panels per row at most, and above 100 classes only the 100 classes with the lowest metric are drawn. The ROC curves come with the chance diagonal; the precision-recall curves with a dotted line at every target precision and a point at the recall and precision of the threshold of Step 4.13 on every class having one. The titles give the iteration and the macro mean. `precision_recall_thresholds.png` (TensorBoard `Precision Recall Thresholds`) draws the precision-recall curves again, zoomed on these points, and writes every threshold next to its point in the colour of its curve, rounded down to the fewest decimals (at least 4, at most 9 significant digits) that select the same images as the exact threshold, so that a threshold can be chosen from the image.
 
-`save_confusion_matrix_image()` draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0%) to dark blue (100%); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`.
+`save_confusion_matrix_image()` draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0 %) to dark blue (100 %); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The shares, recalls, precisions and accuracy are written as percentages with two decimals (`62.11 %`), the matrix taking 0.65 inch per class instead of 0.4 (still between 4 and 16 inches) so that they fit, and the colour bar goes from `0 %` to `100 %`. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`.
 
-**Example: `Evaluation/Iteration_12/confusion_matrix.png`** (1192 x 1155 pixels)
+**Example: `Evaluation/Iteration_12/confusion_matrix.png`** (1470 x 1432 pixels with the current cells, 1192 x 1155 when it was recorded)
 ```text
-title:    Confusion Matrix · Iteration 12 · Accuracy 0.1096 · Balanced Accuracy 0.1111
+title:    Confusion Matrix · Iteration 12 · Accuracy 10.96 % · Balanced Accuracy 11.11 %
 matrix:   9 x 9 cells, rows = true class, columns = predicted class
-          column triangle: dark blue cells "579 / 100.0%", "544 / 100.0%", ... (every image was predicted as triangle)
-          diagonal cells of the other classes: "0 / 0.0%" in bold; the other zeros are left blank
-right:    Recall column: 0.0% for the 8 other classes, 100.0% for triangle
-bottom:   Precision row: grey for the 8 classes that are never predicted, 11.0% for triangle
-corner:   Accuracy 11.0%
+          column triangle: dark blue cells "579 / 100.00 %", "544 / 100.00 %", ... (every image was predicted as triangle)
+          diagonal cells of the other classes: "0 / 0.00 %" in bold; the other zeros are left blank
+right:    Recall column: 0.00 % for the 8 other classes, 100.00 % for triangle
+bottom:   Precision row: grey for the 8 classes that are never predicted, 10.96 % for triangle
+corner:   Accuracy 10.96 %
+colour bar: 0 % to 100 %
 ```
 
 **Example: the curve images of the README run, `Evaluation/Iteration_1500/`** (1125 x 975 pixels each, 9 classes on one plot)
 ```text
-roc_curves.png               title "ROC Curves · Iteration 1500", "Macro ROC AUC 0.9892" on its second line, the
-                             chance diagonal dashed, legend "Class · ROC AUC": square · 0.9740 ... rectangle · 0.9723
-                             ... octagon · 0.9722
-precision_recall_curves.png  title "Precision-Recall Curves · Iteration 1500", "Macro Average Precision 0.9074" on its
-                             second line, the dotted line "Target Precision 0.99", a point "Threshold Reaching 0.99"
+roc_curves.png               title "ROC Curves · Iteration 1500", "Macro ROC AUC 98.92 %" on its second line, the
+                             chance diagonal dashed, legend "Class · ROC AUC": square · 97.40 % ... rectangle · 97.23 %
+                             ... octagon · 97.22 %
+precision_recall_curves.png  title "Precision-Recall Curves · Iteration 1500", "Macro Average Precision 90.74 %" on its
+                             second line, the dotted line "Target Precision 99 %", a point "Threshold Reaching 99 %"
                              on the 8 classes having one (rectangle has none), legend "Class · Average Precision":
-                             rectangle · 0.7023
+                             rectangle · 70.23 %
+both images                  axes from 0 % to 100 %; the thresholds written on precision_recall_thresholds.png stay
+                             between 0 and 1
 ```
 
 ### Step 4.16 — `write_predictions_file()`   (only with `save_predictions`)
@@ -1755,7 +1759,7 @@ test_000662.png,plus_sign,triangle,0,0.111758,0.105057,0.116420, ... ,0.115801
 ```
 
 ### Step 4.17 — `build_class_metrics_table()` + `build_class_metric_scalars()`
-These prepare what is displayed, without displaying it. `build_class_metrics_table()` returns the per-class table: the columns (with `per_class_report`, `ROC AUC` and `Average Precision` after the F1), one row per class, the sort column (F1, worst first, ties in class order, a class without test sample last and shown with a dash), and the legend. `build_recall_interval_table()` of `recall_intervals.py` returns the `Per Class Recall` table, shown after the per-class table and before the `Per Class Thresholds` table: the class, its samples, its recall and the bounds of its interval (`95% Lower`, `95% Upper`), read from the rows of `class_metrics.csv`, sorted by recall, worst first (a class without test sample last and shown with a dash), with a legend naming the interval. `build_class_metric_scalars()` returns one TensorBoard scalar per class and metric, with `per_class_report` also `ROC AUC/<class>` and `Average Precision/<class>` for the classes defining them (the example below predates them). Both are marked as per-class outputs: the reporter shows them only with `per_class_report`.
+These prepare what is displayed, without displaying it. `build_class_metrics_table()` returns the per-class table: the columns (with `per_class_report`, `ROC AUC` and `Average Precision` after the F1), one row per class, the sort column (F1, worst first, ties in class order, a class without test sample last and shown with a dash), and the legend; with `in_percent`, its `percent_columns` (every column but the class, its samples and the threshold) are written as percentages (`82.09 %`) and the target precision of its headers and legend as `99 %`, the rows keeping their values between 0 and 1 so that the sort is unchanged. `build_recall_interval_table()` of `recall_intervals.py` returns the `Per Class Recall` table, shown after the per-class table and before the `Per Class Thresholds` table: the class, its samples, its recall and the bounds of its interval (`95 % Lower`, `95 % Upper`), all three written as percentages, read from the rows of `class_metrics.csv`, sorted by recall, worst first (a class without test sample last and shown with a dash), with a legend naming the interval. `build_class_metric_scalars()` returns one TensorBoard scalar per class and metric, with `per_class_report` also `ROC AUC/<class>` and `Average Precision/<class>` for the classes defining them (the example below predates them). Both are marked as per-class outputs: the reporter shows them only with `per_class_report`.
 
 **Example: the per-class scalars of the 9 classes**
 ```text
@@ -1764,30 +1768,30 @@ Precision/square, Recall/square, F1/square, Precision/circle, ... , F1/octagon  
 With the curves, the README run writes 45 per-class scalars (9 classes x 5 metrics): `Precision/square`, `Recall/square`, `F1/square`, `ROC AUC/square`, `Average Precision/square`, `Precision/circle`, ...
 
 ### Step 4.18 — `report_evaluation()` → `report_evaluation_results()`
-This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC, precision-recall and threshold curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the tables, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
+This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC, precision-recall and threshold curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. Its global metrics listed in the `percent_metrics` of the results (every headline metric of the classification) and the `percent_columns` of its tables are written as percentages with two decimals (`format_percentage()` of `report_formatting.py`), the other numbers with 4 decimals; the scalars sent to TensorBoard and MLflow stay between 0 and 1. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the tables, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
 
 **Example output: the block of iteration 6** (the same text, without the links, is appended to `Results.txt`; recorded before the curves, see the block of the README run below for the current layout)
 ```text
 Iteration 6 · 5000 Test Images · 2026-10-09 09:53 ──────────────────────────────────────────────────────────────────
-  Accuracy   0.1096   Balanced Accuracy   0.1111
-  Macro F1   0.0219   Top-2 Accuracy      0.2244
+  Accuracy   10.96 %   Balanced Accuracy   11.11 %
+  Macro F1   2.19 %    Top-2 Accuracy      22.44 %
   Error Images : 160 in 8 class pairs, at most 20 per pair
   Sample Images : 8 fixed test images
 
   Per Class Metrics
-                                                       Threshold    Recall
-   Class       Samples   Precision   Recall       F1     @ P0.99   @ P0.99
-  ─────────────────────────────────────────────────────────────────────────
-   square          579      0.0000   0.0000   0.0000           —         —
-   circle          544      0.0000   0.0000   0.0000           —         —
-   rectangle       537      0.0000   0.0000   0.0000           —         —
-   pentagon        557      0.0000   0.0000   0.0000           —         —
-   hexagon         574      0.0000   0.0000   0.0000      0.1163    0.0017
-   plus_sign       545      0.0000   0.0000   0.0000           —         —
-   star            526      0.0000   0.0000   0.0000           —         —
-   octagon         590      0.0000   0.0000   0.0000           —         —
-   triangle        548      0.1096   1.0000   0.1975           —         —
-  Worst F1 first, ties in class order. — : no samples of the class, or the precision 0.99 is never reached.
+                                                          Threshold    Recall
+   Class       Samples   Precision     Recall        F1     @ P99 %   @ P99 %
+  ────────────────────────────────────────────────────────────────────────────
+   square          579      0.00 %     0.00 %    0.00 %           —         —
+   circle          544      0.00 %     0.00 %    0.00 %           —         —
+   rectangle       537      0.00 %     0.00 %    0.00 %           —         —
+   pentagon        557      0.00 %     0.00 %    0.00 %           —         —
+   hexagon         574      0.00 %     0.00 %    0.00 %      0.1163    0.17 %
+   plus_sign       545      0.00 %     0.00 %    0.00 %           —         —
+   star            526      0.00 %     0.00 %    0.00 %           —         —
+   octagon         590      0.00 %     0.00 %    0.00 %           —         —
+   triangle        548     10.96 %   100.00 %   19.75 %           —         —
+  Worst F1 first, ties in class order. — : no samples of the class, or the precision 99 % is never reached.
   - Results : file:///.../Results.txt
   - Confusion Matrix Table : file:///.../Evaluation/Iteration_6/confusion_matrix.csv
   - Class Thresholds : file:///.../Evaluation/Iteration_6/class_thresholds.json
@@ -1801,25 +1805,25 @@ Iteration 6 · 5000 Test Images · 2026-10-09 09:53 ─────────�
 **Example output: the block of iteration 1500 of the README run**, recorded on 2026-10-23 (its `Results.txt`, then the links the console prints after it, shown by their names; the error images were off). The current evaluation also prints the `Per Class Recall` table after `Per Class Metrics` and the links `Precision Recall Thresholds Image`, `Temperature Explorer` and `Class Logits`.
 ```text
 Iteration 1500 · 50000 Test Images · 2026-10-23 02:38 ──────────────────────────────────────────────────────────────────
-  Accuracy        0.8273   Balanced Accuracy         0.8264
-  Macro F1        0.8273   Top-2 Accuracy            0.9917
-  Macro ROC AUC   0.9892   Macro Average Precision   0.9074
+  Accuracy        82.73 %   Balanced Accuracy         82.64 %
+  Macro F1        82.73 %   Top-2 Accuracy            99.17 %
+  Macro ROC AUC   98.92 %   Macro Average Precision   90.74 %
   Sample Images : 8 fixed test images
 
   Per Class Metrics
-                                                                   Average   Threshold    Recall
-   Class       Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99
-  ───────────────────────────────────────────────────────────────────────────────────────────────
-   square         5543      0.8209   0.6211   0.7072    0.9740      0.8238      0.8946    0.0007
-   octagon        5486      0.7162   0.7412   0.7285    0.9722      0.7913      0.7884    0.0268
-   pentagon       5574      0.9384   0.6281   0.7525    0.9938      0.9296      0.8740    0.0020
-   hexagon        5628      0.6127   0.9929   0.7577    0.9924      0.9351      0.8208    0.0233
-   rectangle      5431      0.6824   0.8599   0.7610    0.9723      0.7023           —         —
-   circle         5533      0.9923   0.7023   0.8225    0.9983      0.9869      0.4268    0.7761
-   triangle       5527      1.0000   0.8940   0.9440    0.9997      0.9982      0.0553    0.9853
-   star           5617      0.9529   0.9988   0.9753    1.0000      0.9998      0.7614    0.9957
-   plus_sign      5661      0.9944   0.9995   0.9969    1.0000      1.0000      0.2354    0.9995
-  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99
+                                                                      Average   Threshold    Recall
+   Class       Samples   Precision    Recall        F1    ROC AUC   Precision     @ P99 %   @ P99 %
+  ──────────────────────────────────────────────────────────────────────────────────────────────────
+   square         5543     82.09 %   62.11 %   70.72 %    97.40 %     82.38 %      0.8946    0.07 %
+   octagon        5486     71.62 %   74.12 %   72.85 %    97.22 %     79.13 %      0.7884    2.68 %
+   pentagon       5574     93.84 %   62.81 %   75.25 %    99.38 %     92.96 %      0.8740    0.20 %
+   hexagon        5628     61.27 %   99.29 %   75.77 %    99.24 %     93.51 %      0.8208    2.33 %
+   rectangle      5431     68.24 %   85.99 %   76.10 %    97.23 %     70.23 %           —         —
+   circle         5533     99.23 %   70.23 %   82.25 %    99.83 %     98.69 %      0.4268   77.61 %
+   triangle       5527    100.00 %   89.40 %   94.40 %    99.97 %     99.82 %      0.0553   98.53 %
+   star           5617     95.29 %   99.88 %   97.53 %   100.00 %     99.98 %      0.7614   99.57 %
+   plus_sign      5661     99.44 %   99.95 %   99.69 %   100.00 %    100.00 %      0.2354   99.95 %
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
   is never reached.
   - Results : Results.txt
   - Confusion Matrix Table : confusion_matrix.csv
@@ -1932,12 +1936,12 @@ artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3
 `test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric (`bug_standards.md` B15, dropped). These artifacts also predate the curves, which add `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to every `evaluation/iteration_<n>/` with `per_class_report`.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Checkpoint_Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Checkpoint_Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value; the value is written like in the report, as a percentage when the headline metric is one of the `percent_metrics` of the results (`Accuracy 82.73 %` for the README run), while `evaluation_summary.csv` keeps every scalar between 0 and 1. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
 
 **Example output** (after the four evaluations)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 9 (Accuracy 0.1133)
+  - Best Checkpoint : iteration 9 (Accuracy 11.33 %)
 
 evaluation_summary.csv (32 columns: iteration, the 4 global scalars, the 27 per-class scalars):
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/square,Recall/square,F1/square, ...
@@ -1956,18 +1960,18 @@ This is exactly the function of Stage 4, so a checkpoint evaluated here gives th
 Evaluating : file:///.../runs/CLS_IN-KAR-64_..._MC9/Weights/Iteration_9/model_000009.pt
 ----------------------------------------------------------------------------------------------------------
 Iteration 9 · 300 Test Images · 2026-10-09 09:53 ─────────────────────────────────────────────────
-  Accuracy   0.1133   Balanced Accuracy   0.1111
-  Macro F1   0.0226   Top-2 Accuracy      0.2133
+  Accuracy   11.33 %   Balanced Accuracy   11.11 %
+  Macro F1   2.26 %    Top-2 Accuracy      21.33 %
   Error Images : 160 in 8 class pairs, at most 20 per pair
   Sample Images : 8 fixed test images
 
   Per Class Metrics
-                                                       Threshold    Recall
-   Class       Samples   Precision   Recall       F1     @ P0.99   @ P0.99
-  ─────────────────────────────────────────────────────────────────────────
+                                                          Threshold    Recall
+   Class       Samples   Precision     Recall        F1     @ P99 %   @ P99 %
+  ────────────────────────────────────────────────────────────────────────────
    ...
-   octagon          34      0.1133   1.0000   0.2036           —         —
-  Worst F1 first, ties in class order. — : no samples of the class, or the precision 0.99 is never reached.
+   octagon          34     11.33 %   100.00 %   20.36 %           —         —
+  Worst F1 first, ties in class order. — : no samples of the class, or the precision 99 % is never reached.
 
 CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/
 ├── Iteration_12/, Iteration_9/, Iteration_6/ and Iteration_3/

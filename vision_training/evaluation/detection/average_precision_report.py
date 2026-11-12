@@ -74,7 +74,8 @@ def build_mean_average_precision_table(results: Dict[str, Dict[Any, Any]], title
              results[method]["mAP@0.95"], results[method]["mAP@[0.5:0.95]"]] for method in AVERAGE_PRECISION_METHODS]
     return {"title": add_title_prefix(title="Mean Average Precision", title_prefix=title_prefix),
             "columns": ["Method", "mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"], "rows": rows,
-            "sort_column": None, "per_class": False, "legend": HEADLINE_LEGEND if legend is None else legend}
+            "sort_column": None, "per_class": False, "percent_columns": [],
+            "legend": HEADLINE_LEGEND if legend is None else legend}
 
 
 def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: str = "", area_name: str = "box",
@@ -103,7 +104,7 @@ def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: st
             for object_size, size_name in OBJECT_SIZE_NAMES.items()]
     return {"title": add_title_prefix(title="Mean Average Precision By Object Size (Area)", title_prefix=title_prefix),
             "columns": ["Object Size", "Objects", "mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"], "rows": rows,
-            "sort_column": None, "per_class": False,
+            "sort_column": None, "per_class": False, "percent_columns": [],
             "legend": f"COCO sizes by {area_name} area in {resolution_name} pixels, the objects of the other sizes and "
                       f"the detections finding them being ignored. — : no object of the size."}
 
@@ -135,7 +136,7 @@ def build_average_recall_table(results: Dict[str, Dict[Any, Any]], title_prefix:
             for group_name, group_result in group_results]
     return {"title": add_title_prefix(title="Mean Average Recall", title_prefix=title_prefix),
             "columns": ["Objects Of", "Objects", "mAR@0.5", "mAR@0.75", "mAR@0.95", "mAR@[0.5:0.95]"], "rows": rows,
-            "sort_column": None, "per_class": False,
+            "sort_column": None, "per_class": False, "percent_columns": [],
             "legend": f"Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes "
                       f"by {area_name} area in {resolution_name} pixels. — : no object of the size."}
 
@@ -244,7 +245,8 @@ def build_class_average_precision_table(class_rows: List[Dict[str, Any]], title_
         legend = (f"Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision "
                   f"{target_precision:g} is never reached.")
     return {"title": add_title_prefix(title=CLASS_TABLE_TITLE, title_prefix=title_prefix), "columns": columns,
-            "rows": rows, "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "legend": legend}
+            "rows": rows, "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "percent_columns": [],
+            "legend": legend}
 
 
 def summarise_average_precisions(detections: List[Dict[str, torch.Tensor]],
