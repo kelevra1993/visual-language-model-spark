@@ -350,7 +350,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | Input | Resize so the short side reaches 800 (up only) and the long side stays ≤ 1024, then pad to 1024 × 1024 centred. Modes `crop` (random crops, training) and `pad64` (native size, inference) (`utils.py:388-492`). RGB minus the mean pixel. | Fixed square input, letterboxed centred (`keep_ratio`) or stretched. BGR in [0, 255], then `input_normalization` / `per_sample_normalization`. |
 | Backbone | ResNet-50/101 bottleneck stages C2–C5, pretrained on ImageNet or COCO (`model.py:171-206`). | Stack of `ConvolutionBlock`s (residual, SE, inception options). The detection levels are the outputs of the blocks numbered by the keys of `DetectionLevels`, after their pooling. Pretrained from another run of any task. |
 | Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | `Neck` (items 1 and 37): none by default, the levels keeping the channels of their blocks, or a feature pyramid or path aggregation to `output_channels`, without P6. |
-| Anchors | One scale per level (32 on P2 to 512 on P6), ratios 0.5 / 1 / 2, corner-aligned (`utils.py:583-619`). | Several scales and ratios per level (`DetectionLevels.<level>.anchors`), corner-aligned (audit L1). |
+| Anchors | One scale per level (32 on P2 to 512 on P6), ratios 0.5 / 1 / 2, corner-aligned (`utils.py:583-619`). | Several scales and ratios per level (`DetectionLevels.<level>.anchors`), corner-aligned unless `RegionProposal.anchor_centres` is `"cell_centres"` (audit L1, stage 8). |
 | Region proposal head | One head shared by every level: 3 × 3 conv of 512, then 1 × 1 convs for a 2-class softmax and the offsets (`model.py:830-871`). | One head per level (`DetectionLevels.<level>.region_proposal`): `ConvolutionBlock`, 3 × 3 conv, then 1 × 1 convs for a sigmoid objectness and the offsets. |
 | Region proposal targets | Positive at IoU ≥ 0.7, plus the best anchor(s) of every ground truth. Negative below 0.3. Anchors touching a crowd are never negatives. 256 sampled, at most half positive (`model.py:1445-1553`). | Positive at IoU ≥ 0.5, plus the best anchor(s). Negative below 0.3, 0 included. 256 sampled, at most 128 positive. |
 | Proposal filter | One top-k (6000) and one NMS (0.7) over all levels, 2000 kept in training and 1000 at inference, padded with zeros (`model.py:255-329`). | One top-k (1000 / 500) and one NMS (0.7) over all levels (audit M3), 500 / 250 kept, padded with copies of random survivors in training and evaluation (masked slots in deployment), at most one per anchor. |
@@ -1059,6 +1059,9 @@ committed): every image can be taken again from them without training, except wh
 ### Low
 
 #### L1. Anchors are centred on the cell corners, while the backbone and RoIAlign use the cell centres *(changes DET numbers)*
+- **Status:** implemented on 2026-11-12 as `RegionProposal.anchor_centres` (`"cell_corners"` in every configuration,
+  `"cell_centres"` the fix, run name token `AC`), trained by stage 8 of the detection benchmark
+  (`object_detection_experiment_plan.md`).
 - **Where:** `models/detection/anchors.py:76`: `shifts = arange(F) * stride`. RoIAlign `aligned=True` and the
   stride-1 convolutions with 2×2 pooling place cell j at `(j + 0.5) · stride`.
 - **Effect:**

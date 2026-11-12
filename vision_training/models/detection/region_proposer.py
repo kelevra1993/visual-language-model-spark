@@ -176,7 +176,7 @@ def select_best_proposals(proposal_scores: torch.Tensor, proposal_boxes: torch.T
 
 class RegionProposal(nn.Module):
     def __init__(self, convolutions: List[int], input_channels: int, scales: List[float],
-                 aspect_ratios: List[float], input_image_size: int, feature_map_size: int,
+                 aspect_ratios: List[float], input_image_size: int, feature_map_size: int, anchor_centres: str,
                  feature_map_normalization: str, batch_normalization_momentum: float, dtype: torch.dtype,
                  device: torch.device) -> None:
         """
@@ -193,6 +193,8 @@ class RegionProposal(nn.Module):
             aspect_ratios (List[float]): A list of aspect ratios (width/height) for the anchor boxes.
             input_image_size (int): The absolute size (height and width) of the original input image.
             feature_map_size (int): The spatial resolution (height and width) of the input feature map.
+            anchor_centres (str): The 'RegionProposal.anchor_centres', the anchors centred on the cell corners or on
+                the cell centres (ANCHOR_CENTRE_OFFSETS of anchors.py).
             feature_map_normalization (str): The normalization strategy to use in the convolution block (e.g. 'batch',
                 'none').
             batch_normalization_momentum (float): The momentum of the running statistics of its batch normalization.
@@ -213,13 +215,11 @@ class RegionProposal(nn.Module):
         self.feature_map_size = feature_map_size
         self.feature_map_normalization = feature_map_normalization
 
-        # Get particular anchors for this region proposal
-        self.region_proposal_anchor_object = Anchors(scales=self.scales,
-                                                     aspect_ratios=self.aspect_ratios,
+        # Get particular anchors for this region proposal, centred on the cell corners or on the cell centres
+        self.region_proposal_anchor_object = Anchors(scales=self.scales, aspect_ratios=self.aspect_ratios,
                                                      input_image_size=input_image_size,
-                                                     feature_map_size=feature_map_size,
-                                                     dtype=self.dtype,
-                                                     device=self.device)
+                                                     feature_map_size=feature_map_size, anchor_centres=anchor_centres,
+                                                     dtype=self.dtype, device=self.device)
 
         self.number_anchors_per_location = self.region_proposal_anchor_object.number_anchors_per_location
 

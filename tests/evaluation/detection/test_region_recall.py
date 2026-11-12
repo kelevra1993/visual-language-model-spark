@@ -28,9 +28,9 @@ def test_best_anchor_overlaps_of_every_level() -> None:
     object_boxes = torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 36.0, 36.0], [50.0, 2.0, 63.0, 30.0]])
     level_anchor_generators = {
         3: Anchors(scales=[8.0, 16.0], aspect_ratios=[0.5, 1.0, 2.0], input_image_size=64, feature_map_size=8,
-                   dtype=torch.float32, device=torch.device("cpu")),
-        4: Anchors(scales=[32.0], aspect_ratios=[1.0], input_image_size=64, feature_map_size=2, dtype=torch.float32,
-                   device=torch.device("cpu"))}
+                   anchor_centres="cell_corners", dtype=torch.float32, device=torch.device("cpu")),
+        4: Anchors(scales=[32.0], aspect_ratios=[1.0], input_image_size=64, feature_map_size=2,
+                   anchor_centres="cell_corners", dtype=torch.float32, device=torch.device("cpu"))}
     best_anchor_overlaps = compute_best_anchor_overlaps(object_boxes=object_boxes,
                                                         level_anchor_generators=level_anchor_generators)
     assert sorted(best_anchor_overlaps) == [3, 4]
