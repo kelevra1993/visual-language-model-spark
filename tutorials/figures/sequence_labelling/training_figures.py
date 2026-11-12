@@ -5,8 +5,9 @@ loss and the frame accuracy of the training and validation batches, drawn with t
 read against, the cross entropy of a uniform guess over the classes, the cross entropy of the position prior of the
 training split and the share of no_change frames. Two PNG files are written, the empty panels with the references (the
 base image of the scene) and the whole chart (its overlay, whose curves the scene uncovers), with the boxes of the
-panels and the values of the curves as facts. The accuracy ticks are the percentages of the reports of the repository
-("20 %"), the facts keeping every value between 0 and 1.
+panels and the values of the curves as facts. The accuracy ticks and the share of no_change frames of its reference
+line are written as the percentages of the reports of the repository ("20 %", "46.82 %"), the facts keeping every
+value between 0 and 1.
 """
 
 import matplotlib
@@ -23,7 +24,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from tutorials.figures.foundations.training_curves import read_scalars, smooth_values
-from vision_training.evaluation.report_formatting import format_percentage_tick
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Name of the figures of the training curves
 FIGURE_NAME = "training_curves"
@@ -143,8 +144,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
                       y_limit=(2.4, 4.6), last_iteration=last_iteration)
     style_curve_panel(axes=accuracy_axes, title="Accuracy of the labelled frames", y_label="Accuracy",
                       y_limit=(0.0, 0.7), last_iteration=last_iteration)
-    # Accuracy ticks written as the percentages of the reports of the repository, the share of no_change frames of
-    # the reference line keeping its value between 0 and 1 like every share of the data
+    # Accuracy ticks written as the percentages of the reports of the repository, and so is the share of no_change
+    # frames of the reference line, the level the accuracy of the README run stays at
     accuracy_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     draw_reference_line(axes=loss_axes, value=reference_facts["dataset.uniform_cross_entropy"],
                         label=f"uniform over {reference_facts['dataset.class_count']} classes: "
@@ -156,7 +157,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
                               f"{reference_facts['dataset.prior_cross_entropy']:.3f}",
                         label_position=(last_iteration * 0.62, 3.6))
     draw_reference_line(axes=accuracy_axes, value=reference_facts["dataset.no_change_share"],
-                        label=f"share of no_change training frames: {reference_facts['dataset.no_change_share']:.3f}",
+                        label=f"share of no_change training frames: "
+                              f"{format_percentage(value=reference_facts['dataset.no_change_share'])}",
                         label_position=(last_iteration * 0.6, 0.2))
     save_figure(figure=figure, output_path=output_folder / "training" / f"{FIGURE_NAME}_axes.png")
 

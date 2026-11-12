@@ -140,11 +140,11 @@ scenes:
       start: "# Thresholds of the evaluation"
       end: "class_thresholds = \\[0.0\\]"
     highlights:
-      - {match: "thresholds_path =|thresholds_path.exists", sentences: [0]}
-      - {match: "class_thresholds = \\[0.0\\]|class_names = \\[str", sentences: [1]}
-      - {match: "thresholds_path =", sentences: [2]}
+      - {match: "thresholds_path = find_class_thresholds_path", sentences: [0, 1, 3]}
+      - {match: "class_thresholds = \\[0.0\\]|class_names = \\[str", sentences: [2]}
     narration:
-      - "The decoding settings read the class thresholds file of the evaluation of the exported iteration."
+      - "The decoding settings read the class thresholds file of the evaluation of the exported iteration, written by the training or by the evaluation script."
+      - "Should both folders hold one, the export stops rather than pick one of them."
       - "Take a checkpoint that was never evaluated: once exported, every threshold is zero, no chosen frame is ever flagged, and the wanted classes are named by their indices, so evaluate before exporting."
       - "Say you export the moving average of the weights: it still reads the thresholds of the trained weights, a known limit left as it is."
 

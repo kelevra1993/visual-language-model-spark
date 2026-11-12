@@ -2,7 +2,9 @@
 Tests of the deployment of the frame selection, vision_training/deployment/frame_selection_deployment.py and
 frame_selection_decoder_backend.py: the decoder model and the ensembles are written to the Triton repository, the
 Python backend model decodes like the evaluation (run with a stand-in for the Triton backend utilities, which only exist
-in the Triton image), and the local inference returns the outputs of the ensembles.
+in the Triton image), the local inference returns the outputs of the ensembles, and the decoding settings take the
+thresholds of the evaluation of the exported checkpoint from the training or from
+scripts/evaluation/evaluate_checkpoint.py.
 """
 
 import importlib.util
@@ -18,9 +20,13 @@ from typing import Any, Dict, List
 
 from vision_training.deployment.deployment_utilities import run_local_inference
 from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
-from vision_training.deployment.frame_selection_deployment import DECODER_OUTPUT_TYPES, export_frame_selection_decoding
+from vision_training.deployment.frame_selection_deployment import (DECODER_OUTPUT_TYPES, THRESHOLDS_FILE_NAME,
+                                                                   build_decoding_settings,
+                                                                   export_frame_selection_decoding)
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.models.sequence.frame_selector import FrameSelector
+from vision_training.trainers.base_trainer import EVALUATION_FOLDER_NAME
 from tests.fixtures.configuration_fixtures import get_sequence_model_configuration
 
 # Decoding settings of the test frame selector: classes 0 and 2 wanted, class 1 unselected
@@ -219,3 +225,86 @@ def test_local_inference_decodes_the_selection() -> None:
     assert np.array_equal(a1=outputs[0][1], a2=run_frame_selection(probabilities=probabilities[1],
                                                              decoding_settings=TEST_DECODING_SETTINGS)[
         "selected_frames"])
+
+
+def write_test_thresholds(experiment_folder: Path, evaluation_folder_name: str, threshold: float) -> None:
+    """
+    Writes the class_thresholds.json of the evaluation of iteration 500 of a frame selection run, in the format of the
+    frame selection trainer, so that build_decoding_settings finds it in the given evaluation folder.
+
+    Args:
+        experiment_folder (Path): The run folder.
+        evaluation_folder_name (str): 'Evaluation' (training) or 'Checkpoint_Evaluation' (evaluate_checkpoint.py).
+        threshold (float): The threshold of the wanted class 'A', the class 'C' never reaching the target precision.
+    """
+    iteration_folder = experiment_folder / evaluation_folder_name / "Iteration_500"
+    iteration_folder.mkdir(parents=True)
+    (iteration_folder / THRESHOLDS_FILE_NAME).write_text(data=json.dumps(obj={
+        "target_precision": 0.9, "decoding": "hungarian", "unselected_class": "B",
+        "classes": {"A": {"threshold": threshold, "recall": 0.8}, "C": None}}))
+
+
+def build_test_decoding_settings(experiment_folder: Path) -> Dict[str, Any]:
+    """
+    Builds the decoding settings of the export of iteration 500 of a frame selection run with classes A, B and C, B
+    being the unselected class, as export_model.py does for a frame selector.
+
+    Args:
+        experiment_folder (Path): The run folder, holding the evaluation folders written by write_test_thresholds.
+
+    Returns:
+        Dict[str, Any]: The decoding settings of the run.
+    """
+    model_configuration = {"Selection": {"decoding": "hungarian", "frames_per_class": 1},
+                           "Data": {"label_dictionary": {"A": 0, "B": 1, "C": 2}}}
+    return build_decoding_settings(experiment_configuration={"evaluation": {"top_k": 2}},
+                                   model_configuration=model_configuration, unselected_class_index=1,
+                                   checkpoint_path=experiment_folder / "Weights" / "Iteration_500" / "model_500.pt",
+                                   experiment_folder=experiment_folder)
+
+
+@pytest.mark.parametrize(argnames="evaluation_folder_name",
+                         argvalues=[EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME])
+def test_decoding_settings_read_the_thresholds_of_either_evaluation(tmp_path: Path,
+                                                                    evaluation_folder_name: str) -> None:
+    """
+    Verifies that the export of a frame selector takes the thresholds of the evaluation of the exported checkpoint from
+    the evaluation folder of the training or from the one of scripts/evaluation/evaluate_checkpoint.py, its class names
+    replacing the class indices.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, used as the run folder.
+        evaluation_folder_name (str): The evaluation folder holding the thresholds.
+    """
+    write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=evaluation_folder_name, threshold=0.7)
+    decoding_settings = build_test_decoding_settings(experiment_folder=tmp_path)
+    assert decoding_settings["class_names"] == ["A", "C"]
+    assert decoding_settings["class_thresholds"] == [0.7, None]
+
+
+def test_decoding_settings_refuse_two_evaluations(tmp_path: Path) -> None:
+    """
+    Verifies that the export of a frame selector stops when both evaluation folders hold thresholds for the exported
+    checkpoint, rather than deploying the thresholds of one of them without saying so.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, used as the run folder.
+    """
+    write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=EVALUATION_FOLDER_NAME, threshold=0.7)
+    write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME,
+                          threshold=0.6)
+    with pytest.raises(expected_exception=ValueError, match="Two class_thresholds.json"):
+        build_test_decoding_settings(experiment_folder=tmp_path)
+
+
+def test_decoding_settings_without_evaluation_flag_nothing(tmp_path: Path) -> None:
+    """
+    Verifies that a frame selector exported from a checkpoint evaluated by neither the training nor the evaluation
+    script gets a zero threshold for every wanted class, named by its class index, so that no chosen frame is flagged.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, used as the run folder.
+    """
+    decoding_settings = build_test_decoding_settings(experiment_folder=tmp_path)
+    assert decoding_settings["class_names"] == ["0", "2"]
+    assert decoding_settings["class_thresholds"] == [0.0, 0.0]

@@ -11,11 +11,13 @@ import json
 import shutil
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from vision_training.deployment.triton_configuration import format_dimensions, get_served_output_names
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.models.sequence import frame_selection_decoding
 from vision_training.models.sequence.frame_selection_decoding import get_wanted_class_indices
+from vision_training.trainers.base_trainer import EVALUATION_FOLDER_NAME
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Suffixes of the Triton names of the decoder model, after the model name of the task, and of the ensembles, after the
@@ -28,12 +30,43 @@ DECODER_BACKEND_PATH = Path(__file__).absolute().parent / "frame_selection_decod
 DECODING_MODULE_PATH = Path(frame_selection_decoding.__file__).absolute()
 DECODING_SETTINGS_FILE = "decoding_settings.json"
 
+# Confidence thresholds of the chosen frames, written by the evaluation of a checkpoint in its iteration folder
+THRESHOLDS_FILE_NAME = "class_thresholds.json"
+
 # Input of the decoder (the output of the exported frame selector), and its outputs with their Triton data types, in
 # the order of the outputs of the Python backend model
 DECODER_INPUT_NAME = "class_probabilities"
 DECODER_OUTPUT_TYPES = {"selected_frames": "TYPE_INT64", "selected_probabilities": "TYPE_FP32",
                         "low_confidence": "TYPE_BOOL", "candidate_frames": "TYPE_INT64",
                         "candidate_probabilities": "TYPE_FP32"}
+
+
+def find_class_thresholds_path(experiment_folder: Path, checkpoint_path: Path) -> Optional[Path]:
+    """
+    Finds the confidence thresholds of the evaluation of an exported frame selection checkpoint, deployed with its
+    decoder: 'class_thresholds.json' in the folder of its iteration, '<run>/Evaluation/Iteration_<n>/' (evaluation of
+    the training) or '<run>/Checkpoint_Evaluation/Iteration_<n>/' (scripts/evaluation/evaluate_checkpoint.py), so that
+    a checkpoint evaluated after its training is deployed with its thresholds too. At most one of them may hold the
+    file, so that the deployed thresholds are never taken from another evaluation than the one chosen.
+
+    Args:
+        experiment_folder (Path): The exported run folder.
+        checkpoint_path (Path): The exported checkpoint, '<run>/Weights/Iteration_<n>/model_<n>.pt'.
+
+    Returns:
+        Optional[Path]: The thresholds of the exported checkpoint, or None when it was never evaluated.
+
+    Raises:
+        ValueError: If both evaluation folders hold thresholds for the iteration of the checkpoint.
+    """
+    # Folder of the iteration in the evaluation folder of the training, then in the one of the evaluation script
+    candidate_paths = [experiment_folder / evaluation_folder_name / checkpoint_path.parent.name / THRESHOLDS_FILE_NAME
+                       for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
+    found_paths = [candidate_path for candidate_path in candidate_paths if candidate_path.is_file()]
+    if len(found_paths) > 1:
+        raise ValueError(f"Two {THRESHOLDS_FILE_NAME} for the exported checkpoint, remove the evaluation not to "
+                         f"deploy: " + ", ".join(str(found_path) for found_path in found_paths) + ".")
+    return found_paths[0] if found_paths else None
 
 
 def build_decoding_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
@@ -43,8 +76,8 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
     Gathers the settings of the decoding of a frame selection run, written next to the Triton decoder and used by the
     local inference: the decoding and the frames per class of the 'Selection' section, the unselected class saved with
     the weights, the number of candidate frames of every class ('evaluation.top_k'), and the confidence thresholds and
-    class names of the evaluation of the checkpoint ('class_thresholds.json'). A checkpoint that was not evaluated has
-    no thresholds, and no chosen frame is then flagged as low confidence.
+    class names of the evaluation of the checkpoint ('class_thresholds.json', find_class_thresholds_path). A checkpoint
+    that was not evaluated has no thresholds, and no chosen frame is then flagged as low confidence.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration of the run.
@@ -52,21 +85,25 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
         unselected_class_index (int): The class index of the unselected frames, from the wanted class mask of the
             trained frame selector.
         checkpoint_path (Path): The checkpoint file, '<run>/Weights/Iteration_<n>/model_<n>.pt'.
-        experiment_folder (Path): The run folder, holding the 'Evaluation' folder of the checkpoints.
+        experiment_folder (Path): The run folder, holding the 'Evaluation' and 'Checkpoint_Evaluation' folders of the
+            evaluated checkpoints.
 
     Returns:
         Dict[str, Any]: The 'decoding', 'frames_per_class', 'unselected_class_index', 'number_candidates', and for
             every wanted class (in class index order) its name in 'class_names' and its threshold in
             'class_thresholds' (None when the target precision was never reached, 0 without evaluation).
+
+    Raises:
+        ValueError: If both evaluation folders hold thresholds for the iteration of the checkpoint.
     """
     selection_configuration = model_configuration["Selection"]
     number_classes = len(set(model_configuration["Data"]["label_dictionary"].values()))
     wanted_class_indices = get_wanted_class_indices(number_classes=number_classes,
                                                     unselected_class_index=unselected_class_index)
 
-    # Thresholds of the evaluation of the checkpoint, in the evaluation folder of its iteration
-    thresholds_path = experiment_folder / "Evaluation" / checkpoint_path.parent.name / "class_thresholds.json"
-    if thresholds_path.exists():
+    # Thresholds of the evaluation of the checkpoint, by its training or by scripts/evaluation/evaluate_checkpoint.py
+    thresholds_path = find_class_thresholds_path(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path)
+    if thresholds_path is not None:
         thresholds = json.loads(s=thresholds_path.read_text())
         class_names = list(thresholds["classes"])
         class_thresholds = [None if class_threshold is None else class_threshold["threshold"]
@@ -77,7 +114,9 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
                                                f"{format_path_link(path=thresholds_path)}")
     else:
         print_color(color="yellow", output=f"The checkpoint was not evaluated, no chosen frame is flagged as low "
-                                           f"confidence : {format_path_link(path=thresholds_path)}")
+                                           f"confidence, no {THRESHOLDS_FILE_NAME} in [{EVALUATION_FOLDER_NAME} or "
+                                           f"{CHECKPOINT_EVALUATION_FOLDER_NAME}]/{checkpoint_path.parent.name} of "
+                                           f"{format_path_link(path=experiment_folder)}")
         class_names = [str(class_index) for class_index in wanted_class_indices]
         class_thresholds = [0.0] * len(wanted_class_indices)
 

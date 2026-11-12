@@ -74,7 +74,7 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 ```bash
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml"
 ```
-3. Evaluate a checkpoint again: set `run_name`, `experiment_folder`, `iteration` (`None` for the last checkpoint, a number, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation`, `maximum_error_images_per_class_pair` and, to score the checkpoint with another final NMS than the one of its run, `nms_criterion` and `nms_distance_exponent` in the main block of `scripts/evaluation/evaluate_checkpoint.py` (Stage 5), then run:
+3. Evaluate a checkpoint again: set `run_name`, `experiment_folder`, `iteration` (`None` for the last checkpoint, a number, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation`, `maximum_error_images_per_class_pair`, if needed `target_precisions` (a single precision) and, to score the checkpoint with another final NMS than the one of its run, `nms_criterion` and `nms_distance_exponent` in the main block of `scripts/evaluation/evaluate_checkpoint.py` (Stage 5), then run it; it writes in `<run>/Checkpoint_Evaluation/`, or in `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` with another NMS:
 ```bash
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
