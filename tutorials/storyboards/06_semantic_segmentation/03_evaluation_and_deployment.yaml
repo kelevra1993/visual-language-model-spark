@@ -1,7 +1,7 @@
 # Semantic segmentation, chapter 3: the evaluation of the checkpoints of the synthetic segmentation run (the counts
 # accumulated on the device, the pixel confusion matrix, the region metrics and their caveats, the boundary metrics,
 # the curves of the pixel probabilities, the sample images and the files of an evaluation), then the commands and the
-# export. Coordinates of the html scenes are in pixels of the content area (1760 x 740); the figures and facts are made
+# export with the input settings it writes. Coordinates of the html scenes are in pixels of the content area (1760 x 740); the figures and facts are made
 # by tutorials/figures/semantic_segmentation.
 series: semantic_segmentation
 series_title: "Semantic Segmentation (SEG)"
@@ -19,6 +19,7 @@ references:
   - "vision_training/data/preprocessing.py · restore_prediction_to_original_image"
   - "vision_training/models/segmentation/sliding_window.py · segment_image_by_tiles"
   - "vision_training/deployment/export_specifications.py · compare_segmentations"
+  - "vision_training/deployment/input_contract.py · build_input_contract"
   - "documentation/bug_standards.md"
 scenes:
   - kind: title_card
@@ -172,20 +173,22 @@ scenes:
     title: "What the export gives"
     code_reference: "vision_training/models/segmentation/inference_segmenter.py · InferenceSegmenter.forward"
     elements:
-      - {type: box, box: [40, 80, 340, 280], text: "images\n{{semantic_segmentation.export_input_shape}}\nletterboxed, BGR", font: diagram_text, outline: blue}
-      - {type: arrow, points: [[340, 180], [410, 180]], colour: blue}
-      - {type: box, box: [420, 80, 840, 280], text: "exported segmenter\nTorch Script or ONNX\nno deep supervision heads", font: diagram_text, outline: violet}
-      - {type: arrow, points: [[840, 180], [890, 180]], colour: violet}
-      - {type: text, position: [905, 150], text: "class_map            {{semantic_segmentation.export_class_map_shape}}  int64\nclass_probabilities  {{semantic_segmentation.export_class_probabilities_shape}}", font: diagram_monospace}
-      - {type: box, box: [40, 350, 860, 500], text: "client: restore_prediction_to_original_image\ncuts the letterbox, resizes back to the image", font: diagram_text, outline: aqua, appear: 1, highlight: [1]}
-      - {type: box, box: [900, 350, 1720, 500], text: "a run trained on tiles: the client tiles the image\nwith segment_image_by_tiles", font: diagram_text, outline: yellow, appear: 2, highlight: [2, 3]}
-      - {type: box, box: [40, 560, 1720, 680], text: "export check: compare_segmentations, every probability within {{semantic_segmentation.export_probability_tolerance:.0e}}\nand the same class on {{semantic_segmentation.export_minimum_equal_share:.1%}} of the pixels, a near tie may flip", font: diagram_text, outline: border, appear: 4, highlight: [4]}
+      - {type: box, box: [40, 50, 340, 250], text: "images\n{{semantic_segmentation.export_input_shape}}\nletterboxed, BGR", font: diagram_text, outline: blue}
+      - {type: arrow, points: [[340, 150], [410, 150]], colour: blue}
+      - {type: box, box: [420, 50, 840, 250], text: "exported segmenter\nTorch Script or ONNX\nno deep supervision heads", font: diagram_text, outline: violet}
+      - {type: arrow, points: [[840, 150], [890, 150]], colour: violet}
+      - {type: text, position: [905, 120], text: "class_map            {{semantic_segmentation.export_class_map_shape}}  int64\nclass_probabilities  {{semantic_segmentation.export_class_probabilities_shape}}", font: diagram_monospace}
+      - {type: box, box: [40, 290, 860, 420], text: "preprocessing.json, ONNX metadata:\nresize, size, colour order, padding", font: diagram_text, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [900, 290, 1720, 420], text: "client: restore_prediction_to_original_image\ncuts the letterbox, resizes back to the image", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 455, 1720, 570], text: "a run trained on tiles: one tile as input, tile scale and overlap in preprocessing.json\nthe client scales the image and tiles it with segment_image_by_tiles", font: diagram_text, outline: yellow, appear: 3, highlight: [3, 4]}
+      - {type: box, box: [40, 605, 1720, 720], text: "export check: compare_segmentations, every probability within {{semantic_segmentation.export_probability_tolerance:.0e}}\nand the same class on {{semantic_segmentation.export_minimum_equal_share:.1%}} of the pixels, a near tie may flip", font: diagram_text, outline: border, appear: 5, highlight: [5]}
     # The base of the power of ten of the probability tolerance, and the two best classes of a tie
     literal_numbers: ["10", two]
     narration:
       - "The exported segmenter takes letterboxed images and gives the class map and the probabilities of every class at the network resolution, without the deep supervision heads."
-      - "The client brings them back to its image with restore prediction to original image, which cuts the letterbox and resizes."
-      - "Let's consider a run trained on tiles: it is exported with one tile as input, and the client scales and tiles its images itself, with the tile scale and overlap that the export writes next to the model."
+      - "So that a server builds these images as the training did, every export writes their resize, size, colour order and padding in a preprocessing file next to the model and in the ONNX metadata."
+      - "The client brings the outputs back to its image with restore prediction to original image, which cuts the letterbox and resizes."
+      - "Let's consider a run trained on tiles: it is exported with one tile as input, and the client scales and tiles its images itself, with the tile scale and overlap written in that same preprocessing file."
       - "The throughput script, by contrast, times one letterboxed image per request."
       - "The export check wants every probability within 10 to the minus {{semantic_segmentation.export_probability_tolerance_exponent}} and the same class on {{semantic_segmentation.export_minimum_equal_share:.1%}} of the pixels, since a pixel whose two best classes are tied may flip."
 
@@ -196,7 +199,7 @@ scenes:
       - {text: "Mean IoU over the classes present or predicted: a hallucinated class counts as 0"}
       - {text: "Boundary IoU and F1 score the contours within {{semantic_segmentation.run_boundary_tolerance}} pixels"}
       - {text: "Macro ROC AUC is flattered by the negatives; read the macro AP"}
-      - {text: "Export: class_map and class_probabilities at the network resolution"}
+      - {text: "Export: outputs at the network resolution, input settings in preprocessing.json"}
       - {text: "evaluate_checkpoint: no error images, the limit skipped with a warning"}
     # The two histograms of a class (its pixels and the others), and the IoU of a class without true pixels, zero by
     # its definition

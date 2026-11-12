@@ -1,10 +1,11 @@
 """
 Sources of the figures of the self-supervised series of the tutorial videos (tutorials/figures/self_supervised/): the
 SimCLR run of tutorial_sources.yaml (key self_supervised) with its saved configuration, its test split and its classes,
-its checkpoints rebuilt on the CPU, the representations of test images encoded by the exported InferenceEncoder, and
-the two random views of an image drawn by the DataAugmenter of the run exactly as the sample images of its evaluations
-draw them (SAMPLE_VIEWS_SEED plus the sample identifier). The figure families of this folder (views, training curves,
-evaluation, representations, configuration checks) all read the run through these helpers.
+the reference training images its k-NN evaluation classifies the test images by (select_reference_samples of the
+repository), its checkpoints rebuilt on the CPU, the representations of images encoded by the exported InferenceEncoder,
+and the two random views of an image drawn by the DataAugmenter of the run exactly as the sample images of its
+evaluations draw them (SAMPLE_VIEWS_SEED plus the sample identifier). The figure families of this folder (views,
+training curves, evaluation, representations, configuration checks) all read the run through these helpers.
 """
 
 import json
@@ -19,6 +20,8 @@ from typing import Any, Dict, List, Tuple
 from tutorials.figures.figure_utilities import read_network_input, read_run_configuration
 from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.augmentations import AugmentationReport, DataAugmenter
+from vision_training.data.classification.classification_dataset import ClassificationDataset
+from vision_training.evaluation.self_supervised.representation_metrics import select_reference_samples
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.self_supervised.inference_encoder import InferenceEncoder
@@ -96,6 +99,49 @@ def read_test_samples(run_folder: Path) -> Tuple[List[Dict[str, Any]], List[str]
     return samples, class_names
 
 
+def read_reference_samples(run_folder: Path, class_names: List[str]) -> List[Dict[str, Any]]:
+    """
+    Chooses the reference images of the k-NN evaluation of the run as its trainer does (build_reference_dataloader):
+    the training split read by the ClassificationDataset of the loaders, every image kept, then at most
+    'evaluation.number_reference_images_per_class' labelled images of every class picked by select_reference_samples
+    of the repository, the labelled training images every labelled test image is compared with.
+
+    Args:
+        run_folder (Path): The folder of the self-supervised run.
+        class_names (List[str]): The class names in class index order, from read_test_samples.
+
+    Returns:
+        List[Dict[str, Any]]: Every reference image (its 'identifier', 'path', 'class_index' and 'class_name'), by
+            class index then file name hash, the order of the reference loader of the trainer.
+
+    Raises:
+        ValueError: If the training split holds no labelled image, the k-NN of the run having then no reference image.
+    """
+    run_configuration = read_run_configuration(run_folder=run_folder)
+    train_folder = Path(run_configuration["ExperimentConfiguration"]["train_data_folder"])
+    number_images_per_class = int(run_configuration["ExperimentConfiguration"]["evaluation"][
+        "number_reference_images_per_class"])
+    label_dictionary = {int(category): int(class_index) for category, class_index in
+                        json.loads((run_folder / "label_dictionary.json").read_text(encoding="utf-8")).items()}
+    image_settings = run_configuration["Data"]["image_settings"]
+
+    # The training split as the loaders of the run read it, every image kept, unshuffled
+    training_dataset = ClassificationDataset(data_directory=str(train_folder / "data"),
+                                             labels_file=str(train_folder / "labels.json"),
+                                             image_size=int(image_settings["size"]),
+                                             keep_ratio=bool(image_settings["keep_ratio"]),
+                                             label_dictionary=label_dictionary, output_mode="multi_class",
+                                             shuffle=False, keep_unlabelled_samples=True)
+    reference_records = select_reference_samples(samples=training_dataset.samples,
+                                                 number_images_per_class=number_images_per_class)
+    if not reference_records:
+        raise ValueError(f"The training split {train_folder} holds no labelled image: the k-NN evaluation of "
+                         f"{run_folder} has no reference image.")
+    return [{"identifier": int(record["identifier"]), "path": train_folder / "data" / record["file_name"],
+             "class_index": record["class_indices"][0], "class_name": class_names[record["class_indices"][0]]}
+            for record in reference_records]
+
+
 def read_image_settings(run_folder: Path) -> Tuple[int, bool]:
     """
     Reads the input size and the aspect ratio setting of the run, with which its loaders read every image.
@@ -129,12 +175,13 @@ def load_self_supervised_model(run_folder: Path, iteration: int) -> SelfSupervis
                               checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)
 
 
-def read_test_images(samples: List[Dict[str, Any]], image_size: int, keep_ratio: bool) -> torch.Tensor:
+def read_images(samples: List[Dict[str, Any]], image_size: int, keep_ratio: bool) -> torch.Tensor:
     """
-    Reads test images the way the loaders of the run do, into one [N, 3, H, W] float BGR batch in [0, 255].
+    Reads test or reference training images the way the loaders of the run do, into one [N, 3, H, W] float BGR batch
+    in [0, 255].
 
     Args:
-        samples (List[Dict[str, Any]]): The test samples, from read_test_samples.
+        samples (List[Dict[str, Any]]): The samples, from read_test_samples or read_reference_samples.
         image_size (int): The input size of the run.
         keep_ratio (bool): Whether the run keeps the aspect ratio.
 
@@ -145,15 +192,16 @@ def read_test_images(samples: List[Dict[str, Any]], image_size: int, keep_ratio:
                                                  keep_ratio=keep_ratio) for sample in samples], dim=0)
 
 
-def encode_test_images(model: SelfSupervisedModel, samples: List[Dict[str, Any]], image_size: int,
-                       keep_ratio: bool) -> numpy.ndarray:
+def encode_images(model: SelfSupervisedModel, samples: List[Dict[str, Any]], image_size: int,
+                  keep_ratio: bool) -> numpy.ndarray:
     """
-    Encodes test images with the InferenceEncoder of the model, the network exported as image_encoder: the L2
-    normalized representations the k-NN evaluation compares by cosine similarity, read batch by batch on the CPU.
+    Encodes test or reference training images with the InferenceEncoder of the model, the network exported as
+    image_encoder: the L2 normalized representations the k-NN evaluation compares by cosine similarity, read batch by
+    batch on the CPU.
 
     Args:
         model (SelfSupervisedModel): The trained model, in evaluation mode.
-        samples (List[Dict[str, Any]]): The test samples to encode.
+        samples (List[Dict[str, Any]]): The samples to encode.
         image_size (int): The input size of the run.
         keep_ratio (bool): Whether the run keeps the aspect ratio.
 
@@ -164,8 +212,8 @@ def encode_test_images(model: SelfSupervisedModel, samples: List[Dict[str, Any]]
     representations = []
     with torch.no_grad():
         for batch_start in range(0, len(samples), ENCODING_BATCH_SIZE):
-            images = read_test_images(samples=samples[batch_start:batch_start + ENCODING_BATCH_SIZE],
-                                      image_size=image_size, keep_ratio=keep_ratio)
+            images = read_images(samples=samples[batch_start:batch_start + ENCODING_BATCH_SIZE],
+                                 image_size=image_size, keep_ratio=keep_ratio)
             representations.append(encoder(images=images).numpy())
     return numpy.concatenate(representations, axis=0).astype(numpy.float32)
 
@@ -238,7 +286,8 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
     """
     Gives the settings of the run the narration quotes, read from its saved configuration: the batch size, the input
     size, the iterations, the checkpoint and evaluation steps, the learning rate, the temperature, the number of
-    neighbours of the k-NN, and the augmentation types activated for the views.
+    neighbours of the k-NN and of its reference training images per class, and the augmentation types activated for
+    the views.
 
     Args:
         run_folder (Path): The folder of the self-supervised run.
@@ -258,6 +307,8 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
             "run.learning_rate": float(experiment_configuration["learning_rate"]),
             "run.temperature": float(configuration["ProjectionHead"]["simclr"]["temperature"]),
             "run.number_neighbours": int(experiment_configuration["evaluation"]["number_neighbours"]),
+            "run.number_reference_images_per_class": int(
+                experiment_configuration["evaluation"]["number_reference_images_per_class"]),
             "run.number_sample_images": int(experiment_configuration["evaluation"]["number_sample_images"]),
             "run.activated_type_count": sum(bool(settings["activated"]) for settings in augmentation_types.values()),
             "run.type_count": len(augmentation_types),

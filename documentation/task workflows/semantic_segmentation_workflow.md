@@ -12,6 +12,8 @@ The semantic segmentation task (`task: "semantic_segmentation"`, run name code `
 
 ### The Task At A Glance
 
+So that the stages below can be followed on one page, the whole task fits in this diagram, from the files of a split to the exported segmenter, with the shapes of the synthetic configuration.
+
 ```text
 on disk        <split>/data/*.png, <split>/masks/*.png (uint8 category per pixel: 0 background, 255 unlabelled),
                <split>/labels.json (samples with file_name and mask_file_name, categories), label_mapping.json
@@ -33,10 +35,13 @@ evaluation     summed on the device over the test split: confusion [10, 10], bou
 files          Evaluation/Iteration_<n>/ class_metrics.csv, confusion_matrix.csv and .png, roc_curves.png,
                precision_recall_curves.png, Samples/, Predicted_Masks/; Results.txt
 export         InferenceSegmenter: images [B, 3, 512, 512] -> class_map [B, 512, 512] int64,
-               class_probabilities [B, 10, 512, 512]
+               class_probabilities [B, 10, 512, 512]; the input contract of the run (keep_ratio, 512, BGR, version 2)
+               in preprocessing.json next to the model and in the metadata of model.onnx
 ```
 
 ### Files To Know
+
+If you are looking for the code of a step, these are the files of the task and their main functions.
 
 | Role | File | Main functions or classes |
 |---|---|---|
@@ -52,10 +57,12 @@ export         InferenceSegmenter: images [B, 3, 512, 512] -> class_map [B, 512,
 | Configuration checks | `vision_training/configuration_processing/segmentation_checks.py` | `check_segmentation_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_segmentation_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_segmentation_labels` |
-| Export | `vision_training/models/segmentation/inference_segmenter.py`, `vision_training/deployment/export_specifications.py` | `InferenceSegmenter` (model name `semantic_segmenter`, the deep supervision heads left out), `compare_segmentations` |
+| Export | `vision_training/models/segmentation/inference_segmenter.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/input_contract.py` | `InferenceSegmenter` (model name `semantic_segmenter`, the deep supervision heads left out), `compare_segmentations`, `build_input_contract` (the tile keys of a run trained on tiles) |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
+
+In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the root of the repository, after setting the values of their main blocks.
 
 ```bash
 # 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
@@ -73,17 +80,20 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # 4. Export (CUDA only): set experiment_folder, iteration and formats in the main block of
-#    vision_training/deployment/export_model.py
+#    vision_training/deployment/export_model.py; every model gets the input contract of the run in
+#    <model>/<version>/preprocessing.json and, for ONNX, in the metadata of model.onnx (README, Input Contract)
 uv run python -m vision_training.deployment.export_model
 ```
 
 ### Configuration Keys To Know First
 
+Before changing the synthetic configuration, these are the keys that change the model, the losses or the evaluation the most.
+
 | Key | Value in the synthetic configuration | Effect |
 |---|---|---|
 | `SegmentationDecoder.convolutions` | `{"5": [2, 64], "4": [2, 64], "3": [2, 32], "2": [2, 32], "1": [1, 16]}` | one level per backbone block before the last, keyed by that block, `[layers, channels]` from the deepest level (`D2x64.2x64.2x32.2x32.1x16`) |
 | `SegmentationDecoder.upsampling` | `"transposed"` | a learned 2x2 transposed convolution of stride 2 (`UTC`); `"bilinear"` is a bilinear upsampling followed by a 1x1 convolution (`UBL`) |
-| `SegmentationDecoder.modules` | `squeeze_and_excite: False`, `residual_nets: False` | Squeeze-and-Excitation and residual pairs of the decoder blocks; the residual pairs add nothing there (pitfall below) |
+| `SegmentationDecoder.modules` | `squeeze_and_excite: False`, `residual_nets: False` | Squeeze-and-Excitation and residual pairs of the decoder blocks; the residual pairs add nothing to the levels of at most 2 layers of this file (pitfall below) |
 | `SegmentationDecoder.deep_supervision_weights` | `{}` | 1x1 class heads on intermediate levels (`AUX<levels>`), trained with the same losses times their weight, left out of the inference and the exports |
 | `SegmentationLoss.cross_entropy_weight`, `SegmentationLoss.dice_weight` | `1.0`, `1.0` | the two losses of the total loss; `lovasz_weight` and `boundary_weight` are 0, and the region losses cannot all be 0 |
 | `SegmentationLoss.class_weighting`, `focal_gamma`, `label_smoothing` | `"none"`, `0.0`, `0.0` | `"balanced"` weights a class by total pixels / (K x pixels of the class), counted once and cached in `class_pixel_counts.json` |
@@ -94,6 +104,8 @@ uv run python -m vision_training.deployment.export_model
 
 ### What A Run Writes
 
+Whenever you look for a result of the run, these are the files and curves its training and the evaluations of its checkpoints write.
+
 - `Results.txt`: one block per evaluated checkpoint with `Mean IoU` (the headline metric), `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, with `per_class_report` `Macro ROC AUC` and `Macro Average Precision`, the notes (labelled pixels and their resolution, boundary tolerance, predicted masks, sample images) the per-class table sorted by IoU, worst first, and the `Per Class Recall` table (the pixel recall of every class with its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test images) sorted by recall, worst first.
 - `Evaluation/Iteration_<n>/`: `class_metrics.csv` (pixels, IoU, Dice, boundary IoU and F1, precision, recall with the bounds of its 95% confidence interval, `recall_lower` and `recall_upper`, and with `per_class_report` ROC AUC and average precision) and `confusion_matrix.csv` (pixel counts) at every evaluation; `confusion_matrix.png` (shares of every true class), `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `Samples/<image>.png` (Input, Ground Truth, Prediction and Errors panels, 2060x560 for 512 pixel images); `Predicted_Masks/<image>.png` with `save_predicted_masks`. No `EMA/` folder: the moving average of the weights is off in this configuration.
 - `class_pixel_counts.json` in the run folder with `class_weighting: "balanced"`.
@@ -102,11 +114,13 @@ uv run python -m vision_training.deployment.export_model
 
 ### Pitfalls
 
-- `residual_nets: True` adds no shortcut in the backbone blocks 2, 4 and 6, which change the channel count with 2 layers, nor in any decoder level, whose input (skip plus upsampled channels) never has the channels of its output (`ConvolutionBlock.residual_parity` of `convolution_block.py`; `bug_standards.md` H4, dropped). The backbone summary lists the shortcuts for blocks 3 and 5 only (Step 2.14).
+Should a result of the task look wrong, check these behaviours first.
+
+- `residual_nets: True` adds no shortcut in the backbone blocks 2, 4 and 6, which change the channel count with 2 layers, nor in the decoder levels of this file: the input of a level (skip plus upsampled channels) never has the channels of its output, so its residual pairs are shifted by one layer and the first shortcut closes at the third layer, which no level of 1 or 2 layers has (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`; `bug_standards.md` H4, dropped). A decoder level of 3 or 4 layers adds one shortcut. The backbone summary lists the shortcuts for blocks 3 and 5 only (Step 2.14).
 - `Mean IoU` and `Mean Dice` average over the classes present in the true masks or predicted, a class painted without any true pixel counting with 0 (`compute_segmentation_metrics()` of `segmentation_metrics.py`). Before 2026-10-25 they left out the classes predicted but absent (`bug_standards.md` B53), so older evaluations can be higher. The batch `Mean IoU` of the console averages the classes of each batch, then the batches (Step 3.20).
 - The masks are resized with `cv2.INTER_NEAREST`, about half a pixel off their images, and `random_crop` adds another half pixel (`segmentation_dataset.py`, `augmentations.py`; `suggestions.md` M5, open): with `original_resolution: True` on large images the shift can exceed `boundary_tolerance`.
 - The `SegmentationLoss` settings, the head dropout, the deep supervision weights and the tile overlap give no run name token, so changing them resumes the same run folder, `load_model()` setting the class weights of the new configuration again (`build_segmentation_sections()` of `run_name.py`; Step 2.18).
-- A run trained on tiles is exported with one tile as input, the client scaling and tiling the images with `segment_image_by_tiles()` ([tools reference, Export](../reference/tools_reference.md#export)), while `run_inference.py` times one letterboxed image per request (`bug_standards.md` B59).
+- A run trained on tiles is exported with one tile as input, the client scaling and tiling the images with `segment_image_by_tiles()` ([tools reference, Export](../reference/tools_reference.md#export)), while `run_inference.py` times one letterboxed image per request (`bug_standards.md` B59). The export describes the tiles in the input contract of the model, version 2 (`build_input_contract()` of `vision_training/deployment/input_contract.py`, [README, Input Contract](../../README.md#input-contract)): with `Data.tiling` at `activated: True`, `scale: 0.5` and `overlap: 128`, it writes `input_resize` `tiles`, `input_interpolation` `area`, `input_padding_placement` `bottom_right`, `input_tile_scale` `0.5` and `input_tile_overlap` `128`, against `keep_ratio`, `linear`, `centred` and `none` for this file.
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -121,6 +135,7 @@ uv run python -m vision_training.deployment.export_model
 
 ## Call Tree Overview
 
+To find your way in the stages below, the whole run fits in this tree: every function in the order it runs, with what it does.
 
 ```text
 main()
@@ -142,7 +157,8 @@ main()
 │       └── check_segmentation_configuration()
 │               ├── data:       classes 0..K-1 with the background at 0, categories that are mask values (1 to 254),
 │               │               tiling scale > 0 and overlap smaller than a tile
-│               ├── no sequence settings (frame shuffling, sequence normalization)
+│               ├── no sequence normalization of the backbone, since images have no frames (the frame shuffling
+│               │               and independent frames settings are refused by check_removed_settings)
 │               ├── no image-only augmentation type (random_perspective, random_jigsaw), which the masks cannot follow
 │               ├── decoder:    upsampling (transposed/bilinear), one level per skip connection of the backbone,
 │               │               modules, normalization, head dropout, deep supervision weights, pretrained settings
@@ -163,7 +179,7 @@ main()
 │       │
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name ends with the decoder (upsampling, normalization, D<layers>x<channels> of every level) and
-│       │       the classes (MC<foreground classes>), plus TL<scale> when the run trains on tiles.
+│       │       the classes (MC<foreground classes>), after a TL<scale> section when the run trains on tiles.
 │       ├── restore_run_label_dictionary() / setup_training_paths()
 │       │       A resumed run keeps the classes of its label_dictionary.json, then the run folder is created with
 │       │       the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
@@ -298,7 +314,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): `parse_configuration_path()` reads the path of the YAML file from the command line (`--configuration_path`), then it loads the file, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the segmentation.
 
 ### Step 1.2 — `load_experiment_configuration()`
-It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The segmentation has two sections of its own, `SegmentationDecoder` (the upsampling path of the U-Net) and `SegmentationLoss`, its `Data` section has a `tiling` subsection, and its `evaluation` settings differ from the classification ones (no top-k, no thresholds, no error images).
+It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The segmentation has two sections of its own, `SegmentationDecoder` (the upsampling path of the U-Net) and `SegmentationLoss`, its `Data` section has a `tiling` subsection, and its `evaluation` settings differ from the classification ones (no target precision of class thresholds, no error images, but the predicted masks, the original resolution and the boundary tolerance).
 
 **Example: the sections and the evaluation settings**
 ```text
@@ -390,7 +406,7 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The input and backbone tokens are those of every image task. `build_segmentation_sections()` adds the decoder: `UTC` (transposed convolutions, `UBL` for bilinear), the modules (`DSE`, `DRES`), the normalization (`DBN`), then `D<layers>x<channels>` of every level from the deepest one to the input resolution, `AUX<levels>` for deep supervision heads and the transfer tokens. Then come the classes: `MC9` counts the foreground classes, the background left out (`BIN` in binary mode). A run trained on tiles gets a `TL<scale>` section. The loss settings, the head dropout and the evaluation settings give no token, so they can change between two resumptions of a run.
+The input and backbone tokens are those of every image task. `build_segmentation_sections()` adds the decoder: `UTC` (transposed convolutions, `UBL` for bilinear), the modules (`DSE`, `DRES`), the normalization (`DBN`), then `D<layers>x<channels>` of every level from the deepest one to the input resolution, `AUX<levels>` for deep supervision heads and the transfer tokens. Then come the classes: `MC9` counts the foreground classes, the background left out (`BIN` in binary mode). A run trained on tiles gets a `TL<scale>` section between the backbone and the decoder (`..._B1x16.2x32.2x32.2x64.2x64.2x128_TL0.5_UTC-DBN-...` with `scale: 0.5`). The loss settings, the head dropout and the evaluation settings give no token, so they can change between two resumptions of a run.
 
 **Example output**
 ```text
@@ -416,7 +432,7 @@ SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32
 ├── Tensorboard/
 ├── Weights/
 ├── label_dictionary.json          the class index of every category of the run
-└── training_configuration.yaml    the copy of the launched file (5,417 bytes, the redirected file having no comments)
+└── training_configuration.yaml    the copy of the launched file, its comments included
 ```
 With `class_weighting: "balanced"`, the run folder also receives `class_pixel_counts.json` at Step 2.18.
 
@@ -454,9 +470,9 @@ dataset[0]:   images [3, 512, 512] torch.uint8, masks [512, 512] torch.int64 hol
 ### Step 2.10 — `build_native_loader()`
 The same PyTorch `DataLoader` as for the classification (see `classification_workflow.md`, Step 2.10).
 
-**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
+**Example output** (the training loader; the validation and test loaders have the same settings, 13 batches each)
 ```text
-len(loader) = 125   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
+len(loader) = 125   batch_size = 16   num_workers = 1   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
 
 ### Step 2.11 — `get_test_sample_classes()` + `choose_sample_identifiers()`
@@ -740,6 +756,7 @@ Saved right after the training step of iterations 3, 6, 9 and 12, so that the ch
 ```text
 Weights/Iteration_3/model_000003.pt   9,588,813 bytes      Weights/Iteration_6/model_000006.pt   9,588,813 bytes
 Weights/Iteration_9/model_000009.pt   9,588,813 bytes      Weights/Iteration_12/model_000012.pt  9,588,813 bytes
+Weights/full-checkpoint               model_checkpoint_path: "Iteration_12", all_model_checkpoint_paths 3, 6, 9, 12
 ['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'label_dictionary',
  'mlflow_run_id', 'pretrained_backbone', 'pretrained_segmentation_decoder']
 model_state: 175 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'
@@ -829,7 +846,7 @@ segmentation_loss = 2.0932      dice_loss = 0.9559      total_loss = 3.0491
 ```
 
 ### Step 3.16 — `compute_batch_metrics()` (→ `compute_pixel_confusion_matrix()` + `compute_segmentation_metrics()`)
-The predicted class of every pixel is the argmax of its logits. `compute_pixel_confusion_matrix()` counts the labelled pixels of every pair (true class, predicted class) with one `bincount`, and `compute_segmentation_metrics()` gives the pixel accuracy (share of the labelled pixels given their class) and the mean IoU of the classes present in the batch. No second forward pass is run.
+The predicted class of every pixel is the argmax of its logits. `compute_pixel_confusion_matrix()` counts the labelled pixels of every pair (true class, predicted class) with one `bincount`, and `compute_segmentation_metrics()` gives the pixel accuracy (share of the labelled pixels given their class) and the mean IoU of the classes present in the masks of the batch or predicted in it. No second forward pass is run.
 
 **Example: the first batch**
 ```text
@@ -844,7 +861,9 @@ Pixel Accuracy  1: 0.2665, 2: 0.4165, 3: 0.4551, 4: 0.5035, ...
 ```
 
 ### Step 3.18 — `training_loss.backward()` + `step_optimizer()`
-**Example: the gradient norm of the first steps and the learning rate**
+The optimizer steps with the gradients as the backward pass left them, never clipped, at the learning rate of the schedule (see `classification_workflow.md`, Step 3.22).
+
+**Example: the gradient norm of the first steps, measured for this document, and the learning rate**
 ```text
 iteration 1: 1.8968    iteration 2: 1.7794    iteration 3: 1.8824        learning rate 0.001 (constant)
 ```

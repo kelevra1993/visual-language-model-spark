@@ -130,7 +130,7 @@ The bounds of the recall intervals are empty for a class without true samples. T
 | DET, INS | ground truth boxes next to the detections above `Detector.inference.score_threshold`, with the masks for INS |
 | SEG | input, true mask, predicted mask and error map |
 | SSL | the image next to two random views, with the cosine similarity of their representations |
-| KPT | ground truth objects next to the objects found above `KeypointHead.inference.object_score_threshold`, with their skeletons |
+| KPT | ground truth objects next to the objects found scoring at least `KeypointHead.inference.object_score_threshold`, with their skeletons |
 
 The sample images are chosen once from the test split, so every evaluation shows the same samples, even after a resume. CLS, M2O, M2M, CMP, SSL and KPT spread them over the classes first, DET, INS and SEG over the images, and SEL over the sequences.
 

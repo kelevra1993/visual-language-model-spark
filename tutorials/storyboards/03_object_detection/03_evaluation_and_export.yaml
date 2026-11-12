@@ -171,7 +171,7 @@ scenes:
       - {type: arrow, points: [[330, 340], [395, 340]]}
       - {type: box, box: [400, 60, 1150, 620], fill: null, outline: violet, highlight: [4]}
       - {type: text, position: [775, 90], text: "object_detector · TorchScript and ONNX", font: diagram_bold, anchor: ma}
-      - {type: text, position: [440, 160], text: "input normalization, backbone\nevery region proposal head\ntop-k and one batched NMS over the batch\nvalid mask instead of padding copies\nevery detection head on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals,\n  each proposal keeping its level (torch.where)\npost-processing: score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}, NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}}, top {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}", font: diagram_text, appear: 4}
+      - {type: text, position: [440, 160], text: "input normalization, backbone\nevery region proposal head\ntop-k and batched NMS, per level or joint\nvalid mask instead of padding copies\nevery detection head on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals,\n  each proposal keeping its level (torch.where)\npost-processing: score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}, NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}}, top {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}", font: diagram_text, appear: 4}
       - {type: arrow, points: [[1150, 200], [1215, 140]], appear: 3}
       - {type: arrow, points: [[1150, 300], [1215, 270]], appear: 3}
       - {type: arrow, points: [[1150, 380], [1215, 400]], appear: 3}
@@ -186,7 +186,7 @@ scenes:
       - "It takes float BGR images of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels in 0 to 255, letterboxed by the client, the input normalization being part of the model."
       - "For the client to letterbox its images as the evaluation did, the export writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "It returns {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} boxes per image in network pixels, their scores and int64 labels, zero for the padding, and the number of detections of every image."
-      - "In the graph: one batched NMS for the proposals, every detection head run on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals with each proposal keeping its own level, and the post-processing with the score threshold and the final NMS of the configuration baked in."
+      - "In the graph: a batched NMS for the proposals, one per level with the per-level selection, every detection head run on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals with each keeping its own level, and the score threshold and final NMS of the configuration baked in."
       - "Outside the graph stay the letterbox, the restoration of the boxes to the original image, and the per-class thresholds; the export is checked against the eager model to a hundredth of a pixel on the boxes."
 
   - kind: terminal
@@ -209,14 +209,14 @@ scenes:
           - "{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations shipped: samples nearly empty"
           - "stride {{object_detection.inference.level_5.stride}} at best: few anchors for small boxes"
           - "anchors on the cell corners"
-          - "block 5 takes most proposals"
+          - "joint selection: block 5 takes most proposals"
       - heading: "Evaluation and tools"
         lines:
           - "mAP@[0.5:0.95]: VOC matching, not COCO's"
           - "2-layer heads changing channels: no shortcut"
           - "eager forward: padding copies not masked"
     narration:
-      - "To close, the pitfalls: the shipped {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations leave the samples nearly empty; the small objects get few anchors at a stride of {{object_detection.inference.level_5.stride}}, centered on the cell corners; and block 5 takes most proposals."
+      - "To close, the pitfalls: the shipped {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations leave the samples nearly empty; the small objects get few anchors at a stride of {{object_detection.inference.level_5.stride}}, centered on the cell corners; and in the run shown, which selects its proposals jointly, block 5 takes most proposals."
       - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut."
 
   - kind: summary

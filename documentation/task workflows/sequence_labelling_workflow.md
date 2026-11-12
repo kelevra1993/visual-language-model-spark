@@ -44,7 +44,7 @@ Evaluation/Iteration_<n>/   class_metrics.csv   class_thresholds.json   confusio
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_sequence_labelling_configuration`, `check_sequence_settings`, `check_temporal_model_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_sections`, `build_temporal_tokens` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_shape_change_sequence`, `CHANGE_CATEGORIES` |
-| Export | `vision_training/deployment/export_specifications.py`, `vision_training/models/sequence/inference_sequence_model.py` | `InferenceSequenceModel`: `sequence_labeller_<format>`, `images` [B, T, 3, S, S] to `class_probabilities` [B, T, K], no sequence mask |
+| Export | `vision_training/deployment/export_specifications.py`, `vision_training/models/sequence/inference_sequence_model.py`, `vision_training/deployment/input_contract.py` | `InferenceSequenceModel`: `sequence_labeller_<format>`, `images` [B, T, 3, S, S] to `class_probabilities` [B, T, K], no sequence mask; `build_input_contract`: `preprocessing.json` next to the model and the ONNX metadata (`BGR`, `keep_ratio`, size, `linear`, padding 0 `centred`, `NTCHW`, `0-255`) |
 
 ### Run It
 ```bash
@@ -57,10 +57,13 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"
 
 # Evaluation of the checkpoints of a run: set run_name, experiment_folder, iteration (None, a number or "all"),
-# test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder in its main block
+# test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair, target_precisions and
+# output_folder in its main block
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 `scripts/data/create_sequence_split_subset.py` writes a fixed random subset of a split (`test_10000`, 10,000 of the 50,000 test sequences, seed 0), the test split of the launches of `documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`.
+
+Should you start on sequences of your own, `configuration_example.yaml` holds the settings kept by that experiment plan after its 13 stages: learning rate 1e-3, `class_weighting: "balanced"`, a bidirectional LSTM of 2 layers of 256 and `flatten` frame pooling, with batch normalization. The plan kept the 2 layers and `flatten` with a pretrained backbone (1 layer and `max` from scratch), which the example leaves off (`Backbone.pretrained.experiment_folder: null`). Its 384 pixel frames go through 6 blocks and a last max pooling down to 64 x 6 x 6, 2,304 values per frame; built on the CPU with the mapping file of the synthetic changing shapes, it gives `M2M_IN-KAR-384_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.4x64-LMP_T50_LSTM2x256-BI_HFLAT.256-CWB_MC71` and 7,486,375 parameters (backbone 512,864, LSTM 6,823,936, head 149,575). The frame size and the backbone are those of the example, not of the plan, which trained 256 pixel frames.
 
 ### Configuration Keys To Know First
 | Key | Value in the synthetic configuration | Effect |
@@ -84,11 +87,11 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 - `data.json` counts the `frames` of every class in every split.
 
 ### Pitfalls
-- A run predicting `no_change` everywhere keeps a fair frame accuracy: the synthetic configuration trained 2000 iterations (README screenshots, `suggestions.md` K29) gives Accuracy 0.4697 (the share of `no_change` frames of `test_10000`), Balanced Accuracy 0.0141 (1/71), Macro F1 0.0090 and Sequence Exact Match 0.0589 (the 589 sequences without change). Its `predictions.csv` gives `no_change` a probability of 0.9999 on the 10,000 first frames, always `no_change`, and about 0.38 on the 59,918 others, their share of `no_change`: read the balanced accuracy, the macro F1 and the segment metrics.
+- A run predicting `no_change` everywhere keeps a fair frame accuracy: the synthetic configuration trained 2000 iterations (README screenshots, `suggestions.md` K29) gives Accuracy 0.4697 (the share of `no_change` frames of `test_10000`), Balanced Accuracy 0.0141 (1/71), Macro F1 0.0090 and Sequence Exact Match 0.0589 (the 589 sequences without change). Its `predictions.csv` gives `no_change` a probability of 0.9999 on the 10,000 first frames, always `no_change`, and about 0.38 on the 59,918 others, their share of `no_change`: read the balanced accuracy, the macro F1 and the segment metrics. That run has no class weights; in the experiment plan, a launch without class weights stayed at the macro F1 of a model predicting only `no_change` for its 6000 iterations, and the plan kept `class_weighting: "balanced"` at the same learning rate, 1e-3 (`configuration_example.yaml`).
 - The frames of unmapped categories get the label -100: they are left out of the loss and the metrics, and end a segment. Nothing checks that `frame_category_ids` holds one label per frame (`suggestions.md` L10), and a batch without labelled frame gives a NaN loss while the sequences without labelled frame count as exact matches (L11, `sequence_losses.py`, `compute_sequence_exact_matches()`).
 - A causal module (`causal: True`, or a GRU or LSTM that is not bidirectional) with `Backbone.normalization.feature_map_normalization: "sequence"` still uses the future frames: the statistics of every backbone layer are those of the whole sequence (`bug_standards.md` B8).
 - `label_smoothing` above 0 with `class_weighting: "balanced"` pulls every frame towards the rarest classes (`suggestions.md` C2); on the synthetic training split the balanced weight of `no_change` would be 0.030 against 1.82 to 1.89 for a change class (819,173 of the 1,749,690 frames, `data.json`).
-- `test_10000` holds a copy of the labels and a link to the frames of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without any error (`bug_standards.md` B2, dropped). The test split of the synthetic configuration holds all 50,000 test sequences, whose evaluation took 26 minutes at 256 pixels in the experiment plan.
+- `test_10000` holds a copy of the labels and a link to the frames of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without any error (an audit finding the user dropped, so it stays as it is). The test split of the synthetic configuration holds all 50,000 test sequences, whose evaluation took 26 minutes at 256 pixels in the experiment plan.
 - `Data.sequence_settings` only takes `maximum_sequence_length`: a sequence is never cut into windows, a longer one is left out with a red warning (Step 2.8), and a step runs the backbone on up to `batch_size` x `maximum_sequence_length` frames (comment of `batch_size` in the configuration).
 
 ## Table of Contents
@@ -594,7 +597,7 @@ Accuracy     1: 0.0000, 2: 0.0000, 3: 0.0000, 4: 0.0385, 5: 0.1304, 6: 0.2424, 7
 The accuracy rises as the network learns to predict `no_change`, the most frequent class.
 
 ### Step 3.13 — `training_loss.backward()` + `step_optimizer()` + validation pass
-**Example output**
+**Example output** (the gradients are applied as they are, their norm measured for this example)
 ```text
 gradient norm: iteration 1: 0.9540   iteration 2: 0.9521   iteration 3: 0.7110        learning rate 0.001 (constant)
 Tensorboard/Validation at iteration 10: Total Loss 4.1790, Classification Loss 4.1790, Accuracy 0.0 (0 of 18 labelled frames)

@@ -7,6 +7,7 @@ element, and the block of the last checkpoint in Results.txt, a listing of the s
 """
 
 import csv
+import math
 
 from matplotlib import pyplot
 from matplotlib.ticker import FuncFormatter
@@ -18,7 +19,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 compute_pixel_box, format_thousands, register_fonts, round_fact,
                                                 save_figure, style_chart_panel)
 from tutorials.figures.self_supervised.ssl_sources import list_evaluated_iterations
-from tutorials.figures.self_supervised.training_figures import draw_reference_line, read_scalars
+from tutorials.figures.self_supervised.training_figures import draw_reference_line, fit_axis_limits, read_scalars
 
 # Panels of the test metrics: the scalar of Tensorboard/Test, its title, its value axis limits and its fact name
 TEST_PANELS = [{"tag": "k-NN Accuracy", "title": "k-NN accuracy", "limits": (0.0, 0.3), "name": "knn_accuracy"},
@@ -28,6 +29,10 @@ TEST_PANELS = [{"tag": "k-NN Accuracy", "title": "k-NN accuracy", "limits": (0.0
 
 # Other global metrics of the evaluations quoted by the narration
 OTHER_TEST_TAGS = {"k-NN Balanced Accuracy": "knn_balanced_accuracy", "k-NN Macro F1": "knn_macro_f1"}
+
+# Room left after the longest bar of the per-class F1 bars of the Results.txt scene for its value label, as a factor of
+# the best F1, the axis ending at the next tenth above it
+BAR_HEADROOM = 1.15
 
 
 def draw_test_metrics(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
@@ -53,7 +58,8 @@ def draw_test_metrics(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
         iterations, values = read_scalars(log_folder=run_folder / "Tensorboard" / "Test", tag=panel["tag"])
         style_chart_panel(axes=axes, title=panel["title"], x_label="Iteration", y_label="Value")
         axes.set_xlim(left=0, right=int(iterations[-1]) + 250)
-        axes.set_ylim(bottom=panel["limits"][0], top=panel["limits"][1])
+        bottom, top = fit_axis_limits(limits=panel["limits"], values=[values])
+        axes.set_ylim(bottom=bottom, top=top)
         axes.set_xticks(ticks=[int(iteration) for iteration in iterations])
         axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
         if panel["name"] == "knn_accuracy":
@@ -64,7 +70,7 @@ def draw_test_metrics(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
 
         # Value of every evaluated checkpoint written above its point
         for iteration, value in zip(iterations, values):
-            axes.text(x=iteration, y=value + (panel["limits"][1] - panel["limits"][0]) * 0.035,
+            axes.text(x=iteration, y=value + (top - bottom) * 0.035,
                       s=f"{value:.1f}" if panel["name"] == "effective_rank" else f"{value:.3f}",
                       color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL, ha="center", va="bottom")
             facts[f"test.{panel['name']}_{int(iteration)}"] = round_fact(value=value)
@@ -135,7 +141,8 @@ def join_class_names(names: List[str]) -> str:
 def describe_class_metrics(run_folder: Path) -> Dict[str, Any]:
     """
     Gives the per-class k-NN F1 of the last evaluated checkpoint, best first, as the values, labels and value labels
-    of a bars element, with the best and worst classes the narration names.
+    of a bars element, with the largest value of its axis (the next tenth above the best F1 times BAR_HEADROOM) and
+    the best and worst classes the narration names.
 
     Args:
         run_folder (Path): The folder of the self-supervised run.
@@ -144,7 +151,8 @@ def describe_class_metrics(run_folder: Path) -> Dict[str, Any]:
         Dict[str, Any]: The facts, named classes.*.
     """
     rows = sorted(read_class_rows(run_folder=run_folder), key=read_negative_f1)
-    return {"classes.f1_values": [round_fact(value=float(row["f1"])) for row in rows],
+    return {"classes.f1_bar_maximum": max(0.1, math.ceil(float(rows[0]["f1"]) * BAR_HEADROOM * 10.0) / 10.0),
+            "classes.f1_values": [round_fact(value=float(row["f1"])) for row in rows],
             "classes.f1_labels": [row["class"].replace("_", " ") for row in rows],
             "classes.f1_value_labels": [f"{float(row['f1']):.2f}" for row in rows],
             "classes.best_class": rows[0]["class"].replace("_", " "),

@@ -316,7 +316,7 @@ Predicts one class per sequence (many to one).
 ```
 
 - **Configuration**: `Data.sequence_settings`, `TemporalModel` (all 7 types) and `ClassificationHead`, with the evaluation keys of CLS. A class given by a motion needs `global_pooling: flatten`, as in both configurations: `average` and `max` remove the position of the object, and the synthetic moving shapes then stay at chance.
-- **Evaluation**: the metrics and files of CLS, on the sequences.
+- **Evaluation**: the metrics and files of CLS, on the sequences, without the temperature explorer and its class_logits.npz.
 
 ## Sequence Labelling (M2M)
 Predicts one class per frame (many to many). With `TemporalModel.causal: True` (transformer, temporal convolution), every frame only sees the frames before it, as in a live stream.

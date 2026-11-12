@@ -49,7 +49,7 @@ scenes:
       - "The selection loss answers the other question, which frames of this sequence are best for this class."
       - "For every wanted class, the softmax of its logit is taken over the frames of the sequence, dimension one, the padding frames masked out."
       - "Its target puts one over N on each of the N true frames of the class, and the cross entropy is averaged over the wanted classes holding true frames."
-      - "The frame selector adds it to the per-frame loss, times selection loss weight; if, for instance, you set that weight to zero, the per-frame loss trains alone."
+      - "The frame selector multiplies it by selection loss weight, and the trainer adds it to the per-frame loss; if, for instance, you set that weight to zero, the per-frame loss trains alone."
 
   - kind: html
     page: 10_frame_selection/frame_matrix

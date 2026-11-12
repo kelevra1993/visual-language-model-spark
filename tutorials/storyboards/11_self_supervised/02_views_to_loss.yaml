@@ -202,6 +202,8 @@ scenes:
   - kind: image
     title: "The training curves"
     code_reference: "vision_training/trainers/self_supervised_trainer.py · METHOD_TRACKED_METRICS"
+    # The spread of collapsed embeddings
+    literal_numbers: ["zero"]
     image: "figures:self_supervised/training/training_curves_axes.png"
     overlay: "figures:self_supervised/training/training_curves.png"
     reveals:
@@ -213,10 +215,10 @@ scenes:
       - {box: "{{self_supervised.curves.positive_pair_accuracy_panel_box}}", sentences: [1]}
       - {box: "{{self_supervised.curves.embedding_standard_deviation_panel_box}}", sentences: [2]}
     narration:
-      - "The loss of the run starts at {{self_supervised.curves.info_nce_first:.2f}}, just above the {{self_supervised.curves.random_info_nce:.2f}} of random embeddings, and ends near {{self_supervised.curves.info_nce_last_smoothed:.2f}} after {{self_supervised.curves.last_iteration:,}} iterations, still falling."
-      - "The positive pair accuracy reaches {{self_supervised.curves.positive_pair_accuracy_last_smoothed:.0%}}, the share of the views finding their partner among {{self_supervised.curves.other_view_count}}: far above chance and far from solved."
-      - "The embedding standard deviation climbs to {{self_supervised.curves.embedding_standard_deviation_last_smoothed:.2f}}: the embeddings spread over the sphere, no collapse."
-      - "The validation dots follow the training curves, new views of validation images encoded in evaluation mode, except for the very first ones, which the last chapter explains."
+      - "The loss of the run starts at {{self_supervised.curves.info_nce_first:.2f}}, against {{self_supervised.curves.random_info_nce:.2f}} for random embeddings, and ends near {{self_supervised.curves.info_nce_last_smoothed:.2f}} after {{self_supervised.curves.last_iteration:,}} iterations."
+      - "The positive pair accuracy, the share of the views finding their partner among {{self_supervised.curves.other_view_count}}, ends near {{self_supervised.curves.positive_pair_accuracy_last_smoothed:.1%}}, against {{self_supervised.curves.chance_positive_pair_accuracy:.1%}} by chance."
+      - "The embedding standard deviation ends near {{self_supervised.curves.embedding_standard_deviation_last_smoothed:.2f}}, against about one for embeddings spread over the sphere and zero for a collapse."
+      - "The validation dots are new views of validation images, encoded in evaluation mode; the very first ones sit apart from the training curves, as the last chapter explains."
 
   - kind: html
     page: diagram
@@ -226,18 +228,18 @@ scenes:
     literal_numbers: ["two", "1"]
     elements:
       - {type: text, position: [40, 30], text: "positive pair accuracy, first training batch of the run", font: diagram_bold}
-      - {type: bars, box: [40, 90, 1120, 190], orientation: horizontal, values: ["{{self_supervised.curves.positive_pair_accuracy_first}}", "{{self_supervised.curves.chance_positive_pair_accuracy}}"], labels: ["iteration 1", "chance 1/{{self_supervised.curves.other_view_count}}"], value_labels: ["{{self_supervised.curves.positive_pair_accuracy_first:.3f}}", "{{self_supervised.curves.chance_positive_pair_accuracy:.4f}}"], colours: [blue, border], maximum: 0.35, label_width: 300, highlight: [0]}
+      - {type: bars, box: [40, 90, 1120, 190], orientation: horizontal, values: ["{{self_supervised.curves.positive_pair_accuracy_first}}", "{{self_supervised.curves.chance_positive_pair_accuracy}}"], labels: ["iteration 1", "chance 1/{{self_supervised.curves.other_view_count}}"], value_labels: ["{{self_supervised.curves.positive_pair_accuracy_first:.3f}}", "{{self_supervised.curves.chance_positive_pair_accuracy:.4f}}"], colours: [blue, border], maximum: "{{self_supervised.cue.bar_maximum}}", label_width: 300, highlight: [0]}
       - {type: text, position: [40, 250], text: "{{self_supervised.cue.batch_size}} test images, training mode · chance 1/{{self_supervised.cue.other_view_count}} = {{self_supervised.cue.chance:.4f}}", font: diagram_bold, appear: 1}
-      - {type: bars, box: [40, 310, 1120, 450], orientation: horizontal, values: ["{{self_supervised.cue.untrained_colour_accuracy}}", "{{self_supervised.cue.untrained_grayscale_accuracy}}"], labels: ["untrained, colour", "untrained, grayscale"], value_labels: ["{{self_supervised.cue.untrained_colour_accuracy:.3f}}", "{{self_supervised.cue.untrained_grayscale_accuracy:.3f}}"], colours: [magenta, dim], maximum: 0.35, label_width: 300, appear: 1, highlight: [1]}
-      - {type: bars, box: [40, 480, 1120, 620], orientation: horizontal, values: ["{{self_supervised.cue.trained_colour_accuracy}}", "{{self_supervised.cue.trained_grayscale_accuracy}}"], labels: ["iteration {{self_supervised.knn.last_iteration:,}}, colour", "iteration {{self_supervised.knn.last_iteration:,}}, grayscale"], value_labels: ["{{self_supervised.cue.trained_colour_accuracy:.3f}}", "{{self_supervised.cue.trained_grayscale_accuracy:.3f}}"], colours: [violet, dim], maximum: 0.35, label_width: 300, appear: 2, highlight: [2]}
-      - {type: image, path: "figures:self_supervised/views/test_000006_view_1.png", box: [1240, 40, 1470, 270], border: blue}
-      - {type: image, path: "figures:self_supervised/views/test_000006_view_2.png", box: [1500, 40, 1730, 270], border: violet}
-      - {type: text, position: [1485, 285], text: "two views of a circle:\nthe hue moves, the colour stays", font: diagram_small, colour: dim, anchor: ma, align: center}
+      - {type: bars, box: [40, 310, 1120, 450], orientation: horizontal, values: ["{{self_supervised.cue.untrained_colour_accuracy}}", "{{self_supervised.cue.untrained_grayscale_accuracy}}"], labels: ["untrained, colour", "untrained, grayscale"], value_labels: ["{{self_supervised.cue.untrained_colour_accuracy:.3f}}", "{{self_supervised.cue.untrained_grayscale_accuracy:.3f}}"], colours: [magenta, dim], maximum: "{{self_supervised.cue.bar_maximum}}", label_width: 300, appear: 1, highlight: [1]}
+      - {type: bars, box: [40, 480, 1120, 620], orientation: horizontal, values: ["{{self_supervised.cue.trained_colour_accuracy}}", "{{self_supervised.cue.trained_grayscale_accuracy}}"], labels: ["iteration {{self_supervised.knn.last_iteration:,}}, colour", "iteration {{self_supervised.knn.last_iteration:,}}, grayscale"], value_labels: ["{{self_supervised.cue.trained_colour_accuracy:.3f}}", "{{self_supervised.cue.trained_grayscale_accuracy:.3f}}"], colours: [violet, dim], maximum: "{{self_supervised.cue.bar_maximum}}", label_width: 300, appear: 2, highlight: [2]}
+      - {type: image, path: "figures:self_supervised/views/test_000000_view_1.png", box: [1240, 40, 1470, 270], border: blue}
+      - {type: image, path: "figures:self_supervised/views/test_000000_view_2.png", box: [1500, 40, 1730, 270], border: violet}
+      - {type: text, position: [1485, 285], text: "the two views of the star:\ncompare the colour of the shape", font: diagram_small, colour: dim, anchor: ma, align: center}
       - {type: box, box: [1200, 420, 1740, 700], text: "a loss falling on such a cue\nlearns colours, not shapes:\nthe colour types of the views\nare there to break it", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "Look at the very first training batch: before any update, {{self_supervised.curves.positive_pair_accuracy_first:.1%}} of the views already found their partner, {{self_supervised.curves.positive_pair_accuracy_first_over_chance:.0f}} times chance."
-      - "An untrained network does the same on {{self_supervised.cue.batch_size}} test images, {{self_supervised.cue.untrained_colour_accuracy:.1%}} with colour views, and falls to {{self_supervised.cue.untrained_grayscale_accuracy:.1%}} once both views are turned to grayscale: the colour of the shape is a cue the two views share."
-      - "The trained network leans on it too: {{self_supervised.cue.trained_colour_accuracy:.0%}} on colour views, {{self_supervised.cue.trained_grayscale_accuracy:.0%}} on the same views in grayscale."
+      - "An untrained network does the same on the views of {{self_supervised.cue.batch_size}} test images, {{self_supervised.cue.untrained_colour_accuracy:.1%}} with colour views, and falls to {{self_supervised.cue.untrained_grayscale_accuracy:.1%}} once both views are turned to grayscale: the colour of the shape is a cue the two views share."
+      - "After training, the network finds {{self_supervised.cue.trained_colour_accuracy:.1%}} of the partners on colour views and {{self_supervised.cue.trained_grayscale_accuracy:.1%}} on the same views in grayscale."
       - "Think of a loss that falls on such a cue: it learns colours, not shapes; the colour types of the views are there to break it, and only the nearest neighbour accuracy of the next chapter tells whether the shapes were learnt."
 
   - kind: html
@@ -257,8 +259,8 @@ scenes:
       - {type: text, position: [880, 520], text: "every {{self_supervised.run.information_dump}} iterations · a validation batch every {{self_supervised.run.validation_iteration_ratio}} iterations", font: diagram_small, colour: dim, anchor: ma}
     narration:
       - "Every {{self_supervised.run.information_dump}} iterations in this run, the console prints the moving averages of the training and validation metrics of the method; this is the last summary."
-      - "A metric ends with Best when it improves on its best value: higher for the accuracies, lower for the losses and, with Barlow Twins, for the off-diagonal correlation."
-      - "The throughput counts the images, not the views: {{self_supervised.log.last_throughput:.0f}} images per second at the end of this run, on a GPU shared with other trainings."
+      - "A metric ends with Best when it improves on its best value: higher for the accuracies and the embedding spread, lower for the losses and, with Barlow Twins, for the off-diagonal correlation."
+      - "The throughput counts the images, not the views: {{self_supervised.log.last_throughput:.0f}} images per second at the end of this run."
 
   - kind: summary
     title: "Recap"
@@ -270,7 +272,7 @@ scenes:
       - {text: "InfoNCE: every view finds its partner among 2N - 1, ln(2N - 1) at random"}
       - {text: "Barlow Twins: cross-correlation of the features pushed to the identity"}
       - {text: "Embedding standard deviation: about 1 spread, 0 collapsed"}
-      - {text: "Positive pair accuracy far above chance at the start: a shared cue"}
+      - {text: "Positive pair accuracy above chance at the start: a shared cue"}
     narration:
       - "To recap: both views go through the network in one pass, the loss compares the embeddings of the head, and the representation before it is what the run keeps."
       - "The next chapter judges that representation without any classifier: the nearest neighbour evaluation, the effective rank, the pitfalls of the evaluation, and the export and transfer of the backbone."

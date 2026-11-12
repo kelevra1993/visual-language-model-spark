@@ -1,12 +1,12 @@
 """
 Sources shared by the figure families of the keypoint detection series of the tutorial videos
 (tutorials/figures/keypoint_detection/figures.py): the synthetic keypoint run of tutorials/tutorial_sources.yaml and
-the repository configuration it was trained with, the test image the chapters follow (test_000000.png, two hollow
+the repository configuration sharing its model, the test image the chapters follow (test_000000.png, two hollow
 capsules side by side, a trapezoid and a circle without keypoints), read by the COCO dataset of the repository with its
 keypoints, the label dictionary and the channel table of the trained detector, and the colours the figures give to the
-objects of that image. The run folder keeps a training_configuration.yaml written before keys the current loader
-requires (run_name_suffix, random_aspect_crop...), so the model is rebuilt from the repository configuration, refused
-unless its model sections are those of the run.
+objects of that image. The test split of the run (a copy of the first 1024 test images) was removed, so the figures
+read the test split and the settings of the repository configuration, refused unless its model sections, image
+settings and label mapping are those of the training_configuration.yaml of the run.
 """
 
 import json

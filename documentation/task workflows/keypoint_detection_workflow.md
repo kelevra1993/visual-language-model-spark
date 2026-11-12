@@ -6,7 +6,7 @@ The model is a bottom-up keypoint detector (HigherHRNet): the whole image goes t
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training (`CUDA_VISIBLE_DEVICES=` empty for every run). The synthetic dataset of the configuration, `synthetic_shapes`, was generated in a temporary folder with `create_synthetic_dataset(task="keypoint_detection")` at the size of the examples: 300 training, 30 validation and 30 test images of 512 pixels, 2 to 5 objects per image, 37 categories. 33 of them have keypoints (a square has its 4 corners, a triangle 3, a stick figure 11, a hollow nonagon 18), 243 in all; `circle`, `ellipse`, `annulus` and `hollow_ellipse` are distractors without keypoints, left out of the `label_mapping.json` written by `build_keypoint_label_mapping()`, which numbers the 33 others from 1. The data folders and the mapping file of the configuration were redirected to it. The input viewer and every other window stay off.
 - **Stages 1 and 2**: `vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml` (512 pixel images, a 3-block stem ending at 1/4 of the image, an HRNet of base width 16 with 1, 2 and 2 modules in its three stages of 2, 3 and 4 branches, a hidden width of 256, the higher resolution branch, a heatmap sigma of 2 cells, tag weights of 0.1), with the run folder redirected to a temporary folder and the iterations of Stage 3.
-- **Stages 3, 4 and 5**: the same configuration shortened to batch size 8 (it is 16), 60 iterations (20000), a checkpoint and a test evaluation every 30 iterations (2000), an intermediate checkpoint every 15 (1000), a console summary every 10 (500), a validation batch every 10 training iterations (0, no validation), a warm-up of 10 iterations and a decay of 50 (500 and 19500), 2 loading workers (a setting then, now fixed at 1), with the MLflow tracking turned on (off). The model and the augmentations are those of Stages 1 and 2. After 60 iterations of batches of 8 images the detector is far from trained, so the metrics of the examples are low: the point is to see the shapes, the files and the order of the steps.
+- **Stages 3, 4 and 5**: the same configuration shortened to batch size 8 (it is 16), 60 iterations (20000), a checkpoint and a test evaluation every 30 iterations (2000), an intermediate checkpoint every 15 (1000), a console summary every 10 (500), a validation batch every 10 training iterations (0, no validation), a warm-up of 10 iterations and a decay of 50 (500 and 19500), 2 loading workers (a setting then, now fixed at 1), with the MLflow tracking turned on (off). The model and the augmentation types are those of Stages 1 and 2, drawn with the probabilities of that time (0.3 for most types, 0.5 for the translation); every type is now drawn at 0.25 (both flips, off here, at 0.5), and `random_haze`, added since, is on. After 60 iterations of batches of 8 images the detector is far from trained, so the metrics of the examples are low: the point is to see the shapes, the files and the order of the steps.
 - **Stage 6**: the checkpoint of iteration 60 exported to TorchScript and ONNX on CPU by a script repeating the steps of `export_experiment()`, which only runs on CUDA (see Step 6.1). The client example of Step 6.6 uses the trained weights of iteration 6000 of a GPU run of the same model, whose iteration 2000 also serves the steps inside a test batch of Stage 4.
 
 ## Read This First
@@ -53,7 +53,7 @@ files          Evaluation/Iteration_<n>/ class_metrics.csv, keypoint_metrics.csv
 | Configuration checks | `vision_training/configuration_processing/keypoint_checks.py` | `check_keypoint_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_keypoint_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_keypoint_labels`, `build_keypoint_label_mapping`, `KEYPOINT_CATEGORIES`, `KEYPOINT_NAMES` |
-| Export | `vision_training/models/keypoints/inference_keypoint_detector.py`, `vision_training/deployment/export_specifications.py` | `InferenceKeypointDetector` (model name `keypoint_detector`, candidates only), `get_export_specification`, `compare_keypoints` |
+| Export | `vision_training/models/keypoints/inference_keypoint_detector.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/input_contract.py` | `InferenceKeypointDetector` (model name `keypoint_detector`, candidates only), `get_export_specification`, `compare_keypoints`; `build_input_contract`, `write_onnx_input_contract`, `write_preprocessing_file` |
 
 ### Run It
 
@@ -225,9 +225,9 @@ scripts/evaluation/evaluate_checkpoint.py   [STAGE 5]
 vision_training/deployment/export_model.py   [STAGE 6]
 └── export_experiment()
     ├── load_trained_model() -> build_inference_model() -> InferenceKeypointDetector     input: whole images
-    ├── get_export_specification() -> create_random_inputs()
-    ├── export_torchscript() / export_onnx()
-    ├── write_triton_configuration()                          config.pbtxt
+    ├── get_export_specification() -> build_input_contract() -> create_random_inputs()
+    ├── export_torchscript() / export_onnx() + write_onnx_input_contract()      the input contract in the ONNX metadata
+    ├── write_triton_configuration() + write_preprocessing_file()               config.pbtxt, preprocessing.json
     └── compare_outputs -> compare_keypoints()                exported candidates against the eager candidates, paired by position
 
 client of the exported model   [STEP 6.6]
@@ -981,7 +981,7 @@ For every image, `evaluate_image_keypoints()` builds what the average precision 
 - `compute_squared_distances()` gives the squared distance of every keypoint of every object found to the same keypoint of every ground truth object, a keypoint not found (NaN) being infinitely far;
 - `compute_object_keypoint_similarity()` turns them into the [D, G] OKS of every object found with every ground truth object, measured with the area of the ground truth box (`compute_box_areas()`) and the sigmas of the class (`sigma_table`), then set to 0 across classes, since the keypoints of two classes do not correspond;
 - the detections are the objects found, with their class, score and the box of their keypoints found (`compute_keypoint_boxes()`), which sizes the objects that match no ground truth in the table of the object sizes;
-- `match_ground_truth_objects()` matches every ground truth object to at most one object found, whatever the scores: the one-to-one matching (`linear_sum_assignment()`) of the largest total OKS, a pair of OKS 0 never matching. It only serves the keypoint accuracy of Step 4.7; the average precision does its own matching in score order.
+- `match_ground_truth_objects()` matches every ground truth object to at most one object found, whatever the scores: the one-to-one matching (`linear_sum_assignment()`) of the largest total OKS over the pairs reaching an OKS of 0.5 (`MINIMUM_MATCH_SIMILARITY`, the overlap of the OKS mAP@0.5), a pair below it (another class, or keypoints too far) never matching. It only serves the keypoint accuracy of Step 4.7; the average precision does its own matching in score order.
 
 `compute_object_keypoint_similarity()` is the COCO formula: for every labelled keypoint (visibility > 0), exp(−d² / (2 × (2σ)² × area)), averaged over the labelled keypoints of the object, in float64 (the area clamped to `MINIMUM_OBJECT_AREA`). A keypoint at distance d from its ground truth scores less on a small object than on a large one, and less with a small sigma.
 
@@ -1010,11 +1010,11 @@ The hollow semicircle lies on the semicircle but has an OKS of 0 with it, being 
 | 10 | 0.8033 | 0.6065 | 0.3033 |
 | 20 | 0.5677 | 0.1353 | 0.0677 |
 
-At 20 pixels the first keypoint scores exp(−400 / 200) = 0.1353; averaged with an exact second keypoint, the object scores 0.5677. An unlabelled keypoint is left out of the mean, but a labelled keypoint that the grouping did not find counts as 0: with the threshold of OKS 0.5 of mAP@0.5, an object with half of its keypoints missing is never found, however exact the others are.
+At 20 pixels the first keypoint scores exp(−400 / 200) = 0.1353; averaged with an exact second keypoint, the object scores 0.5677. An unlabelled keypoint is left out of the mean, but a labelled keypoint that the grouping did not find counts as 0: an object with half of its keypoints missing has an OKS of 0.5 at most, reached only when every other keypoint is exact, so it is all but never found at the threshold of OKS 0.5 of mAP@0.5.
 
 ### Step 4.7 — `measure_keypoint_accuracy()` + `summarise_keypoint_accuracy()`
 `measure_keypoint_accuracy()` compares every ground truth object with the object matched to it in Step 4.6 (NaN keypoints for a missed object): the distance of every keypoint (in network input pixels, infinite when not found), whether it is labelled, found and correct (within `CORRECT_KEYPOINT_FRACTION` = 0.05 of the longest side of the box) and the OKS of every object. `summarise_keypoint_accuracy()` gives four global metrics, then the same values per class and per keypoint of every class:
-- `Matched Objects`: the fraction of the ground truth objects matched to an object found;
+- `Matched Objects`: the fraction of the ground truth objects matched to an object found with an OKS of at least 0.5;
 - `PCK@0.05`: the fraction of the labelled keypoints that are correct, a missed object or keypoint counting as wrong;
 - `Mean OKS`: the mean OKS of the objects with labelled keypoints, a missed object counting as 0;
 - `Mean Keypoint Error (pixels)`: the mean distance of the labelled keypoints found only.
@@ -1172,7 +1172,7 @@ The averaged weights follow the trained weights a few iterations behind (the n-t
 > The examples below are real outputs of a copy of `scripts/evaluation/evaluate_checkpoint.py` whose `run_name` and `experiment_folder` point to the run of Stage 3 (checkpoints 15, 30, 45 and 60, captured when those of iterations 15, 30 and 45 were still saved before their training step), with `iteration = "all"`, `batch_size = 16` and the whole test split, on CPU with the MLflow tracking on. The four checkpoints, each with its averaged weights, were evaluated in 2 min 27 s, about 17 s per evaluation. They were captured before the per-class recall intervals were added (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5). The keypoint configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the keypoint evaluation saves no error image.
+The same script for every task (see `classification_workflow.md`, Stage 5). The keypoint configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the keypoint evaluation saves no error image. `target_precisions`, `nms_criterion` and `nms_distance_exponent`, None in the main block, would be skipped the same way when set, the task having no class thresholds (`evaluation.target_precision`) and no `Detector` section.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
@@ -1256,10 +1256,10 @@ The reports are those of Step 4.10: at iteration 60 the trained weights match on
 
 ## Stage 6 — Export (Optional)
 
-> The examples of Steps 6.2 to 6.5 are real outputs of a script repeating the steps of `export_experiment()` on CPU, on the checkpoint of iteration 60 of the run of Stage 3 (trained weights), with a maximum batch size of 16 and the TensorRT precision FP32, the exported models being run by TorchScript and ONNX Runtime on CPU. Triton itself was not started. After 60 iterations the client of Step 6.6 groups no object, so its example uses the ONNX export of the trained weights of iteration 6000 of the GPU run of Stage 4 (its sample image `Evaluation/Iteration_6000/Samples/test_000000.png` shows the same three objects, scored 0.90, 0.87 and 0.80).
+> The examples of Steps 6.2 to 6.5 are real outputs of a script repeating the steps of `export_experiment()` on CPU, on the checkpoint of iteration 60 of the run of Stage 3 (trained weights), with a maximum batch size of 16 and the TensorRT precision FP32, the exported models being run by TorchScript and ONNX Runtime on CPU. Triton itself was not started. They were captured before every export wrote the input contract of its run; the input contract and the model repository of Step 6.5 come from the same steps run again on 2026-11-12 with the current code, on the iteration 6000 checkpoint of the GPU run of Stage 4. After 60 iterations the client of Step 6.6 groups no object, so its example uses the ONNX export of the trained weights of iteration 6000 of the GPU run of Stage 4 (its sample image `Evaluation/Iteration_6000/Samples/test_000000.png` shows the same three objects, scored 0.90, 0.87 and 0.80).
 
 ### Step 6.1 — `vision_training/deployment/export_model.py` → `export_experiment()`
-Run as a script after the training (the experiment folder, iteration, trained or averaged weights, formats, Triton model repository, model version, maximum batch size and TensorRT precision set in its `__main__` block). `export_experiment()` turns TF32 off, loads the checkpoint on CUDA with `load_trained_model()` (the device is hard-coded, which is why this stage was run by a script repeating its steps on CPU), wraps it with `build_inference_model()`, builds the export specification, exports every format to `<repository>/<model name>_<format>/<version>/`, writes its `config.pbtxt` and compares the exported model to the eager one, raising a `RuntimeError` on a mismatch.
+Run as a script after the training (the experiment folder, iteration, trained or averaged weights, formats, Triton model repository, model version, maximum batch size and TensorRT precision set in its `__main__` block). `export_experiment()` turns TF32 off, loads the checkpoint on CUDA with `load_trained_model()` (the device is hard-coded, which is why this stage was run by a script repeating its steps on CPU), wraps it with `build_inference_model()`, builds the export specification and the input contract of the run (`build_input_contract()`, Step 6.5), exports every format to `<repository>/<model name>_<format>/<version>/`, writes its `config.pbtxt` and its `preprocessing.json` and compares the exported model to the eager one, raising a `RuntimeError` on a mismatch.
 
 ### Step 6.2 — `load_trained_model()` → `build_inference_model()` → `InferenceKeypointDetector`
 `InferenceKeypointDetector` takes the preprocessed images and returns the candidates of every heatmap channel extracted inside the network (Step 3.10): their positions in network input pixels, their scores and their tags. The grouping of the candidates into objects is left to the client (Step 6.6), a NumPy and SciPy function run outside the exported network. The number of candidates per channel is `maximum_candidates`, capped by the number of heatmap cells.
@@ -1298,16 +1298,28 @@ onnx:        model.onnx   3,168,184 bytes   mismatches []   scored candidates 21
 ```
 The 3 check images give 3 × 243 × 30 = 21870 candidates, all of positive score: the random images give many local maxima to the scarcely trained model. In ONNX Runtime 54 candidates are at another position than the eager candidate of the same rank, and 7 have no eager candidate at their position (and 7 eager candidates no exported one); a comparison rank by rank would report a position difference of up to 462 pixels between two candidates that are both correct. The deprecation notices of `torch.jit.trace` and `torch.jit.load` are hidden by `hide_known_export_warnings()` unless `show_warnings` is True.
 
-### Step 6.5 — `write_triton_configuration()`
-**Example: the model repository**
+### Step 6.5 — `write_triton_configuration()` + `write_onnx_input_contract()` / `write_preprocessing_file()`
+So that a server builds the network input from a photo as the data loaders did instead of guessing it, every export writes the input contract of the run (`input_contract.py`): `build_input_contract()` reads it from `Data.image_settings` and the preprocessing code before any file is written, `write_onnx_input_contract()` puts it in the `metadata_props` of `model.onnx`, and `write_preprocessing_file()` writes it as `preprocessing.json` next to the model of both formats, the TorchScript file carrying no metadata. It holds no channel names (Step 6.6).
+
+**Example: the model repository** (the steps run again on 2026-11-12 on the iteration 6000 checkpoint of the GPU run; the graph files of the current code and libraries are larger than those of Step 6.4)
 ```text
 triton_repository/
 ├── keypoint_detector_onnx/config.pbtxt
-├── keypoint_detector_onnx/1/model.onnx               3,168,184 bytes
+├── keypoint_detector_onnx/1/model.onnx               3,430,029 bytes, with the input contract in its metadata
 ├── keypoint_detector_onnx/1/model.onnx.data         12,416,548 bytes, the weights written next to the graph by the ONNX exporter
+├── keypoint_detector_onnx/1/preprocessing.json             346 bytes
 ├── keypoint_detector_torchscript/config.pbtxt
-└── keypoint_detector_torchscript/1/model.pt         13,902,249 bytes
+├── keypoint_detector_torchscript/1/model.pt         13,917,098 bytes
+└── keypoint_detector_torchscript/1/preprocessing.json      346 bytes
 ```
+
+**Example: the keys and values of `keypoint_detector_onnx/1/preprocessing.json`** (written one per line), also given by ONNX Runtime as the custom metadata of `model.onnx`
+```text
+{"input_contract_version": "2", "input_color_order": "BGR", "input_resize": "keep_ratio", "input_size": "512",
+ "input_interpolation": "linear", "input_padding_value": "0", "input_padding_placement": "centred",
+ "input_tile_scale": "none", "input_tile_overlap": "none", "input_layout": "NCHW", "input_value_range": "0-255"}
+```
+The photo is decoded in BGR, resized with its aspect ratio kept (the longest side to 512 pixels, bilinear), centred on a square of black padding, and given as float32 values from 0 to 255 in the batch, channels, height, width layout, the input normalization being in the graph. The tile keys only apply to the segmenters trained on tiles.
 
 **Example: `keypoint_detector_onnx/config.pbtxt`**
 ```text
@@ -1336,7 +1348,7 @@ optimization { execution_accelerators { gpu_execution_accelerator: [ {
 The TorchScript configuration is the same with `platform: "pytorch_libtorch"`, the outputs named `candidate_positions__0`, `candidate_scores__1` and `candidate_tags__2`, and no optimization block.
 
 ### Step 6.6 — the client: `load_inference_inputs()` → the exported model → `group_keypoint_candidates()`
-A client preprocesses every image like the data loaders (`load_inference_inputs()`, the resize and centred padding of `preprocess_image()`), sends it, and groups the returned candidates into objects with `group_keypoint_candidates()` (Step 3.10), using the channel table of the run (`build_keypoint_channel_table()` on the `Data.keypoint_categories` that `load_experiment_configuration()` reads from the dataset, Step 1.5) and the `KeypointHead.inference` thresholds. The positions are in network input pixels; for an image of another size the client undoes the resize and padding, for example with `restore_boxes_to_original_image()` on every point given as the box [x, y, x, y]. `deployment/run_inference.py` only measures the throughput of the exported models on these requests, without the grouping. The example below was run on the first test image (512x512, so the network input pixels are the image pixels) with the ONNX export of the trained weights of the iteration 6000 checkpoint (the settings of `export_model.py`) in ONNX Runtime.
+A client preprocesses every image like the data loaders, as the input contract of Step 6.5 describes (`load_inference_inputs()`, the resize and centred padding of `preprocess_image()`), sends it, and groups the returned candidates into objects with `group_keypoint_candidates()` (Step 3.10), using the channel table of the run (`build_keypoint_channel_table()` on the `Data.keypoint_categories` that `load_experiment_configuration()` reads from the dataset, Step 1.5) and the `KeypointHead.inference` thresholds. The positions are in network input pixels; for an image of another size the client undoes the resize and padding, for example with `restore_boxes_to_original_image()` on every point given as the box [x, y, x, y]. `deployment/run_inference.py` only measures the throughput of the exported models on these requests, without the grouping. The example below was run on the first test image (512x512, so the network input pixels are the image pixels) with the ONNX export of the trained weights of the iteration 6000 checkpoint (the settings of `export_model.py`) in ONNX Runtime.
 
 **Example: test_000000.png through the ONNX model, then the grouping**
 ```text

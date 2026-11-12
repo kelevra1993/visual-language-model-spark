@@ -74,7 +74,6 @@ def draw_mask_box_figure(evaluation_folder: Path, output_path: Path) -> Dict[str
                              ("mask_average_precision_75", "mask_ap_75"),
                              ("mask_average_precision_95", "mask_ap_95")]:
             facts[f"classes.{row['class']}.{name}"] = round_fact(value=row[column])
-    facts["classes.column_count"] = len(read_class_metrics(evaluation_folder=evaluation_folder)[0])
     save_figure(figure=figure, output_path=output_path)
     pyplot.close(fig=figure)
     return facts

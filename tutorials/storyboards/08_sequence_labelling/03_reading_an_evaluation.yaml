@@ -19,6 +19,7 @@ references:
   - "vision_training/evaluation/classification/threshold_finder.py · find_class_thresholds"
   - "vision_training/evaluation/sequence/sequence_metrics.py · compute_sequence_exact_matches"
   - "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
+  - "vision_training/deployment/input_contract.py · build_input_contract"
   - "documentation/bug_standards.md"
   - "documentation/suggestions.md"
 scenes:
@@ -193,7 +194,7 @@ scenes:
       - "Put together, a degenerate solution has its accuracy equal to the share of the majority class, its balanced accuracy at one over the number of classes, and its loss on the cross entropy of a prior."
       - "For a sequence task, add one predicted segment per sequence, and an exact match equal to the share of the sequences without any change, {{sequence_labelling.evaluation.sequences_without_change}} of the {{sequence_labelling.evaluation.test_sequences:,}}."
       - "Faced with a run of your own, read the balanced accuracy, the macro F1 and the segment metrics first, and compute the prior of your data before trusting a loss curve."
-      - "The suggestions file lists this run as left to redo, with a longer training and another learning rate."
+      - "The suggestions file lists this run as left to redo, and the experiment plan shows what it lacked."
 
   # The benchmark was trained once and is not trained again: the plan holds its scores, and the configuration example
   # the settings it kept, so the scene reads no run folder and the narration quotes no score
@@ -243,15 +244,18 @@ scenes:
     # The range of the 8-bit pixel values the exported model takes
     literal_numbers: ["0", "255"]
     elements:
-      - {type: box, box: [40, 160, 520, 330], text: "images\n[B, T, {{sequence_labelling.run.input_channels}}, S, S]\nfloat32 BGR in [0, 255]", font: diagram_small, outline: blue}
-      - {type: arrow, points: [[520, 245], [615, 245]], appear: -1}
-      - {type: box, box: [620, 160, 1140, 330], text: "sequence_labeller_torchscript\nsequence_labeller_onnx\ninput normalization inside", font: diagram_small, outline: violet}
-      - {type: arrow, points: [[1140, 245], [1235, 245]]}
-      - {type: box, box: [1240, 160, 1720, 330], text: "class_probabilities\n[B, T, K]", font: diagram_small, outline: aqua}
-      - {type: box, box: [240, 460, 1520, 620], text: "No sequence mask: the sequences of one request share T,\nfrom one to Data.sequence_settings.maximum_sequence_length", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [40, 60, 520, 230], text: "images\n[B, T, {{sequence_labelling.run.input_channels}}, S, S]\nfloat32 BGR in [0, 255]", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[520, 145], [615, 145]], appear: -1}
+      - {type: box, box: [620, 60, 1140, 230], text: "sequence_labeller_torchscript\nsequence_labeller_onnx\ninput normalization inside", font: diagram_small, outline: violet}
+      - {type: arrow, points: [[1140, 145], [1235, 145]]}
+      - {type: box, box: [1240, 60, 1720, 230], text: "class_probabilities\n[B, T, K]", font: diagram_small, outline: aqua}
+      - {type: box, box: [240, 310, 1520, 460], text: "No sequence mask: the sequences of one request share T,\nfrom one to Data.sequence_settings.maximum_sequence_length", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      # The input contract of the run (vision_training/deployment/input_contract.py), written by every export
+      - {type: box, box: [240, 540, 1520, 690], text: "preprocessing.json next to the model, and the metadata of the ONNX model:\ncolor order · resize · size · padding · layout NTCHW · value range", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
     narration:
       - "The export writes sequence labeler in Torch Script and ONNX: images of B by T by {{sequence_labelling.run.input_channels:words}} by S by S in, the class probabilities of B by T by K out, the input normalization inside the model."
       - "It has no sequence mask, so every sequence of one request has the same number of frames, from one to the maximum sequence length."
+      - "The export also writes the color order, resize, size, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata, for a server to build the frames as the training did."
 
   - kind: summary
     title: "Recap"

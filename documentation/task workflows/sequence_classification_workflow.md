@@ -1,20 +1,22 @@
 # Sequence Classification Workflow
 
-This document follows one sequence classification run (many to one, M2O: one class per sequence of frames) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The steps shared by every task (configuration loading, checkpoints, training loop, MLflow tracking, standalone evaluation) are explained in detail in `classification_workflow.md`, and the evaluation of the sequence classification is the one of the classification: here they keep a short explanation and the real output of the sequence run, and the steps specific to the sequences (whole sequences, padding, frame encoder, temporal module, frame grids) are explained in full.
+This document follows one sequence classification run (many to one, M2O: one class per sequence of frames) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The steps shared by every task (configuration loading, checkpoints, training loop, MLflow tracking, standalone evaluation) are explained in detail in `classification_workflow.md`, and the evaluation of the sequence classification is the one of the classification without its temperature explorer: here they keep a short explanation and the real output of the sequence run, and the steps specific to the sequences (whole sequences, padding, frame encoder, temporal module, frame grids) are explained in full.
 
 Every sequence is one sample, read whole: there is no window. A sequence longer than `Data.sequence_settings.maximum_sequence_length` is left out of its split with a warning, and the sequences of a batch are padded with black frames to the longest sequence of the batch.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
 - **Stages 1 and 2**: `vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml` (synthetic moving shapes, 4 classes `moving_left`, `moving_right`, `moving_up`, `moving_down`, `maximum_sequence_length: 50`, 128 pixel frames, batch size 16), with the data and run folders redirected to a temporary folder. The dataset was generated with the synthetic generator (2000 training, 200 validation and 200 test sequences of 2 to 12 frames). The dataset the configuration points to on this machine (`/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes`, read by the README runs) was generated before the lengths became variable: every one of its sequences has 8 frames of 128 pixels. The dataset of `configuration_example.yaml` is not on this machine.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting then, now fixed at 1), with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `moving_down` for every sequence (4 classes: about 25% accuracy, a loss near ln 4 = 1.386), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-18, before the ROC and precision-recall curves joined the evaluation (2026-10-20) and before `flatten` became the pooling of the configuration (2026-10-23): the steps say where the current code prints more, and the README runs of `experiments/readme_screenshots/` give the current outputs (`M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4`, the current synthetic configuration trained for 1,000 iterations, and `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4`, the former `average` pooling at 512 pixels, 2,000 iterations). These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 1.0 for the 4 classes of the synthetic sequences.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting then, now fixed at 1), with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `moving_down` for every sequence (4 classes: about 25% accuracy, a loss near ln 4 = 1.386), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-18, before the ROC and precision-recall curves joined the evaluation (2026-10-20) and before `flatten` became the pooling of the configuration (2026-10-23): the steps say where the current code prints more, and the README runs of `experiments/readme_screenshots/` give the current outputs (`M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4`, the synthetic configuration trained for 1,000 iterations with a checkpoint evaluated every 500, when most augmentation types had a probability of 0.3 instead of the 0.25 they have now, and `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4`, the former `average` pooling at 512 pixels, 2,000 iterations). These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 1.0 for the 4 classes of the synthetic sequences.
 
 In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`) showing the name of the file or folder, underlined; the examples write the `file://` URI the link opens, except where they show that name.
 
 ## Read This First
 
-The sequence classification task (`task: "sequence_classification"`, run name code `M2O`, many to one) learns one class for a whole sequence of frames. Every real frame goes through the shared backbone and the frame pooling of `ClassificationHead.global_pooling` (`average`, `max`, or `flatten`, which keeps the whole last feature map), the temporal module of `TemporalModel.type` summarises the frame vectors of the sequence into one vector, and the fully connected head of CLS gives K logits read with a softmax (`output_mode` must be `multi_class`). A sequence is read whole, up to `Data.sequence_settings.maximum_sequence_length` frames, and the sequences of a batch are padded with black frames that a mask keeps out of the model. Choose it rather than CLS when the class needs several frames (the synthetic moving shapes are labelled with a direction that no single frame shows), rather than M2M or SEL when the answer is one class for the whole sequence and not a class or a choice per frame, and rather than CMP when there is a single sequence and not a before and an after sequence to compare. `SequenceClassificationTrainer` extends `ClassificationTrainer`: the loss, the batch accuracy and the whole evaluation are those of CLS, computed on sequences, and `SequenceLabellingTrainer` (M2M) and `SequenceComparisonTrainer` (CMP) extend it in turn.
+The sequence classification task (`task: "sequence_classification"`, run name code `M2O`, many to one) learns one class for a whole sequence of frames. Every real frame goes through the shared backbone and the frame pooling of `ClassificationHead.global_pooling` (`average`, `max`, or `flatten`, which keeps the whole last feature map), the temporal module of `TemporalModel.type` summarises the frame vectors of the sequence into one vector, and the fully connected head of CLS gives K logits read with a softmax (`output_mode` must be `multi_class`). A sequence is read whole, up to `Data.sequence_settings.maximum_sequence_length` frames, and the sequences of a batch are padded with black frames that a mask keeps out of the model. Choose it rather than CLS when the class needs several frames (the synthetic moving shapes are labelled with a direction that no single frame shows), rather than M2M or SEL when the answer is one class for the whole sequence and not a class or a choice per frame, and rather than CMP when there is a single sequence and not a before and an after sequence to compare. `SequenceClassificationTrainer` extends `ClassificationTrainer`: the loss, the batch accuracy and the whole evaluation are those of CLS, computed on sequences, except the temperature explorer and its `class_logits.npz`, which only the image classification writes since its export alone has a logit temperature (`saves_temperature_explorer()`), and `SequenceLabellingTrainer` (M2M) and `SequenceComparisonTrainer` (CMP) extend it in turn.
 
 ### The Task At A Glance
+
+To find your way in the stages below, this block follows one batch of the synthetic configuration from the manifests to the export.
 
 ```text
 <split>/labels.json {"id": 1, "name": "train_000000", "frames": ["train_000000/000000.png", ...], "category_id": 2}
@@ -37,9 +39,12 @@ every weight_saving_iterations (1000): the whole test split ─► accuracy, bal
    ─► Results.txt, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion matrix, class_metrics.csv, curves,
       class_thresholds.json, predictions.csv, Samples/ and Errors/ as grids of the real frames, 4 columns)
 export: InferenceSequenceModel, images [B, T, 3, 128, 128] float32 BGR, every frame real ─► class_probabilities [B, 4]
+   with the input contract of the run in preprocessing.json and the ONNX metadata (keep_ratio, 128, BGR, NTCHW, 0-255)
 ```
 
 ### Files To Know
+
+Should you need to change one step of the task, this table names the file and the functions that hold it.
 
 | Role | File | Main functions or classes |
 |---|---|---|
@@ -56,10 +61,12 @@ export: InferenceSequenceModel, images [B, T, 3, 128, 128] float32 BGR, every fr
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_sequence_classification_configuration`, `check_sequence_settings`, `check_temporal_model_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_sections`, `build_sequence_length_tokens`, `build_temporal_tokens` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `generate_moving_shape_sequence`, `build_sequence_labels` |
-| Export | `vision_training/models/sequence/inference_sequence_model.py`, `vision_training/deployment/export_specifications.py` | `InferenceSequenceModel` (model name `sequence_classifier`) |
+| Export | `vision_training/models/sequence/inference_sequence_model.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceSequenceModel` (model name `sequence_classifier`), `export_experiment`, `build_input_contract` (`preprocessing.json` next to every exported model) |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
+
+Before a first run of the task, the moving shapes are generated once, then the run is trained and its checkpoints evaluated with the three commands below.
 
 ```bash
 # 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
@@ -71,12 +78,15 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder (the run folder), iteration (None, an integer or
-#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder
-#    in the main block of scripts/evaluation/evaluate_checkpoint.py
+#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair, target_precisions
+#    and output_folder in the main block of scripts/evaluation/evaluate_checkpoint.py (its NMS settings are for the
+#    detection tasks only)
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
 ### Configuration Keys To Know First
+
+If one wishes to change what the run learns from the frames or how long its sequences may be, these keys of the synthetic configuration come first.
 
 | Key | Value in the synthetic configuration | Effect |
 |---|---|---|
@@ -92,18 +102,22 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 
 ### What A Run Writes
 
+Each time a run is launched, saved or evaluated, it writes the files below into its run folder.
+
 - `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Sequences · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its exact 95% confidence interval over the test sequences) sorted by recall, worst first; the notes `Error Images : ...` and `Sample Images : 8 fixed test sequences`.
-- `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv`, `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`); `predictions.csv` with `save_predictions`, one row per test sequence with its `sequence`, `first_frame` and `last_frame` before the classes and probabilities; `Samples/<sequence>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_<score>.png`, the real frames of the sequence on a numbered grid of 4 columns under the caption `true -> predicted probability` (532 pixels wide and 292 high for 8 frames of 128 pixels in the README run).
+- `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv`, `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png`, the zoom on the thresholds of the target precisions), but neither `temperature_explorer.html` nor `class_logits.npz`; `predictions.csv` with `save_predictions`, one row per test sequence with its `sequence`, `first_frame` and `last_frame` before the classes and probabilities; `Samples/<sequence>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_<score>.png`, the real frames of the sequence on a numbered grid of 4 columns under the caption `true -> predicted probability` (532 pixels wide and 292 high for 8 frames of 128 pixels in the README run).
 - `data.json`: the `sequences` of every class in every split, and every frame of every split.
-- `Tensorboard/Train` and `Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate`); `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, the images `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
+- `Tensorboard/Train` and `Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate`); `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, the images `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`.
 - The console summary gives the `Sequences Per Second` and the real `Frames Per Second` (padding frames left out), sent to MLflow as `train/throughput` and `train/frame_throughput`.
 
 ### Pitfalls
 
+In case a run stays at chance, grows larger than expected or counts its epochs wrong, the cause is likely one of these.
+
 - `average` and `max` remove where the shape is from every frame vector, so the moving shapes stay at chance: the README run at 512 pixels with `average` kept its interval training loss between 1.386 and 1.391 for 2,000 iterations and a test accuracy of 0.23 (every sequence predicted `moving_down`), while the current `flatten` configuration at 128 pixels reached 0.995 at iteration 500 and 1.000 at iteration 1000 (`Results.txt` and `sequence_classification*.log` of `experiments/readme_screenshots/`; [tasks reference, Sequence Classification](../reference/tasks_reference.md#sequence-classification-m2o)). At 512 pixels `flatten` gives 65,536 features per frame and a GRU of 50.4 million weights, and stayed at 0.23 after 500 iterations (run `..._HFLAT.64_MC4_verification`; `suggestions.md` K31).
 - The dataset the synthetic configuration points to on this machine predates the variable lengths: its sequences all have 8 frames of 128 pixels, so the README runs never padded a batch, while `create_synthetic_dataset.py` now writes 2 to 12 frames of 512 pixels (`suggestions.md` K32).
 - Blocks 2 and 4 of the synthetic backbone (16 to 32 and 32 to 64 channels, 2 layers each) add no residual shortcut, their first layer changing the channel count, so only blocks 3 and 5 add one and the backbone summary lists `Residual Shortcuts` for them only (`count_residual_additions()` of `convolution_block.py`; `bug_standards.md` H4, the projection shortcut dropped).
-- `Iterations Per Epoch` and the split descriptions count the sequences of the manifests before the label mapping, so they are too high when the mapping leaves categories out (`count_split_sequences()` of `split_description.py`; `bug_standards.md` B46, dropped).
+- `Iterations Per Epoch` and the split descriptions count the sequences of the manifests before the label mapping, so they are too high when the mapping leaves categories out (`count_split_sequences()` of `split_description.py`, left as it is).
 - `TemporalModel.dropout_rate` does nothing with a single GRU or LSTM layer: the dropout of PyTorch only acts between stacked layers (`RecurrentTemporalModule.__init__()` of `temporal_modules.py`).
 - `shuffle_frames` with an ordered temporal module only prints a yellow warning and trains on the shuffled frames, which destroys the class of the moving shapes (`SequenceClassificationTrainer.__init__()`).
 
@@ -139,7 +153,8 @@ main()
 │       ├── common checks                         experiment, data, backbone, optimization (see classification)
 │       └── check_sequence_classification_configuration()
 │               ├── the data, head and evaluation checks of the classification
-│               ├── check_sequence_settings()             maximum_sequence_length (integer >= 1), a multi_class head
+│               ├── check_sequence_settings()             maximum_sequence_length (integer >= 1), the sequence
+│               │                                         augmentation flags, a multi_class head
 │               └── check_temporal_model_configuration()  any pooling or ordered type, sizes, dropout, not causal,
 │                                                         not bidirectional when causal, pretrained settings
 │
@@ -243,8 +258,9 @@ run_test_evaluation(iteration)  [STAGE 4]
     │                                                  table), class_metrics.csv, predictions.csv (sequence, first
     │                                                  and last frame of every sequence); with per_class_report the ROC
     │                                                  and precision-recall curves (Macro ROC AUC, Macro Average
-    │                                                  Precision, roc_curves.png, precision_recall_curves.png) and
-    │                                                  confusion_matrix.png
+    │                                                  Precision, roc_curves.png, precision_recall_curves.png,
+    │                                                  precision_recall_thresholds.png) and confusion_matrix.png; no
+    │                                                  temperature explorer (saves_temperature_explorer() is False)
     └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
@@ -301,7 +317,7 @@ dict: {1: 0, 2: 1, 3: 2, 4: 3}
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_sequence_classification_configuration()`: the data, head and evaluation checks of the classification, `check_sequence_settings()` (`maximum_sequence_length` an integer of at least 1, and a `multi_class` head since the manifests give one category per sequence), and `check_temporal_model_configuration()` (the type, the sizes, the dropout, and a module that is not causal: a causal module, which only sees the past frames, is for the sequence labelling). Every global pooling is accepted, `flatten` included: the temporal module is built for the width of the frame vector given by `compute_pooled_features()` (Step 2.14). Every problem is reported together, then the program exits.
+The common checks run first, then `check_sequence_classification_configuration()`: the data, head and evaluation checks of the classification, `check_sequence_settings()` (`maximum_sequence_length` an integer of at least 1, the booleans `independent_frames` and `shuffle_frames.activated` with the probability of `shuffle_frames`, and a `multi_class` head since the manifests give one category per sequence), and `check_temporal_model_configuration()` (the type, the sizes, the dropout, and a module that is not causal: a causal module, which only sees the past frames, is for the sequence labelling and the frame selection). Every global pooling is accepted, `flatten` included: the temporal module is built for the width of the frame vector given by `compute_pooled_features()` (Step 2.14). Every problem is reported together, then the program exits.
 
 **Example: output with `causal: True` and `maximum_sequence_length: 0` in the YAML**
 ```text
@@ -329,7 +345,7 @@ get_trainer_class(task="sequence_classification") -> <class 'vision_training.tra
 > The examples below are real outputs from building the trainer on `vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml` (128 pixel frames, `maximum_sequence_length: 50`, batch size 16), with the data and run folders redirected to a temporary folder. The whole construction took 0.09 s on CPU.
 
 ### Step 2.1 — `SequenceClassificationTrainer.__init__()`
-Before calling the constructor of the classification trainer, it keeps `Data.sequence_settings`, read by its hooks (the split descriptions), and prints a warning when the frames of the training sequences are shuffled (`data_augmentation.shuffle_frames`) while the temporal module models their order (GRU, LSTM, transformer, temporal convolution): shuffling is meant for the sequences whose frame order carries no information, with a pooling. The class attributes describe the task to the shared code: `LABEL_TYPE = "sequence"` (one class per sequence), `MEMBERS_PER_SAMPLE = 1` (one sequence per sample, 2 for the pairs of the comparison), `SAMPLE_NAME = "Sequences"` and `COUNTS_FRAMES = True` (the frame throughput, Step 3.8).
+Before calling the constructor of the classification trainer, it keeps `Data.sequence_settings`, read by its hooks (the split descriptions), and prints a warning when the frames of the training sequences are shuffled (`data_augmentation.shuffle_frames`) while the temporal module models their order (GRU, LSTM, transformer, temporal convolution): shuffling is meant for the sequences whose frame order carries no information, with a pooling. The class attributes describe the task to the shared code: `LABEL_TYPE = "sequence"` (one class per sequence), `MEMBERS_PER_SAMPLE = 1` (one sequence per sample, 2 for the pairs of the comparison), `SAMPLE_NAME = "Sequences"`, `COUNTS_FRAMES = True` (the frame throughput, Step 3.8) and `SEQUENCE_AUGMENTATION = True` (the augmenter reads `independent_frames` and `shuffle_frames`, Step 2.5).
 
 **Example: the attributes after the construction**
 ```text
@@ -339,7 +355,7 @@ self.MEMBERS_PER_SAMPLE         = 1
 self.top_k                      = 5                     <- TOP_K_ACCURACY_CLASSES, then the settings of the classification trainer
 self.save_predictions           = True
 self.error_dumps_configuration  = {'activated': False, 'maximum_per_class_pair': 20}
-SAMPLE_NAME = 'Sequences'   COUNTS_FRAMES = True   TASK_NAME = 'sequence_classification'
+SAMPLE_NAME = 'Sequences'   COUNTS_FRAMES = True   SEQUENCE_AUGMENTATION = True   TASK_NAME = 'sequence_classification'
 ```
 
 ### Step 2.2 — `BaseTrainer.__init__()`
@@ -366,7 +382,7 @@ M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4
 ```
 
 ### Step 2.5 — `DataAugmenter()`
-The same augmenter as the classification. Here every sample is a sequence `[T, 3, H, W]`, augmented as a whole (Step 3.12), and two settings are read for the sequences: `independent_frames` (the photometric types drawn frame by frame) and `shuffle_frames`.
+The same augmenter as the classification. Here every sample is a sequence `[T, 3, H, W]`, augmented as a whole (Step 3.12), and two settings are read for the sequences, the trainer passing `SEQUENCE_AUGMENTATION`: `independent_frames` (the photometric types drawn frame by frame) and `shuffle_frames`.
 
 **Example: the settings of the configuration**
 ```text
@@ -384,7 +400,7 @@ M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/
 ├── Weights/
 ├── data.json
 ├── label_dictionary.json
-└── training_configuration.yaml    31,113 bytes
+└── training_configuration.yaml    a byte-for-byte copy of the configuration file
 ```
 
 ### Step 2.7 — `build_dataloaders()`
@@ -874,7 +890,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.11 and 4.13 show the current layout from the README run at 128 pixels. All the examples of this stage, those of the README run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). The examples of iterations 6 and 12 were also captured before the evaluation drew `precision_recall_thresholds.png` and wrote the probabilities of `predictions.csv` with nine significant digits (2026-10-28), before `class_thresholds.json` gave the `logit_temperature` of its probabilities (2026-10-30), and before the per-class recall intervals (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`. Steps 4.10 to 4.13 show the current files and report: the checkpoint of iteration 500 of the README run at 128 pixels (`M2O_IN-KAR-128_..._HFLAT.64_MC4` in `experiments/readme_screenshots/`, one `moving_left` sequence predicted `moving_down`) evaluated again by the current code on 2026-11-12, on the CPU, with the logic of `scripts/evaluation/evaluate_checkpoint.py` (batch size 16, the error images on with at most 2 per pair, the MLflow tracking off, the output in a temporary folder).
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation of the classification (see `classification_workflow.md`, Stage 4), every sample being a whole sequence. The test sequences are never augmented. The test loader shuffles its sequences, so the order of the rows of `predictions.csv` changes from one evaluation to the next.
@@ -885,7 +901,7 @@ Test Evaluation Iteration 6: 100%|██████████| 50/50 [00:43<0
 ```
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-The lists of the classification: the probabilities, labels and sample identifiers of every batch, the `Errors` folder and the counter of error images per pair of classes.
+The lists of the classification: the probabilities, labels and sample identifiers of every batch, the `Errors` folder and the counter of error images per pair of classes. Its `logits` list stays empty: only the image classification keeps the logits, for its temperature explorer.
 
 **Example: the accumulator at the end of the loop**
 ```text
@@ -979,9 +995,9 @@ Top-2 Accuracy = 0.5150 at iteration 6, 0.4600 at iteration 12      (about 2 / 4
 ```
 
 ### Step 4.10 — `find_class_thresholds()`
-For every class, the lowest probability threshold keeping a precision of at least `target_precision`, with the recall kept, saved in `class_thresholds.json`.
+For every class, the lowest probability threshold keeping a precision of at least `target_precision`, with the recall kept, saved in `class_thresholds.json` (`build_class_thresholds_file()`). A list of target precisions keeps the first one as the main target and gives the others under `additional_targets`.
 
-**Example: `Evaluation/Iteration_6/class_thresholds.json`**
+**Example: `Evaluation/Iteration_6/class_thresholds.json`** (recorded before the `logit_temperature` key)
 ```text
 {
     "target_precision": 0.99,
@@ -998,8 +1014,20 @@ For every class, the lowest probability threshold keeping a precision of at leas
 ```
 At iteration 12 only `moving_left` reaches the precision: threshold 0.22249144315719604, recall 0.019230769230769232 (1 of the 52 `moving_left` sequences).
 
+**Example: the current file, `Evaluation/Iteration_500/class_thresholds.json` of the README run evaluated again** (first lines): `logit_temperature` 1.0 says that the thresholds were found on the plain softmax of the logits, the sequence tasks having no temperature explorer to save another temperature
+```text
+{
+    "logit_temperature": 1.0,
+    "target_precision": 0.99,
+    "classes": {
+        "moving_left": {
+            "threshold": 0.21318694949150085,
+            "recall": 1.0
+        },
+```
+
 ### Step 4.11 — `build_class_metrics_rows()` + `write_class_metrics_file()` + `save_confusion_matrix_image()` + `save_score_curve_images()`
-`class_metrics.csv` is written at every evaluation; `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png` only with `per_class_report`, which also adds the `roc_auc` and `average_precision` columns after `f1` (see `classification_workflow.md`, Steps 4.14 and 4.15). The `recall_lower` and `recall_upper` columns after `recall` hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test sequences being independent (`classification_workflow.md`, Step 4.14). The example of this run predates the curves.
+`class_metrics.csv` is written at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` (the precision-recall curves zoomed on the thresholds of the target precisions) only with `per_class_report`, which also adds the `roc_auc` and `average_precision` columns after `f1` (see `classification_workflow.md`, Steps 4.14 and 4.15). The `recall_lower` and `recall_upper` columns after `recall` hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test sequences being independent (`classification_workflow.md`, Step 4.14). The example of this run predates the curves.
 
 **Example: `Evaluation/Iteration_6/class_metrics.csv`**
 ```text
@@ -1010,13 +1038,13 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 3,moving_down,47,0.235000,1.000000,0.380567,0.270371,0.021277
 ```
 
-**Example: the current layout, `Evaluation/Iteration_500/class_metrics.csv` of the README run at 128 pixels** (`M2O_IN-KAR-128_..._HFLAT.64_MC4` in `experiments/readme_screenshots/`, one `moving_left` sequence predicted `moving_down`)
+**Example: the current layout, `Evaluation/Iteration_500/class_metrics.csv` of the README run evaluated again** (on the CPU, its thresholds differ by less than 0.0002 from those of its GPU evaluation of 2026-10-23)
 ```text
-class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
-0,moving_left,49,1.000000,0.979592,0.989691,1.000000,1.000000,0.213127,1.000000
-1,moving_right,52,1.000000,1.000000,1.000000,1.000000,1.000000,0.520245,1.000000
-2,moving_up,53,1.000000,1.000000,1.000000,1.000000,1.000000,0.981040,1.000000
-3,moving_down,46,0.978723,1.000000,0.989247,1.000000,1.000000,0.953328,1.000000
+class_index,class,samples,precision,recall,recall_lower,recall_upper,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
+0,moving_left,49,1.000000,0.979592,0.891458,0.999483,0.989691,1.000000,1.000000,0.213187,1.000000
+1,moving_right,52,1.000000,1.000000,0.931518,1.000000,1.000000,1.000000,1.000000,0.520205,1.000000
+2,moving_up,53,1.000000,1.000000,0.932765,1.000000,1.000000,1.000000,1.000000,0.981045,1.000000
+3,moving_down,46,0.978723,1.000000,0.922938,1.000000,0.989247,1.000000,1.000000,0.953185,1.000000
 ```
 
 ### Step 4.12 — `write_predictions_file()`   (only with `save_predictions`)
@@ -1031,10 +1059,17 @@ test_000007,test_000007/000000.png,test_000007/000004.png,moving_down,moving_dow
 ```
 The probabilities are almost the same for every sequence: the checkpoint of iteration 6 of this example was trained for 5 steps only, since it was captured when a checkpoint was still saved before the step of its iteration (it now holds 6 steps, `classification_workflow.md`, Step 3.6).
 
-### Step 4.13 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-The block of the report and the links of the files written by the evaluation (see `classification_workflow.md`, Steps 4.18 and 4.19). The first example predates the curves; the second one, from the README run at 128 pixels, has the current layout.
+**Example: the current layout, `Evaluation/Iteration_500/predictions.csv` of the README run evaluated again** (first rows): every probability is written with nine significant digits, enough to tell every float32 apart, so that the thresholds found again from the file are those of `class_thresholds.json`
+```text
+sequence,first_frame,last_frame,true_class,predicted_class,correct,probability_moving_left,probability_moving_right,probability_moving_up,probability_moving_down
+test_000105,test_000105/000000.png,test_000105/000007.png,moving_right,moving_right,1,1.1663858e-06,0.999503613,0.000386288535,0.000108962209
+test_000167,test_000167/000000.png,test_000167/000007.png,moving_down,moving_down,1,0.00037582044,0.00288830954,0.000132682428,0.996603251
+```
 
-**Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
+### Step 4.13 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
+The block of the report and the links of the files written by the evaluation (see `classification_workflow.md`, Steps 4.18 and 4.19). The first example predates the curves; the second one, the README run evaluated again by the current code, has the current layout: `Top-5 Accuracy`, the `Per Class Recall` table and the link of `precision_recall_thresholds.png`.
+
+**Example output: the block of iteration 12** (the same text, without the links of the files, is appended to `Results.txt`)
 ```text
 Iteration 12 · 200 Test Sequences · 2026-10-18 08:48 ───────────────────────────────────────────────────────────────────
   Accuracy   0.2350   Balanced Accuracy   0.2500
@@ -1061,24 +1096,47 @@ Iteration 12 · 200 Test Sequences · 2026-10-18 08:48 ────────�
   - Sample Images : file:///.../Evaluation/Iteration_12/Samples
 ```
 
-**Example: the current layout, the first block of `Results.txt` of the README run at 128 pixels** (`M2O_IN-KAR-128_..._HFLAT.64_MC4`, trained on GPU with the error images off)
+**Example: the current layout, the block of the README run evaluated again** (the same text, without the links of the files, is appended to `Results.txt`)
 ```text
-Iteration 500 · 200 Test Sequences · 2026-10-23 04:38 ──────────────────────────────────────────────────────────────────
+Iteration 500 · 200 Test Sequences · 2026-11-12 17:40 ──────────────────────────────────────────────────────────────────
   Accuracy        0.9950   Balanced Accuracy         0.9949
-  Macro F1        0.9947   Top-2 Accuracy            1.0000
+  Macro F1        0.9947   Top-5 Accuracy            1.0000
   Macro ROC AUC   1.0000   Macro Average Precision   1.0000
+  Error Images : 1 in 1 class pairs, at most 2 per pair
   Sample Images : 8 fixed test sequences
 
   Per Class Metrics
                                                                       Average   Threshold    Recall
    Class          Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99
   ──────────────────────────────────────────────────────────────────────────────────────────────────
-   moving_down         46      0.9787   1.0000   0.9892    1.0000      1.0000      0.9533    1.0000
-   moving_left         49      1.0000   0.9796   0.9897    1.0000      1.0000      0.2131    1.0000
+   moving_down         46      0.9787   1.0000   0.9892    1.0000      1.0000      0.9532    1.0000
+   moving_left         49      1.0000   0.9796   0.9897    1.0000      1.0000      0.2132    1.0000
    moving_right        52      1.0000   1.0000   1.0000    1.0000      1.0000      0.5202    1.0000
    moving_up           53      1.0000   1.0000   1.0000    1.0000      1.0000      0.9810    1.0000
   Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99
   is never reached.
+
+  Per Class Recall
+                                        95%      95%
+   Class          Samples   Recall    Lower    Upper
+  ───────────────────────────────────────────────────
+   moving_left         49   0.9796   0.8915   0.9995
+   moving_right        52   1.0000   0.9315   1.0000
+   moving_up           53   1.0000   0.9328   1.0000
+   moving_down         46   1.0000   0.9229   1.0000
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+  - Results : file:///.../Results.txt
+  - Confusion Matrix Table : file:///.../Evaluation/Iteration_500/confusion_matrix.csv
+  - Class Thresholds : file:///.../Evaluation/Iteration_500/class_thresholds.json
+  - Class Metrics : file:///.../Evaluation/Iteration_500/class_metrics.csv
+  - Confusion Matrix Image : file:///.../Evaluation/Iteration_500/confusion_matrix.png
+  - ROC Curves Image : file:///.../Evaluation/Iteration_500/roc_curves.png
+  - Precision Recall Curves Image : file:///.../Evaluation/Iteration_500/precision_recall_curves.png
+  - Precision Recall Thresholds Image : file:///.../Evaluation/Iteration_500/precision_recall_thresholds.png
+  - Predictions : file:///.../Evaluation/Iteration_500/predictions.csv
+  - Error Images : file:///.../Evaluation/Iteration_500/Errors
+  - Sample Images : file:///.../Evaluation/Iteration_500/Samples
 ```
 
 **Example: the run folder, TensorBoard and MLflow after the two evaluations**
@@ -1093,17 +1151,17 @@ MLflow: test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-2 Accurac
         artifacts configuration/training_configuration.yaml, data/data.json, metric_names.json, Results.txt,
         evaluation/iteration_6/ and iteration_12/: class_metrics.csv, class_thresholds.json, confusion_matrix.png
 ```
-The current evaluation writes 26 scalars to `Tensorboard/Test` (6 global + 20 per class) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`), as the event files of the README runs hold, and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 20 `test_class/` scalars, `roc_curves.png` and `precision_recall_curves.png` to MLflow.
+The current evaluation writes 26 scalars to `Tensorboard/Test` (6 global + 20 per class) and 12 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`), as the event file of the README run evaluated again holds (the event files of the README runs hold the 11 others), and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 20 `test_class/` scalars, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to MLflow.
 
 
 ---
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, when the k of the top-k accuracy was a setting (`top_k: 2`, now fixed at 5), before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `target_precisions` replaces the target precision of the run (a list such as `[0.99, 0.95, 0.90]` giving the thresholds of every class at each of them), the NMS settings are for the detection tasks only, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
 The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, keeps the name of the run folder (`run_name`), turns the transfer of the pretrained components off (`disable_pretrained_settings()`) and builds a `SequenceClassificationTrainer`.
@@ -1139,7 +1197,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/moving_le
 6,0.125,0.25,0.05555555555555555,0.425,0.0,0.0,0.0, ...
 3,0.125,0.25,0.05555555555555555,0.425,0.0,0.0,0.0, ...
 ```
-The columns are the scalars of every evaluation (`build_summary_columns()`), those of every class only with `per_class_report`: the current evaluation inserts `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, and `ROC AUC/<class>` and `Average Precision/<class>` after the F1 of every class.
+The columns are the scalars of every evaluation (`build_summary_columns()`), those of every class only with `per_class_report`: the current evaluation writes `Top-5 Accuracy` instead of `Top-2 Accuracy`, inserts `Macro ROC AUC` and `Macro Average Precision` after it, and `ROC AUC/<class>` and `Average Precision/<class>` after the F1 of every class (the header of the README run evaluated again: `iteration,Accuracy,Balanced Accuracy,Macro F1,Top-5 Accuracy,Macro ROC AUC,Macro Average Precision,Precision/moving_left,Recall/moving_left,F1/moving_left,ROC AUC/moving_left,Average Precision/moving_left,...`).
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 **Example output: the block of the checkpoint of iteration 12 on the 40 sequences**

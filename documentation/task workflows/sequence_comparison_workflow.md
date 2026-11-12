@@ -4,15 +4,17 @@ This document follows one sequence comparison run (CMP: one class per pair of se
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
 - **Stages 1 and 2**: `vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (synthetic object loss pairs, 2 classes `loss_of_object` and `same_number_of_objects`, members of 2 to 6 frames, a maximum sequence length of 50 frames per member, frames read at 512 pixels, batch size 16, a mean pooling and a difference fusion), with the run folder redirected to a temporary folder. The dataset is the one the configuration points to on this machine (`/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs`, read by the README run), generated before the generator drew 2 to 12 frames of 512 pixels per member: its members hold 2 to 6 frames of 128 pixels. The dataset of `configuration_example.yaml` is not on this machine.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `same_number_of_objects` for every test pair (2 classes: a loss near ln 2 = 0.693), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-10, before the ROC and precision-recall curves joined the evaluation (2026-10-20): the steps say where the current code prints more, and the README run of `experiments/readme_screenshots/` (`CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2`, the synthetic configuration trained for 1,000 iterations) gives the current outputs. These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 1`), so their reports show `Top-1 Accuracy`, equal to the accuracy, where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 1.0 for the 2 classes of the synthetic pairs.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting then, now fixed at 1), with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `same_number_of_objects` for every test pair (2 classes: a loss near ln 2 = 0.693), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-10, before the ROC and precision-recall curves joined the evaluation (2026-10-20): the steps say where the current code prints more, and the README run of `experiments/readme_screenshots/` (`CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2`, the synthetic configuration trained for 1,000 iterations and evaluated on 2026-10-23) gives the outputs of the evaluation with the curves. These runs were recorded when the k of the top-k accuracy was a setting (`top_k: 1`), so their reports show `Top-1 Accuracy`, equal to the accuracy, where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 1.0 for the 2 classes of the synthetic pairs. Both runs also predate the fixed mixed precision (2026-10-29): they ran their training and validation forward passes in float32 (`mixed_precision: False`, a setting then), which now always run in bfloat16 autocast (Step 3.9).
 
 In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`) showing the name of the file or folder, underlined; the examples write the `file://` URI the link opens, except where they show that name.
 
 ## Read This First
 
-The sequence comparison task (`task: "sequence_comparison"`, run name code `CMP`) learns one class for a pair of sequences, a before member and an after member (in the synthetic data, whether the after member lost one of the objects of the before member). Both members go through the same backbone, frame pooling and temporal module, so that their vectors are comparable, and `Fusion.type` combines the two member vectors into the input of the fully connected head of CLS: `[before, after]` for `concatenation`, `[before, after, after - before]` for `difference` and `cross_attention`, the cross attention also letting the frames of each member attend to the frames of the other member before the temporal module. Every member is read whole, up to `Data.sequence_settings.maximum_sequence_length` frames, and keeps its own length; in a batch, both members of every pair are padded to the longest member of the batch and stored one after the other along the frame axis, then split again just before the model. Choose it rather than M2O when the class compares two separately recorded sequences (two visits), which may have different lengths, and rather than M2M or SEL when the output is one class for the pair and not a class or a choice per frame. `SequenceComparisonTrainer` is `SequenceClassificationTrainer` with `LABEL_TYPE = "pair"` and `MEMBERS_PER_SAMPLE = 2`: the loss (cross entropy), the batch accuracy and the evaluation are those of CLS, computed on pairs.
+Before following the stages, this summary tells what the task is for, where its code lives, how to run it and what to watch. The sequence comparison task (`task: "sequence_comparison"`, run name code `CMP`) learns one class for a pair of sequences, a before member and an after member (in the synthetic data, whether the after member lost one of the objects of the before member). Both members go through the same backbone, frame pooling and temporal module, so that their vectors are comparable, and `Fusion.type` combines the two member vectors into the input of the fully connected head of CLS: `[before, after]` for `concatenation`, `[before, after, after - before]` for `difference` and `cross_attention`, the cross attention also letting the frames of each member attend to the frames of the other member before the temporal module. Every member is read whole, up to `Data.sequence_settings.maximum_sequence_length` frames, and keeps its own length; in a batch, both members of every pair are padded to the longest member of the batch and stored one after the other along the frame axis, then split again just before the model. Choose it rather than M2O when the class compares two separately recorded sequences (two visits), which may have different lengths, and rather than M2M or SEL when the output is one class for the pair and not a class or a choice per frame. `SequenceComparisonTrainer` is `SequenceClassificationTrainer` with `LABEL_TYPE = "pair"` and `MEMBERS_PER_SAMPLE = 2`: the loss (cross entropy), the batch accuracy and the evaluation are those of CLS, computed on pairs.
 
 ### The Task At A Glance
+
+To find your way in the stages below, this block follows the pairs of the synthetic configuration from their manifest to the probabilities of the export.
 
 ```text
 <split>/labels.json {"id": 1, "name": "train_000000", "before": [5 frames], "after": [6 frames], "category_id": 2}
@@ -40,6 +42,8 @@ export: InferenceSequenceComparator, before_images [B, T1, 3, 512, 512], after_i
 
 ### Files To Know
 
+Should you need to change one part of the task, this table gives the file holding it and the functions to read first.
+
 | Role | File | Main functions or classes |
 |---|---|---|
 | Trainer | `vision_training/trainers/sequence_comparison_trainer.py` | `SequenceComparisonTrainer`: `describe_split`, `split_pair_batch`, `forward_pass`, `predict_batch`, `build_sample_frame_grid` |
@@ -55,10 +59,12 @@ export: InferenceSequenceComparator, before_images [B, T1, 3, 512, 512], after_i
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_comparison_sections`, `build_fusion_tokens` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `generate_object_loss_pair`, `draw_shapes_frame` |
 | Real dataset converter | `vision_training/data/sequence/pair_list_manifests.py` | `create_pair_list_manifests` (one pair list file per split, `data/` linked to the source folder) |
-| Export | `vision_training/models/sequence/inference_sequence_comparator.py`, `vision_training/deployment/export_specifications.py` | `InferenceSequenceComparator` (model name `sequence_comparator`, inputs `before_images` and `after_images`) |
+| Export | `vision_training/models/sequence/inference_sequence_comparator.py`, `vision_training/deployment/export_specifications.py`, `export_model.py`, `input_contract.py` | `InferenceSequenceComparator` (model name `sequence_comparator`, inputs `before_images` and `after_images`); `build_input_contract`, the input contract of the run written as `preprocessing.json` next to the model and into the metadata of `model.onnx`, its layout `NTCHW` for both inputs |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
+
+In order to train on the synthetic pairs, generate them first, then launch the training; the third command evaluates saved checkpoints again.
 
 ```bash
 # 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
@@ -70,14 +76,16 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder (the run folder), iteration (None, an integer or
-#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder
-#    in the main block of scripts/evaluation/evaluate_checkpoint.py
+#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair, target_precisions
+#    and output_folder in the main block of scripts/evaluation/evaluate_checkpoint.py
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-A dataset described by one pair list file per split is converted to the `pairs` manifests by `vision_training/data/sequence/pair_list_manifests.py` (set `pair_list_files` and `output_folder` in its main block, then `uv run python -m vision_training.data.sequence.pair_list_manifests`).
+In case your pairs are described by one pair list file per split, they are converted to the `pairs` manifests by `vision_training/data/sequence/pair_list_manifests.py` (set `pair_list_files` and `output_folder` in its main block, then `uv run python -m vision_training.data.sequence.pair_list_manifests`).
 
 ### Configuration Keys To Know First
+
+If one wishes to change what the comparator learns or how it reads the pairs, these keys of the synthetic configuration matter most.
 
 | Key | Value in the synthetic configuration | Effect |
 |---|---|---|
@@ -92,13 +100,17 @@ A dataset described by one pair list file per split is converted to the `pairs` 
 
 ### What A Run Writes
 
+Whenever a run saves and evaluates a checkpoint, its run folder receives the files below.
+
 - `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table and the `Per Class Recall` table (the recall of every class with its exact 95% confidence interval over the test pairs, worst recall first); the note `Sample Images : 8 fixed test pairs`.
-- `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv` and `.png`, `class_metrics.csv`, `class_thresholds.json`, `roc_curves.png`, `precision_recall_curves.png`); `predictions.csv` with `save_predictions`, one row per test pair, its `pair` name before the classes and probabilities; `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png`, the numbered grid of the real before frames (`0 before`, ...) above the grid of the real after frames, 4 columns, under the caption `true -> predicted probability` (2068 pixels wide and 1064, 1580 or 2096 pixels high in the README run, each member taking 1 or 2 rows of 512 pixel frames).
+- `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv` and `.png`, `class_metrics.csv`, `class_thresholds.json`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png`), `class_thresholds.json` starting with `"logit_temperature": 1.0`, the temperature of the probabilities its thresholds were found on, and no `temperature_explorer.html` nor `class_logits.npz`, which only the image classification writes (`saves_temperature_explorer()` of `classification_trainer.py`); `predictions.csv` with `save_predictions`, one row per test pair, its `pair` name before the classes and probabilities; `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png`, the numbered grid of the real before frames (`0 before`, ...) above the grid of the real after frames, 4 columns, under the caption `true -> predicted probability` (2068 pixels wide and 1064, 1580 or 2096 pixels high in the README run, each member taking 1 or 2 rows of 512 pixel frames).
 - `data.json`: the `pairs` of every class in every split, and the frames of both members of every pair of every split.
-- `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of both classes, the images `Samples/<pair>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`; `Train` and `Validation` as in M2O.
+- `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of both classes, the images `Samples/<pair>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`; `Train` and `Validation` as in M2O.
 - The console summary gives the `Pairs Per Second` and the real `Frames Per Second` of both members, sent to MLflow as `train/throughput` and `train/frame_throughput`.
 
 ### Pitfalls
+
+Suppose a comparison run behaves unexpectedly: these behaviours of the task are the first to check.
 
 - The training and the evaluation encode both members as one batch of 2B sequences padded to the same length, while the export encodes and summarises every member on its own; with `feature_map_normalization: "sequence"` and the `"pair"` scope, the deployed path concatenates the two members along one frame axis instead (`encode_members()` and `summarise_members()` of `sequence_comparator.py`). In evaluation mode both paths give the same probabilities: four test pairs padded to 6 frames per member, or alone without masks, differ by 6e-08 (a new model of the configuration at 128 pixels on the CPU, random weights).
 - The dataset the synthetic configuration points to on this machine holds members of 2 to 6 frames of 128 pixels, read at 512 pixels; the generator now writes members of 2 to 12 frames of 512 pixels, so a new dataset gives longer and slower batches (`create_synthetic_dataset.py`, main block; README, Quick Start With Synthetic Data).
@@ -199,7 +211,7 @@ main()
         │   ├── MetricTracker.count_frames()     real frames of both members
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch() / augment_batch()   one augmentation draw per pair, for its 2T frames
-        │   │   ├── forward_pass() -> split_pair_batch() -> SequenceComparator.forward()
+        │   │   ├── forward_pass() -> split_pair_batch() -> SequenceComparator.forward()   in bfloat16 autocast
         │   │   │   ├── encode_members()                 both members as one batch of sequences -> encode_frames()
         │   │   │   ├── member_fusion.attend_across_members()   cross attention only
         │   │   │   ├── summarise_members()              the shared temporal module on both members as one batch
@@ -218,8 +230,8 @@ main()
 
 run_test_evaluation(iteration)  [STAGE 4]
 └── the evaluation of the classification on pairs: the error and sample images show the before grid above the after
-    grid, and predictions.csv names every pair; with per_class_report, the ROC and precision-recall curves and the
-    Per Class Recall table too.
+    grid, and predictions.csv names every pair; with per_class_report, the ROC and precision-recall curves, the zoom
+    on the class thresholds (precision_recall_thresholds.png) and the Per Class Recall table too.
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 └── same as every task
@@ -288,7 +300,7 @@ get_trainer_class(task="sequence_comparison") -> <class 'vision_training.trainer
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (frames resized to 512 pixels, a maximum sequence length of 50 frames per member, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.6 s on CPU.
+> The examples below are real outputs from building the trainer on `vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (frames resized to 512 pixels, a maximum sequence length of 50 frames per member, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.6 s on CPU, and 0.1 s when built again on 2026-11-12.
 
 ### Step 2.1 — `SequenceComparisonTrainer.__init__()`
 The comparison trainer has no constructor of its own: it is the sequence classification trainer (`sequence_classification_workflow.md`, Step 2.1) with other class attributes. `LABEL_TYPE = "pair"` makes the loaders read pairs, and `MEMBERS_PER_SAMPLE = 2` tells the shared code that every sample holds two members of the same length one after the other along its frame axis, the before member then the after member: the collate pads both to the longest member of the batch (Step 3.5), the augmentation shuffles each on its own (Step 3.8) and the input viewer and the evaluation images draw both (Step 4.5). The losses, the metrics and the evaluation are those of the classification, a pair being classified as a whole.
@@ -343,7 +355,7 @@ CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/
 ├── data.json                      807,388 bytes      the pairs of every class in every split, then the frames of
 │                                                     both members of every pair of the three splits
 ├── label_dictionary.json                             the class index of every category of the run
-└── training_configuration.yaml    32,421 bytes
+└── training_configuration.yaml    18,921 bytes      a copy of the configuration file
 ```
 
 ### Step 2.7 — `build_dataloaders()`
@@ -666,7 +678,7 @@ before_mask [[1, 1, 1, 0, 0], [1, 1, 0, 0, 0], [1, 1, 1, 0, 0], [1, 1, 1, 1, 1]]
 after_mask  [[1, 1, 1, 1, 0], [1, 1, 0, 0, 0], [1, 1, 1, 1, 0], [1, 1, 0, 0, 0]]
 ```
 
-**Example: the dictionary returned in training mode**
+**Example: the dictionary returned in training mode** (recorded in float32; the training forward pass now runs in bfloat16 autocast, which gives bfloat16 `class_logits`, the loss staying in float32)
 ```text
 class_logits          [4, 2] torch.float32
 class_probabilities   [4, 2] torch.float32   [[0.4927, 0.5073], [0.5466, 0.4534], [0.5240, 0.4760], [0.4938, 0.5062]]
@@ -769,7 +781,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 pairs), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 1` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `same_number_of_objects` for every test pair. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-10, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also prints `Macro ROC AUC` and `Macro Average Precision` after `Top-1 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.9 and 4.11 show the current layout from the README run. All the examples of this stage, those of the README run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 pairs), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 1` (then a setting, now fixed at 5), `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `same_number_of_objects` for every test pair. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-10, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also prints `Macro ROC AUC` and `Macro Average Precision` after `Top-1 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15), and, since 2026-10-28, `precision_recall_thresholds.png`, the precision-recall curves zoomed on the threshold of every class. Steps 4.9 and 4.11 show the layout with the curves from the README run, evaluated on 2026-10-23. All the examples of this stage, those of the README run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics`.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation of the classification (see `classification_workflow.md`, Stage 4), every sample being a pair.
@@ -833,7 +845,7 @@ headline_metric   = 'Accuracy'
 files             = Confusion Matrix Table, Class Thresholds, Class Metrics, Confusion Matrix Image, Predictions, Error Images, Sample Images
 class_scalars     = 6: Precision/loss_of_object, Recall/loss_of_object, F1/loss_of_object, Precision/same_number_of_objects, ...
 ```
-The current results also hold `Macro ROC AUC` and `Macro Average Precision` in `metrics`, the files `ROC Curves Image` and `Precision Recall Curves Image` after `Confusion Matrix Image`, the images `ROC Curves` and `Precision Recall Curves`, and 10 class scalars, `ROC AUC/<class>` and `Average Precision/<class>` following the F1 of each class.
+The current results also hold `Macro ROC AUC` and `Macro Average Precision` in `metrics`, the files `ROC Curves Image`, `Precision Recall Curves Image` and `Precision Recall Thresholds Image` after `Confusion Matrix Image`, the images `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`, and 10 class scalars, `ROC AUC/<class>` and `Average Precision/<class>` following the F1 of each class.
 
 ### Step 4.8 — `compute_confusion_matrix()` + `compute_metrics_from_confusion_matrix()`
 **Example: `Evaluation/Iteration_6/confusion_matrix.csv`**
@@ -853,7 +865,7 @@ macro F1                = (0.0 + 0.6301) / 2                        = 0.3151
 ```
 
 ### Step 4.9 — `find_class_thresholds()` + `write_class_metrics_file()`
-The `recall_lower` and `recall_upper` columns of `class_metrics.csv`, after `recall`, hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test pairs being independent (`classification_workflow.md`, Step 4.14).
+The `recall_lower` and `recall_upper` columns of `class_metrics.csv`, after `recall`, hold the exact (Clopper-Pearson) 95% confidence interval of the recall of every class, the test pairs being independent (`classification_workflow.md`, Step 4.14). The current `class_thresholds.json` starts with `"logit_temperature": 1.0`, the temperature of the probabilities its thresholds were found on (`classification_workflow.md`, Step 4.13), and, when `evaluation.target_precision` is a list of precisions, gives the thresholds of the others under `additional_targets`, `class_metrics.csv` holding a threshold and a recall column for each.
 
 **Example: `Evaluation/Iteration_6/class_metrics.csv` and `class_thresholds.json`**
 ```text
@@ -865,7 +877,7 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
                                        "same_number_of_objects": null}}
 ```
 
-**Example: the current layout, `Evaluation/Iteration_500/class_metrics.csv` of the README run** (`CMP_IN-KAR-512_..._MC2` in `experiments/readme_screenshots/`, 3 `loss_of_object` pairs predicted `same_number_of_objects`; with `per_class_report` the `roc_auc` and `average_precision` columns follow `f1`)
+**Example: the layout with the curves, `Evaluation/Iteration_500/class_metrics.csv` of the README run** (`CMP_IN-KAR-512_..._MC2` in `experiments/readme_screenshots/`, 3 `loss_of_object` pairs predicted `same_number_of_objects`; with `per_class_report` the `roc_auc` and `average_precision` columns follow `f1`)
 ```text
 class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
 0,loss_of_object,108,1.000000,0.972222,0.985915,0.996176,0.997449,0.379811,0.981481
@@ -884,7 +896,7 @@ test_000023,same_number_of_objects,same_number_of_objects,1,0.476021,0.523979
 ```
 
 ### Step 4.11 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-The block of the report and the links of the files written by the evaluation (see `classification_workflow.md`, Steps 4.18 and 4.19). The first example predates the curves; the second one, from the README run, has the current layout.
+The block of the report and the links of the files written by the evaluation (see `classification_workflow.md`, Steps 4.18 and 4.19). The first example predates the curves; the second one, from the README run, has the layout with the curves, without the `Per Class Recall` table that now follows `Per Class Metrics`.
 
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
@@ -907,7 +919,7 @@ Iteration 12 · 200 Test Pairs · 2026-10-10 07:10 ─────────�
   - Sample Images : file:///.../Evaluation/Iteration_12/Samples
 ```
 
-**Example: the current layout, the first block of `Results.txt` of the README run** (`CMP_IN-KAR-512_..._MC2`, trained on GPU with the error images off)
+**Example: the layout with the curves, the first block of `Results.txt` of the README run** (`CMP_IN-KAR-512_..._MC2`, trained on GPU with the error images off)
 ```text
 Iteration 500 · 200 Test Pairs · 2026-10-23 04:12 ──────────────────────────────────────────────────────────────────────
   Accuracy        0.9850   Balanced Accuracy         0.9861
@@ -932,7 +944,7 @@ Tensorboard/Test: 10 scalars (4 global + 6 per class), 9 images (8 samples + Con
 MLflow: test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-1 Accuracy, test/best_Accuracy (steps 6, 12),
         6 test_class/<metric>/<class>, train/frame_throughput (steps 4, 8, 12)
 ```
-The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 per class) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`), as the event file of the README run holds, and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 10 `test_class/` scalars, `roc_curves.png` and `precision_recall_curves.png` to MLflow.
+The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 per class), as the event file of the README run holds, and 12 images, the 11 of that event file (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`) and `Precision Recall Thresholds`, and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 10 `test_class/` scalars, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to MLflow.
 
 
 ---
@@ -942,7 +954,7 @@ The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 pe
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 pairs of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-10, before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `target_precisions` replaces the precision of the class thresholds (a list such as `[0.99, 0.95]` is accepted, its first precision the main one), and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file, the name of the run folder kept as its `run_name` and the transfer of the pretrained components turned off (`disable_pretrained_settings()`, `classification_workflow.md`, Step 5.2).
