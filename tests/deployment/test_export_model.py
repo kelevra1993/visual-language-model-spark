@@ -1,9 +1,11 @@
 """
-Tests of find_saved_thresholds_path and read_saved_temperature of vision_training/deployment/export_model.py, used by
-the export with use_saved_temperature: the thresholds saved from the temperature explorer of the exported checkpoint
-are found in its evaluation folder in the evaluations folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA'
-subfolder for the averaged weights), the export stopping when the run folder holds them too, and their temperature is
-read after checking them against the classes of the exported model.
+Tests of find_saved_thresholds_path, check_saved_thresholds_location and read_saved_temperature of
+vision_training/deployment/export_model.py, used by the export with use_saved_temperature: the thresholds saved from
+the temperature explorer of the exported checkpoint are found in its evaluation folder in the evaluations folder of
+scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the averaged weights), the export stopping when the
+run folder holds them too, thresholds given by the export button of the page are accepted only from the evaluation of
+the exported checkpoint and weights, and their temperature is read after checking them against the classes of the
+exported model.
 """
 
 import json
@@ -12,7 +14,8 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict
 
-from vision_training.deployment.export_model import find_saved_thresholds_path, read_saved_temperature
+from vision_training.deployment.export_model import (check_saved_thresholds_location, find_saved_thresholds_path,
+                                                     read_saved_temperature)
 from vision_training.evaluation.classification.temperature_explorer import SAVED_THRESHOLDS_FILE_NAME
 
 # Exported run and checkpoint of the tests
@@ -120,3 +123,30 @@ def test_saved_thresholds_of_another_evaluation_or_model_are_refused(
                                   saved_thresholds=saved_thresholds, number_classes=evaluated_classes)
     with pytest.raises(expected_exception=ValueError, match=expected_message):
         read_saved_temperature(saved_thresholds_path=saved_path, number_classes=exported_classes)
+
+
+@pytest.mark.parametrize(argnames=("saved_subfolder", "use_averaged_weights", "accepted"), argvalues=[
+    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_6/EMA", True, True),
+    (f"{RUN_NAME}/Evaluation/Iteration_6", False, True),
+    (f"{RUN_NAME}/Evaluation/Iteration_7", False, False),
+    (f"evaluations/{RUN_NAME}/Evaluation/Iteration_6/EMA", False, False),
+    (f"{RUN_NAME}/Evaluation/Iteration_6", True, False),
+    ("evaluations/CLS_OTHER_MC3/Evaluation/Iteration_6", False, False)])
+def test_given_saved_thresholds_must_be_those_of_the_exported_checkpoint(tmp_path: Path, saved_subfolder: str,
+                                                                         use_averaged_weights: bool,
+                                                                         accepted: bool) -> None:
+    """
+    Verifies that the thresholds given by the export button of the page are accepted only from the evaluation of the
+    exported run, iteration and weights, in the run folder or the evaluations folder, and refused from the evaluation
+    of another iteration, of the other weights or of another run.
+    """
+    experiment_folder = tmp_path / RUN_NAME
+    saved_path = tmp_path / saved_subfolder / SAVED_THRESHOLDS_FILE_NAME
+    location_settings = {"saved_thresholds_path": saved_path, "experiment_folder": experiment_folder,
+                         "checkpoint_path": get_checkpoint_path(experiment_folder=experiment_folder),
+                         "use_averaged_weights": use_averaged_weights}
+    if accepted:
+        check_saved_thresholds_location(**location_settings)
+    else:
+        with pytest.raises(expected_exception=ValueError, match="for the exported checkpoint"):
+            check_saved_thresholds_location(**location_settings)

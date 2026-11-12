@@ -430,7 +430,7 @@ The settings defining the layers of the component must be identical in both runs
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-It writes `Results.txt`, `Tensorboard/Test` and `Evaluation/` in `<output_folder>/<run name>/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, a temperature dividing the class logits before the softmax spreads probabilities squeezed against 1: choose it on `Evaluation/Iteration_<n>/temperature_explorer.html`, opened with `scripts/evaluation/serve_temperature_explorer.py`, whose save button writes the thresholds at that temperature next to the page. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+It writes `Results.txt`, `Tensorboard/Test` and `Evaluation/` in `<output_folder>/<run name>/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares every checkpoint and the best one is printed. For a classifier, a temperature dividing the class logits before the softmax spreads probabilities squeezed against 1: choose it on the `temperature_explorer.html` of the evaluation, served with the logits it keeps in `class_logits.npz`, then save and export it from the page ([Exporting A Classifier From Its Temperature Explorer](#exporting-a-classifier-from-its-temperature-explorer)). Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
 
 ## Comparing Launches
 Once the launches of a hyperparameter stage have trained, these scripts gather their test curves, compare the best evaluations of runs, and draw the comparison of every stage.
@@ -457,8 +457,17 @@ Its settings and outputs: [tools reference](documentation/reference/tools_refere
 
 ## Deployment
 
+### Exporting A Classifier From Its Temperature Explorer
+Suppose a classifier only reaches the precision you target above a threshold of 0.999: choose its logit temperature on the temperature explorer of its evaluation and export it from the same page. Start the server, then open `http://127.0.0.1:8090/`:
+
+```bash
+uv run python -m scripts.evaluation.serve_temperature_explorer
+```
+
+The index lists the classification evaluations written with `per_class_report` in the folders of the repository root whose name holds `experiments`, with their saved temperature and exports. On a page, type any temperature (with the `class_logits.npz` the evaluation keeps; an evaluation without it offers the temperatures of its slider), press **Save Thresholds At This Temperature**, then **Export At T = …**: the classifier is exported with that temperature and the thresholds of every class at it into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository of its own, with `export_record.json` and the console output of the export, `export_log.txt`. Another temperature can be saved and exported at any time, into its own folder; exporting the same temperature again replaces its folder. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
+
 ### Export
-`vision_training/deployment/export_model.py` exports a trained run to the Triton model repository as TorchScript and ONNX, writes the Triton configuration of every model and checks every export against the PyTorch model. Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats`, `maximum_batch_size`, `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) and, for a classifier, `use_saved_temperature` (builds the temperature saved from the temperature explorer of the exported checkpoint into the model, with its thresholds) in its main block, then run:
+`vision_training/deployment/export_model.py` exports a trained run to the Triton model repository as TorchScript and ONNX, writes the Triton configuration of every model and checks every export against the PyTorch model. Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats`, `maximum_batch_size`, `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) and, for a classifier, `use_saved_temperature` (builds the temperature saved from the temperature explorer of the exported checkpoint into the model, with its thresholds) and `saved_thresholds_path` (`None` to look for the saved file in the evaluation folders of the checkpoint) in its main block, then run:
 
 ```bash
 uv run python -m vision_training.deployment.export_model

@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+Template of the index of scripts/evaluation/serve_temperature_explorer.py: one row per evaluation of a classifier
+holding a temperature explorer in the experiments folders, its rows written by the serve script in place of the
+placeholder.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temperature Explorers</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --grid: #e1e0d9;
+    --border: rgba(11, 11, 11, 0.10);
+    --link: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --grid: #2c2c2a;
+      --border: rgba(255, 255, 255, 0.10);
+      --link: #3987e5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text-primary);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1400px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  p { margin: 6px 0 14px; color: var(--text-secondary); max-width: 900px; }
+  a { color: var(--link); }
+  .table-wrapper { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+  th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--grid); }
+  td:first-child { overflow-wrap: anywhere; min-width: 280px; }
+  th { color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Temperature Explorers</h1>
+  <p>The evaluations of the classifiers of the experiments folders that hold a temperature explorer. Open one to choose
+     its temperature, save its thresholds and export it to <code>&lt;run&gt;/Exports/</code>. Temperatures "Any": the
+     evaluation kept its logits, any temperature can be shown; "Grid only": the temperatures of its slider.</p>
+  <div class="table-wrapper">
+    <table>
+      <tr><th>Run</th><th>Iteration</th><th>Weights</th><th>Temperatures</th><th>Saved T</th><th>Exports</th>
+          <th>Folder</th></tr>
+__INDEX_ROWS__
+    </table>
+  </div>
+</main>
+</body>
+</html>

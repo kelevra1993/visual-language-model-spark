@@ -223,6 +223,39 @@ def find_saved_thresholds_path(experiment_folder: Path, checkpoint_path: Path, u
     return found_paths[0]
 
 
+def check_saved_thresholds_location(saved_thresholds_path: Path, experiment_folder: Path, checkpoint_path: Path,
+                                    use_averaged_weights: bool) -> None:
+    """
+    Checks that thresholds given to the export (by the export button of the temperature explorer) are those saved in
+    the evaluation folder of the exported run, iteration and weights, '<run>/Evaluation/Iteration_<n>/[EMA/]' or
+    '<runs>/evaluations/<run>/Evaluation/Iteration_<n>/[EMA/]', so that a classifier is never exported with the
+    temperature chosen on the evaluation of another checkpoint or of the other weights.
+
+    Args:
+        saved_thresholds_path (Path): The given 'saved_temperature_thresholds.json'.
+        experiment_folder (Path): The exported run folder.
+        checkpoint_path (Path): The exported checkpoint, '<run>/Weights/Iteration_<n>/model_<n>.pt'.
+        use_averaged_weights (bool): True when the moving average of the weights is exported.
+
+    Raises:
+        ValueError: If the file is not the saved thresholds of the evaluation of the exported checkpoint and weights.
+    """
+    # Evaluation folder of the iteration, the averaged weights in its 'EMA' subfolder
+    evaluation_folder = saved_thresholds_path.parent
+    iteration_folder = evaluation_folder.parent if use_averaged_weights else evaluation_folder
+    weights_folder_name = evaluation_folder.name if use_averaged_weights else None
+    found_location = (saved_thresholds_path.name, weights_folder_name, iteration_folder.name,
+                      iteration_folder.parent.name, iteration_folder.parent.parent.name)
+    expected_location = (SAVED_THRESHOLDS_FILE_NAME, AVERAGED_WEIGHTS_FOLDER_NAME if use_averaged_weights else None,
+                         checkpoint_path.parent.name, "Evaluation", experiment_folder.name)
+    if found_location != expected_location or (not use_averaged_weights and
+                                               evaluation_folder.name == AVERAGED_WEIGHTS_FOLDER_NAME):
+        weights_description = f"{AVERAGED_WEIGHTS_FOLDER_NAME}/" if use_averaged_weights else ""
+        raise ValueError(f"Expected the thresholds saved in <runs>/[{EVALUATIONS_FOLDER_NAME}/]"
+                         f"{experiment_folder.name}/Evaluation/{checkpoint_path.parent.name}/{weights_description}"
+                         f"{SAVED_THRESHOLDS_FILE_NAME} for the exported checkpoint, got {saved_thresholds_path}.")
+
+
 def read_saved_temperature(saved_thresholds_path: Path, number_classes: int) -> float:
     """
     Reads the logit temperature built into an exported classifier from the thresholds saved from its temperature
@@ -252,7 +285,8 @@ def read_saved_temperature(saved_thresholds_path: Path, number_classes: int) -> 
 
 def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
                       formats: List[str], repository: Path, model_version: int, maximum_batch_size: int,
-                      tensorrt_precision: Optional[str], use_saved_temperature: bool) -> None:
+                      tensorrt_precision: Optional[str], use_saved_temperature: bool,
+                      saved_thresholds_path: Optional[Path]) -> None:
     """
     Exports a trained experiment of any task to the Triton model repository in every requested format, writes the
     Triton configurations, and checks each export against the eager inference model on a random batch of another
@@ -261,11 +295,12 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     A frame selector also gets its decoder and one ensemble per format, with the decoding settings of the run and
     the confidence thresholds of the evaluation of the exported checkpoint. With use_saved_temperature, a classifier
     divides its class logits by the temperature saved from the temperature explorer of the exported checkpoint
-    (find_saved_thresholds_path, read_saved_temperature), the saved thresholds being copied next to every exported
-    model as 'class_thresholds.json'; without it, by 1, without thresholds. Every exported model carries the input
-    contract of the run (build_input_contract), written into the 'metadata_props' of the ONNX file and as
-    'preprocessing.json' next to the model of every format, the export stopping before any file is written when the
-    contract cannot describe the input of the run.
+    (find_saved_thresholds_path, or saved_thresholds_path given by the export button of the page, then
+    read_saved_temperature), the saved thresholds being copied next to every exported model as 'class_thresholds.json';
+    without it, by 1, without thresholds. Every exported model carries the input contract of the run
+    (build_input_contract), written into the 'metadata_props' of the ONNX file and as 'preprocessing.json' next to the
+    model of every format, the export stopping before any file is written when the contract cannot describe the input
+    of the run.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -280,14 +315,21 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         use_saved_temperature (bool): Classification only: True builds the temperature saved from the temperature
             explorer of the exported checkpoint and weights into the model and deploys its thresholds, False exports
             with a temperature of 1 and without thresholds.
+        saved_thresholds_path (Optional[Path]): With use_saved_temperature, the saved thresholds to deploy, checked to
+            be those of the evaluation of the exported checkpoint and weights (check_saved_thresholds_location), or
+            None to look for them in its evaluation folders (find_saved_thresholds_path).
 
     Raises:
         RuntimeError: If an exported model does not reproduce the eager outputs.
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
         ValueError: If use_saved_temperature is set for another task than the classification, or the saved
-            thresholds are ambiguous or do not belong to the exported checkpoint, or the input contract cannot describe
-            the input of the run (another interpolation, padding, placement or channel order).
+            thresholds are ambiguous or do not belong to the exported checkpoint, or saved_thresholds_path is given
+            without use_saved_temperature, or the input contract cannot describe the input of the run (another
+            interpolation, padding, placement or channel order).
     """
+    if saved_thresholds_path is not None and not use_saved_temperature:
+        raise ValueError(f"saved_thresholds_path {saved_thresholds_path} is only read with use_saved_temperature.")
+
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
     # while ONNX Runtime computes the exported model in exact FP32, so the two differ by about 1e-3 on scores even
     # for a correct export. TF32 is switched off so that the reference is computed at full precision too.
@@ -323,20 +365,28 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         if use_saved_temperature and experiment_configuration["task"] != "classification":
             raise ValueError(f"use_saved_temperature is only read for the classification task, not for the "
                              f"{experiment_configuration['task']} task.")
-        saved_thresholds_path = None
+        deployed_thresholds_path = None
         if experiment_configuration["task"] == "classification":
             if not use_saved_temperature:
                 print_color(color="yellow", output="use_saved_temperature off : exported with a logit temperature of 1 "
                                                    "and without class thresholds", indent=1)
             else:
-                saved_thresholds_path = find_saved_thresholds_path(experiment_folder=experiment_folder,
-                                                                   checkpoint_path=checkpoint_path,
-                                                                   use_averaged_weights=use_averaged_weights)
-                logit_temperature = read_saved_temperature(saved_thresholds_path=saved_thresholds_path,
+                # Thresholds given by the export button of the page, or looked for in the evaluation folders
+                if saved_thresholds_path is None:
+                    deployed_thresholds_path = find_saved_thresholds_path(experiment_folder=experiment_folder,
+                                                                          checkpoint_path=checkpoint_path,
+                                                                          use_averaged_weights=use_averaged_weights)
+                else:
+                    check_saved_thresholds_location(saved_thresholds_path=saved_thresholds_path,
+                                                    experiment_folder=experiment_folder,
+                                                    checkpoint_path=checkpoint_path,
+                                                    use_averaged_weights=use_averaged_weights)
+                    deployed_thresholds_path = saved_thresholds_path
+                logit_temperature = read_saved_temperature(saved_thresholds_path=deployed_thresholds_path,
                                                            number_classes=inference_model.number_classes)
                 inference_model.set_logit_temperature(logit_temperature=logit_temperature)
                 print_color(color="blue", output=f"Logit Temperature {logit_temperature:g} : "
-                                                 f"{format_path_link(path=saved_thresholds_path)}", indent=1)
+                                                 f"{format_path_link(path=deployed_thresholds_path)}", indent=1)
 
         # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
         example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
@@ -378,8 +428,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
             # Class thresholds of the classifier next to the model, found at the temperature built into it, the copy of
             # an earlier export being removed without them, so that no thresholds of another temperature stay there
             thresholds_copy_path = model_path.parent / "class_thresholds.json"
-            if saved_thresholds_path is not None:
-                shutil.copyfile(src=saved_thresholds_path, dst=thresholds_copy_path)
+            if deployed_thresholds_path is not None:
+                shutil.copyfile(src=deployed_thresholds_path, dst=thresholds_copy_path)
             elif thresholds_copy_path.exists():
                 thresholds_copy_path.unlink()
                 print_color(color="yellow", output=f"Class thresholds of an earlier export removed : "
@@ -435,6 +485,9 @@ if __name__ == "__main__":
     # for in '<run>/Evaluation/Iteration_<n>/' and '<runs>/evaluations/<run>/Evaluation/Iteration_<n>/' ('EMA' after
     # them for the averaged weights). False exports with a temperature of 1 and without thresholds
     use_saved_temperature = False
+    # With use_saved_temperature, the saved_temperature_thresholds.json to deploy, None to look for it in the two
+    # folders above (the export button of the temperature explorer gives the file of its page)
+    saved_thresholds_path = None
 
     if not show_warnings:
         hide_known_export_warnings()
@@ -442,4 +495,5 @@ if __name__ == "__main__":
     export_experiment(experiment_folder=experiment_folder, iteration=iteration,
                       use_averaged_weights=use_averaged_weights, formats=formats, repository=repository,
                       model_version=model_version, maximum_batch_size=maximum_batch_size,
-                      tensorrt_precision=tensorrt_precision, use_saved_temperature=use_saved_temperature)
+                      tensorrt_precision=tensorrt_precision, use_saved_temperature=use_saved_temperature,
+                      saved_thresholds_path=saved_thresholds_path)

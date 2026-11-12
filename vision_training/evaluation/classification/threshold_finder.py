@@ -2,12 +2,13 @@
 Search of the per-class score thresholds reaching a target precision ('ExperimentConfiguration.evaluation'), for
 deployments that only accept a prediction above a per-class threshold. Used by the classification trainer at every
 evaluation, by the frame selection metrics, and by the mean average precision of the detection tasks for the
-detections of every class.
+detections of every class. build_class_thresholds_file gives the 'class_thresholds.json' of the classification, written
+by the trainer at a temperature of 1 and saved from the temperature explorer at the chosen temperature.
 """
 
 import torch
 
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def find_score_threshold(scores: torch.Tensor, positives: torch.Tensor, number_positives: int,
@@ -68,3 +69,37 @@ def find_class_thresholds(probabilities: torch.Tensor, positive_masks: torch.Ten
                                  number_positives=int(positive_masks[:, class_index].sum()),
                                  target_precision=target_precision)
             for class_index in range(probabilities.shape[1])]
+
+
+def build_class_thresholds_file(class_names: List[str], target_precisions: List[float],
+                                target_thresholds: List[List[Optional[Tuple[float, float]]]],
+                                logit_temperature: float) -> Dict[str, Any]:
+    """
+    Builds the content of 'class_thresholds.json', read by the deployment of a classifier: the logit temperature of
+    the probabilities the thresholds were found on, the main target precision in 'target_precision' and 'classes', the
+    others in 'additional_targets', every class keyed by name with its 'threshold' and the 'recall' it keeps, or None
+    when it never reaches the target precision. The classification trainer writes it at a temperature of 1, and the
+    temperature explorer saves it at the chosen temperature as 'saved_temperature_thresholds.json'.
+
+    Args:
+        class_names (List[str]): The class names, in class index order.
+        target_precisions (List[float]): The target precisions, the main one first.
+        target_thresholds (List[List[Optional[Tuple[float, float]]]]): For every target precision, the threshold and
+            recall of every class (find_class_thresholds), None for a class never reaching it.
+        logit_temperature (float): The temperature dividing the logits of the probabilities.
+
+    Returns:
+        Dict[str, Any]: The content of the thresholds file.
+    """
+    # Threshold and recall of every class keyed by name, for every target precision
+    target_descriptions = [{"target_precision": target_precision,
+                            "classes": {class_name: None if class_threshold is None else
+                                        {"threshold": class_threshold[0], "recall": class_threshold[1]}
+                                        for class_name, class_threshold in zip(class_names, class_thresholds)}}
+                           for target_precision, class_thresholds in zip(target_precisions, target_thresholds)]
+
+    # Main target first, the others after it
+    thresholds_file = {"logit_temperature": logit_temperature, **target_descriptions[0]}
+    if len(target_descriptions) > 1:
+        thresholds_file["additional_targets"] = target_descriptions[1:]
+    return thresholds_file

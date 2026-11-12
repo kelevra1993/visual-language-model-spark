@@ -2,9 +2,10 @@
 <!--
 Template of temperature_explorer.html, filled by vision_training/evaluation/classification/temperature_explorer.py with
 the probabilities of the class logits of a classification evaluation divided by every temperature of its slider. The
-page is self-contained (no library), so that it opens from the evaluation folder of the checkpoint; its save button
-posts the thresholds of the temperature shown to scripts/evaluation/serve_temperature_explorer.py, or downloads them
-when the page is opened as a plain file.
+page is self-contained (no library), so that it opens from the evaluation folder of the checkpoint, its save button
+downloading the thresholds of the temperature shown. Served by scripts/evaluation/serve_temperature_explorer.py (its
+data then naming the evaluation), it shows any typed temperature, saves the thresholds next to the evaluation and
+exports the checkpoint at the saved temperature.
 -->
 <html lang="en">
 <head>
@@ -62,6 +63,17 @@ when the page is opened as a plain file.
   button:disabled { cursor: not-allowed; opacity: 0.5; }
   .save-status { flex: 1 1 100%; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
   .save-status:empty { display: none; }
+  input[type="number"], select { font: inherit; font-size: 13px; color: var(--text-primary); background: var(--surface);
+                                 border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; width: 84px; }
+  select { width: auto; }
+  [hidden] { display: none !important; }
+  .export-form { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 8px 0; }
+  .export-form label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  .deployment-line { margin: 6px 0; overflow-wrap: anywhere; }
+  .deployment-line:empty { display: none; }
+  .export-log { background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+                font-size: 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #exports-table td:first-child { white-space: normal; overflow-wrap: anywhere; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 14px; }
   .tile, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
   .tile-label { color: var(--text-secondary); font-size: 12px; }
@@ -90,23 +102,29 @@ when the page is opened as a plain file.
 </head>
 <body>
 <main>
+  <p id="index-link" hidden><a href="/">All evaluations</a></p>
   <h1>Temperature Explorer</h1>
   <p class="subtitle" id="subtitle"></p>
   <p>The probabilities are the softmax (sigmoid in multi-label mode) of the class logits divided by the temperature T.
      The predicted class, the accuracy and the confusion matrix do not change with T: only the spread of the
      probabilities, so the thresholds move with it. With two classes the recall at a target precision stays the same;
      with more classes it can move a little.</p>
-  <p>To deploy a temperature, open this page with <code>scripts/evaluation/serve_temperature_explorer.py</code> and
-     press <b>Save Thresholds At This Temperature</b>: the thresholds of every class at the temperature shown are
-     written next to the page as <code>saved_temperature_thresholds.json</code>, which
-     <code>vision_training/deployment/export_model.py</code> builds into the exported model with
-     <code>use_saved_temperature</code>. Opened as a plain file, the button downloads that file instead, to be placed
-     next to the page.</p>
+  <p>To deploy a temperature, open this page with <code>scripts/evaluation/serve_temperature_explorer.py</code>,
+     press <b>Save Thresholds At This Temperature</b>, then <b>Export</b>: the thresholds of every class at the
+     temperature shown are written next to the evaluation as <code>saved_temperature_thresholds.json</code>, and the
+     export builds that temperature into the classifier with these thresholds, in <code>&lt;run&gt;/Exports/</code>.
+     A temperature can be saved and exported again at any time. Opened as a plain file, the button downloads the file
+     instead, which <code>vision_training/deployment/export_model.py</code> reads with
+     <code>use_saved_temperature</code> once placed next to the page.</p>
 
   <div class="controls">
     <div class="slider-group">
       <span class="temperature-value" id="temperature-value"></span>
       <input type="range" id="temperature-slider" min="0" step="1" aria-label="Logit temperature">
+    </div>
+    <div class="button-row" id="temperature-entry" hidden>
+      <input type="number" id="temperature-input" min="0.05" max="100" step="0.01" aria-label="Temperature to show">
+      <button type="button" id="show-temperature">Show T</button>
     </div>
     <div class="button-row" id="temperature-buttons"></div>
     <div class="button-row" role="group" aria-label="Histogram scale">
@@ -120,6 +138,25 @@ when the page is opened as a plain file.
   </div>
 
   <div class="tiles" id="tiles"></div>
+
+  <section id="deployment" hidden>
+    <h2>Export</h2>
+    <div class="card">
+      <p class="deployment-line" id="saved-line"></p>
+      <div class="export-form">
+        <span class="button-row" id="export-formats" role="group" aria-label="Export formats"></span>
+        <label>Version <input type="number" id="model-version" min="1" step="1"></label>
+        <label>Maximum batch size <input type="number" id="maximum-batch-size" min="1" step="1"></label>
+        <label>TensorRT <select id="tensorrt-precision"></select></label>
+        <button type="button" id="export-button">Export</button>
+      </div>
+      <p class="deployment-line" id="export-destination"></p>
+      <p class="deployment-line" id="export-state" role="status"></p>
+      <pre class="export-log" id="export-log" hidden></pre>
+    </div>
+    <h2 id="exports-title" hidden>Exports Of This Checkpoint</h2>
+    <div class="table-wrapper" id="exports-wrapper" hidden><table id="exports-table"></table></div>
+  </section>
 
   <h2>Calibration</h2>
   <div class="charts">
@@ -157,6 +194,11 @@ when the page is opened as a plain file.
   // Smallest share drawn by the log scale, four decades below 100 %
   const LOG_SCALE_DECADES = 4;
   const view = {stateIndex: 0, logScale: false};
+  // Served by the serve script: the data names the evaluation, whose saves and exports go through the server
+  const SERVED = typeof DATA.evaluation === "string" && window.location.protocol.startsWith("http");
+  // Delay between two reads of the status of a running export, in milliseconds
+  const EXPORT_POLL_MILLISECONDS = 2000;
+  const deployment = {status: null, pollTimer: null};
 
   // Index of the state of a temperature, the closest one of the slider
   function findStateIndex(temperature) {
@@ -384,15 +426,25 @@ when the page is opened as a plain file.
     return savedThresholds;
   }
 
-  // Saves the thresholds of the temperature shown: posted to the serve script, which checks them against
-  // class_thresholds.json and writes them next to the page, or downloaded when the page is opened as a plain file
+  // JSON answer of the serve script, its error message thrown when the request is refused
+  async function fetchJson(url, options) {
+    const response = await fetch(url, options);
+    const answer = await response.json();
+    if (!response.ok) throw new Error(answer.error);
+    return answer;
+  }
+
+  function evaluationQuery() { return `evaluation=${encodeURIComponent(DATA.evaluation)}`; }
+
+  // Saves the thresholds of the temperature shown: on a served page, through the serve script, which finds them from
+  // the logits of the evaluation (or checks those of a page without logits) and writes them next to it; downloaded
+  // when the page is opened as a plain file
   async function saveThresholds() {
     const state = DATA.states[view.stateIndex];
-    const savedThresholds = buildSavedThresholds(state);
     const status = document.getElementById("save-status");
     const temperatureText = `T = ${formatTemperature(state.temperature)}`;
-    if (!window.location.protocol.startsWith("http")) {
-      const blob = new Blob([JSON.stringify(savedThresholds, null, 4)], {type: "application/json"});
+    if (!SERVED) {
+      const blob = new Blob([JSON.stringify(buildSavedThresholds(state), null, 4)], {type: "application/json"});
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = DATA.saved_file_name;
@@ -405,16 +457,166 @@ when the page is opened as a plain file.
 
     // The answer of the serve script gives the written file, or the reason of the refusal
     status.textContent = `Saving the thresholds at ${temperatureText}…`;
+    const body = {evaluation: DATA.evaluation, temperature: state.temperature};
+    if (!DATA.live_temperatures) body.thresholds = buildSavedThresholds(state);
     try {
-      const response = await fetch(DATA.save_route, {method: "POST", headers: {"Content-Type": "application/json"},
-                                                     body: JSON.stringify(savedThresholds)});
-      const answer = await response.json();
-      if (!response.ok) throw new Error(answer.error);
+      const answer = await fetchJson("/api/save", {method: "POST", headers: {"Content-Type": "application/json"},
+                                                   body: JSON.stringify(body)});
       status.textContent = `Saved at T = ${formatTemperature(answer.temperature)}: ${answer.path}`;
     } catch (error) {
-      status.textContent = `Not saved: ${error.message} Serve the page with ` +
-                           "scripts/evaluation/serve_temperature_explorer.py.";
+      status.textContent = `Not saved: ${error.message}`;
     }
+    await refreshStatus();
+  }
+
+  // Shows a typed temperature, described by the serve script from the logits of the evaluation and added to the
+  // temperatures of the slider
+  async function showTemperature() {
+    const temperature = Number(document.getElementById("temperature-input").value);
+    const status = document.getElementById("save-status");
+    const existingIndex = DATA.states.findIndex(state => state.temperature === temperature);
+    if (existingIndex >= 0) {
+      view.stateIndex = existingIndex;
+      render();
+      return;
+    }
+    status.textContent = `Computing T = ${formatTemperature(temperature)}…`;
+    try {
+      const state = await fetchJson(`/api/temperature?${evaluationQuery()}&temperature=${temperature}`);
+      const insertIndex = DATA.states.findIndex(other => other.temperature > state.temperature);
+      const stateIndex = insertIndex < 0 ? DATA.states.length : insertIndex;
+      DATA.states.splice(stateIndex, 0, state);
+      document.getElementById("temperature-slider").max = DATA.states.length - 1;
+      view.stateIndex = stateIndex;
+      status.textContent = "";
+      render();
+    } catch (error) {
+      status.textContent = `Not shown: ${error.message}`;
+    }
+  }
+
+  // Reads the saved temperature, the exports and the running export of the evaluation, read again every few seconds
+  // while an export runs
+  async function refreshStatus() {
+    try {
+      deployment.status = await fetchJson(`/api/status?${evaluationQuery()}`);
+    } catch (error) {
+      document.getElementById("export-state").textContent = `Status not read: ${error.message}`;
+      return;
+    }
+    renderDeployment();
+    const running = deployment.status.export_job !== null && deployment.status.export_job.state === "running";
+    if (running && deployment.pollTimer === null) {
+      deployment.pollTimer = setInterval(refreshStatus, EXPORT_POLL_MILLISECONDS);
+    } else if (!running && deployment.pollTimer !== null) {
+      clearInterval(deployment.pollTimer);
+      deployment.pollTimer = null;
+    }
+  }
+
+  // Saved temperature, export button, destination, running export with its console output, and the exports of the
+  // checkpoint
+  function renderDeployment() {
+    const status = deployment.status;
+    if (!SERVED || status === null) return;
+    const shownTemperature = DATA.states[view.stateIndex].temperature;
+    const savedLine = document.getElementById("saved-line");
+    if (status.saved === null) {
+      savedLine.textContent = "No thresholds saved yet: choose a temperature and press Save Thresholds At This " +
+                              "Temperature, then Export.";
+    } else {
+      savedLine.textContent = `Saved thresholds: T = ${formatTemperature(status.saved.temperature)}, ` +
+                              `${status.saved.saved_at}.` + (status.saved.temperature === shownTemperature ? "" :
+                              ` The temperature shown, T = ${formatTemperature(shownTemperature)}, is not the ` +
+                              "saved one: save it first to export it.");
+    }
+
+    // Export button at the saved temperature, off without saved thresholds, without checkpoint or while exporting
+    const exportButton = document.getElementById("export-button");
+    exportButton.textContent = status.saved === null ? "Export"
+      : `Export At T = ${formatTemperature(status.saved.temperature)}`;
+    exportButton.disabled = status.saved === null || status.export_unavailable !== null || status.busy;
+    const replacing = status.next_export_folder !== null &&
+      status.exports.some(exportEntry => exportEntry.folder === status.next_export_folder);
+    document.getElementById("export-destination").textContent = status.export_unavailable !== null
+      ? `Export not available: ${status.export_unavailable}`
+      : status.next_export_folder === null ? ""
+      : `Written to ${status.next_export_folder}` + (replacing ? ", replacing the export of this temperature." : ".");
+
+    // State of the export of this evaluation, or of another one keeping the server busy
+    const job = status.export_job;
+    const stateLine = document.getElementById("export-state");
+    const log = document.getElementById("export-log");
+    if (job !== null) {
+      const jobTemperature = `T = ${formatTemperature(job.temperature)}`;
+      stateLine.textContent = job.state === "running" ? `Exporting at ${jobTemperature} since ${job.started_at}…`
+        : job.state === "succeeded" ? `Exported at ${jobTemperature}: ${job.folder}`
+        : `Export at ${jobTemperature} failed: its console output below.`;
+      log.textContent = job.log;
+      log.hidden = job.log.length === 0;
+      log.scrollTop = log.scrollHeight;
+    } else {
+      stateLine.textContent = status.busy ? "Another evaluation is being exported: wait for it to end." : "";
+      log.hidden = true;
+    }
+
+    // Exports of the checkpoint, newest first
+    const headers = ["Folder", "T", "Exported", "Formats", "Version", "Batch", "TensorRT"];
+    const rows = [`<tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr>`];
+    status.exports.forEach(exportEntry => {
+      const record = exportEntry.record;
+      const cells = record === null ? [escapeHtml(exportEntry.name), "—", "—", "—", "—", "—", "—"]
+        : [escapeHtml(exportEntry.name), formatTemperature(record.logit_temperature), escapeHtml(record.exported_at),
+           escapeHtml(record.formats.join(", ")), String(record.model_version), String(record.maximum_batch_size),
+           escapeHtml(String(record.tensorrt_precision))];
+      rows.push(`<tr>${cells.map(cell => `<td>${cell}</td>`).join("")}</tr>`);
+    });
+    document.getElementById("exports-table").innerHTML = rows.join("");
+    document.getElementById("exports-title").hidden = status.exports.length === 0;
+    document.getElementById("exports-wrapper").hidden = status.exports.length === 0;
+  }
+
+  // Starts the export of the checkpoint at the saved temperature with the settings of the form
+  async function startExport() {
+    const precision = document.getElementById("tensorrt-precision").value;
+    const body = {evaluation: DATA.evaluation,
+                  formats: [...document.querySelectorAll("#export-formats input:checked")].map(input => input.value),
+                  model_version: Number(document.getElementById("model-version").value),
+                  maximum_batch_size: Number(document.getElementById("maximum-batch-size").value),
+                  tensorrt_precision: precision === "none" ? null : precision};
+    document.getElementById("export-button").disabled = true;
+    try {
+      await fetchJson("/api/export", {method: "POST", headers: {"Content-Type": "application/json"},
+                                      body: JSON.stringify(body)});
+    } catch (error) {
+      document.getElementById("export-state").textContent = `Not exported: ${error.message}`;
+    }
+    await refreshStatus();
+  }
+
+  // Export form of a served page, filled with the settings of the main block of export_model.py
+  function buildExportForm() {
+    const defaults = DATA.export_defaults;
+    DATA.export_formats.forEach(exportFormat => {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = exportFormat;
+      checkbox.checked = defaults.formats.includes(exportFormat);
+      label.append(checkbox, exportFormat === "onnx" ? "ONNX" : "TorchScript");
+      document.getElementById("export-formats").appendChild(label);
+    });
+    document.getElementById("model-version").value = defaults.model_version;
+    document.getElementById("maximum-batch-size").value = defaults.maximum_batch_size;
+    const precisionSelect = document.getElementById("tensorrt-precision");
+    DATA.tensorrt_precisions.forEach(precision => {
+      const option = document.createElement("option");
+      option.value = precision === null ? "none" : precision;
+      option.textContent = precision === null ? "None (ONNX Runtime)" : precision;
+      option.selected = precision === defaults.tensorrt_precision;
+      precisionSelect.appendChild(option);
+    });
+    document.getElementById("export-button").addEventListener("click", startExport);
   }
 
   function escapeHtml(text) {
@@ -443,8 +645,9 @@ when the page is opened as a plain file.
     const state = DATA.states[view.stateIndex];
     document.getElementById("temperature-value").textContent = `T = ${formatTemperature(state.temperature)}`;
     document.getElementById("temperature-slider").value = view.stateIndex;
+    // Shortcuts found by temperature, a typed temperature shifting the indices of the slider
     document.querySelectorAll("#temperature-buttons button").forEach(button => {
-      button.setAttribute("aria-pressed", String(Number(button.dataset.stateIndex) === view.stateIndex));
+      button.setAttribute("aria-pressed", String(Number(button.dataset.temperature) === state.temperature));
     });
     document.getElementById("linear-scale").setAttribute("aria-pressed", String(!view.logScale));
     document.getElementById("log-scale").setAttribute("aria-pressed", String(view.logScale));
@@ -460,6 +663,7 @@ when the page is opened as a plain file.
       drawClassPanel(svg, Number(svg.dataset.classIndex), state);
     });
     renderTable(state);
+    renderDeployment();
   }
 
   // Header, slider, shortcut buttons, scale toggle and save button, then the first drawing at the temperature 1
@@ -477,16 +681,16 @@ when the page is opened as a plain file.
     // Shortcuts to the temperature 1 and the calibrated one, each listed once
     const shortcuts = [["T = 1", 1],
                        [`Calibrated · ${formatTemperature(DATA.calibrated_temperature)}`, DATA.calibrated_temperature]];
-    const usedIndices = new Set();
+    const usedTemperatures = new Set();
     shortcuts.forEach(([label, temperature]) => {
-      const stateIndex = findStateIndex(temperature);
-      if (usedIndices.has(stateIndex)) return;
-      usedIndices.add(stateIndex);
+      const shortcutTemperature = DATA.states[findStateIndex(temperature)].temperature;
+      if (usedTemperatures.has(shortcutTemperature)) return;
+      usedTemperatures.add(shortcutTemperature);
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
-      button.dataset.stateIndex = stateIndex;
-      button.addEventListener("click", () => { view.stateIndex = stateIndex; render(); });
+      button.dataset.temperature = shortcutTemperature;
+      button.addEventListener("click", () => { view.stateIndex = findStateIndex(shortcutTemperature); render(); });
       document.getElementById("temperature-buttons").appendChild(button);
     });
     document.getElementById("linear-scale").addEventListener("click", () => { view.logScale = false; render(); });
@@ -499,6 +703,20 @@ when the page is opened as a plain file.
       saveButton.disabled = true;
       document.getElementById("save-status").textContent = `Only ${DATA.class_names.length} of the ` +
         `${DATA.number_classes} classes are shown: the thresholds of every class cannot be saved from this page.`;
+    }
+
+    // Served page: the link to the index, the typed temperatures (with the logits of the evaluation) and the export
+    if (SERVED) {
+      document.getElementById("index-link").hidden = false;
+      document.getElementById("deployment").hidden = false;
+      if (DATA.live_temperatures) {
+        const temperatureInput = document.getElementById("temperature-input");
+        document.getElementById("temperature-entry").hidden = false;
+        document.getElementById("show-temperature").addEventListener("click", showTemperature);
+        temperatureInput.addEventListener("keydown", event => { if (event.key === "Enter") showTemperature(); });
+      }
+      buildExportForm();
+      refreshStatus();
     }
 
     // Tooltip of the bars, following the pointer
