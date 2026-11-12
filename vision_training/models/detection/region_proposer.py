@@ -11,9 +11,10 @@ import torch
 
 from torch import nn
 from typing import List, Dict, Tuple, Any
-from torchvision.ops import batched_nms, nms
+from torchvision.ops import nms
 
 from vision_training.models.detection.anchors import Anchors
+from vision_training.models.detection.postprocessing import suppress_groups_apart
 from vision_training.models.components.convolution_block import ConvolutionBlock
 from vision_training.models.detection.box_operations import (apply_regression_predictions,
                                                              clamp_boxes_to_image_boundaries)
@@ -35,14 +36,15 @@ def suppress_overlapping_proposals(boxes: torch.Tensor, scores: torch.Tensor, nm
     each image on its own. The eager training and evaluation run one torchvision nms call per image on views of the
     batch, the fastest form on the GPU (batched_nms loops over the images itself for large batches, with more
     overhead, and its single call over the whole batch is slower still), while the deployed detector runs a single
-    batched_nms call, the only form that the TorchScript and ONNX exports keep for any batch size. Both keep the same
-    proposals.
+    nms call with the images moved apart (suppress_groups_apart), the only form that the TorchScript and ONNX exports
+    keep for any batch size. Both keep the same proposals.
 
     Args:
         boxes (torch.Tensor): The candidate boxes of every image, shape [B, K, 4].
         scores (torch.Tensor): The objectness scores of the candidates, shape [B, K].
         nms_iou_threshold (float): The overlap above which the less confident of two proposals is suppressed.
-        suppress_per_image (bool): True for one nms call per image (eager), False for one batched_nms call (export).
+        suppress_per_image (bool): True for one nms call per image (eager), False for one call over the batch
+            (export).
 
     Returns:
         torch.Tensor: The [B, K] boolean mask of the candidates kept by the suppression.
@@ -59,9 +61,9 @@ def suppress_overlapping_proposals(boxes: torch.Tensor, scores: torch.Tensor, nm
     # A single suppression call over the whole batch, every image its own group
     batch_size, number_candidates = scores.shape
     batch_indices = torch.arange(end=batch_size, device=scores.device).unsqueeze(dim=1)
-    kept_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=scores.reshape(-1),
-                               idxs=batch_indices.expand(-1, number_candidates).reshape(-1),
-                               iou_threshold=nms_iou_threshold)
+    kept_indices = suppress_groups_apart(boxes=boxes.reshape(-1, 4), scores=scores.reshape(-1),
+                                         group_indices=batch_indices.expand(-1, number_candidates).reshape(-1),
+                                         iou_threshold=nms_iou_threshold)
     kept_mask.view(-1)[kept_indices] = True
     return kept_mask
 

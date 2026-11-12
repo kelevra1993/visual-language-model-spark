@@ -1,5 +1,5 @@
 # Synthetic hard shapes (create_synthetic_dataset.py, hard_objects): 5 to 12 of 35 classes, 16 pixels to 80% of side.
-# Hyperparameter experiment run_1, learning rate stage: learning_rate 1.0e-3, launch A.
+# Hyperparameter experiment run_1, background iou minimum stage: background_iou_minimum 0.0, launch A.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
   # DetectionLevels and Detector. Labels: COCO annotations, crowd ones (iscrowd 1) as ordinary objects.
@@ -25,7 +25,7 @@ ExperimentConfiguration:
   # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
   intermediate_weight_saving_iterations: 250
   # Total training iterations.
-  number_iterations: 20000
+  number_iterations: 15000
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 0
   # Test evaluation at every weight_saving_iterations checkpoint: mean average precision (mAP) on the whole test split.
@@ -53,7 +53,7 @@ ExperimentConfiguration:
   # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
-    activated: False
+    activated: True
     # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
     # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
@@ -89,8 +89,6 @@ Optimization:
   decay_iterations: 100000
   # Final cosine learning rate, as a fraction of the learning rate (cosine only).
   minimum_learning_rate_ratio: 0.01
-  # Maximum global gradient norm, clipped before every step, null to disable.
-  gradient_clipping_norm: null
   # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
   # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
   exponential_moving_average:
@@ -103,11 +101,11 @@ Optimization:
   loss_weights:
     # Objectness of the sampled region proposal anchors.
     region_proposal_classification_loss: 1.0
-    # Box offsets of the positive region proposal anchors.
+    # Smooth L1 box loss of the positive region proposal anchors.
     region_proposal_localisation_loss: 1.0
     # Class of the sampled detection proposals, background included.
     detection_classification_loss: 1.0
-    # Box offsets of the positive detection proposals.
+    # Box loss of the positive detection proposals (Detector.box_loss).
     detection_regression_loss: 1.0
 
 Data:
@@ -126,7 +124,7 @@ Data:
     activated: True
     # Probability that a training image is augmented, each activated type then applied with its own probability;
     # sequence frames share one augmentation.
-    probability: 0.4
+    probability: 0.25
     types:
       # Geometric augmentations : boxes move with the image, those leaving it are removed.
       # Random Crop : 75% to 100% of each side (same aspect ratio), resized back
@@ -135,11 +133,11 @@ Data:
       # stretch; other camera proportions, for keep_ratio False)
       random_aspect_crop: { activated: False, probability: 0.25 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side on a black canvas, objects appearing smaller
-      random_zoom_out: { activated: False, probability: 0.25 }
+      random_zoom_out: { activated: True, probability: 0.25 }
       # Random Translation : shift of up to 25% along x, y or both, border filled black
       random_translation: { activated: False, probability: 0.25 }
       # Random Left-Right Flip
-      random_left_right_flip: { activated: False, probability: 0.5 }
+      random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up-Down Flip
       random_up_down_flip: { activated: False, probability: 0.5 }
       # Random Rotation of -5° to 5°, boxes enclosing their rotated corners
@@ -155,33 +153,33 @@ Data:
 
       # Photometric augmentations: boxes unchanged.
       # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
-      brightness_contrast_saturation: { activated: False, probability: 0.25 }
+      brightness_contrast_saturation: { activated: True, probability: 0.25 }
       # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
-      random_hue: { activated: False, probability: 0.25 }
+      random_hue: { activated: True, probability: 0.25 }
       # CLAHE, clip limit 2.0 on a 4x4 tile grid
-      clahe_augment: { activated: False, probability: 0.25 }
+      clahe_augment: { activated: True, probability: 0.25 }
       # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
-      sharp_augment: { activated: False, probability: 0.25 }
+      sharp_augment: { activated: True, probability: 0.25 }
       # Histogram equalization of the luminance (Y of YUV)
-      equalize_histogram_augment: { activated: False, probability: 0.25 }
+      equalize_histogram_augment: { activated: True, probability: 0.25 }
       # Histogram equalization of one random channel (B, G or R) or all three
-      equalize_bgr_histogram_augment: { activated: False, probability: 0.25 }
+      equalize_bgr_histogram_augment: { activated: True, probability: 0.25 }
       # Random Noise : Gaussian noise, standard deviation 20 levels
-      random_noise: { activated: False, probability: 0.25 }
+      random_noise: { activated: True, probability: 0.25 }
       # Grayscale, kept on three channels
-      gray_scale_augment: { activated: False, probability: 0.25 }
+      gray_scale_augment: { activated: True, probability: 0.25 }
       # Random Colour augmentation : BGR to RGB channel swap
-      random_colour_augmentation: { activated: False, probability: 0.25 }
+      random_colour_augmentation: { activated: True, probability: 0.25 }
       # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
-      random_gamma: { activated: False, probability: 0.25 }
+      random_gamma: { activated: True, probability: 0.25 }
       # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
-      random_linear_illumination: { activated: False, probability: 0.25 }
+      random_linear_illumination: { activated: True, probability: 0.25 }
       # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
       random_plasma_shadow: { activated: False, probability: 0.25 }
       # Random Blur : 9x9 Gaussian kernel, sigma 2.5
-      random_blur: { activated: False, probability: 0.25 }
+      random_blur: { activated: True, probability: 0.25 }
       # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
-      random_motion_blur: { activated: False, probability: 0.25 }
+      random_motion_blur: { activated: True, probability: 0.25 }
       # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
       # the blurs, before solarization, black-out and erasing)
       random_haze: { activated: True, probability: 0.25 }
@@ -278,13 +276,27 @@ DetectionLevels:
     region_proposal: { convolutions: [2, 32] }
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
 
+# Neck between the level blocks and the heads, every level keeping the size of its block.
+Neck:
+  # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels) or "path_aggregation"
+  # (the feature pyramid, then a bottom-up path from the fine levels).
+  type: "none"
+  # Channels of every level after the neck, read by the heads (unused with "none").
+  output_channels: 32
+  normalization:
+    # "batch", "layer" (over channels) or "none"
+    feature_map_normalization: "batch"
+
 RegionProposal:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
-    # No run name token, can change on resume.
-    batch_normalization_momentum: 0.1
+  # "joint" (one top-k and NMS over all the levels) or "per_level" (top-k and NMS of every level, then the best
+  # over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per level.
+  proposal_selection: "per_level"
+  # "cell_corners" (anchor centres at column x stride, as torchvision) or "cell_centres" ((column + 0.5) x stride,
+  # where RoIAlign and the convolutions place the cells, the offset 0.5 of Detectron2).
+  anchor_centres: "cell_corners"
   training:
     # Top raw proposals kept per image before non-maximum suppression in training.
     pre_nms_proposals: 1000
@@ -308,14 +320,10 @@ RegionProposal:
     max: 0.3
   # IoU threshold of the non-maximum suppression of overlapping proposals.
   nms_iou_threshold: 0.7
-  # Assigns the best-overlapping anchors as foreground even below the minimum threshold.
-  strict_fallback_assignment: False
   # Positive foreground anchors sampled per image for the loss.
   number_training_positives: 128
   # Positive and negative anchors sampled per image.
   total_training_samples: 256
-  # Smooth L1 beta of the box regression loss.
-  localisation_loss_beta: 1/9
   # Region proposal heads of another DET or INS run initialising this one; levels, per-level region_proposal, anchors
   # per position, normalization and backbone channels must match (other scales or ratios only reported).
   pretrained:
@@ -332,9 +340,6 @@ Detector:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-    # Momentum of the batch normalization running statistics: 0.1 follows about the last 10 batches, 0.01 the last 100.
-    # No run name token, can change on resume.
-    batch_normalization_momentum: 0.1
 
   modules:
     # Residual nets (https://arxiv.org/abs/1512.03385)
@@ -356,13 +361,19 @@ Detector:
   foreground_iou_threshold: 0.5
   # IoU threshold of the final per-class non-maximum suppression.
   nms_iou_threshold: 0.5
+  # Criterion of the final NMS: "iou", or "distance_iou" (the IoU minus the normalized distance of the centres,
+  # https://arxiv.org/abs/1911.08287), compared with nms_iou_threshold.
+  nms_criterion: "iou"
+  # Exponent of the distance term of "distance_iou": 1.0 as in the paper, 0.6 in YOLOv4 (more boxes kept).
+  nms_distance_exponent: 1.0
   # Most positive proposals sampled per image; the ground truth boxes fill its last proposal slots first, so every
   # object has a positive to sample.
   number_training_positives: 64
   # Positive and negative proposals sampled per image.
   total_training_samples: 128
-  # Smooth L1 beta of the box regression loss.
-  localisation_loss_beta: 1/9
+  # Box loss of the positive proposals: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the
+  # decoded boxes, https://arxiv.org/abs/2005.03572).
+  box_loss: "smooth_l1"
   # Detection heads of another DET or INS run initialising this one; levels, per-level detectors, normalization, modules
   # and backbone channels must match; source classes (its data.json) first, in order, appended ones random.
   pretrained:
