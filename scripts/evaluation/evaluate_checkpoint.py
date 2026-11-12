@@ -4,9 +4,10 @@ labelled split) through vision_training.evaluation.checkpoint_evaluation.evaluat
 being built from the copied configuration, the results written to a separate evaluations folder and, when the tracking
 is on, tracked in an MLflow run of their own. The precisions targeted by the class thresholds can be replaced, e.g. by
 [0.99, 0.95, 0.90] to read the thresholds of a research report without training again; with the per-class report, a
-classifier gets its 'temperature_explorer.html', served by scripts/evaluation/serve_temperature_explorer.py to save the
-thresholds of the temperature of its export. The final non-maximum suppression of a detection run can be replaced, e.g.
-by DIoU-NMS for stage 5b of the detection benchmark, its evaluations going to an output subfolder of their own.
+classifier gets its 'temperature_explorer.html' and 'class_logits.npz', served by
+scripts/evaluation/serve_temperature_explorer.py to choose, save and export the temperature of the checkpoint. The
+final non-maximum suppression of a detection run can be replaced, e.g. by DIoU-NMS for stage 5b of the detection
+benchmark, its evaluations going to an output subfolder of their own.
 """
 
 from pathlib import Path

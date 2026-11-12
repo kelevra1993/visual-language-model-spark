@@ -32,8 +32,11 @@ from vision_training.evaluation.classification.confusion_matrix import (save_con
 from vision_training.evaluation.classification.score_curves import (compute_class_score_curves,
                                                                      compute_macro_curve_metrics,
                                                                      save_score_curve_images)
-from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
-from vision_training.evaluation.classification.temperature_explorer import save_temperature_explorer
+from vision_training.evaluation.classification.threshold_finder import (build_class_thresholds_file,
+                                                                        find_class_thresholds)
+from vision_training.evaluation.classification.temperature_explorer import (MAXIMUM_EXPLORER_CLASSES,
+                                                                            save_class_logits,
+                                                                            save_temperature_explorer)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
                                                          compute_clopper_pearson_intervals)
@@ -482,24 +485,6 @@ class ClassificationTrainer(BaseTrainer):
         """
         return []
 
-    def describe_class_thresholds(self, target_thresholds: List[Optional[Tuple[float, float]]]
-                                  ) -> Dict[str, Optional[Dict[str, float]]]:
-        """
-        Describes the thresholds of one target precision in 'class_thresholds.json', keyed by class name, so that the
-        deployment (and a research report) reads the threshold of every class with the recall it keeps.
-
-        Args:
-            target_thresholds (List[Optional[Tuple[float, float]]]): The threshold and recall of every class at the
-                target precision, None for a class never reaching it.
-
-        Returns:
-            Dict[str, Optional[Dict[str, float]]]: The 'threshold' and 'recall' of every class, None for a class never
-                reaching the target precision.
-        """
-        return {class_name: None if class_threshold is None else
-                {"threshold": class_threshold[0], "recall": class_threshold[1]}
-                for class_name, class_threshold in zip(self.class_names, target_thresholds)}
-
     def describe_prediction(self, probabilities: torch.Tensor, label: torch.Tensor) -> Dict[str, Any]:
         """
         Describes the prediction of one evaluated sample (or frame) in the predictions file: its true and predicted
@@ -661,12 +646,9 @@ class ClassificationTrainer(BaseTrainer):
         class_thresholds = [find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
                                                   target_precision=target_precision)
                             for target_precision in self.target_precisions]
-        target_descriptions = [{"target_precision": target_precision,
-                                "classes": self.describe_class_thresholds(target_thresholds=target_thresholds)}
-                               for target_precision, target_thresholds in zip(self.target_precisions, class_thresholds)]
-        thresholds_file = {"logit_temperature": 1.0, **target_descriptions[0]}
-        if len(target_descriptions) > 1:
-            thresholds_file["additional_targets"] = target_descriptions[1:]
+        thresholds_file = build_class_thresholds_file(class_names=self.class_names,
+                                                      target_precisions=self.target_precisions,
+                                                      target_thresholds=class_thresholds, logit_temperature=1.0)
         thresholds_path = evaluation_folder / "class_thresholds.json"
         thresholds_path.write_text(data=json.dumps(obj=thresholds_file, indent=4))
         files["Class Thresholds"] = thresholds_path
@@ -715,6 +697,14 @@ class ClassificationTrainer(BaseTrainer):
                 class_names=self.class_names, output_mode=self.output_mode, target_precisions=self.target_precisions,
                 class_f1_scores=metrics["f1"], output_folder=evaluation_folder,
                 title=f"Iteration {iteration}{weights_description}")
+            # Logits kept next to the page up to MAXIMUM_EXPLORER_CLASSES classes, so that the serve script shows any
+            # temperature and saves its thresholds with the page code of the day, without evaluating again
+            if number_classes <= MAXIMUM_EXPLORER_CLASSES:
+                files["Class Logits"] = save_class_logits(
+                    class_logits=torch.cat(tensors=accumulator["logits"], dim=0), labels=labels,
+                    class_names=self.class_names, output_mode=self.output_mode,
+                    target_precisions=self.target_precisions, class_f1_scores=metrics["f1"],
+                    output_folder=evaluation_folder, title=f"Iteration {iteration}{weights_description}")
 
         # Predictions of every evaluated sample, when asked
         if self.save_predictions:

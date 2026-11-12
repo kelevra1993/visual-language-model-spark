@@ -3,24 +3,29 @@ Temperature explorer of the classification evaluation: the class logits of the t
 temperature of a grid, giving for each the distribution of the probability of every class over its images and over the
 other images, the thresholds and recalls of the target precisions, and the calibration of the probabilities (negative
 log likelihood, calibration error, reliability), written as the self-contained page 'temperature_explorer.html' in the
-evaluation folder of the checkpoint. Written by the classification trainer with the per-class report, to choose the
-temperature of the export: the save button of the page, served by scripts/evaluation/serve_temperature_explorer.py,
-writes the thresholds of the chosen temperature to 'saved_temperature_thresholds.json' (checked here against
-class_thresholds.json), which vision_training/deployment/export_model.py builds into the exported classifier.
+evaluation folder of the checkpoint, next to the logits themselves ('class_logits.npz'). Written by the classification
+trainer with the per-class report, to choose the temperature of the export:
+scripts/evaluation/serve_temperature_explorer.py serves the page again from the logits with the current template,
+shows any temperature, saves the thresholds of the chosen one to 'saved_temperature_thresholds.json' (checked here
+against class_thresholds.json), and exports the classifier with that temperature
+(vision_training/deployment/explorer_export.py).
 """
 
 import json
 import math
+import numpy as np
+import re
 import torch
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
+from vision_training.evaluation.classification.threshold_finder import (build_class_thresholds_file,
+                                                                        find_class_thresholds)
 from vision_training.losses.classification_losses import compute_classification_loss, convert_logits_to_probabilities
 
-# Temperatures of the slider of the page, round values to choose a temperature from, the evaluated temperature and the
-# calibrated one being added to them
+# Temperatures of the slider of the page, round values to choose a temperature from, the calibrated one being added to
+# them (and, on a served page, every temperature typed in)
 TEMPERATURE_GRID = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0,
                     7.0, 8.0, 9.0, 10.0]
 
@@ -40,11 +45,16 @@ MAXIMUM_EXPLORER_CLASSES = 100
 TEMPLATE_PATH = Path(__file__).absolute().parent / "temperature_explorer_template.html"
 DATA_PLACEHOLDER = "__EXPLORER_DATA__"
 EXPLORER_FILE_NAME = "temperature_explorer.html"
+EXPLORER_DATA_PATTERN = re.compile(pattern=r'<script id="explorer-data" type="application/json">(.*?)</script>',
+                                   flags=re.DOTALL)
+
+# Logits of the evaluated test samples with what the page needs to be built again, written next to the page up to
+# MAXIMUM_EXPLORER_CLASSES classes
+CLASS_LOGITS_FILE_NAME = "class_logits.npz"
 
 # Thresholds of the temperature chosen on the page, in the format of class_thresholds.json, written next to the page by
-# the route of scripts/evaluation/serve_temperature_explorer.py its save button posts to, and read by the export
+# scripts/evaluation/serve_temperature_explorer.py and read by the export
 SAVED_THRESHOLDS_FILE_NAME = "saved_temperature_thresholds.json"
-SAVE_THRESHOLDS_ROUTE = "/save_temperature_thresholds"
 
 
 def compute_negative_log_likelihood(class_logits: torch.Tensor, labels: torch.Tensor, output_mode: str,
@@ -145,6 +155,43 @@ def compute_calibration(probabilities: torch.Tensor, labels: torch.Tensor, outpu
             "mean_confidence": float(confidences.mean())}
 
 
+def compute_temperature_probabilities(class_logits: torch.Tensor, output_mode: str,
+                                      logit_temperature: float) -> torch.Tensor:
+    """
+    Computes the probabilities of the class logits divided by a temperature as the exported classifier does (float32
+    softmax, or sigmoid in multi-label mode, of the divided logits), then in float64, so that the histograms of the
+    page and the thresholds saved from it are found on the same probabilities.
+
+    Args:
+        class_logits (torch.Tensor): The [N, K] float32 class logits.
+        output_mode (str): "multi_class" or "multi_label".
+        logit_temperature (float): The temperature dividing the logits.
+
+    Returns:
+        torch.Tensor: The [N, K] float64 probabilities.
+    """
+    return convert_logits_to_probabilities(class_logits=class_logits / logit_temperature,
+                                           output_mode=output_mode).to(dtype=torch.float64)
+
+
+def build_positive_masks(labels: torch.Tensor, output_mode: str, number_classes: int) -> torch.Tensor:
+    """
+    Tells for every sample whether it belongs to every class, the positives of the histograms and thresholds of the
+    page: the one-hot labels of a single class per sample, the labels from 0.5 in multi-label mode.
+
+    Args:
+        labels (torch.Tensor): The [N] class indices, or the [N, K] multi-hot labels in multi-label mode.
+        output_mode (str): "multi_class" or "multi_label".
+        number_classes (int): The number of classes K.
+
+    Returns:
+        torch.Tensor: The [N, K] booleans.
+    """
+    if output_mode == "multi_class":
+        return torch.nn.functional.one_hot(input=labels, num_classes=number_classes).to(dtype=torch.bool)
+    return labels >= 0.5
+
+
 def describe_temperature(class_logits: torch.Tensor, labels: torch.Tensor, positive_masks: torch.Tensor,
                          output_mode: str, logit_temperature: float, target_precisions: List[float],
                          shown_class_indices: List[int]) -> Dict[str, Any]:
@@ -152,7 +199,7 @@ def describe_temperature(class_logits: torch.Tensor, labels: torch.Tensor, posit
     Describes the probabilities of the class logits divided by one temperature of the slider: their calibration, and for
     every drawn class the histograms of its probability over its images and over the other images, with its threshold
     and recall at every target precision, found by the function writing class_thresholds.json from probabilities
-    computed the same way as the evaluation (float32 softmax of the divided logits, then float64).
+    computed the same way as the export (compute_temperature_probabilities).
 
     Args:
         class_logits (torch.Tensor): The [N, K] float32 class logits.
@@ -168,8 +215,8 @@ def describe_temperature(class_logits: torch.Tensor, labels: torch.Tensor, posit
             the 'classes' list holding for every drawn class its 'positive_counts' and 'negative_counts' per score bin
             and its [threshold, recall] at every target precision ('thresholds', None when not reached).
     """
-    probabilities = convert_logits_to_probabilities(class_logits=class_logits / logit_temperature,
-                                                    output_mode=output_mode).to(dtype=torch.float64)
+    probabilities = compute_temperature_probabilities(class_logits=class_logits, output_mode=output_mode,
+                                                      logit_temperature=logit_temperature)
     shown_probabilities = probabilities[:, shown_class_indices]
     shown_masks = positive_masks[:, shown_class_indices]
 
@@ -198,6 +245,79 @@ def describe_temperature(class_logits: torch.Tensor, labels: torch.Tensor, posit
             "classes": classes}
 
 
+def build_explorer_data(class_logits: torch.Tensor, labels: torch.Tensor, class_names: List[str], output_mode: str,
+                        target_precisions: List[float], class_f1_scores: List[float],
+                        title: Optional[str]) -> Dict[str, Any]:
+    """
+    Builds the data of the temperature explorer page of an evaluated checkpoint: the description of every temperature
+    of the slider (the grid from 0.5 to 10 and the calibrated temperature), with the drawn classes, the lowest F1 first
+    like the per-class table of the report, at most MAXIMUM_EXPLORER_CLASSES of them, the save button needing all of
+    them. Written into the page by the evaluation, and built again from 'class_logits.npz' by the serve script.
+
+    Args:
+        class_logits (torch.Tensor): The [N, K] float32 class logits of the evaluated test samples.
+        labels (torch.Tensor): The [N] class indices, or the [N, K] multi-hot labels in multi-label mode.
+        class_names (List[str]): The class names, in class index order.
+        output_mode (str): "multi_class" or "multi_label".
+        target_precisions (List[float]): The precisions targeted by the class thresholds, the main one first.
+        class_f1_scores (List[float]): The F1 of every class, in class index order, ordering the drawn classes.
+        title (Optional[str]): The title of the evaluation shown by the page, e.g. 'Iteration 800', or None.
+
+    Returns:
+        Dict[str, Any]: The data of the page.
+
+    Raises:
+        ValueError: If no test sample was evaluated.
+    """
+    if len(class_logits) == 0:
+        raise ValueError("The temperature explorer needs at least one evaluated test sample.")
+
+    # Classes of every sample, and the drawn classes, the lowest F1 first like the per-class table of the report
+    number_classes = class_logits.shape[1]
+    positive_masks = build_positive_masks(labels=labels, output_mode=output_mode, number_classes=number_classes)
+    shown_class_indices = sorted(range(number_classes),
+                                 key=lambda class_index: class_f1_scores[class_index])[:MAXIMUM_EXPLORER_CLASSES]
+
+    # Temperatures of the slider: the grid and the calibrated temperature with 3 significant digits
+    calibrated_temperature = find_calibrated_temperature(class_logits=class_logits, labels=labels,
+                                                         output_mode=output_mode)
+    calibrated_temperature = float(f"{calibrated_temperature:.3g}")
+    temperatures = sorted(set(TEMPERATURE_GRID + [calibrated_temperature]))
+
+    # Data of the page, the description of every temperature of the slider, with the class index of every drawn class
+    # and the file of its save button, offered when every class is drawn
+    return {"title": title, "output_mode": output_mode, "number_samples": len(class_logits),
+            "number_classes": number_classes, "class_indices": shown_class_indices,
+            "class_names": [class_names[class_index] for class_index in shown_class_indices],
+            "positives": [int(positive_masks[:, class_index].sum()) for class_index in shown_class_indices],
+            "all_classes_shown": len(shown_class_indices) == number_classes,
+            "saved_file_name": SAVED_THRESHOLDS_FILE_NAME, "target_precisions": target_precisions,
+            "calibrated_temperature": calibrated_temperature, "number_score_bins": NUMBER_SCORE_BINS,
+            "number_calibration_bins": NUMBER_CALIBRATION_BINS,
+            "states": [describe_temperature(class_logits=class_logits, labels=labels, positive_masks=positive_masks,
+                                            output_mode=output_mode, logit_temperature=temperature,
+                                            target_precisions=target_precisions,
+                                            shown_class_indices=shown_class_indices)
+                       for temperature in temperatures]}
+
+
+def render_explorer_page(explorer_data: Dict[str, Any]) -> str:
+    """
+    Fills the current template of the page with the data of an evaluation, for the page written by the evaluation and
+    for the page served again by the serve script.
+
+    Args:
+        explorer_data (Dict[str, Any]): The data of the page (build_explorer_data), with the fields of the serve script
+            on a served page.
+
+    Returns:
+        str: The HTML of the page.
+    """
+    # The data inserted into the page as JSON, a class name holding '</' being unable to close its script element
+    explorer_json = json.dumps(obj=explorer_data).replace("</", "<\\/")
+    return TEMPLATE_PATH.read_text().replace(DATA_PLACEHOLDER, explorer_json)
+
+
 def save_temperature_explorer(class_logits: torch.Tensor, labels: torch.Tensor, class_names: List[str],
                               output_mode: str, target_precisions: List[float], class_f1_scores: List[float],
                               output_folder: Path, title: Optional[str]) -> Path:
@@ -205,10 +325,9 @@ def save_temperature_explorer(class_logits: torch.Tensor, labels: torch.Tensor, 
     Writes 'temperature_explorer.html' in the evaluation folder of a checkpoint: a self-contained page whose slider
     divides the class logits of the test split by temperatures from 0.5 to 10 (with the calibrated temperature),
     showing for every temperature the calibration of the probabilities and, for every class, the distribution of its
-    probability over its images and the other images with its thresholds and recalls at the target precisions. The
-    logits are computed once by the evaluation, every temperature being computed here, so that the temperature of the
-    export can be chosen, and its thresholds saved by the button of the page, without evaluating again. The classes are
-    drawn the lowest F1 first, at most MAXIMUM_EXPLORER_CLASSES of them, the save button needing all of them.
+    probability over its images and the other images with its thresholds and recalls at the target precisions
+    (build_explorer_data). Opened as a plain file, its save button downloads the thresholds of the temperature shown;
+    the serve script builds it again with any temperature from 'class_logits.npz'.
 
     Args:
         class_logits (torch.Tensor): The [N, K] float32 class logits of the evaluated test samples.
@@ -226,47 +345,208 @@ def save_temperature_explorer(class_logits: torch.Tensor, labels: torch.Tensor, 
     Raises:
         ValueError: If no test sample was evaluated.
     """
-    if len(class_logits) == 0:
-        raise ValueError("The temperature explorer needs at least one evaluated test sample.")
-
-    # Classes of every sample, and the drawn classes, the lowest F1 first like the per-class table of the report
-    number_classes = class_logits.shape[1]
-    if output_mode == "multi_class":
-        positive_masks = torch.nn.functional.one_hot(input=labels, num_classes=number_classes).to(dtype=torch.bool)
-    else:
-        positive_masks = labels >= 0.5
-    shown_class_indices = sorted(range(number_classes),
-                                 key=lambda class_index: class_f1_scores[class_index])[:MAXIMUM_EXPLORER_CLASSES]
-
-    # Temperatures of the slider: the grid and the calibrated temperature with 3 significant digits
-    calibrated_temperature = find_calibrated_temperature(class_logits=class_logits, labels=labels,
-                                                         output_mode=output_mode)
-    calibrated_temperature = float(f"{calibrated_temperature:.3g}")
-    temperatures = sorted(set(TEMPERATURE_GRID + [calibrated_temperature]))
-
-    # Data of the page, the description of every temperature of the slider, with the class index of every drawn class
-    # and the file and route of its save button, offered when every class is drawn
-    explorer_data = {"title": title, "output_mode": output_mode, "number_samples": len(class_logits),
-                     "number_classes": number_classes, "class_indices": shown_class_indices,
-                     "class_names": [class_names[class_index] for class_index in shown_class_indices],
-                     "positives": [int(positive_masks[:, class_index].sum()) for class_index in shown_class_indices],
-                     "all_classes_shown": len(shown_class_indices) == number_classes,
-                     "saved_file_name": SAVED_THRESHOLDS_FILE_NAME, "save_route": SAVE_THRESHOLDS_ROUTE,
-                     "target_precisions": target_precisions,
-                     "calibrated_temperature": calibrated_temperature, "number_score_bins": NUMBER_SCORE_BINS,
-                     "number_calibration_bins": NUMBER_CALIBRATION_BINS,
-                     "states": [describe_temperature(class_logits=class_logits, labels=labels,
-                                                     positive_masks=positive_masks, output_mode=output_mode,
-                                                     logit_temperature=temperature,
-                                                     target_precisions=target_precisions,
-                                                     shown_class_indices=shown_class_indices)
-                                for temperature in temperatures]}
-
-    # The data inserted into the page as JSON, a class name holding '</' being unable to close its script element
-    explorer_json = json.dumps(obj=explorer_data).replace("</", "<\\/")
+    explorer_data = build_explorer_data(class_logits=class_logits, labels=labels, class_names=class_names,
+                                        output_mode=output_mode, target_precisions=target_precisions,
+                                        class_f1_scores=class_f1_scores, title=title)
     explorer_path = output_folder / EXPLORER_FILE_NAME
-    explorer_path.write_text(data=TEMPLATE_PATH.read_text().replace(DATA_PLACEHOLDER, explorer_json))
+    explorer_path.write_text(data=render_explorer_page(explorer_data=explorer_data))
     return explorer_path
+
+
+def save_class_logits(class_logits: torch.Tensor, labels: torch.Tensor, class_names: List[str], output_mode: str,
+                      target_precisions: List[float], class_f1_scores: List[float], output_folder: Path,
+                      title: Optional[str]) -> Path:
+    """
+    Writes 'class_logits.npz' next to the temperature explorer of an evaluated checkpoint: the logits of the test
+    samples with everything the page is built from (load_class_logits), so that the serve script builds the page again
+    with the template of the day, describes any temperature and finds the thresholds of every class at the chosen one,
+    without evaluating the checkpoint again. About 0.3 MB for 40,000 images of 2 classes; the classification trainer
+    writes it up to MAXIMUM_EXPLORER_CLASSES classes.
+
+    Args:
+        class_logits (torch.Tensor): The [N, K] float32 class logits of the evaluated test samples.
+        labels (torch.Tensor): The [N] class indices, or the [N, K] multi-hot labels in multi-label mode.
+        class_names (List[str]): The class names, in class index order.
+        output_mode (str): "multi_class" or "multi_label".
+        target_precisions (List[float]): The precisions targeted by the class thresholds, the main one first.
+        class_f1_scores (List[float]): The F1 of every class, in class index order, ordering the drawn classes.
+        output_folder (Path): The evaluation folder of the checkpoint.
+        title (Optional[str]): The title of the evaluation shown by the page, e.g. 'Iteration 800', or None.
+
+    Returns:
+        Path: The written file.
+
+    Raises:
+        ValueError: If no test sample was evaluated, or the logits do not hold one column per class.
+    """
+    if len(class_logits) == 0 or class_logits.shape[1] != len(class_names):
+        raise ValueError(f"Expected the logits of at least one sample and {len(class_names)} classes, got "
+                         f"{tuple(class_logits.shape)}.")
+
+    # Plain arrays only (strings as unicode arrays), so that the file is read back without pickle, a title of None
+    # being written as an empty string
+    logits_path = output_folder / CLASS_LOGITS_FILE_NAME
+    np.savez(file=logits_path, class_logits=class_logits.to(dtype=torch.float32).numpy(),
+             labels=labels.numpy(), class_names=np.array(class_names, dtype=str), output_mode=np.array(output_mode),
+             target_precisions=np.array(target_precisions, dtype=np.float64),
+             class_f1_scores=np.array(class_f1_scores, dtype=np.float64), title=np.array(title or ""))
+    return logits_path
+
+
+def load_class_logits(evaluation_folder: Path) -> Dict[str, Any]:
+    """
+    Reads the 'class_logits.npz' of an evaluated checkpoint, written by save_class_logits, for the page and the
+    thresholds the serve script builds from it.
+
+    Args:
+        evaluation_folder (Path): The evaluation folder of the checkpoint.
+
+    Returns:
+        Dict[str, Any]: The 'class_logits' ([N, K] float32 tensor), the 'labels' tensor, the 'class_names',
+            'output_mode', 'target_precisions', 'class_f1_scores' and 'title' (None when written empty).
+
+    Raises:
+        FileNotFoundError: If the folder holds no class logits.
+        ValueError: If the file misses one of its arrays.
+    """
+    logits_path = evaluation_folder / CLASS_LOGITS_FILE_NAME
+    if not logits_path.is_file():
+        raise FileNotFoundError(f"No {CLASS_LOGITS_FILE_NAME} in {evaluation_folder}: it is written by the "
+                                f"classification evaluations with evaluation.per_class_report, up to "
+                                f"{MAXIMUM_EXPLORER_CLASSES} classes.")
+    with np.load(file=logits_path, allow_pickle=False) as arrays:
+        expected_arrays = {"class_logits", "labels", "class_names", "output_mode", "target_precisions",
+                           "class_f1_scores", "title"}
+        if set(arrays.files) != expected_arrays:
+            raise ValueError(f"Expected the arrays {sorted(expected_arrays)} in {logits_path}, got "
+                             f"{sorted(arrays.files)}.")
+        title = str(arrays["title"])
+        return {"class_logits": torch.from_numpy(arrays["class_logits"]),
+                "labels": torch.from_numpy(arrays["labels"]),
+                "class_names": [str(class_name) for class_name in arrays["class_names"]],
+                "output_mode": str(arrays["output_mode"]),
+                "target_precisions": [float(target_precision) for target_precision in arrays["target_precisions"]],
+                "class_f1_scores": [float(class_f1_score) for class_f1_score in arrays["class_f1_scores"]],
+                "title": title if title else None}
+
+
+def build_explorer_data_from_logits(class_logits_record: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Builds the data of the page of an evaluated checkpoint from its 'class_logits.npz', as the evaluation built it,
+    for the page served by the serve script.
+
+    Args:
+        class_logits_record (Dict[str, Any]): The class logits of the evaluation (load_class_logits).
+
+    Returns:
+        Dict[str, Any]: The data of the page.
+    """
+    return build_explorer_data(class_logits=class_logits_record["class_logits"],
+                               labels=class_logits_record["labels"], class_names=class_logits_record["class_names"],
+                               output_mode=class_logits_record["output_mode"],
+                               target_precisions=class_logits_record["target_precisions"],
+                               class_f1_scores=class_logits_record["class_f1_scores"],
+                               title=class_logits_record["title"])
+
+
+def describe_explorer_temperature(class_logits_record: Dict[str, Any], shown_class_indices: List[int],
+                                  logit_temperature: float) -> Dict[str, Any]:
+    """
+    Describes one more temperature of the page of an evaluated checkpoint from its class logits, a temperature typed
+    on the served page, in the format of the temperatures of its slider.
+
+    Args:
+        class_logits_record (Dict[str, Any]): The class logits of the evaluation (load_class_logits).
+        shown_class_indices (List[int]): The indices of the classes drawn by the page, in their order on the page.
+        logit_temperature (float): The temperature dividing the logits.
+
+    Returns:
+        Dict[str, Any]: The description of the temperature (describe_temperature).
+    """
+    class_logits = class_logits_record["class_logits"]
+    positive_masks = build_positive_masks(labels=class_logits_record["labels"],
+                                          output_mode=class_logits_record["output_mode"],
+                                          number_classes=class_logits.shape[1])
+    return describe_temperature(class_logits=class_logits, labels=class_logits_record["labels"],
+                                positive_masks=positive_masks, output_mode=class_logits_record["output_mode"],
+                                logit_temperature=logit_temperature,
+                                target_precisions=class_logits_record["target_precisions"],
+                                shown_class_indices=shown_class_indices)
+
+
+def compute_temperature_thresholds(class_logits_record: Dict[str, Any], logit_temperature: float) -> Dict[str, Any]:
+    """
+    Finds the threshold of every class at every target precision of an evaluated checkpoint at a temperature, from its
+    class logits, in the format of class_thresholds.json: the thresholds the serve script saves for the export, found
+    on the probabilities of the page (compute_temperature_probabilities), so that the saved file holds exactly the
+    thresholds the page shows at that temperature, for every class.
+
+    Args:
+        class_logits_record (Dict[str, Any]): The class logits of the evaluation (load_class_logits).
+        logit_temperature (float): The temperature dividing the logits.
+
+    Returns:
+        Dict[str, Any]: The thresholds of every class at the temperature.
+    """
+    class_logits = class_logits_record["class_logits"]
+    probabilities = compute_temperature_probabilities(class_logits=class_logits,
+                                                      output_mode=class_logits_record["output_mode"],
+                                                      logit_temperature=logit_temperature)
+    positive_masks = build_positive_masks(labels=class_logits_record["labels"],
+                                          output_mode=class_logits_record["output_mode"],
+                                          number_classes=class_logits.shape[1])
+    target_thresholds = [find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
+                                               target_precision=target_precision)
+                         for target_precision in class_logits_record["target_precisions"]]
+    return build_class_thresholds_file(class_names=class_logits_record["class_names"],
+                                       target_precisions=class_logits_record["target_precisions"],
+                                       target_thresholds=target_thresholds, logit_temperature=logit_temperature)
+
+
+def read_explorer_page_data(explorer_path: Path) -> Dict[str, Any]:
+    """
+    Reads the data written into a temperature explorer page, for the evaluations without class logits (written before
+    them, or of more than MAXIMUM_EXPLORER_CLASSES classes), whose page the serve script fills again with the current
+    template, its temperatures being those of the written page.
+
+    Args:
+        explorer_path (Path): The written page.
+
+    Returns:
+        Dict[str, Any]: The data of the page.
+
+    Raises:
+        ValueError: If the page holds no data, or was written before the save button (no class indices).
+    """
+    match = EXPLORER_DATA_PATTERN.search(string=explorer_path.read_text())
+    if match is None:
+        raise ValueError(f"No explorer data in {explorer_path}.")
+    explorer_data = json.loads(s=match.group(1).replace("<\\/", "</"))
+    if "class_indices" not in explorer_data or "all_classes_shown" not in explorer_data:
+        raise ValueError(f"{explorer_path} was written before the save button of the page: evaluate its checkpoint "
+                         f"again with scripts/evaluation/evaluate_checkpoint.py.")
+    return explorer_data
+
+
+def check_logit_temperature(logit_temperature: Any) -> float:
+    """
+    Checks a temperature typed on the served page or posted to the serve script: a finite number within
+    CALIBRATION_TEMPERATURE_RANGE, the range of the calibrated temperature.
+
+    Args:
+        logit_temperature (Any): The temperature, read from JSON or from the address of the request.
+
+    Returns:
+        float: The temperature.
+
+    Raises:
+        ValueError: If the temperature is not a number within the range.
+    """
+    lower_bound, upper_bound = CALIBRATION_TEMPERATURE_RANGE
+    if not is_json_number(value=logit_temperature) or not lower_bound <= logit_temperature <= upper_bound:
+        raise ValueError(f"Expected a logit temperature from {lower_bound:g} to {upper_bound:g}, got "
+                         f"{logit_temperature!r}.")
+    return float(logit_temperature)
 
 
 def is_json_number(value: Any) -> bool:

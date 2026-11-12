@@ -15,6 +15,9 @@ from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.evaluation.classification.temperature_explorer import (build_explorer_data_from_logits,
+                                                                            load_class_logits,
+                                                                            read_explorer_page_data)
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
@@ -153,9 +156,15 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     # Files of the evaluated checkpoint, the per-class scalars of the curves following the defined metrics of the file
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
-        "precision_recall_curves.png", "precision_recall_thresholds.png", "predictions.csv", "roc_curves.png",
-        "temperature_explorer.html"]
+        "Samples", "class_logits.npz", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv",
+        "confusion_matrix.png", "precision_recall_curves.png", "precision_recall_thresholds.png", "predictions.csv",
+        "roc_curves.png", "temperature_explorer.html"]
+    # The class logits next to the page, of the 6 test images, give the data of the page back
+    class_logits_record = load_class_logits(evaluation_folder=evaluation_folder)
+    assert tuple(class_logits_record["class_logits"].shape) == (6, len(trainer.class_names))
+    assert (class_logits_record["class_names"], class_logits_record["title"]) == (trainer.class_names, "Iteration 4")
+    assert build_explorer_data_from_logits(class_logits_record=class_logits_record) == read_explorer_page_data(
+        explorer_path=evaluation_folder / "temperature_explorer.html")
     class_rows = check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names,
                                           number_samples=6, per_class_report=True, additional_target_precisions=[0.1])
     assert len(results["class_scalars"]) == 3 * len(trainer.class_names) + sum(
