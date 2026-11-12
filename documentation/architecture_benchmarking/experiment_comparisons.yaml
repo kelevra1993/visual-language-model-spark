@@ -515,3 +515,17 @@ comparisons:
     kept: "batch"
     verdict: "batch kept (tie): layer 0.7969 against 0.8079 at 15,000 (-0.0110, within the launch gap 0.0284 of run_19 and run_20); with a third launch of each, the best two layer launches 0.7545 against 0.7585 at 8000 (-0.0041, within the launch gap 0.0064), the three layer launches spreading 0.0814 at 3000 and 0.0338 at 8000 against 0.0139 and 0.0122 for batch; the user closed the stage at 8000 on batch for its stability, none not trained."
     notes: "run_9 and run_10 are the reference, reused without training; run_10b and run_20b, third launches started on 2026-11-11, were stopped by the user at 15:58 the same day (iterations 8778 and 8637, evaluations up to 8500), so the stage is compared at 8000, where the figure marks it, and the mean curves of the figure end at 8500. run_10b shares the setting columns of run_9 and run_10, whose mean rows therefore average run_10b in up to 8500. The figure shows the mean of the three launches; the plan compares the mean of the best two of three (run_9 and run_10b, run_19 and run_20b at 8000). The mAP@0.75, mAP@0.95, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "7"
+    title: Proposal Selection
+    plan_lines: "196-218"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "joint", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
+      - {label: "per_level", launches: [run_21, run_22], reference: false, trained_as_averaged: false}
+    kept: "per_level"
+    verdict: "per_level kept: 0.8183 against 0.8079 at 15,000 (+0.0104, beyond the launch gap 0.0065 of run_21 and run_22), its trained weights +0.0113, ahead on every object size (small +0.0174) and IoU threshold, a tie by the rule up to 8500 and a win at every evaluation from 9000 on; set in the object detection configurations and run-1.yaml, the instance segmentation and workflow run configurations keeping joint."
+    notes: "run_9 and run_10 are the reference, reused without training. run_10b shares their setting columns, so the joint mean rows of the CSV average it in up to 8500, while the figure averages the launches of the arms. run_13 to run_16, trained before the setting existed, got proposal_selection 'joint' in their run folder configurations so that the results could be collected again. The object size, mAP@0.75, mAP@0.95, proposal and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."

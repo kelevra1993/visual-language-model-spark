@@ -12,6 +12,7 @@
 - [Tests](#tests)
 - [Stage 7 Protocol](#stage-7-protocol)
 - [Preview And Export Checks](#preview-and-export-checks)
+- [Stage 7 Result](#stage-7-result)
 - [Left Out](#left-out)
 
 ## Purpose
@@ -130,6 +131,9 @@ Before the pair trains, these runs of 2026-11-11 show what the selection changes
 - The gain, 0.0018, is below the gap between run_9 and run_10 (0.0038); the large objects gain the most (+0.0038), mAP@0.95 loses 0.0048. Whether training with the selection changes more is what run_21 and run_22 measure.
 
 **Export.** `export_experiment` exported the same averaged weights with `"per_level"` to TorchScript and ONNX (GPU, dynamic batch up to 16), each export matching the eager model on its random batches. On 4 test_10000 images with the final DIoU-NMS 0.6 of the object detection configurations, the evaluation path, `InferenceDetector`, the TorchScript file and ONNX Runtime gave the same detections (12, 11, 11 and 6 per image, 0 differences at 1e-2 pixel and 1e-3 in score), while `"joint"` gave different ones on 3 of the 4 images, so the exported graphs run the per-level selection. With the greedy final NMS of run_9, the TorchScript export matched, but the dynamo ONNX export stopped on a guard of `batched_nms` (`batch <= 20/7`): the exports give it every pair of the 250 proposals and 35 classes, 35,000 coordinates per image, above the 100,000 of `torchvision/ops/boxes.py:86` from 3 images on. The code of the base commit (0f2f6ed, before the setting) stops the same way on the same checkpoint, so this limit predates the selection and does not depend on it.
+
+## Stage 7 Result
+Should you need the outcome of the protocol, run_21 and run_22 trained with `"per_level"` from 2026-11-11 at 23:10 and reached 0.8183 against 0.8079 for run_9 and run_10 at 15,000 (`Test_EMA` mAP@[0.5:0.95], +0.0104, beyond the launch gap 0.0065 of run_21 and run_22), ahead on every object size and IoU threshold, every inference slot filled, and in about the same time (13.98 and 14.11 hours against 14.43 and 14.48). On 2026-11-12 the user kept `"per_level"` in the object detection configurations and `run-1.yaml`, the base of the later stages; the instance segmentation configurations and the workflow run configurations keep `"joint"`. Tables, curves and the figure are in stage 7 of `documentation/architecture_benchmarking/object_detection_experiment_plan.md`.
 
 ## Left Out
 In case a later stage needs them, these parts of the references are not taken:

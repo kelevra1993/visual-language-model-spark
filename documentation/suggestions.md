@@ -129,14 +129,16 @@
      (`add_ground_truth_proposals`); they would follow the same rule.
    - The export already runs the mask head of every level on every detection and selects per detection with
      `torch.where` (`inference_instance_segmenter.py`). Only the selector would change.
-3. **NMS per level in the proposal filter, implemented as `RegionProposal.proposal_selection: "per_level"`, off in
-   every configuration, compared by stage 7** (`documentation/detection_proposal_selection_design.md`): the top-k and
-   the NMS of every level on its own, then the best survivors over all the levels, so that one strong level does not
-   suppress the proposals of the others (audit M3). Mask R-CNN does not do this either: it runs one top-k and one
-   NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level) are
-   the reference. On the 15,000 checkpoint of run_9 (300 test images, 2026-11-11), level 4 keeps about 94 % of the
+3. **NMS per level in the proposal filter, `RegionProposal.proposal_selection: "per_level"`, kept by stage 7 (+0.0104)
+   and set in the object detection configurations** (`documentation/detection_proposal_selection_design.md`): the
+   top-k and the NMS of every level on its own, then the best survivors over all the levels, so that one strong level
+   does not suppress the proposals of the others (audit M3). Mask R-CNN does not do this either: it runs one top-k and
+   one NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level)
+   are the reference. On the 15,000 checkpoint of run_9 (300 test images, 2026-11-11), level 4 keeps about 94 % of the
    slots with both selections: per level, every slot is filled (222.5 of 250 jointly at inference) and the recall of
-   the proposals at an IoU of 0.7 gains 0.1 to 0.2 points.
+   the proposals at an IoU of 0.7 gains 0.1 to 0.2 points. Trained with it, run_21 and run_22 reached 0.8183 against
+   0.8079 for run_9 and run_10 (stage 7 of `object_detection_experiment_plan.md`); instance segmentation keeps
+   `"joint"`.
 36. **A box loss on the overlap (CIoU), implemented, below the smooth L1 at stage 5, off in every configuration**
     (`Detector.box_loss`: `"complete_iou"`), stage 5 of `object_detection_experiment_plan.md`:
     - **Why:** the smooth L1 on the offsets gives the same loss to predictions of very different overlap and shrinks
@@ -890,8 +892,8 @@ committed): every image can be taken again from them without training, except wh
   - So the heads for large objects train on a handful of RoIs, and their batch-norm statistics are noisy.
 - **Fix:** take the pre-NMS top-k per level, run `batched_nms` with the level as the group index, then take the global
   top `post_nms`. Change both filters identically so they keep giving the same proposals.
-- **Status (2026-11-11):** implemented as `RegionProposal.proposal_selection: "per_level"` in `select_best_proposals`,
-  shared by both filters, `"joint"` in every configuration until stage 7 compares them (item 3).
+- **Status (2026-11-12):** implemented as `RegionProposal.proposal_selection: "per_level"` in `select_best_proposals`,
+  shared by both filters, kept by stage 7 (+0.0104) and set in the object detection configurations (item 3).
 
 #### M4. The two NMS thresholds look swapped in every DET and INS configuration *(changes DET numbers)*
 - **Where:** `RegionProposal.nms_iou_threshold: 0.5` and `Detector.nms_iou_threshold: 0.8` in the four YAMLs.
@@ -1106,10 +1108,10 @@ committed): every image can be taken again from them without training, except wh
     zero-area boxes.
   - In the training-model eval path (the test mAP), padding can duplicate them into false-positive detections.
 - **Fix:** mask boxes narrower or shorter than 1e-3 px after clamping, in both filters and in the postprocessing.
-- **Status (2026-11-11):** `RegionProposal.proposal_selection: "per_level"` leaves out the proposals narrower or
-  shorter than 1e-3 px, `"joint"` keeping them so that its runs stay unchanged. On the 15,000 checkpoint of run_9 (300
-  test images) no kept proposal and no final detection was empty (41 empty candidates of 1,200,000 per level in the
-  training counts, none kept), so the final detections get no filter.
+- **Status (2026-11-12):** `RegionProposal.proposal_selection: "per_level"`, in the object detection configurations
+  since stage 7, leaves out the proposals narrower or shorter than 1e-3 px, `"joint"` keeping them for its runs. On
+  the 15,000 checkpoint of run_9 (300 test images) no kept proposal and no final detection was empty (41 empty
+  candidates of 1,200,000 per level in the training counts, none kept), so the final detections get no filter.
 
 #### L8. DET boxes are only cleaned on augmented samples
 - **Where:** `clean_bounding_boxes` runs only in `augment_sample` (`augmentations.py:214-217`);

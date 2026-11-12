@@ -37,7 +37,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | `RegionProposal.background_iou_threshold.min` | 0.0 |
 | `Detector.normalization.feature_map_normalization` | batch |
 | Anchor centres | cell corners (audit L1 open) |
-| Proposal selection | `RegionProposal.proposal_selection: "joint"`, one top-k and one NMS over every level, zero-area boxes kept (`"per_level"` for audits M3 and L7, stage 7) |
+| Proposal selection | `RegionProposal.proposal_selection: "joint"`, one top-k and one NMS over every level, zero-area boxes kept (`"per_level"` for audits M3 and L7, kept by stage 7) |
 | Box loss | smooth L1 on the offsets, beta 1/9 (`Detector.box_loss: "smooth_l1"`, the region proposal network always using the smooth L1 since 2026-11-10) |
 | Neck | none |
 
@@ -53,8 +53,8 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 5 | Box loss (`suggestions.md` item 36) | smooth L1, CIoU in both stages, CIoU on the detection heads only | 15,000 | done, smooth L1 kept (CIoU -0.0092 and -0.0105), CIoU kept as the `Detector.box_loss` option |
 | 5b | Final NMS (`suggestions.md` item 38) | greedy, DIoU-NMS with the exponents 1.0 and 0.6, on test_10000 and an occlusion split | none, evaluation of the checkpoints of stage 5 | done, DIoU-NMS 0.6 kept (occlusion split +0.0034), exported and set in the object detection configurations |
 | 6 | `Detector.normalization.feature_map_normalization` | batch, layer (none not trained) | 15,000, the third launches 8000 | done, tie, batch kept (layer -0.0110 at 15,000, -0.0041 for the best two of three launches at 8000, its launches far more spread) |
-| 7 | `RegionProposal.proposal_selection` (audit M3, with L7) | joint, per_level | 15,000 | code ready, joint everywhere; preview of run_9 with per_level at inference only +0.0018; pair run_21, run_22 to launch |
-| 8 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | after stage 7, code |
+| 7 | `RegionProposal.proposal_selection` (audit M3, with L7) | joint, per_level | 15,000 | done, per_level kept (+0.0104, beyond the launch gap 0.0065), set in the object detection configurations and run-1.yaml |
+| 8 | Anchor centres (audit L1) | cell corners, cell centres | 15,000 | next, code |
 
 On 2026-11-07 the user reordered the stages after stage 2b by the gains the literature makes most likely (the neck, then the CIoU box loss, the detector normalization, the proposal selection per level and the anchor centres last). Every code stage is merged right before its pair, which trains against the reference kept so far on the earlier code, and is reverted when it is not better, a tie keeping the earlier code (the easy negatives of stage 2b, merged before run_7 and reverted after run_8, left the draws of a share of 0.0 unchanged). The path aggregation of stage 4 is the exception: before its end the user kept its code whatever the outcome, for projects with very small objects ("either way if PAN does not win we will not revert the implementation because i might have some projects that might have very smal ojbects"), so after its tie `Neck.type: "path_aggregation"` stays available while the later stages train with the feature pyramid. `RegionProposal.foreground_iou_threshold.max`, read by the checks but never by the model, is removed from the configuration files with the code of a later stage (no number changes). On 2026-11-08 the user added DIoU-NMS after the CIoU box loss ("Add diounms as something to be tested too. After ciou box loss"), as stage 5b, without renumbering the later stages.
 
@@ -193,14 +193,11 @@ Layer normalization cost no measurable time: run_19 and run_20 took 14.20 and 14
 
 ![Object detection, stage 6: Detector Normalization](figures/object_detection/stage_6_detector_normalization.png)
 
-### Stages 7 And 8: Proposal Selection, Anchor Centres
+### Stage 7: Proposal Selection (2 launches, done)
 
-Each pair trains against the reference kept so far (run_9 and run_10, batch normalization in the detection heads), two launches per value as before stage 6:
+Proposal selection per level (audit M3 with L7, `suggestions.md` item 3, design and sources in `documentation/detection_proposal_selection_design.md`): `RegionProposal.proposal_selection: "per_level"` takes the `pre_nms_proposals` best of every level, suppresses every level on its own, leaves out the proposals clamped to a box narrower than 1e-3 pixel, then keeps the `post_nms_proposals` best over all the levels, as torchvision and Detectron2, in the proposal filter and in `InferenceDetector` (`select_best_proposals`). `"joint"`, the selection of every earlier run, keeps their numbers; the final detections get no size filter, none measured on run_9 being empty. run_21 and run_22 trained with the settings of run_9 and run_10 (batch normalization in the detection heads) and `"per_level"` (run name token `RPL`), the driver getting `RegionProposal.proposal_selection` among its setting keys and swept settings. Level 7 had the lowest proposal recall at 0.5 of stage 1 (0.29, against 0.37 to 0.43 for levels 4 to 6).
 
-- **Stage 7, proposal selection per level (audit M3 with L7, `suggestions.md` item 3, design and sources in `documentation/detection_proposal_selection_design.md`):** `RegionProposal.proposal_selection: "per_level"` takes the `pre_nms_proposals` best of every level, suppresses every level on its own, leaves out the proposals clamped to a box narrower than 1e-3 pixel, then keeps the `post_nms_proposals` best over all the levels, as torchvision and Detectron2, in the proposal filter and in `InferenceDetector` (`select_best_proposals`). `"joint"`, the selection of every earlier run, stays in every configuration and keeps their numbers; the final detections get no size filter, none measured on run_9 being empty. run_21 and run_22 train with the settings of run_9 and run_10 and `"per_level"` (run name token `RPL`), the driver getting `RegionProposal.proposal_selection` among its setting keys and swept settings; the selection adds about 1 % to an iteration. Level 7 had the lowest proposal recall at 0.5 of stage 1 (0.29, against 0.37 to 0.43 for levels 4 to 6).
-- **Stage 8, anchor centres (audit L1, `suggestions.md`):** the anchors are centred on the cell corners (`anchors.py`, `shifts = arange(F) * stride`) while RoIAlign and the convolutions place the cells at their centres, a constant half-stride offset the regressor has to learn: `(arange(F) + 0.5) * stride`, in the training and in the export.
-
-So that the effect of the selection alone was known before the pair, the 15,000 checkpoint of run_9 (trained with `"joint"`) was evaluated again on test_10000 on 2026-11-11 with `"per_level"` at inference only and its greedy final NMS (`run_9/evaluations/<run name>_proposal_selection_per_level`). This is a preview, not the result of the stage, which run_21 and run_22 give:
+So that the effect of the selection alone was known before the pair, the 15,000 checkpoint of run_9 (trained with `"joint"`) was evaluated again on test_10000 on 2026-11-11 with `"per_level"` at inference only and its greedy final NMS (`run_9/evaluations/<run name>_proposal_selection_per_level`):
 
 | Selection at inference | Test_EMA mAP@[0.5:0.95] | Small / medium / large | Proposal recall at 0.5 / 0.7 | Proposals per image, levels 4 / 5 / 6 / 7 | Test (trained) |
 |---|---|---|---|---|---|
@@ -209,4 +206,17 @@ So that the effect of the selection alone was known before the pair, the 15,000 
 
 The 250 slots are all filled (224.8 jointly), and the share of the objects covered at 0.5 by a proposal of level 5 rises from 0.271 to 0.383, of level 6 from 0.271 to 0.405, of level 7 from 0.226 to 0.261. The gain is below the launch gap of run_9 and run_10 (0.0038). The same evaluation with `"joint"` gave 0.8098 again with the code of the stage and with that of the commit before it, the GPU evaluations differing by about 1e-5 from run to run. The exported TorchScript and ONNX files of the same weights with `"per_level"` gave the detections of the evaluation path on real test images (`detection_proposal_selection_design.md`, Preview And Export Checks).
 
-A pair trains in about 14.5 hours at 15,000 iterations (two launches side by side, test evaluations included), so stages 7 and 8 take two pairs, about 29 hours of training.
+run_21 and run_22 started on 2026-11-11 at 23:09:58 and 23:10:28 (`launch_runs_21_and_22_proposal_selection.py`), side by side, with 15,000 iterations. Per level won: 0.8183 against 0.8079 at 15,000 (+0.0104, beyond the launch gap 0.0065 of run_21 and run_22 and the 0.0038 of run_9 and run_10), its trained weights by +0.0113, on every object size (the small objects most, +0.0174) and every IoU threshold. The pair led at every evaluation, a tie by the rule up to 8500, its two launches lying further apart than the lead (0.0620 against 0.0665 at 1500, 0.0155 against 0.0160 at 8500), and a win at every evaluation from 9000 on; from 5500 on both launches with per level were above both with joint. All 250 slots were filled (220.5 jointly), levels 5 to 7 getting 6.1, 4.8 and 6.3 proposals per image against 3.6, 3.3 and 5.3, and the share of the objects covered at 0.5 by a proposal of level 5 rose from 0.274 to 0.390, of level 6 from 0.271 to 0.409. Trained with per level, the pair gained +0.0104, against +0.0018 for the weights of run_9 evaluated with it.
+
+| Selection | Launches | Test_EMA mAP@[0.5:0.95] at 15,000 | Pair | mAP@0.5 / 0.75 / 0.95, pair | Small / medium / large, pair | Proposal recall at 0.5 / 0.7, pair | Test (trained) pair |
+|---|---|---|---|---|---|---|---|
+| joint | run_9, run_10 | 0.8098, 0.8060 | 0.8079 | 0.9549 / 0.9250 / 0.1260 | 0.7103 / 0.8347 / 0.8274 | 0.9898 / 0.9736 | 0.7269 |
+| per level | run_21, run_22 | 0.8216, 0.8151 | 0.8183 (+0.0104) | 0.9625 / 0.9343 / 0.1338 | 0.7276 / 0.8397 / 0.8389 | 0.9931 / 0.9780 | 0.7383 (+0.0113) |
+
+The selection per level cost no measurable time: run_21 and run_22 took 13.98 and 14.11 hours from their first to their last iteration, against 14.43 and 14.48 for run_9 and run_10. On 2026-11-12 the user kept `"per_level"` in the object detection configurations and in `run-1.yaml`, the base of the later stages; the instance segmentation configurations (never trained with it) and the workflow run configurations (which produced the documented outputs) keep `"joint"`.
+
+![Object detection, stage 7: Proposal Selection](figures/object_detection/stage_7_proposal_selection.png)
+
+### Stage 8: Anchor Centres (next)
+
+The anchors are centred on the cell corners (`anchors.py`, `shifts = arange(F) * stride`) while RoIAlign and the convolutions place the cells at their centres, a constant half-stride offset the regressor has to learn: `(arange(F) + 0.5) * stride`, in the training and in the export (audit L1, `suggestions.md`). The pair trains against the reference kept so far, run_21 and run_22 (proposal selection per level), two launches per value, in about 14 hours at 15,000 iterations (two launches side by side, test evaluations included).
