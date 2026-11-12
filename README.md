@@ -458,7 +458,7 @@ Its settings and outputs: [tools reference](documentation/reference/tools_refere
 ## Deployment
 
 ### Exporting A Classifier From Its Temperature Explorer
-Suppose a classifier only reaches the precision you target above a threshold of 0.999: choose its logit temperature on the temperature explorer of its evaluation and export it from the same page. Start the server, then open `http://127.0.0.1:8090/`:
+Suppose a classifier only reaches the precision you target above a threshold of 0.999: choose its logit temperature on the temperature explorer of its evaluation and export it from the same page. Start the server, then open `http://127.0.0.1:8091/`:
 
 ```bash
 uv run python -m scripts.evaluation.serve_temperature_explorer

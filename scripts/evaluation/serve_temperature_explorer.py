@@ -564,7 +564,8 @@ if __name__ == "__main__":
     # 'experiments' (the runs, the evaluations of evaluate_checkpoint.py in their 'evaluations' subfolder)
     experiments_roots = sorted(folder for folder in REPOSITORY_ROOT.iterdir()
                                if folder.is_dir() and "experiments" in folder.name)
-    # Local port of the index, opened at http://127.0.0.1:<port>/
-    port = 8090
+    # Local port of the index, opened at http://127.0.0.1:<port>/, not 8090 so that the server runs next to the
+    # inference explorer of the ficha repositories, which takes 8090
+    port = 8091
 
     serve_temperature_explorers(experiments_roots=experiments_roots, port=port)
