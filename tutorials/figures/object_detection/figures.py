@@ -5,7 +5,8 @@ tutorials/tutorial_sources.yaml (the synthetic configuration resumed to 5000 ite
 the COCO manifest and anchor recall of its data, the trained detector run on the CPU on the test image of the series
 (anchors, proposals, anchor labels, training targets), its training losses and console summaries, and its evaluation
 (sample images at three iterations, mAP of the trained and averaged weights, average precision of every class,
-confusion matrix, report tables, proposal recall). Every figure family is a module of this folder writing into a
+confusion matrix, report tables, proposal recall), and the joint and per-level proposal selections compared by stage 7
+of the detection benchmark (proposal_selection.py). Every figure family is a module of this folder writing into a
 subfolder of the output folder, its facts gathered here into the facts.json the storyboards quote as
 {{object_detection.<name>}}. The instance segmentation series imports the run figures of this folder for its own run.
 """
@@ -23,6 +24,7 @@ from tutorials.figures.object_detection.detector_inference import make_detector_
 from tutorials.figures.object_detection.evaluation_figures import (draw_class_average_precision_figure,
                                                                    draw_confusion_matrix_figure, read_confusion_notes,
                                                                    read_proposal_recall, write_report_listings)
+from tutorials.figures.object_detection.proposal_selection import make_proposal_selection_facts
 from tutorials.figures.object_detection.run_figures import (draw_loss_curves_figure, draw_metric_iterations_figure,
                                                             draw_sample_iterations_figure,
                                                             read_console_summary_facts,
@@ -118,6 +120,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                      output_path=output_folder / "evaluation" / "confusion_matrix.png"),
         write_report_listings(run_folder=run_folder, iteration=CHECKPOINT_ITERATION, output_folder=listings_folder),
         read_proposal_recall(evaluation_folder=evaluation_folder),
+        make_proposal_selection_facts(experiments_folder=experiments_folder),
         describe_box_loss_beta(),
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),
          "run.checkpoint_iteration": CHECKPOINT_ITERATION,

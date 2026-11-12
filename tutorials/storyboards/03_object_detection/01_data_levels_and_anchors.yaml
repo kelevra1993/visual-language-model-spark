@@ -4,7 +4,9 @@
 # (1760 x 740, origin at its top left corner); the figures named figures:object_detection/... and the facts
 # {{object_detection.*}} are made by tutorials/figures/object_detection from the DET run of tutorial_sources.yaml; the
 # settings are quoted from the synthetic detection configuration ({{config:...}}), which the run was trained with, and
-# the block numbers 5, 6 and 7 (the keys of DetectionLevels, also in the names of the facts) are kept as typed.
+# the block numbers 5, 6 and 7 (the keys of DetectionLevels, also in the names of the facts) are kept as typed. The
+# joint and per-level proposal selections are then shown on the detector of the detection benchmark, whose facts
+# {{object_detection.proposal_selection.*}} come from its stage 7 launches (proposal_selection.py).
 series: object_detection
 series_title: "Object Detection (DET)"
 chapter: 1
@@ -21,6 +23,7 @@ references:
   - "vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml · ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage"
   - "vision_training/models/detection/region_proposer.py · RegionProposalFilter.forward"
   - "documentation/task workflows/object_detection_workflow.md"
+  - "documentation/architecture_benchmarking/object_detection_experiment_plan.md"
 scenes:
   - kind: title_card
     heading: "Data, levels and anchors"
@@ -261,7 +264,6 @@ scenes:
       - "A non-maximum suppression at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.nms_iou_threshold}} removes the duplicates, here keeping {{object_detection.inference.evaluation_filter.survivor_count}} of {{object_detection.inference.evaluation_filter.top_count}}, and the {{object_detection.inference.evaluation_filter.valid_count}} best survivors go to the detection heads, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} in training."
       - "With fewer survivors, the empty slots are filled with copies of random survivors, so that every image has the same number of proposals, and a valid mask tells them apart."
       - "Ranked over all the levels at once, block 5 takes {{object_detection.inference.evaluation_filter.kept_level_5}} of the slots of this image, and {{object_detection.proposal_recall.block_5.proposals_per_image:.0f}} of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} per image over the test split."
-      - "Since the detection benchmark, the shipped configurations select per level instead, every level ranked and suppressed on its own before the best are kept over all the levels."
 
   - kind: image
     title: "Proposals of the test image"
@@ -294,7 +296,163 @@ scenes:
       - "select_best_proposals does this for the whole batch, and both the training filter and the exported detector call it, so they keep the same proposals."
       - "The scores are ranked in the float32 of the boxes, since the bfloat16 logits of the mixed precision would give the confident anchors only a few distinct probabilities."
       - "Only the suppression differs: one torchvision call per image in the eager model, and one batched call over the batch in the export, the form the ONNX export keeps for any batch size."
-      - "Every configuration runs these steps once over all the anchors; the per-level selection runs them for every level and leaves out the proposals clamped to an empty box, as torchvision does."
+      - "The joint selection runs these steps once over all the anchors; the per-level one, which the object detection configurations use, runs them for every level and leaves out the proposals clamped to an empty box, as torchvision does."
+
+  # The joint and per-level selections on the detector of the detection benchmark (stage 7 of
+  # documentation/architecture_benchmarking/object_detection_experiment_plan.md): four levels at 1024 pixels, whose
+  # anchors, counts, measured proposals and training curves are the facts object_detection.proposal_selection.*
+  - kind: html
+    page: diagram
+    title: "Two ways to select the proposals"
+    code_reference: "vision_training/models/detection/region_proposer.py · select_best_proposals"
+    literal_numbers: [two]
+    elements:
+      # Joint selection: all the anchors in one pool, one top-k, one suppression across the levels, the best kept
+      - {type: text, position: [40, 15], text: "joint", font: diagram_bold, colour: yellow}
+      - {type: box, box: [40, 60, 360, 160], text: "{{object_detection.proposal_selection.level_count}} levels\n{{object_detection.proposal_selection.anchor_total:,}} anchors", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[360, 110], [425, 110]], appear: 1}
+      - {type: box, box: [430, 60, 760, 160], text: "top {{object_detection.proposal_selection.inference_pre_nms}}\nof all the anchors", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[760, 110], [825, 110]], appear: 1}
+      - {type: box, box: [830, 60, 1160, 160], text: "one NMS\nacross the levels", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1160, 110], [1225, 110]], appear: 1}
+      - {type: box, box: [1230, 60, 1560, 160], text: "best {{object_detection.proposal_selection.inference_post_nms}}\nper image", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      # Per-level selection: a top-k and a suppression within every level, then the best over all the levels
+      - {type: text, position: [40, 205], text: "per level", font: diagram_bold, colour: aqua, appear: 2}
+      - {type: box, box: [40, 250, 360, 340], text: "level {{object_detection.proposal_selection.level_names[0]}}\n{{object_detection.proposal_selection.level_anchor_counts[0]:,}} anchors", font: diagram_small, outline: blue, appear: 2, highlight: [0]}
+      - {type: box, box: [40, 365, 360, 455], text: "level {{object_detection.proposal_selection.level_names[1]}}\n{{object_detection.proposal_selection.level_anchor_counts[1]:,}} anchors", font: diagram_small, outline: blue, appear: 2, highlight: [0]}
+      - {type: box, box: [40, 480, 360, 570], text: "level {{object_detection.proposal_selection.level_names[2]}}\n{{object_detection.proposal_selection.level_anchor_counts[2]:,}} anchors", font: diagram_small, outline: blue, appear: 2, highlight: [0]}
+      - {type: box, box: [40, 595, 360, 685], text: "level {{object_detection.proposal_selection.level_names[3]}}\n{{object_detection.proposal_selection.level_anchor_counts[3]:,}} anchors", font: diagram_small, outline: blue, appear: 2, highlight: [0]}
+      - {type: arrow, points: [[360, 295], [425, 295]], appear: 2}
+      - {type: arrow, points: [[360, 410], [425, 410]], appear: 2}
+      - {type: arrow, points: [[360, 525], [425, 525]], appear: 2}
+      - {type: arrow, points: [[360, 640], [425, 640]], appear: 2}
+      - {type: box, box: [430, 250, 760, 340], text: "top {{object_detection.proposal_selection.per_level_top_counts[0]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [430, 365, 760, 455], text: "top {{object_detection.proposal_selection.per_level_top_counts[1]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [430, 480, 760, 570], text: "top {{object_detection.proposal_selection.per_level_top_counts[2]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [430, 595, 760, 685], text: "top {{object_detection.proposal_selection.per_level_top_counts[3]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[760, 295], [825, 295]], appear: 2}
+      - {type: arrow, points: [[760, 410], [825, 410]], appear: 2}
+      - {type: arrow, points: [[760, 525], [825, 525]], appear: 2}
+      - {type: arrow, points: [[760, 640], [825, 640]], appear: 2}
+      - {type: box, box: [830, 250, 1160, 340], text: "NMS within\nlevel {{object_detection.proposal_selection.level_names[0]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [830, 365, 1160, 455], text: "NMS within\nlevel {{object_detection.proposal_selection.level_names[1]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [830, 480, 1160, 570], text: "NMS within\nlevel {{object_detection.proposal_selection.level_names[2]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [830, 595, 1160, 685], text: "NMS within\nlevel {{object_detection.proposal_selection.level_names[3]}}", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1160, 295], [1225, 440]], appear: 3}
+      - {type: arrow, points: [[1160, 410], [1225, 455]], appear: 3}
+      - {type: arrow, points: [[1160, 525], [1225, 495]], appear: 3}
+      - {type: arrow, points: [[1160, 640], [1225, 510]], appear: 3}
+      - {type: box, box: [1230, 395, 1560, 555], text: "best {{object_detection.proposal_selection.inference_post_nms}} by score\nover all the levels", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: text, position: [1230, 600], text: "evaluation counts; in training\ntop {{object_detection.proposal_selection.training_pre_nms}}, best {{object_detection.proposal_selection.training_post_nms}}", font: diagram_small, colour: dim, appear: 3}
+    narration:
+      - "The benchmark of the repository trains a larger detector: {{object_detection.proposal_selection.level_count:words}} levels at {{object_detection.proposal_selection.image_size}} pixels, {{object_detection.proposal_selection.anchor_total:,}} anchors per image, {{object_detection.proposal_selection.level_anchor_counts[0]:,}} of them on level {{object_detection.proposal_selection.level_names[0]}}."
+      - "The joint selection ranks all of them together, keeps the best {{object_detection.proposal_selection.inference_pre_nms}}, removes the overlaps in one suppression across the levels, and keeps the best {{object_detection.proposal_selection.inference_post_nms}} in evaluation."
+      - "The per-level selection keeps the best {{object_detection.proposal_selection.inference_pre_nms}} of every level and suppresses every level on its own, so {{object_detection.proposal_selection.per_level_candidate_count:,}} candidates reach a suppression instead of {{object_detection.proposal_selection.joint_candidate_count}}."
+      - "The survivors of all the levels are then ranked together by score and the best {{object_detection.proposal_selection.inference_post_nms}} kept: no level gets a quota, it only stops being crowded out."
+
+  - kind: html
+    page: diagram
+    title: "A worked example"
+    code_reference: "vision_training/models/detection/region_proposer.py · select_best_proposals"
+    # Made-up scores of one object seen by two levels, three slots and a top 5, small enough to follow by eye
+    example: true
+    elements:
+      # The object, five near-identical boxes of level 4 around it and the larger box of level 6
+      - {type: box, box: [110, 160, 330, 380], fill: violet, radius: 110}
+      - {type: box, box: [85, 140, 335, 390], fill: null, outline: blue}
+      - {type: box, box: [105, 150, 355, 400], fill: null, outline: blue}
+      - {type: box, box: [95, 125, 345, 375], fill: null, outline: blue}
+      - {type: box, box: [80, 155, 330, 405], fill: null, outline: blue}
+      - {type: box, box: [110, 130, 360, 380], fill: null, outline: blue}
+      - {type: box, box: [60, 110, 380, 430], fill: null, outline: magenta}
+      - {type: text, position: [220, 470], text: "one object: five level 4 boxes,\none level 6 box", font: diagram_small, colour: dim, anchor: ma}
+      # Candidates ranked by objectness, the joint top 5 above the dashed line
+      - {type: text, position: [460, 15], text: "candidates by objectness", font: diagram_bold}
+      - {type: box, box: [460, 65, 760, 125], text: "level 4 · 0.95", font: diagram_small, outline: blue}
+      - {type: box, box: [460, 140, 760, 200], text: "level 4 · 0.94", font: diagram_small, outline: blue}
+      - {type: box, box: [460, 215, 760, 275], text: "level 4 · 0.93", font: diagram_small, outline: blue}
+      - {type: box, box: [460, 290, 760, 350], text: "level 4 · 0.92", font: diagram_small, outline: blue}
+      - {type: box, box: [460, 365, 760, 425], text: "level 4 · 0.91", font: diagram_small, outline: blue}
+      - {type: box, box: [460, 455, 760, 515], text: "level 6 · 0.89", font: diagram_small, outline: magenta, highlight: [1, 2]}
+      - {type: arrow, points: [[440, 440], [780, 440]], head: none, dash: [12, 8], colour: yellow, appear: 1}
+      - {type: text, position: [460, 540], text: "joint top 5 above the line", font: diagram_small, colour: yellow, appear: 1}
+      # What each selection keeps for three slots
+      - {type: box, box: [860, 60, 1700, 320], text: "joint\ntop 5: the five level 4 boxes\nthe level 6 box is cut\none NMS: one of the five survives\n3 slots: 1 real proposal, 2 copies", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [860, 360, 1700, 620], text: "per level\nlevel 4: top 5, NMS: one survives\nlevel 6: its box survives its own NMS\n3 slots: 2 real proposals, 1 copy\nthe level 6 head gets this object", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+    narration:
+      - "Take one object seen by two levels: level 4 gives it five near-identical boxes, and level 6 one box, scored a little lower."
+      - "With a joint top 5, the five level 4 boxes take every place and the level 6 box is cut; the suppression then keeps one of the five, so the three slots get one real proposal and two copies."
+      - "Per level, level 4 still keeps one box after its own suppression, but the level 6 box survives in its level: two real proposals, and the level 6 head gets this object to train on."
+
+  - kind: html
+    page: diagram
+    title: "Measured on the benchmark"
+    code_reference: "vision_training/models/detection/region_proposer.py · select_best_proposals"
+    # The IoU of the proposal recall
+    literal_numbers: ["0.5"]
+    elements:
+      # Real proposals of the evaluation slots, then the proposals of every level
+      - {type: text, position: [40, 15], text: "real proposals per image, of {{object_detection.proposal_selection.inference_post_nms}} slots", font: diagram_bold}
+      - {type: bars, box: [40, 70, 780, 260], orientation: horizontal, values: "{{object_detection.proposal_selection.proposals_per_image_bars}}", labels: ["joint", "per level"], value_labels: "{{object_detection.proposal_selection.proposals_per_image_bar_labels}}", colours: [yellow, aqua], maximum: "{{object_detection.proposal_selection.inference_post_nms}}", label_width: 160, highlight: [0]}
+      - {type: text, position: [40, 290], text: "joint: {{object_detection.proposal_selection.joint_copied_slots:.1f}} slots hold copies", font: diagram_small, colour: dim}
+      - {type: box, box: [40, 370, 780, 560], text: "proposals per image, levels {{object_detection.proposal_selection.level_names[0]}} / {{object_detection.proposal_selection.level_names[1]}} / {{object_detection.proposal_selection.level_names[2]}} / {{object_detection.proposal_selection.level_names[3]}}\njoint: {{object_detection.proposal_selection.joint_proposals_per_level_labels[0]}} / {{object_detection.proposal_selection.joint_proposals_per_level_labels[1]}} / {{object_detection.proposal_selection.joint_proposals_per_level_labels[2]}} / {{object_detection.proposal_selection.joint_proposals_per_level_labels[3]}}\nper level: {{object_detection.proposal_selection.per_level_proposals_per_level_labels[0]}} / {{object_detection.proposal_selection.per_level_proposals_per_level_labels[1]}} / {{object_detection.proposal_selection.per_level_proposals_per_level_labels[2]}} / {{object_detection.proposal_selection.per_level_proposals_per_level_labels[3]}}", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      # Share of the test objects covered by a proposal of every level
+      - {type: text, position: [880, 15], text: "objects covered at IoU 0.5 by a proposal of the level", font: diagram_bold, appear: 2}
+      - type: grouped_bars
+        box: [880, 70, 1720, 600]
+        groups: "{{object_detection.proposal_selection.level_labels}}"
+        series:
+          - {name: "joint", colour: yellow, values: "{{object_detection.proposal_selection.joint_recall_per_level}}", value_labels: "{{object_detection.proposal_selection.joint_recall_per_level_labels}}"}
+          - {name: "per level", colour: aqua, values: "{{object_detection.proposal_selection.per_level_recall_per_level}}", value_labels: "{{object_detection.proposal_selection.per_level_recall_per_level_labels}}"}
+        orientation: vertical
+        maximum: "{{object_detection.proposal_selection.recall_axis_maximum}}"
+        appear: 2
+        highlight: [2]
+      - {type: text, position: [40, 640], text: "test split of the benchmark, averaged weights at iteration {{object_detection.proposal_selection.compared_iteration:,}}, mean of {{object_detection.proposal_selection.launches_per_selection:words}} launches per selection", font: diagram_small, colour: dim}
+    narration:
+      - "Over the test split of the benchmark, at iteration {{object_detection.proposal_selection.compared_iteration:,}}, the joint pair fills only {{object_detection.proposal_selection.joint_proposals_per_image:.1f}} of its {{object_detection.proposal_selection.inference_post_nms}} slots with real proposals, the rest with copies, and the per-level pair fills all of them."
+      - "Level {{object_detection.proposal_selection.level_names[0]}} still takes most of them, {{object_detection.proposal_selection.per_level_proposals_per_level[0]:.0f}} per image, since the last ranking is by score, and the other levels gain a few proposals each."
+      - "Yet every level now covers more of the test objects at an IoU of 0.5: level {{object_detection.proposal_selection.level_names[1]}} {{object_detection.proposal_selection.per_level_recall_per_level[1]:.0%}} of them against {{object_detection.proposal_selection.joint_recall_per_level[1]:.0%}}, and level {{object_detection.proposal_selection.level_names[2]}} {{object_detection.proposal_selection.per_level_recall_per_level[2]:.0%}} against {{object_detection.proposal_selection.joint_recall_per_level[2]:.0%}}."
+
+  - kind: html
+    page: diagram
+    title: "Trained with each selection"
+    code_reference: "vision_training/models/detection/region_proposer.py · select_best_proposals"
+    elements:
+      # Test mAP of both selections, mean of their launches, then the lead against the gap between two launches
+      - {type: text, position: [80, 15], text: "test mAP@[0.5:0.95], averaged weights", font: diagram_bold}
+      - type: curve
+        box: [150, 75, 760, 520]
+        series:
+          - {name: "joint", colour: yellow, points: "{{object_detection.proposal_selection.joint_map_points}}"}
+          - {name: "per level", colour: aqua, points: "{{object_detection.proposal_selection.per_level_map_points}}"}
+        x_range: "{{object_detection.proposal_selection.iteration_range}}"
+        y_range: "{{object_detection.proposal_selection.map_range}}"
+        x_ticks: "{{object_detection.proposal_selection.iteration_ticks}}"
+        y_ticks: "{{object_detection.proposal_selection.map_ticks}}"
+        x_label: "iteration"
+        y_label: "mAP"
+        highlight: [0, 1]
+      - {type: text, position: [960, 15], text: "lead of per level and gap between launches, mAP points", font: diagram_bold, appear: 2}
+      - type: curve
+        box: [1010, 75, 1580, 520]
+        series:
+          - {name: "lead", colour: aqua, points: "{{object_detection.proposal_selection.lead_points_curve}}"}
+          - {name: "gap", colour: dim, points: "{{object_detection.proposal_selection.margin_points_curve}}"}
+        x_range: "{{object_detection.proposal_selection.iteration_range}}"
+        y_range: "{{object_detection.proposal_selection.points_range}}"
+        x_ticks: "{{object_detection.proposal_selection.iteration_ticks}}"
+        y_ticks: "{{object_detection.proposal_selection.points_ticks}}"
+        x_label: "iteration"
+        y_label: "points"
+        appear: 2
+        highlight: [2]
+      - {type: box, box: [80, 600, 1700, 720], text: "iteration {{object_detection.proposal_selection.compared_iteration:,}}: per level {{object_detection.proposal_selection.per_level_map:.4f}}, joint {{object_detection.proposal_selection.joint_map:.4f}}, lead {{object_detection.proposal_selection.lead_points:.2f}} points, gap {{object_detection.proposal_selection.margin_points:.2f}}\nper level at inference only, on joint weights: {{object_detection.proposal_selection.preview_per_level_map:.4f}} against {{object_detection.proposal_selection.preview_joint_map:.4f}}", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+    narration:
+      - "Each selection trained {{object_detection.proposal_selection.launches_per_selection:words}} detectors from scratch for {{object_detection.proposal_selection.compared_iteration:,}} iterations, every other setting the same."
+      - "The per-level pair led from the first evaluation, by up to {{object_detection.proposal_selection.maximum_lead_points:.1f}} mAP points at iteration {{object_detection.proposal_selection.maximum_lead_iteration:,}}, and ended at {{object_detection.proposal_selection.per_level_map:.1%}} against {{object_detection.proposal_selection.joint_map:.1%}}."
+      - "A lead counts only above the gap between the {{object_detection.proposal_selection.launches_per_selection:words}} launches of the same settings, the noise of one training: the lead of {{object_detection.proposal_selection.lead_points:.2f}} points has stayed above that gap since iteration {{object_detection.proposal_selection.first_win_iteration:,}}, ending at {{object_detection.proposal_selection.margin_points:.2f}}."
+      - "Applied at inference only to weights trained jointly, the per-level selection gains just {{object_detection.proposal_selection.preview_gain_points:.2f}} points: the gain comes from training the heads on the proposals it selects."
 
   - kind: terminal
     title: "Generate, train, evaluate"
@@ -323,6 +481,7 @@ scenes:
       - {text: "{{object_detection.inference.level_5.anchors_per_cell}} anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners"}
       - {text: "anchor_recall.csv: {{object_detection.anchor_recall.all.recall_all_levels:.1%}} of the objects, {{object_detection.anchor_recall.small.recall_all_levels:.1%}} of the small ones"}
       - {text: "Proposals per level: top-k and NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.nms_iou_threshold}}, then {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} or {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} kept"}
+      - {text: "Per level against joint on the benchmark: every slot real, +{{object_detection.proposal_selection.lead_points:.2f}} mAP points"}
     narration:
       - "To recap: {{object_detection.inference.level_count:words}} levels of the backbone, {{object_detection.inference.level_5.anchors_per_cell:words}} anchors per cell, region proposals selected per level, and an anchor recall that tells at launch which objects the detector can learn."
       - "The next chapter follows the training: how the anchors and proposals get their targets, the detection heads, and the four losses."
