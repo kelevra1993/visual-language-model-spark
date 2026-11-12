@@ -110,9 +110,10 @@ def draw_curve_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
                        markersize=12 * POINTS_PER_PIXEL, markeredgecolor=SURFACE_COLOUR,
                        markeredgewidth=2 * POINTS_PER_PIXEL, zorder=4, clip_on=False)
     for test_iteration, test_accuracy in zip(test_iterations, test_accuracies):
-        accuracy_axes.annotate(text=format_percentage(value=test_accuracy), xy=(test_iteration, test_accuracy),
-                               xytext=(-12, -22), textcoords="offset points", ha="right", va="center",
-                               color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
+        # The label rounded like the fact the narration quotes, so that the chart and the caption agree
+        accuracy_axes.annotate(text=format_percentage(value=round_fact(value=test_accuracy)),
+                               xy=(test_iteration, test_accuracy), xytext=(-12, -22), textcoords="offset points",
+                               ha="right", va="center", color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
     save_figure(figure=figure, output_path=output_folder / "evaluation" / "training_curves.png")
     facts = {}
     for panel_name, axes in [("loss", loss_axes), ("accuracy", accuracy_axes)]:

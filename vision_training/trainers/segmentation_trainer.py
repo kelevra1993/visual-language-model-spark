@@ -481,9 +481,10 @@ class SegmentationTrainer(BaseTrainer):
         images as notes, the per-class table (shown with the per-class report, worst IoU first), the recall table with
         the Korn-Graubard interval over the test images of the recall of every class (shown with the per-class report,
         worst recall first) and the per-class scalars. The metrics of every class and the pixel confusion matrix table
-        are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the
-        per-class report; the confusion matrix image only with it, also logged to TensorBoard, with the shares of every
-        true class in its cells, the pixel counts being too large to print. With the per-class report, the ROC and
+        are saved in the evaluation folder of the checkpoint, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/',
+        whatever the per-class report; the confusion matrix image only with it, also logged to TensorBoard, with the
+        shares of every true class in its cells, the pixel counts being too large to print. With the per-class report,
+        the ROC and
         precision-recall curves of the pixels of every class, one against the rest, come from the histograms of their
         probabilities, add the macro ROC AUC and average precision to the headline metrics and the ROC AUC and average
         precision of every class to its metrics, and are saved and logged to TensorBoard.

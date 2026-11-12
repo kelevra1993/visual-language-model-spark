@@ -140,7 +140,9 @@ def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run
         bar_axes.bar(x=positions[run_index] + bar_width / 2, height=run["test_accuracy"], width=bar_width,
                      color=SURFACE_COLOUR, edgecolor=colour, linewidth=2.5 * POINTS_PER_PIXEL, hatch="//")
         for offset, value in [(-bar_width / 2, run["last_mean"]), (bar_width / 2, run["test_accuracy"])]:
-            bar_axes.text(x=positions[run_index] + offset, y=value + 0.015, s=format_percentage(value=value),
+            # The label rounded like the fact the narration quotes, so that the chart and the caption agree
+            bar_axes.text(x=positions[run_index] + offset, y=value + 0.015,
+                          s=format_percentage(value=round_fact(value=value)),
                           ha="center", color=TEXT_PRIMARY_COLOUR, fontsize=14 * POINTS_PER_PIXEL)
     bar_axes.set_xticks(ticks=positions, labels=[f"{run['learning_rate']:g}" for run in runs])
     bar_axes.set_ylim(bottom=0, top=1)

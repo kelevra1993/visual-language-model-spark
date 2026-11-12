@@ -254,7 +254,7 @@ class KeypointTrainer(CocoSplitTrainer):
         of all the keypoints, of every class and of every keypoint of every class. The tables of the methods, object
         sizes and recalls are always shown, the per-class and per-keypoint tables with the per-class report. The class
         rows of both are saved to class_metrics.csv and the keypoint rows to keypoint_metrics.csv in the evaluation
-        folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
+        folder of the checkpoint, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/'.
 
         Args:
             accumulator (Dict[str, Any]): The evaluated test images.

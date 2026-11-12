@@ -264,7 +264,8 @@ The `evaluation` section gives the OKS sigmas: `default_keypoint_sigma`, and `ke
 experiment keys: ['task', 'experiment_folder', 'run_name_suffix', 'train_data_folder', 'validation_data_folder', 'test_data_folder',
                   'batch_size', 'information_dump', 'weight_saving_iterations', 'intermediate_weight_saving_iterations',
                   'number_iterations', 'validation_iteration_ratio', 'evaluation', 'tracking', 'learning_rate',
-                  'allow_data_change_on_resume', 'diagnosis_modes', 'tracking_root', 'run_name']
+                  'allow_data_change_on_resume', 'diagnosis_modes', 'tracking_root', 'run_name',
+                  'standalone_evaluation_folder']
 model keys:      ['Optimization', 'Data', 'Backbone', 'HRNet', 'KeypointHead']
 evaluation:      {'per_class_report': True, 'number_sample_images': 16, 'default_keypoint_sigma': 0.05,
                   'keypoint_sigmas': {'stick_figure': {'left_elbow': 0.072, 'right_elbow': 0.072, 'left_hand': 0.062, 'right_hand': 0.062,
@@ -1064,7 +1065,7 @@ class_index,class,keypoint,labelled,found,percentage_correct_keypoints,mean_erro
 ```
 
 ### Step 4.10 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-The headline metric is `KEYPOINT_HEADLINE_METRIC` = `OKS mAP@0.5/area`, which compares the checkpoints. The keypoint accuracy is given first, then the tables of the methods, sizes and recalls, then, with the per-class report, the per-class APs, the per-class OKS recalls with their intervals (`OKS Per Class Recall`), the accuracy per class and the accuracy per keypoint.
+The headline metric is `KEYPOINT_HEADLINE_METRIC` = `OKS mAP@0.5/area`, which compares the checkpoints. The keypoint accuracy is given first, then the tables of the methods, sizes and recalls, then, with the per-class report, the per-class APs, the per-class OKS recalls with their intervals (`OKS Per Class Recall`), the accuracy per class and the accuracy per keypoint. Should you compare it with a classification report, its rates stay between 0 and 1, as in `class_metrics.csv`, TensorBoard and MLflow: the keypoint trainer gives no `percent_metrics` and its tables no `percent_columns`, which only the classification trainer and the sequence classification, labelling and comparison trainers built on it fill, to write theirs as "94.03 %" (`report_formatting.py`).
 
 **Example output: the report of the checkpoint of iteration 60** (the per-class and per-keypoint tables shortened)
 ```text

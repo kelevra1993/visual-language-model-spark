@@ -143,7 +143,7 @@ The sample images are chosen once from the test split, so every evaluation shows
 
 **Settings without a token**, which may change between two resumptions of a run (two runs differing only by them share a folder, unless one has a `run_name_suffix`):
 - the augmentation (with `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up and cosine schedule, `pretrained.learning_rate_multiplier`, `Optimization.exponential_moving_average`, the `batch_normalization_momentum` of the sections holding one, and the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`);
-- `Optimization.loss_weights` (DET, INS), `ClassificationHead.decorrelation` (CLS), `SegmentationLoss`, the deep supervision weights and `Data.tiling.overlap` (SEG), `Selection.decoding` (SEL), `Data.grouped_batches` (SSL), `MaskHead.inference.mask_threshold` (INS), and `KeypointHead.heatmap_sigma`, `ignore_unlabelled_objects`, `tag_pull_weight`, `tag_push_weight` and `inference` (KPT);
+- `Optimization.loss_weights`, `Detector.nms_criterion` and `nms_distance_exponent` (DET, INS), `ClassificationHead.decorrelation` (CLS), `SegmentationLoss`, the deep supervision weights and `Data.tiling.overlap` (SEG), `Selection.decoding` (SEL), `Data.grouped_batches` (SSL), `MaskHead.inference.mask_threshold` (INS), and `KeypointHead.heatmap_sigma`, `ignore_unlabelled_objects`, `tag_pull_weight`, `tag_push_weight` and `inference` (KPT);
 - the evaluation settings.
 
 The optimizer keeps its token, as the state of one optimizer cannot be resumed by another.
@@ -162,7 +162,7 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Backbone | `LMP` | `Backbone.last_max_pooling` | all |
 | Backbone | `PT`, `FRZ`, `FBN` | `Backbone.pretrained`: set, `freeze`, `freeze_normalization_parameters` | all |
 | Levels | `L<blocks>` | the keys of `DetectionLevels` | DET, INS |
-| Neck | `NFPN<channels><BN, LN or NN>`, `NPAN…` | `Neck.type` (no token for `none`), `output_channels`, `normalization` | DET, INS |
+| Levels | `NFPN<channels><BN, LN or NN>`, `NPAN…` | `Neck.type` (no token for `none`), `output_channels`, `normalization` | DET, INS |
 | Anchors | `A<anchors>.<smallest>-<largest>.<hash>` | anchors per position, range of the scales, first 6 characters of the SHA-256 of the scales and ratios | DET, INS |
 | Anchors | `AC` | `RegionProposal.anchor_centres` `cell_centres` (no token for `cell_corners`) | DET, INS |
 | Region proposal | `RBN`, `RLN`, `RNN` | `RegionProposal.normalization.feature_map_normalization` | DET, INS |
@@ -223,7 +223,7 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Optimizer | `WD<decay>` | `Optimization.weight_decay` above 0 | all |
 | Suffix | `<suffix>` | `ExperimentConfiguration.run_name_suffix` | all |
 
-The suffix starts a run of its own among runs of the same settings, and resuming it needs the same suffix: with `run_name_suffix: "v1"`, the SSL example trains in `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2_v1`. It holds letters, digits, `-` and `.` only. The README lists [an example of every task](../../README.md#run-names).
+The suffix starts a run of its own among runs of the same settings, and resuming it needs the same suffix: with `run_name_suffix: "v1"`, `self_supervised/configuration_synthetic_shapes.yaml` trains in `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2_v1`. It holds letters, digits, `-` and `.` only. The README lists [an example of every task](../../README.md#run-names).
 
 ## MLflow Tracking
 With `ExperimentConfiguration.tracking.activated: True`, every run is recorded in `<experiment_folder>/mlflow.db`, its files in `<experiment_folder>/mlartifacts/`, next to TensorBoard and `Results.txt`.

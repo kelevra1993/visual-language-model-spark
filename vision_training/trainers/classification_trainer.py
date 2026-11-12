@@ -564,7 +564,8 @@ class ClassificationTrainer(BaseTrainer):
 
         Args:
             accumulator (Dict[str, Any]): The class probabilities, labels and sample identifiers of the test split.
-            evaluation_folder (Path): The evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
+            evaluation_folder (Path): The evaluation folder of the checkpoint,
+                '<run>/[Checkpoint_]Evaluation/Iteration_<n>/'.
 
         Returns:
             Path: The written predictions file.
@@ -607,10 +608,10 @@ class ClassificationTrainer(BaseTrainer):
         the per-class report, worst recall first) and the per-class scalars. The threshold of every class reaching the
         target precision, the metrics of every class, the confusion matrix table (multi-class mode) and, when asked,
         the predictions of every sample are saved in the evaluation folder of the checkpoint,
-        '<run>/Evaluation/Iteration_<n>/', whatever the per-class report. Only with it, the confusion matrix image
-        (multi-class mode) and the ROC and precision-recall curves of every class, one against the rest, are saved and
-        logged to TensorBoard, the curves adding the macro ROC AUC and average precision to the headline metrics and
-        the ROC AUC and average precision of every class to its metrics.
+        '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', whatever the per-class report. Only with it, the confusion
+        matrix image (multi-class mode) and the ROC and precision-recall curves of every class, one against the rest,
+        are saved and logged to TensorBoard, the curves adding the macro ROC AUC and average precision to the headline
+        metrics and the ROC AUC and average precision of every class to its metrics.
 
         Args:
             accumulator (Dict[str, Any]): The class probabilities and labels of the test split.

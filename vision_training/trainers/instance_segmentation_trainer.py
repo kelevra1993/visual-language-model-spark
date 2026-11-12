@@ -285,9 +285,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         (methods and object sizes always shown, then the mean average recalls and the proposal recall, classes with the
         per-class report, the thresholds in the mask table), the box scalars under the names of the object detection
         and the mask scalars under 'Mask' names. The box and mask average precisions and the thresholds of every class
-        are saved together to class_metrics.csv in '<run>/Evaluation/Iteration_<n>/', with the proposal recall
-        (proposal_recall.csv), the class thresholds, the confusion matrix and the error images of the detection trainer
-        (save_error_analysis).
+        are saved together to class_metrics.csv in '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', with the proposal
+        recall (proposal_recall.csv), the class thresholds, the confusion matrix and the error images of the detection
+        trainer (save_error_analysis).
 
         Args:
             accumulator (Dict[str, Any]): The detections, with their mask overlaps and areas, and ground truths of the

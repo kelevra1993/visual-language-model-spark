@@ -150,9 +150,9 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 |---|---|---|
 | CLS | one of 35 shapes per image | `classification/configuration_synthetic_shapes.yaml` |
 | CLS (multi-label) | 5 to 10 shapes per image labelled with their distinct classes, drawn like the M2M frames to pretrain their backbone (`task = "multi_label_classification"`) | `classification/configuration_synthetic_counted_shapes.yaml` |
-| DET | the INS dataset | `object_detection/configuration_synthetic_shapes.yaml` |
+| DET | the INS dataset (`task = "object_detection"` generates the harder images of the detection benchmark instead) | `object_detection/configuration_synthetic_shapes.yaml` |
 | INS | up to 6 shapes per image with their masks | `instance_segmentation/configuration_synthetic_shapes.yaml` |
-| KPT | 2 to 4 objects per image (shapes, stick figure, house) with their keypoints | `keypoint_detection/configuration_synthetic_shapes.yaml` |
+| KPT | 2 to 5 objects per image (shapes, stick figure, house) with their keypoints | `keypoint_detection/configuration_synthetic_shapes.yaml` |
 | SEG | up to 6 shapes per image with their class mask | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
 | M2O | one shape moving left, right, up or down over 2 to 12 frames | `sequence_classification/configuration_synthetic_sequences.yaml` |
 | M2M | 5 to 10 shapes per frame, at most one appearing or disappearing per frame | `sequence_labelling/configuration_synthetic_sequences.yaml` |
@@ -411,7 +411,7 @@ For example, a backbone trained on ImageNet classification initialises a detecto
 Backbone:
   pretrained:
     # Run folder whose trained backbone initialises this run
-    experiment_folder: "/path/to/experiments/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-CWB_MC1000"
+    experiment_folder: "/path/to/experiments/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000"
     # Checkpoint iteration of that run, null for its last saved checkpoint
     iteration: null
     # Keeps the loaded backbone fixed, only the other components learn
@@ -552,7 +552,7 @@ The run name is built from the configuration by `vision_training/configuration_p
 
 | Task | Run name |
 |---|---|
-| DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
+| DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
 | INS | `INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-MUTC-M14.4x64-MR28_BIN` |
 | CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
 | M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HFLAT.64_MC4` |
@@ -630,7 +630,7 @@ tutorials/build_tutorials.sh --check-references
 │   ├── configuration_processing/      # Removal of the fixed settings from the configuration files written before
 │   ├── data/                          # Random subset of the sequences of a split, figures of the augmentation strengths
 │   ├── embedding/                     # Clustering of the image embeddings of a run, kept diverse images
-│   └── evaluation/                    # Checkpoint evaluation, launch comparison, best evaluations of runs
+│   └── evaluation/                    # Checkpoint evaluation, temperature explorer server, launch comparison, best evaluations of runs, stage figures
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
 └── tutorials/                         # Narrated tutorial videos: storyboards, builder and figure scripts
 ```

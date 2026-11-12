@@ -175,8 +175,10 @@ def make_training_curves_figure(output_folder: Path, run_folder: Path, run_label
     accuracy_axes.plot(test_iterations, test_accuracies, color=CURVE_COLOURS["Test"], marker="o", linestyle="none",
                        markersize=12 * POINTS_PER_PIXEL, markeredgecolor=SURFACE_COLOUR,
                        markeredgewidth=2 * POINTS_PER_PIXEL, zorder=4, clip_on=False)
+    # Every test accuracy labelled with its rounded fact, the value the narration quotes, so that both round alike
     for test_iteration, test_accuracy in zip(test_iterations, test_accuracies):
-        accuracy_axes.annotate(text=format_percentage(value=test_accuracy), xy=(test_iteration, test_accuracy),
+        accuracy_axes.annotate(text=format_percentage(value=round_fact(value=test_accuracy)),
+                               xy=(test_iteration, test_accuracy),
                                xytext=(-12 * POINTS_PER_PIXEL, -22 * POINTS_PER_PIXEL), textcoords="offset points",
                                ha="right", va="center", color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
 

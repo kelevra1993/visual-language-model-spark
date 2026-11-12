@@ -45,6 +45,7 @@ scenes:
       - "Every {{sequence_classification.console.flatten_128.interval_iterations}} iterations, the summary gives the sequences per second, and the frames per second without the padding."
       - "At the first interval of this run: {{sequence_classification.console.flatten_128.first_throughput}} sequences and {{sequence_classification.console.flatten_128.first_frame_throughput}} frames per second, a training loss of {{sequence_classification.console.flatten_128.first_interval_loss:.2f}}, and {{sequence_classification.console.flatten_128.validation_batches:words}} validation batches, one every {{sequence_classification.console.flatten_128.validation_ratio}} iterations."
       - "The same task at {{sequence_classification.image_sizes.average_512}} pixels ran at {{sequence_classification.console.average_512.first_throughput}} sequences per second: the frame size sets the cost of a sequence run."
+      - "This run predates the percentages: the summary now writes its accuracies as percentages, and their changes in points."
 
   - kind: image
     title: "Flatten learns, average does not"
@@ -94,6 +95,7 @@ scenes:
       - "The evaluation folder holds the files of the image classification without its temperature explorer: the confusion matrix, the class metrics and thresholds, the ROC and precision-recall curves, the predictions, and the sample sequences."
       - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, the flatten run has a diagonal confusion matrix and a ROC AUC of {{sequence_classification.evaluation.flatten_128.macro_roc_auc.iteration_1000:percent}} for every class."
       - "The average pooling run predicts moving down for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:percent}}, the share of moving down, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:percent}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:percent}}."
+      - "Evaluations newer than these runs write the accuracies, the areas under the curves and the axes of these images as percentages."
 
   - kind: image
     title: "The probability of the true class"

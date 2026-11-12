@@ -24,8 +24,8 @@ Whenever the checkpoints of a trained run must be judged again, on another split
 | `run_name`, `experiment_folder` | the evaluated run, `<experiments>/<run name>` |
 | `iteration` | `None` for the last checkpoint, an iteration, or `"all"` for every checkpoint |
 | `test_data_folder` | another labelled split, `None` for the test split of the run |
-| `batch_size` | the evaluation batch size |
-| `track_evaluation` | sends the evaluation to MLflow, in a run named `<run name>-evaluation` |
+| `batch_size` | the evaluation batch size, `None` keeping the run's |
+| `track_evaluation` | sends the evaluation to MLflow, in a run named `<run name>-evaluation`, `None` keeping the `tracking.activated` of the run |
 | `maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `None` keeping the `evaluation.error_dumps` of the run |
 | `target_precisions` | the precision, or list of precisions such as `[0.99, 0.95, 0.90]` (CLS, M2O, M2M, CMP), targeted by the class thresholds, `None` keeping the `evaluation.target_precision` of the run; skipped with a warning for the tasks without class thresholds |
 | `nms_criterion`, `nms_distance_exponent` | the final NMS of a DET or INS run replaced, `"iou"` (greedy) or `"distance_iou"` (DIoU-NMS) with the exponent of its distance term, `None` keeping the run's; an NMS other than the run's is written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` (e.g. `Checkpoint_Evaluation_nms_distance_iou_0.6`), and the setting is skipped with a warning for the tasks without detector |
@@ -42,16 +42,17 @@ A classifier trained with the cross entropy is often overconfident: its probabil
 5. Without the page, export the checkpoint with `use_saved_temperature` ([Export](#export)).
 
 ## Comparing Launches
-`scripts/evaluation/collect_experiment_results.py` gathers the launches of a hyperparameter experiment into one CSV file. Every launch trains in its own `run_<n>` folder, a repeat launch in `run_<n><letters>` (`run_23b`).
+To decide which setting of a stage of a hyperparameter experiment to keep, `scripts/evaluation/collect_experiment_results.py` gathers every launch of the experiment into one CSV file. Every launch trains in its own `run_<n>` folder, a repeat launch in `run_<n><letters>` (`run_23b`).
 
 | Setting | Meaning |
 |---|---|
-| `experiment_folder` | the folder of the `run_<n>` folders, `<repository>/hyperparameter_experiments` by default |
-| `metric` | the compared test curve, e.g. `"Accuracy"`, `"Balanced Accuracy"`, `"Macro F1"`, `"Top-5 Accuracy"` |
-| `number_last_evaluations` | the last evaluations averaged in a second mean column, 4 by default |
-| `output_path` | the CSV file, `<experiment_folder>/results.csv` by default |
+| `task` | the experiment, `"classification"`, `"sequence_labelling"` or `"object_detection"`, which chooses the folder, the metric and the swept settings below |
+| `experiment_folders` | the folder of the `run_<n>` folders of every experiment: `<repository>/hyperparameter_experiments` for the classification, its `sequence_labelling/` and `object_detection/` subfolders for the others |
+| `metrics`, `metric_columns` | the compared test curve of every experiment, `"Accuracy"`, `"Macro F1"` and `"mAP@[0.5:0.95]/area"`, and the prefix of its columns, `accuracy`, `macro_f1` and `map_50_95` |
+| `number_last_evaluations` | the last evaluations averaged in a second mean column, 4 |
+| `output_path` | the CSV file, `<experiment_folder>/results.csv` |
 
-Every row is a launch, in launch order with its repeats right after it. It gives the metric at every evaluated iteration, its mean, the mean of the last evaluations (`<metric>_last_<n>_mean`, which ignores how fast a launch starts), whether the launch finished, the swept settings (`SWEPT_SETTINGS`) and the run folder. The launches of the same settings are followed by a `mean` row. A launch still training leaves its future cells empty, so the file can be written at any time.
+Every row is a launch and its weights (`evaluated_weights`: `trained`, or `ema` from `Tensorboard/Test_EMA` for a launch keeping a moving average). It gives the metric at every evaluated iteration, its mean, the mean of the last evaluations (`<metric column>_last_<n>_mean`, which ignores how fast a launch starts), whether the launch finished, the swept settings of the experiment (`TASK_SWEPT_SETTINGS`) and the run folder. The launches of the same settings and weights are grouped in the order of their first launch, followed by a `mean` row. A launch still training leaves its future cells empty, so the file can be written at any time.
 
 ### Comparing The Best Evaluations Of Runs
 `scripts/evaluation/compare_best_evaluations.py` prints Markdown tables comparing the best test evaluation of runs, over the trained (`Tensorboard/Test`) and averaged (`Tensorboard/Test_EMA`) weights.
