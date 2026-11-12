@@ -27,7 +27,7 @@ To compare the instance segmentation with the detection benchmark, the settings 
 
 ## Starting Values
 
-Every detection setting starts at the value kept by the detection benchmark, and the mask heads at those of the shipped instance segmentation configurations:
+Before stage 0 is launched, every detection setting is set at the value kept by the detection benchmark, and the mask heads at those of the shipped instance segmentation configurations:
 
 | Parameter | Value |
 |---|---|
@@ -46,6 +46,8 @@ Every detection setting starts at the value kept by the detection benchmark, and
 | `MaskHead.inference.mask_threshold` | 0.5 |
 
 ## Stages
+
+So that the order and the cost of the benchmark are seen at once, the table lists every stage:
 
 | Stage | Parameter | Values | Code | Status |
 |---|---|---|---|---|
@@ -97,29 +99,31 @@ With the pool kept by stage 1, a second doubling (`mask_resolution` four times t
 
 ### Stage 3: Mask Head Size
 
-The mask heads of the synthetic configuration have three convolutions of 32 channels, those of `configuration_example.yaml` four of 64, and those of Mask R-CNN four of 256 (Detectron2 `configs/Base-RCNN-FPN.yaml`: `ROI_MASK_HEAD.NUM_CONV: 4`, `POOLER_RESOLUTION: 14`, with `CONV_DIM = 256` of `detectron2/config/defaults.py`). The stage trains `[4, 64]` against `[3, 32]`.
+To find out whether small heads limit the masks, a larger head is trained: the mask heads of the synthetic configuration have three convolutions of 32 channels, those of `configuration_example.yaml` four of 64, and those of Mask R-CNN four of 256 (Detectron2 `configs/Base-RCNN-FPN.yaml`: `ROI_MASK_HEAD.NUM_CONV: 4`, `POOLER_RESOLUTION: 14`, with `CONV_DIM = 256` of `detectron2/config/defaults.py`). The stage trains `[4, 64]` against `[3, 32]`.
 
 ### Stage 4: Upsampling
 
-`MaskHead.upsampling: "bilinear"` (a bilinear doubling followed by a 3 x 3 convolution) against the transposed convolution of Mask R-CNN, whose 2 x 2 kernel of stride 2 can leave a checkerboard pattern on the borders. A tie is likely; the stage can be dropped if the time is short.
+In case the transposed convolution marks the borders, the stage trains `MaskHead.upsampling: "bilinear"` (a bilinear doubling followed by a 3 x 3 convolution) against the transposed convolution of Mask R-CNN, whose 2 x 2 kernel of stride 2 can leave a checkerboard pattern on the borders. A tie is likely, but the user kept the stage ("we try transposed and bilinear upsampling right ?").
 
 ### Stage 5: One Mask Head Shared By The Levels
 
-`suggestions.md` item 7: with the feature pyramid, every level already has 32 channels, so a single mask head can read every level and train on every positive of the batch, where each per-level head sees only the positives of its level (`compute_proposal_mask_loss`), and the export runs that single head once on all the detections instead of every head on every detection. Code: a `MaskHead.shared` switch, its run name token, and a transfer that refuses to load per-level heads into a shared one.
+Whenever a level holds few positives, its own mask head learns from few examples (`suggestions.md` item 7): with the feature pyramid, every level already has 32 channels, so a single mask head can read every level and train on every positive of the batch, where each per-level head sees only the positives of its level (`compute_proposal_mask_loss`), and the export runs that single head once on all the detections instead of every head on every detection. Code: a `MaskHead.shared` switch, its run name token, and a transfer that refuses to load per-level heads into a shared one.
 
 ### Stage 6: Mask Level Chosen By The Box Size
 
-`suggestions.md` item 2: every mask is pooled from the level of its proposal, whose anchors match the box, so a box covers a few cells of its map (stage 1). The rule of the feature pyramid paper, level k = k0 + log2(sqrt(w h) / 224) with k0 = 4, pools every box from the level where it covers about 14 cells: the finest level (stride 16) for the boxes up to about 224 pixels, level 5 (stride 32) around 448 pixels. A box of 128 to 256 pixels, now pooled from 2 to 4 cells of level 6, would get 8 to 16 cells of level 4. It works best with the shared head of stage 5, every head otherwise seeing boxes of other sizes than before. Code: the level rule in the mask loss, the mask prediction and the export, and a setting to choose it.
+For the medium and large boxes to be pooled from enough cells, the level can follow the box size (`suggestions.md` item 2): every mask is pooled from the level of its proposal, whose anchors match the box, so a box covers a few cells of its map (stage 1). The rule of the feature pyramid paper, level k = k0 + log2(sqrt(w h) / 224) with k0 = 4, pools every box from the level where it covers about 14 cells: the finest level (stride 16) for the boxes up to about 224 pixels, level 5 (stride 32) around 448 pixels. A box of 128 to 256 pixels, now pooled from 2 to 4 cells of level 6, would get 8 to 16 cells of level 4. It works best with the shared head of stage 5, every head otherwise seeing boxes of other sizes than before. Code: the level rule in the mask loss, the mask prediction and the export, and a setting to choose it.
 
 ### Stage 7: A Finer Map For The Masks
 
-`suggestions.md` item 5: the finest level of the detection has a stride of 16, where Mask R-CNN pools its small boxes from a stride of 4. The feature pyramid can add a level 3 (stride 8, block 3 of the backbone) read by the mask heads only, the detection keeping its levels and anchors. The small objects, 1 to 2 cells wide on level 4, would get 2 to 4 cells. Code: a neck level outside `DetectionLevels`, the mask head of that level, its memory and time measured before the pair.
+If one wishes to give the small objects finer masks, a finer map is needed (`suggestions.md` item 5): the finest level of the detection has a stride of 16, where Mask R-CNN pools its small boxes from a stride of 4. The feature pyramid can add a level 3 (stride 8, block 3 of the backbone) read by the mask heads only, the detection keeping its levels and anchors. The small objects, 1 to 2 cells wide on level 4, would get 2 to 4 cells. Code: a neck level outside `DetectionLevels`, the mask head of that level, its memory and time measured before the pair.
 
 ### Stage 8: Mask Scoring
 
-The score of a mask is the class score of its box, whatever the quality of the mask. Mask Scoring R-CNN (Huang et al., CVPR 2019, https://arxiv.org/abs/1903.00241) adds a head predicting the IoU of every mask with its object and scores the mask with the class score times that IoU, so that the better masks rank first in the mask AP; its abstract reports a "consistent and noticeable gain" on COCO. Code: the mask IoU head, its loss against the IoU of the predicted and target masks, the score in the evaluation and the export.
+Suppose a detection with a sure class has a poor mask: the score of a mask is the class score of its box, whatever the quality of the mask. Mask Scoring R-CNN (Huang et al., CVPR 2019, https://arxiv.org/abs/1903.00241) adds a head predicting the IoU of every mask with its object and scores the mask with the class score times that IoU, so that the better masks rank first in the mask AP; its abstract reports a "consistent and noticeable gain" on COCO. Code: the mask IoU head, its loss against the IoU of the predicted and target masks, the score in the evaluation and the export.
 
 ### Not Planned
+
+Should the time allow more stages later, these were considered and set aside:
 
 - A boundary refinement in the style of PointRend (https://arxiv.org/abs/1912.08193), whose abstract reports crisp borders and significant gains on COCO, the largest code of all, kept for after stages 2 and 7.
 - Ground truth masks cropped to their boxes (`suggestions.md` item 8), worth it only if the loader memory or throughput limits the launches, which stage 0 measures.
