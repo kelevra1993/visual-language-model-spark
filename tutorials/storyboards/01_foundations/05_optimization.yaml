@@ -85,7 +85,7 @@ scenes:
       - {type: box, box: [1190, 40, 1740, 560], text: "sgd\n\nsteps along the gradient,\nwith Nesterov momentum {{foundations.optimization.sgd_momentum}}\n\nweight decay added to the gradient\n\nrun name token SGD", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: text, position: [880, 650], text: "weight_decay above 0: run name token WD<decay>", font: diagram_monospace, anchor: mm, appear: 2, highlight: [2]}
     narration:
-      - "Adam, the default, gives every weight its own step size, from running averages of its gradient and of its squared gradient, and adds the weight decay to the gradient."
+      - "Adam, the one without a run name token, gives every weight its own step size, from running averages of its gradient and of its squared gradient, and adds the weight decay to the gradient."
       - "AdamW takes the same steps but applies the weight decay to the weights directly, apart from the gradient, and SGD steps along the gradient with a Nesterov momentum of {{foundations.optimization.sgd_momentum}}."
       - "Another optimizer adds its name to the run name, and a weight decay above zero adds W D and its value, since the state of one optimizer cannot be resumed by another."
 

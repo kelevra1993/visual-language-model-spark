@@ -460,10 +460,12 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                                                                                    previous_matmul_tf32)
 
 if __name__ == "__main__":
-    # Trained experiment to export, holding 'Weights' and 'training_configuration.yaml'
-    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "poseidon_experiment_4"
+    # Trained experiment to export, holding 'Weights' and 'training_configuration.yaml' (the synthetic shapes classifier
+    # of the README)
+    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9"
+    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "readme_screenshots" / run_name
     # Iteration to export, None for the last one recorded in the 'full-checkpoint' registry
-    iteration = 6000
+    iteration = 1500
     # True exports the moving average of the weights stored in the checkpoint (runs with
     # Optimization.exponential_moving_average activated), False the trained weights
     use_averaged_weights = False

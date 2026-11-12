@@ -98,14 +98,14 @@ scenes:
       - {type: box, box: [920, 80, 1720, 190], text: "gru, lstm\npacked sequences, final state of the last layer", font: diagram_small, outline: aqua, highlight: [2]}
       - {type: box, box: [920, 210, 1720, 320], text: "transformer\nkey padding mask, then the mean of the real frames", font: diagram_small, outline: aqua, highlight: [2]}
       - {type: box, box: [920, 340, 1720, 450], text: "temporal_convolution\ndilation 2^i, the padding zeroed before every layer", font: diagram_small, outline: aqua, highlight: [2]}
-      - {type: box, box: [40, 520, 1720, 640], text: "causal: True is refused for M2O and CMP (check_temporal_model_configuration): it is for M2M", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
+      - {type: box, box: [40, 520, 1720, 640], text: "causal: True is refused for M2O and CMP (check_temporal_model_configuration): it is for M2M and SEL", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
     # The dilation 2^i of the layer i of the temporal convolution (TemporalConvolutionModule, 2 ** layer_index)
     literal_numbers: ["2^i"]
     narration:
       - "The temporal module summarizes the frame vectors into one vector per sequence; {{sequence_classification.temporal.types:words}} types exist, and each keeps the padding out."
       - "The {{sequence_classification.temporal.pooling_types:words}} poolings ignore the order: the masked mean, the max with the padding at minus infinity, and the attention pooling, whose frame scores are set to minus infinity on the padding before their softmax."
       - "The {{sequence_classification.temporal.ordered_types:words}} ordered modules follow it: the GRU and the LSTM on packed sequences, the transformer with its key padding mask and a masked mean of its outputs, and the temporal convolution, whose dilation doubles at every layer, with the padding zeroed before every convolution."
-      - "Should you pick a causal module here, it is refused: it only sees the past frames, which is meant for the sequence labeller."
+      - "Should you pick a causal module here, it is refused: it only sees the past frames, which is meant for the sequence labeller and the frame selector."
 
   - kind: code
     title: "The GRU of the configuration"

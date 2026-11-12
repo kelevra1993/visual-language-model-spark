@@ -94,7 +94,7 @@ scenes:
     narration:
       - "To compare settings, train every launch in its own run folder of one experiment folder, run one, run two, and run twenty three b for a repeat launch of the same settings, then run the collect experiment results script."
       - "It writes one row per launch with the test metric at every evaluation, its mean and the mean of the last evaluations, then a mean row for the launches of the same settings."
-      - "Compare settings by the mean of the last evaluations, with at least two launches each: in the benchmark, {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of the same settings spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.1%}} in mean test accuracy."
+      - "Compare settings by their mean and the mean of their last evaluations, with at least two launches each: in the benchmark, {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of the same settings spread over {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_range:.1%}} in mean test accuracy."
 
   - kind: code
     title: "Comparing runs"
@@ -149,7 +149,7 @@ scenes:
       end: "^    tensorrt_precision = "
     highlights:
       - {match: "^    formats = |^    repository = ", sentences: [0]}
-      - {match: "^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [1]}
+      - {match: "^    run_name = |^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [1]}
     narration:
       - "The export model script writes a trained run to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model, and checks every export against the PyTorch model."
       - "Set the run folder, the iteration, the averaged or the trained weights, the largest batch size and the TensorRT precision of the ONNX model, then run it as a module."
@@ -166,7 +166,7 @@ scenes:
     literal_numbers: [zero, two hundred and fifty five]
     narration:
       - "Every task is exported under its own model name, followed by its format in the model repository, each in a folder with its Triton configuration and its version."
-      - "The models take float32 BGR images, or the frames of a sequence, in the zero to two hundred and fifty five range, resized and padded like the data loaders, the input normalization being part of the model."
+      - "The models take float32 BGR images, or the frames of a sequence, from zero to two hundred and fifty five, resized and padded, or cut into tiles, like the data loaders, the normalization being in the model."
       - "So that a server builds its inputs as the training did, every export writes these settings in a preprocessing file next to the model and in the ONNX metadata; every task series shows its outputs."
 
   - kind: terminal

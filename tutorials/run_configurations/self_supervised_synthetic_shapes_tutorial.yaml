@@ -28,8 +28,8 @@ ExperimentConfiguration:
   number_iterations: 2000
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 5
-  # Test evaluation at every weight_saving_iterations checkpoint, no classifier trained: cosine k-NN among the labelled
-  # test images (accuracy, balanced accuracy, macro F1, per-class metrics); unlabelled test split: effective rank only.
+  # Test evaluation at every weight_saving_iterations checkpoint, no classifier trained: cosine k-NN of the labelled
+  # test images among labelled training images (accuracy, balanced accuracy, per-class...); unlabelled: effective rank.
   evaluation:
     # Reports every class: k-NN class and recall tables (console, Results.txt), k-NN Test scalars in TensorBoard. False:
     # global metrics only; class_metrics.csv always saved.

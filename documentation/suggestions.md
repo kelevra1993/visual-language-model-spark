@@ -597,8 +597,11 @@ committed): every image can be taken again from them without training, except wh
 29. **Sequence labelling that learns** (`README/sequence_labelling_sample.png`): the synthetic configuration
     (`sequence_labelling/configuration_synthetic_sequences.yaml`) predicts `no_change` for every frame after its 2000
     iterations (balanced accuracy 0.014, the share of one class out of 71, the loss stopping at about 2.85), so the
-    sample shows the captions and the X of the wrong frames but its right frames are all `no_change`. The task needs a
-    longer training and another learning rate before its sample is taken again.
+    sample shows the captions and the X of the wrong frames but its right frames are all `no_change`. The run has no
+    class weights: the sequence labelling experiment plan saw a launch without them stay at the score of a model
+    predicting only no_change, and kept balanced class weights at this run's own learning rate, 1e-3
+    (`configuration_example.yaml`). The task needs balanced class weights and a longer training before its sample is
+    taken again.
 30. **Synthetic detection runs long enough for their samples**: the detection and instance segmentation configurations
     stop at 2000 iterations, where their detections rarely reach the 0.50 score threshold of the sample images
     (mAP@0.5 of 0.31 and 0.40), the samples showing empty predictions. The README samples come from the same runs

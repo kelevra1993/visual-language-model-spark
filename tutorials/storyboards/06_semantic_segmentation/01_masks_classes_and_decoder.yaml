@@ -196,10 +196,13 @@ scenes:
       - {match: "upsampling|convolutions|\"5\"|\"1\"", sentences: [0]}
       - {match: "deep_supervision_weights", sentences: [1]}
       - {match: "residual_nets", sentences: [2]}
+    # The third layer of a block changing its channel count, the first to close a residual pair (residual_parity of
+    # vision_training/models/components/convolution_block.py, count_residual_additions)
+    literal_numbers: [third]
     narration:
       - "The levels are keyed by the backbone block they read, as layers and channels, from the deepest; the upsampling is transposed, or bilinear followed by a one by one convolution."
       - "Deep supervision adds one by one heads on intermediate levels, trained with the same losses times their weight, and left out of the inference and the exports."
-      - "Residual nets would do nothing in the decoder: a level reads the skip plus the upsampled channels, never its own width; in the encoder, only blocks {{semantic_segmentation.model_backbone_blocks_with_shortcuts}} add a shortcut."
+      - "Residual nets would add no shortcut to these decoder levels: a level reads the skip plus the upsampled channels, never its own width, so its first shortcut would need a third layer; in the encoder, only blocks {{semantic_segmentation.model_backbone_blocks_with_shortcuts}} add one."
 
   - kind: image
     title: "What every level computes"
@@ -220,7 +223,7 @@ scenes:
       - {text: "Masks resized and augmented with the nearest interpolation"}
       - {text: "Encoder = backbone, skips before pooling, decoder level per skip"}
       - {text: "1x1 head: one logit per class and pixel, background at {{semantic_segmentation.mask_background_class}}"}
-      - {text: "residual_nets adds no shortcut to the decoder levels"}
+      - {text: "residual_nets adds no shortcut to these decoder levels"}
     # The background value 0 of the masks, which build_class_lookup_table keeps (lookup_table[0] = 0) without a
     # constant, and the 1x1 kernel of the head
     literal_numbers: ["0", "1x1"]

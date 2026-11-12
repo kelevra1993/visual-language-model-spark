@@ -3,9 +3,10 @@
 # region proposal heads and the proposal filter. Coordinates of the html scenes are in pixels of the content area
 # (1760 x 740, origin at its top left corner); the figures named figures:object_detection/... and the facts
 # {{object_detection.*}} are made by tutorials/figures/object_detection from the DET run of tutorial_sources.yaml; the
-# settings are quoted from the synthetic detection configuration ({{config:...}}), which the run was trained with, and
-# the block numbers 5, 6 and 7 (the keys of DetectionLevels, also in the names of the facts) are kept as typed. The
-# joint and per-level proposal selections are then shown on the detector of the detection benchmark, whose facts
+# settings are quoted from the synthetic detection configuration ({{config:...}}), which the run was trained with (then
+# with the joint proposal selection its proposal filter scene names, and the greedy final NMS), and the block numbers
+# 5, 6 and 7 (the keys of DetectionLevels, also in the names of the facts) are kept as typed. The joint and per-level
+# proposal selections are then shown on the detector of the detection benchmark, whose facts
 # {{object_detection.proposal_selection.*}} come from its stage 7 launches (proposal_selection.py).
 series: object_detection
 series_title: "Object Detection (DET)"
@@ -467,7 +468,7 @@ scenes:
     narration:
       - "Assuming you would like to reproduce the run, generate the data set of the instance masks with the synthetic data set script, its task set in its main block; a new data set has {{object_detection.data.generated_category_count}} shapes, the one of this run {{object_detection.data.category_count}}."
       - "With its hard objects option, the object detection task of the script draws the images of the detection benchmark instead: small, faint, covered or cut shapes next to very large ones."
-      - "The training takes the synthetic detection configuration, which stops at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown here was resumed to {{object_detection.run.number_iterations:words}}."
+      - "The training takes the synthetic detection configuration, which stops at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown here, trained before the per-level selection, was resumed to {{object_detection.run.number_iterations:words}}."
       - "The evaluation script evaluates any checkpoint again, set in its main block like every script but the training."
 
   - kind: summary

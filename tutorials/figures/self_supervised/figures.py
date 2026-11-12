@@ -4,11 +4,13 @@ tutorials.figures.make_figures --series self_supervised) at every build, from th
 tutorials/tutorial_sources.yaml (key self_supervised) and the code of the repository: the two views of sample images
 and the augmentations drawn for them, the listing of the configuration checks, the training curves and the first
 validations, the test metrics across the checkpoints with the per-class F1 and the last Results.txt block, and the
-representations of the checkpoints rebuilt on the CPU (k-NN neighbourhood of a star, InfoNCE matrix of the views, the
-colour cue both views share). Every figure family is a module of this folder, which writes its figures into a subfolder
-of the output folder and gives its facts, gathered here into the facts.json the storyboards quote as
-{{self_supervised.<name>}}.
+representations of the checkpoints rebuilt on the CPU (k-NN neighbourhood of a star among the reference training
+images, InfoNCE matrix of the views, the colour cue both views share). Every figure family is a module of this folder,
+which writes its figures into a subfolder of the output folder and gives its facts, gathered here into the facts.json
+the storyboards quote as {{self_supervised.<name>}}.
 """
+
+import math
 
 from pathlib import Path
 from typing import Any, Dict
@@ -20,6 +22,16 @@ from tutorials.figures.self_supervised.representation_figures import make_repres
 from tutorials.figures.self_supervised.ssl_sources import RUN_KEY, describe_run_settings
 from tutorials.figures.self_supervised.training_figures import make_training_figures
 from tutorials.figures.self_supervised.view_figures import make_view_figures
+
+# Room left after the longest of the positive pair accuracy bars of the colour cue scene of the second chapter for its
+# value label, as a factor of the largest accuracy, their shared axis ending at the next twentieth above it
+CUE_BAR_HEADROOM = 1.15
+
+# Facts drawn as bars by the colour cue scene: the first training batch of the run, its chance level, and the untrained
+# and trained networks on colour and grayscale views
+CUE_BAR_FACTS = ["curves.positive_pair_accuracy_first", "curves.chance_positive_pair_accuracy",
+                 "cue.untrained_colour_accuracy", "cue.untrained_grayscale_accuracy", "cue.trained_colour_accuracy",
+                 "cue.trained_grayscale_accuracy"]
 
 
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
@@ -44,4 +56,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_representation_figures(output_folder=output_folder, run_folder=run_folder, force=force),
         describe_run_settings(run_folder=run_folder)])
     facts["run.name"] = run_folder.name
+
+    # One axis for the bars of the colour cue scene, ending at the next twentieth above the largest accuracy and label
+    largest_accuracy = max(facts[name] for name in CUE_BAR_FACTS)
+    facts["cue.bar_maximum"] = max(0.05, math.ceil(largest_accuracy * CUE_BAR_HEADROOM * 20.0) / 20.0)
     return facts

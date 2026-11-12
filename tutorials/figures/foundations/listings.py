@@ -1,10 +1,11 @@
 """
 Text listings of the foundations tutorials, written by the figure series of tutorials/figures/foundations at every build
 so that the videos show the repository as it is: the folder tree of the real classification run (its configuration
-copy, records, checkpoints, logs, report and evaluation folders, one checkpoint and one evaluation expanded), and the
-summary panels the trainer prints at launch for that run (backbone, receptive field, model size), captured from the
-code of the repository on the CPU from the saved configuration of the run, without any training. The storyboards show
-them as text excerpts (source file figures:foundations/listings/...). It also gives the facts of the chapter on the
+copy, records, checkpoints, logs, report and evaluation folders, one checkpoint and one evaluation expanded, without
+the configuration backups left by the converter of saved runs), and the summary panels the trainer prints at launch
+for that run (backbone, receptive field, model size), captured from the code of the repository on the CPU from the
+saved configuration of the run, without any training. The storyboards show them as text excerpts (source file
+figures:foundations/listings/...). It also gives the facts of the chapter on the
 backbone read from that model (the receptive field, parameters and residual pairs of every block), those of the chapter
 on the data pipeline read from the configuration file that chapter shows (the augmentation types activated and the
 share of the training images they change), and the counts of the repository quoted by the overview and the closing
@@ -34,6 +35,11 @@ TERMINAL_CODE_PATTERN = re.compile(pattern=r"\x1b\[[0-9;]*[A-Za-z]")
 
 # Task learning its backbone without labels, the one task neither an image task nor a sequence task
 SELF_SUPERVISED_TASK = "self_supervised"
+
+# Backups of the run configuration written next to it by scripts/configuration_processing/convert_fixed_settings.py
+# ('training_configuration<backup suffix>.yaml', every suffix starting with '_before_'), not by the training, so that
+# the run folder scene only lists what a run writes
+CONFIGURATION_BACKUP_PATTERN = re.compile(pattern=r"training_configuration_before_\w+\.yaml")
 
 def read_iteration_number(folder_name: str) -> int:
     """
@@ -65,9 +71,10 @@ def order_folder_entry(entry: Path) -> Tuple[bool, int, str]:
 
 def list_run_folder_tree(run_folder: Path) -> List[str]:
     """
-    Lists the folder of a run as a tree for the run folder scene: its folders then its files; in Weights and
-    Evaluation the first and last iteration folders with "..." between them, the last checkpoint expanded (the last
-    evaluation is listed apart by list_evaluation_folder); in Tensorboard the log folder of every split.
+    Lists the folder of a run as a tree for the run folder scene: its folders then its files, without the
+    configuration backups of the converter of saved runs (CONFIGURATION_BACKUP_PATTERN); in Weights and Evaluation the
+    first and last iteration folders with "..." between them, the last checkpoint expanded (the last evaluation is
+    listed apart by list_evaluation_folder); in Tensorboard the log folder of every split.
 
     Args:
         run_folder (Path): The folder of the run.
@@ -76,7 +83,9 @@ def list_run_folder_tree(run_folder: Path) -> List[str]:
         List[str]: The lines of the tree.
     """
     lines = [f"{run_folder.name}/"]
-    top_entries = sorted(run_folder.iterdir(), key=order_folder_entry)
+    # Entries written by the training, the configuration backups of the converter left out
+    top_entries = sorted((entry for entry in run_folder.iterdir()
+                          if not CONFIGURATION_BACKUP_PATTERN.fullmatch(string=entry.name)), key=order_folder_entry)
     for top_index, top_entry in enumerate(top_entries):
         top_is_last = top_index == len(top_entries) - 1
         lines.append(f"{'└── ' if top_is_last else '├── '}{top_entry.name}{'/' if top_entry.is_dir() else ''}")

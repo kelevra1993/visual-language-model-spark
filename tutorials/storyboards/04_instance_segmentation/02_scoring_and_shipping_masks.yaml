@@ -124,8 +124,8 @@ scenes:
         highlights:
           - {match: "^ Area", sentences: [1, 2]}
       - {type: box, box: [1080, 60, 1740, 200], text: "headline: Mask mAP@0.5/area\nclass thresholds and confusion\nmatrix on the masks", font: diagram_small, outline: magenta}
-      - {type: box, box: [1080, 320, 1740, 460], text: "detection run, same data:\nbox mAP@0.5 {{object_detection.report.trained.methods.area.0:.3f}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: text, position: [30, 540], text: "{{instance_segmentation.run.test_scalar_count}} scalars per evaluation in Tensorboard/Test · class_metrics.csv: {{instance_segmentation.classes.column_count}} columns, box then mask_", font: diagram_small, colour: dim, appear: 2}
+      - {type: box, box: [1080, 300, 1740, 430], text: "detection run, same data:\nbox mAP@0.5 {{object_detection.report.trained.methods.area.0:.3f}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: text, position: [30, 540], text: "{{instance_segmentation.run.test_scalar_count}} scalars per evaluation in Tensorboard/Test · class_metrics.csv: the box columns, then the mask_ ones", font: diagram_small, colour: dim, appear: 2}
     narration:
       - "The report starts with the mask tables: at {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP of {{instance_segmentation.report.trained.mask_methods.area.0:.2f}} at 0.5, {{instance_segmentation.report.trained.mask_methods.area.1:.2f}} at 0.75 and {{instance_segmentation.report.trained.mask_methods.area.3:.2f}} from 0.5 to 0.95; the first compares the checkpoints."
       - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:.2f}} at 0.5, close to the {{object_detection.report.trained.methods.area.0:.2f}} of the detection run on the same data."
