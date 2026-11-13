@@ -37,10 +37,17 @@ scenes:
       keys: [ExperimentConfiguration.batch_size, ExperimentConfiguration.learning_rate, Optimization]
       comments: false
     highlights:
-      - {match: "batch_size|^\\s*learning_rate:", sentences: [0]}
-      - {match: "optimizer:|weight_decay", sentences: [1]}
-      - {match: "learning_rate_schedule|warmup_iterations|decay_iterations|minimum_learning_rate_ratio", sentences: [2]}
-      - {match: "exponential_moving_average|activated|^\\s*decay:", sentences: [3]}
+      - {key: ExperimentConfiguration.batch_size, sentences: [0]}
+      - {key: ExperimentConfiguration.learning_rate, sentences: [0]}
+      - {key: Optimization.optimizer, sentences: [1]}
+      - {key: Optimization.weight_decay, sentences: [1]}
+      - {key: Optimization.learning_rate_schedule, sentences: [2]}
+      - {key: Optimization.warmup_iterations, sentences: [2]}
+      - {key: Optimization.decay_iterations, sentences: [2]}
+      - {key: Optimization.minimum_learning_rate_ratio, sentences: [2]}
+      - {key: Optimization.exponential_moving_average, sentences: [3]}
+      - {key: Optimization.exponential_moving_average.activated, sentences: [3]}
+      - {key: Optimization.exponential_moving_average.decay, sentences: [3]}
     narration:
       - "The experiment section sets the batch size and the learning rate of the run."
       - "The Optimization section picks the optimizer, Adam, AdamW or SGD, with its weight decay."
@@ -98,13 +105,15 @@ scenes:
       - {box: "{{foundations.benchmark.learning_rate.learning_rate_panel_box}}", sentences: [1]}
     reveals:
       - {region: "{{foundations.benchmark.learning_rate.learning_rate_reveal_region}}", sentence: 1}
-    # The learning rates of the chart, named like their facts (learning_rate_1e_4...), the iteration of the facts
-    # quoted, and the iterations the high learning rates stay near chance, read off the chart
-    literal_numbers: [two, five, ten-thousandths, thousand, seven hundred and fifty]
+    # The learning rates of the chart, named like their facts (learning_rate_1e_4...), and the iteration of the facts
+    # quoted
+    literal_numbers: [two, five, ten-thousandths, thousand]
+    # The learning rate of the configuration is read with all its decimals, a rounded learning rate being another one
+    exact_facts: ["config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate"]
     narration:
       - "The learning rate sets the size of the steps, and the benchmark of the repository tried {{foundations.benchmark.learning_rate.value_count:words}} values on the synthetic shapes, {{foundations.benchmark.learning_rate.launches_per_value:words}} launches each."
-      - "One and two ten-thousandths learn within a thousand iterations, at {{foundations.benchmark.learning_rate.learning_rate_1e_4.accuracy_1000:percent}} and {{foundations.benchmark.learning_rate.learning_rate_2e_4.accuracy_1000:percent}}, while from five ten-thousandths on, the launches stay near one class in {{foundations.benchmark.class_count:words}} for at least seven hundred and fifty iterations."
-      - "Two ten-thousandths had the highest mean over the {{foundations.benchmark.evaluation_count:words}} evaluations and became the value of the synthetic shapes classifier: the largest usable value lies between two and five ten-thousandths."
+      - "One and two ten-thousandths learn within a thousand iterations, at {{foundations.benchmark.learning_rate.learning_rate_1e_4.accuracy_1000:percent}} and {{foundations.benchmark.learning_rate.learning_rate_2e_4.accuracy_1000:percent}}, while from five ten-thousandths on, the launches stay near one class in {{foundations.benchmark.class_count:words}} for at least {{foundations.benchmark.learning_rate.stalled.last_iteration:words}} iterations, at most {{foundations.benchmark.learning_rate.stalled.largest_accuracy:percent}}."
+      - "Two ten-thousandths had the highest mean over the {{foundations.benchmark.evaluation_count:words}} evaluations, the largest usable value lying between two and five ten-thousandths, and the synthetic shapes classifier trains at {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate}}."
 
   - kind: image
     title: "Warm-up and cosine decay"
@@ -132,7 +141,7 @@ scenes:
                       seven hundred and fifty]
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.run_model_iteration"
     elements:
-      - {type: box, box: [20, 60, 700, 220], text: "training and validation forward passes:\nbfloat16", font: diagram_text, outline: aqua, highlight: [0]}
+      - {type: box, box: [20, 60, 700, 220], text: "training and validation forward passes:\n{{foundations.optimization.mixed_precision_dtype}}", font: diagram_text, outline: aqua, highlight: [0]}
       - {type: box, box: [20, 260, 700, 420], text: "weights, optimizer and test evaluation:\nfloat32", font: diagram_text, outline: blue, highlight: [0]}
       - {type: text, position: [1270, 40], text: "time of 100 iterations at iteration 100, in minutes", font: diagram_small, colour: dim, anchor: mm, appear: 1}
       - {type: bars, box: [800, 70, 1740, 230], orientation: horizontal, values: [6.6, 3.6], maximum: 7.5, labels: ["float32", "mixed precision"], value_labels: ["6:16 to 7:01", "3:20 to 3:57"], label_width: 190, value_width: 160, colours: [blue, aqua], appear: 1, highlight: [1]}
@@ -141,7 +150,7 @@ scenes:
       - {type: text, position: [1270, 590], text: "test accuracy level from iteration 750 on", font: diagram_text, anchor: mm, appear: 1}
       - {type: text, position: [20, 520], text: "always on, for every task: no setting", font: diagram_text, anchor: la, appear: 2, highlight: [2]}
     narration:
-      - "With mixed precision, the training and validation forward passes run in bfloat16, half the bits of float32, while the weights, the optimizer and the test evaluation stay in float32."
+      - "With mixed precision, the training and validation forward passes run in {{foundations.optimization.mixed_precision_dtype}}, half the bits of float32, while the weights, the optimizer and the test evaluation stay in float32."
       - "In the benchmark, a float32 launch took about one and a half times longer and thirty nine gigabytes instead of twenty, the test accuracy being level from iteration seven hundred and fifty on."
       - "It is always on, for every task, so no configuration file has a setting for it."
 
@@ -191,10 +200,10 @@ scenes:
     title: "Recap"
     items:
       - {text: "One step: learning rate × schedule factor, optimizer, average"}
-      - {text: "Adam by default; AdamW, SGD and a weight decay enter the run name"}
+      - {text: "Adam without a token; AdamW, SGD and a weight decay enter the run name"}
       - {text: "A learning rate that learns: {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate:g}} on the synthetic shapes"}
       - {text: "Warm-up, then constant or cosine, from the iteration alone"}
-      - {text: "Mixed precision always on: bfloat16 forward passes, faster and lighter"}
+      - {text: "Mixed precision always on: {{foundations.optimization.mixed_precision_dtype}} forward passes, faster and lighter"}
       - {text: "The averaged weights were ahead at every evaluation of the benchmark"}
     narration:
       - "To sum up: pick a learning rate that learns, an optimizer and a schedule, the mixed precision being always on, and consider the moving average of the weights, ahead at every evaluation of the benchmark."

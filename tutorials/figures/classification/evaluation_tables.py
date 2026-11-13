@@ -6,9 +6,9 @@ confusion_matrix.csv) as the row percentages the grids of the confusion scene dr
 counts, the per-class metrics and the thresholds at the target precision of the last checkpoint (class_metrics.csv,
 class_thresholds.json) as the values and labels of the bars, the headline metrics of every evaluation read from the
 Test logs of TensorBoard, the size of the predictions file, and the temperatures of the slider of the temperature
-explorer page. Nothing is drawn: the scenes draw these values with the grid and bars elements of the diagram engine.
-The labels of the bars write the F1 and recalls as the percentages of the reports of the repository ("94.03 %"), the
-facts keeping every rate between 0 and 1.
+explorer page with the port of the script serving it. Nothing is drawn: the scenes draw these values with the grid and
+bars elements of the diagram engine. The labels of the bars write the F1 and recalls as the percentages of the reports
+of the repository ("94.03 %"), the facts keeping every rate between 0 and 1.
 """
 
 import csv
@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import round_fact
+from tutorials.figures.foundations.code_values import read_main_block_value
 from tutorials.figures.foundations.training_curves import read_scalars
+from tutorial_builder.figure_context import find_repository_root
 from vision_training.evaluation.classification.temperature_explorer import TEMPERATURE_GRID
 from vision_training.evaluation.report_formatting import format_percentage
 
@@ -33,6 +35,9 @@ LAST_ITERATION = 1500
 HEADLINE_METRICS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy", "Macro F1": "macro_f1",
                     "Top-2 Accuracy": "top_2_accuracy", "Macro ROC AUC": "macro_roc_auc",
                     "Macro Average Precision": "macro_average_precision"}
+
+# Script serving the temperature explorer pages, whose main block sets the port of its local page
+TEMPERATURE_EXPLORER_SCRIPT = Path("scripts") / "evaluation" / "serve_temperature_explorer.py"
 
 # Pairs of true and predicted classes whose counts the narration quotes, the errors left at the last checkpoint
 NAMED_CONFUSIONS = [("square", "rectangle"), ("rectangle", "square"), ("pentagon", "hexagon"), ("circle", "octagon"),
@@ -226,11 +231,16 @@ def make_evaluation_tables(run_folder: Path) -> Dict[str, Any]:
 
     Returns:
         Dict[str, Any]: The facts, named confusion.*, class_metrics.*, headline.*, predictions_file.* and
-            temperature_explorer.* (the lowest and highest temperatures of the slider of the explorer page).
+            temperature_explorer.* (the lowest and highest temperatures of the slider of the explorer page, and the
+            port of the local page of serve_temperature_explorer.py).
     """
     facts = describe_confusion_matrices(run_folder=run_folder)
     facts.update(describe_class_metrics(run_folder=run_folder))
     facts.update(describe_headline_metrics(run_folder=run_folder))
+
+    # Temperatures of the slider of the explorer page, and the port its serving script sets in its main block
     facts.update({"temperature_explorer.minimum_temperature": min(TEMPERATURE_GRID),
-                  "temperature_explorer.maximum_temperature": max(TEMPERATURE_GRID)})
+                  "temperature_explorer.maximum_temperature": max(TEMPERATURE_GRID),
+                  "temperature_explorer.port": read_main_block_value(
+                      script_path=find_repository_root() / TEMPERATURE_EXPLORER_SCRIPT, variable_name="port")})
     return facts

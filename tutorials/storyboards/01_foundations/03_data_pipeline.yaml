@@ -1,6 +1,6 @@
 # Foundations, chapter 3: the data pipeline shared by every task, from the files on disk to the batch the network sees:
 # the loader workers, the image size and aspect ratio, the input normalization, and the augmentation (its switches and
-# probabilities in the configuration, its strengths in the code, how it draws, its 28 types at the strengths of the
+# probabilities in the configuration, its strengths in the code, how it draws, its types at the strengths of the
 # supervised tasks and of the self-supervised views), then the input viewer. The augmentation settings are those of the
 # synthetic classification configuration the chapter shows (data_pipeline_configuration of tutorial_sources.yaml, read by
 # listings.py for the data facts), the images those of augmentation_examples.py and aspect_ratio.py of
@@ -39,10 +39,10 @@ scenes:
       - {type: box, box: [30, 290, 290, 450], text: "images\n+ labels.json\nof the split", font: diagram_small}
       - {type: arrow, points: [[300, 370], [380, 370]], appear: 0}
       - {type: box, box: [390, 180, 760, 500], outline: blue, appear: 0, highlight: [0]}
-      - {type: text, position: [575, 215], text: "{{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}} worker process", font: diagram_small, colour: dim, anchor: mm, appear: 0}
+      - {type: text, position: [575, 215], text: "worker processes: {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}}", font: diagram_small, colour: dim, anchor: mm, appear: 0}
       - {type: box, box: [410, 340, 740, 400], text: "worker · read, resize", font: diagram_small, appear: 0}
       - {type: arrow, points: [[770, 370], [860, 370]], appear: 1}
-      - {type: box, box: [870, 290, 1130, 450], text: "{{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}} batches\nready in advance", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [870, 290, 1130, 450], text: "{{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}} batches\nper worker\nready in advance", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1140, 370], [1220, 370]], appear: 2, flow: true, highlight: [2]}
       - {type: box, box: [1230, 100, 1740, 640], outline: aqua, appear: 2, highlight: [2]}
       - {type: text, position: [1485, 140], text: "GPU", font: diagram_bold, anchor: mm, appear: 2}
@@ -51,12 +51,12 @@ scenes:
       - {type: box, box: [1270, 340, 1700, 440], text: "input normalization\nfirst layer of the model", font: diagram_small, outline: violet, appear: 2}
       - {type: arrow, points: [[1485, 445], [1485, 485]], appear: 2}
       - {type: box, box: [1270, 490, 1700, 590], text: "backbone\nand head of the task", font: diagram_small, outline: blue, appear: 2}
-      - {type: text, position: [575, 565], text: "fixed in the code: {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}} worker, {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}} batches ahead", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+      - {type: text, position: [575, 565], text: "fixed in the code: NUMBER_LOADER_WORKERS = {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}}, PREFETCH_BATCHES = {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}}", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
     narration:
       - "A loader worker reads the images listed in the labels file and resizes them to the input size, decoding with a single OpenCV thread."
-      - "The worker keeps {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches ready in advance, and the training, validation and test loaders each have their own worker, alive for the whole run."
+      - "Every worker keeps {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches ready in advance, and the training, validation and test loaders each have workers of their own, alive for the whole run."
       - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
-      - "The single worker and its {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches in advance are fixed in the code, the same for every task, so no configuration file sets them."
+      - "The number of workers and the batches each one keeps in advance are fixed in the code, the same for every task, so no configuration file sets them."
 
   - kind: yaml
     title: "Image size and pixel range"
@@ -66,15 +66,17 @@ scenes:
       keys: [Data.image_settings, Backbone.normalization.input_normalization, Backbone.normalization.per_sample_normalization]
       comments: false
     highlights:
-      - {match: "image_settings:", sentences: [0]}
-      - {match: "size:|keep_ratio", sentences: [1]}
-      - {match: "input_normalization|per_sample_normalization", sentences: [2]}
+      - {key: Data.image_settings, sentences: [0]}
+      - {key: Data.image_settings.size, sentences: [1]}
+      - {key: Data.image_settings.keep_ratio, sentences: [1]}
+      - {key: Backbone.normalization.input_normalization, sentences: [2]}
+      - {key: Backbone.normalization.per_sample_normalization, sentences: [2]}
     # The range of the raw 8-bit pixels the data loaders deliver
     literal_numbers: [zero, two hundred and fifty five]
     narration:
       - "In the data section, the image settings tell the loaders how to prepare every image for the network."
       - "The image settings give the square input size of the network, and whether the images keep their aspect ratio."
-      - "In the backbone section, the input normalization maps the pixels from zero to two hundred and fifty five onto minus one half to one half, and the per-sample normalization would also standardize every image on its own."
+      - "In the backbone section, the input normalization maps the pixels from zero to two hundred and fifty five onto {{foundations.data.normalized_pixel_minimum}} to {{foundations.data.normalized_pixel_maximum}}, and the per-sample normalization would also standardize every image on its own."
 
   - kind: html
     page: diagram
@@ -99,7 +101,8 @@ scenes:
       keys: [Data.data_augmentation.activated, Data.data_augmentation.probability, Data.data_augmentation.types.random_crop, Data.data_augmentation.types.random_aspect_crop, Data.data_augmentation.types.random_zoom_out, Data.data_augmentation.types.random_translation, Data.data_augmentation.types.random_left_right_flip, Data.data_augmentation.types.random_up_down_flip, Data.data_augmentation.types.random_rotation, Data.data_augmentation.types.brightness_contrast_saturation, Data.data_augmentation.types.random_hue, Data.data_augmentation.types.random_noise, Data.data_augmentation.types.random_haze, Data.data_augmentation.types.random_erasing]
       comments: false
     highlights:
-      - {match: "^\\s*probability:", sentences: [1]}
+      - {key: Data.data_augmentation.probability, sentences: [1]}
+      # The types switched on, every type being one line of the file, so that the highlight follows the switches
       - {match: "activated: True, probability", sentences: [2]}
     narration:
       - "Picture synthetic shapes always drawn centred and in the same light: augmentation changes the training images at random, so that the model learns the shapes rather than one framing or one colour."
@@ -170,7 +173,7 @@ scenes:
       - {type: text, position: [1320, 610], text: "more grid cells hidden,\nin the second view only", font: diagram_small, colour: dim, anchor: lm, appear: 2}
     narration:
       - "Here are three types applied alone to a photo of a cat, where the changes are easier to see than on a synthetic shape, with the strengths of the supervised tasks and with those of the self-supervised views."
-      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps a fifth of the area or more with another aspect ratio, so that a view can lose a large part of the object."
+      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps {{foundations.data.self_supervised_strengths.crop_area_minimum:.0%}} of the area or more with another aspect ratio, so that a view can lose a large part of the object."
       - "The colour changes and the black-out are stronger too, the black-out and the solarization hitting the second view only: the two views of one image must differ enough for the self-supervised loss to learn something."
 
   - kind: html

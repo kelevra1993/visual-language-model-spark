@@ -52,18 +52,24 @@ scenes:
       keys: [ExperimentConfiguration.evaluation]
       comments: false
     highlights:
-      - {match: "per_class_report|number_sample_images|target_precision", sentences: [0]}
-      - {match: "save_predictions|error_dumps|activated|maximum_per_class_pair", sentences: [1]}
+      - {key: ExperimentConfiguration.evaluation.per_class_report, sentences: [0]}
+      - {key: ExperimentConfiguration.evaluation.number_sample_images, sentences: [0]}
+      - {key: ExperimentConfiguration.evaluation.target_precision, sentences: [0]}
+      - {key: ExperimentConfiguration.evaluation.save_predictions, sentences: [1]}
+      - {key: ExperimentConfiguration.evaluation.error_dumps, sentences: [1]}
+      - {key: ExperimentConfiguration.evaluation.error_dumps.activated, sentences: [1]}
+      - {key: ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair, sentences: [1]}
     narration:
       - "The evaluation section of a classification run sets the per class report, {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_sample_images:words}} sample images, and the target precision of the thresholds, while the top-k accuracy needs no setting."
-      - "Save predictions writes the probabilities of every test image, and the error images, off in this run, save the misclassified images up to a number per pair of classes; the checks refuse them in the multi label mode."
+      - "Save predictions writes the probabilities of every test image, and the error images, when activated, save the misclassified images up to a number per pair of classes; the checks refuse them in the multi label mode."
 
   - kind: html
     page: diagram
     title: "The report of a checkpoint"
     code_reference: "vision_training/evaluation/classification/class_metrics_report.py · build_class_metrics_table"
-    # The top-2 and top-5 accuracies, the two most probable classes and the last two columns of the report
-    literal_numbers: [two, five]
+    # The top-2 accuracy of the report of the run, the two most probable classes and the last two columns of the
+    # report
+    literal_numbers: [two]
     elements:
       - type: listing
         box: [20, 24, 1740, 600]
@@ -76,7 +82,7 @@ scenes:
       - {type: text, position: [880, 660], text: "Results.txt: one block per evaluated checkpoint · the console prints it with the links of the files", font: diagram_small, colour: dim, anchor: mm}
       - {type: text, position: [880, 705], text: "newer evaluations: rates in percent, and a Per Class Recall table with every {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
     narration:
-      - "At iteration {{classification.class_metrics.iteration}} the report gives an accuracy of {{classification.headline.iteration_1500.accuracy:percent}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top two accuracy of {{classification.headline.iteration_1500.top_2_accuracy:percent}}, newer evaluations writing a top five accuracy instead: the right class is almost always among the two most probable."
+      - "At iteration {{classification.class_metrics.iteration}} the report gives an accuracy of {{classification.headline.iteration_1500.accuracy:percent}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top two accuracy of {{classification.headline.iteration_1500.top_2_accuracy:percent}}, newer evaluations writing a top {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} accuracy instead: the right class is almost always among the two most probable."
       - "With the per class report, the macro ROC AUC and average precision join them, and every class gets its row, the worst F1 first: square, octagon and pentagon."
       - "The last two columns give the threshold reaching a precision of {{classification.class_metrics.target_precision:percent_label}} and the recall it keeps, a dash when that precision is never reached, as for rectangle."
       - "Evaluations newer than this run write every rate as a percentage, and add a per class recall table, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval of every recall over the test images of its class."
@@ -170,10 +176,9 @@ scenes:
     title: "The logit temperature"
     code_reference: "vision_training/evaluation/classification/temperature_explorer.py · save_temperature_explorer"
     # The made-up logits of a square and their probabilities at the temperatures one and three, the decimals listed
-    # first so that the "0" of the logits leaves them whole; 8091 is the port of the main block of
-    # scripts/evaluation/serve_temperature_explorer.py (port = 8091), a local variable that no placeholder reads
+    # first so that the "0" of the logits leaves them whole
     literal_numbers: ["0.950", "0.047", "0.002", "0.665", "0.245", "0.090", "0.95", "0.67", "0.24", "0.09", six, three,
-                      zero, "6", "3", "0", "1", "8091"]
+                      zero, "6", "3", "0", "1"]
     elements:
       - {type: box, box: [40, 30, 1260, 110], text: "probabilities = softmax(logits / T)", font: diagram_bold, outline: blue, highlight: [0]}
       - {type: text, position: [40, 160], text: "a square, logits 6 · 3 · 0, T = 1", font: diagram_small, colour: dim}
@@ -181,7 +186,7 @@ scenes:
       - {type: text, position: [700, 160], text: "the same logits, T = 3", font: diagram_small, colour: dim, appear: 1}
       - {type: bars, box: [700, 200, 1260, 600], maximum: 1, values: [0.665, 0.245, 0.090], labels: ["square", "rectangle", "circle"], value_labels: ["0.665", "0.245", "0.090"], colours: [blue, aqua, violet], gap: 40, appear: 1, highlight: [1]}
       - {type: box, box: [1340, 30, 1740, 330], text: "temperature_explorer.html\nwith the per class report\nslider from {{classification.temperature_explorer.minimum_temperature:.3g}} to {{classification.temperature_explorer.maximum_temperature:.3g}}\nthe calibrated T\nclass_logits.npz next to it", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 3]}
-      - {type: box, box: [1340, 380, 1740, 600], text: "serve_temperature_explorer\nhttp://127.0.0.1:8091/\nany typed T\nSave Thresholds · Export", font: diagram_small, outline: aqua, appear: 4, highlight: [4, 5]}
+      - {type: box, box: [1340, 380, 1740, 600], text: "serve_temperature_explorer\nhttp://127.0.0.1:{{classification.temperature_explorer.port}}/\nany typed T\nSave Thresholds · Export", font: diagram_small, outline: aqua, appear: 4, highlight: [4, 5]}
       - {type: text, position: [880, 680], text: "the order of the logits is kept: the same predicted class, the same accuracy · classification only", font: diagram_small, colour: dim, anchor: mm, appear: 1}
     narration:
       - "A well trained softmax often squeezes its probabilities against one, which leaves the thresholds little room: dividing the logits by a temperature before the softmax spreads them out."
@@ -234,8 +239,8 @@ scenes:
     narration:
       - "The architecture benchmark compared the head settings on the {{classification.benchmark.class_count:words}} shapes at {{classification.benchmark.image_size}} pixels, {{classification.benchmark.launches_per_setting:words}} launches of {{classification.benchmark.last_iteration}} iterations per setting."
       - "Layer normalization of hidden layers learns fastest: {{classification.benchmark.normalization.layer:percent}} test accuracy at iteration {{classification.benchmark.normalization_iteration}}, against {{classification.benchmark.normalization.none:percent}} without it and {{classification.benchmark.normalization.batch:percent}} with batch normalization; layer and batch end level, above none."
-      - "Flatten against average pooling, and balanced against no class weights, differ by less than one point over the last {{classification.benchmark.last_evaluation_count:words}} evaluations, while {{classification.benchmark.noise.launch_count:words}} launches of the same settings ended at {{classification.benchmark.noise.first_mean:percent}} and {{classification.benchmark.noise.second_mean:percent}}."
-      - "So flatten and balanced weights are defaults here, not measured gains: the {{classification.data.class_count:words}} classes hold between {{classification.data.smallest_training_class:,}} and {{classification.data.largest_training_class:,}} training images each."
+      - "Over the last {{classification.benchmark.last_evaluation_count:words}} evaluations, flatten differs from average pooling by {{classification.benchmark.pooling.difference:points}}, and balanced weights from none by {{classification.benchmark.weighting.difference:points}}, while {{classification.benchmark.noise.launch_count:words}} launches of the same settings ended at {{classification.benchmark.noise.first_mean:percent}} and {{classification.benchmark.noise.second_mean:percent}}."
+      - "So flatten and balanced weights are choices of this run, not measured gains: the {{classification.data.class_count:words}} classes hold between {{classification.data.smallest_training_class:,}} and {{classification.data.largest_training_class:,}} training images each."
 
   - kind: text_panel
     title: "Pitfalls"
@@ -282,14 +287,14 @@ scenes:
       - {type: box, box: [540, 110, 1000, 330], text: "InferenceClassifier\nthe ImageClassifier\nwithout labels nor loss", font: diagram_small, outline: violet, highlight: [0]}
       - {type: arrow, points: [[1008, 220], [1072, 220]]}
       - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax(logits / T) inside", font: diagram_small, outline: aqua, highlight: [0, 2]}
-      - {type: box, box: [20, 420, 1000, 560], text: "Triton model: image_classifier_<format>\nTorchScript and ONNX\nfrom the page: <run>/Exports/Iteration_<n>[_EMA]_T<T>/", font: diagram_small, appear: 2, highlight: [2, 3]}
+      - {type: box, box: [20, 420, 1000, 560], text: "Triton model: {{constant:vision_training/deployment/export_specifications.py#TASK_MODEL_NAMES.classification}}_<format>\nTorchScript and ONNX\nfrom the page: <run>/Exports/Iteration_<n>[_EMA]_T<T>/", font: diagram_small, appear: 2, highlight: [2, 3]}
       - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 2}
       - {type: box, box: [1080, 410, 1740, 600], text: "saved_temperature_thresholds.json\nof the exported checkpoint: its T built in,\ncopied next to the model as class_thresholds.json\nuse_saved_temperature off: T = 1, no thresholds", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 4, 5]}
       - {type: box, box: [20, 625, 1740, 725], text: "preprocessing.json next to the model, and the metadata of the ONNX model: colour order · resize · size\ninterpolation · padding value and placement · layout · value range, read from the run and its data loaders", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
     narration:
       - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to {{classification.head.image_size}} pixels like the training, and returns the class probabilities only."
       - "So that a server builds these inputs as the training did, the export also writes their colour order, resize, size, interpolation, padding, layout and value range in the preprocessing file next to the model and in the ONNX metadata."
-      - "Its Triton model is named image classifier, followed by its format, and the softmax is inside it, after the logits are divided by the temperature saved on the explorer page, whose thresholds are copied next to the model as class thresholds json."
+      - "Its Triton model is named after the task in the export specifications, followed by its format, and the softmax is inside it, after the logits are divided by the temperature saved on the explorer page, whose thresholds are copied next to the model as class thresholds json."
       - "Exported from that page, every checkpoint, weights and temperature gets its own Triton repository in the Exports folder of the run, with the record and the console output of the export."
       - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights, in the evaluation folder of the training or the checkpoint evaluation folder, never in both."
       - "Run from export model with use saved temperature off, it keeps a temperature of one and copies no thresholds."
@@ -303,7 +308,7 @@ scenes:
       - {text: "predictions.csv: every probability, no model run needed"}
       - {text: "Errors/<TRUE>-TO-<PREDICTED>/<sample>_<probability>.png", monospace: true}
       - {text: "serve_temperature_explorer: save a temperature, export from the page"}
-      - {text: "Export: image_classifier, class probabilities [B, {{classification.head.number_classes}}]"}
+      - {text: "Export: {{constant:vision_training/deployment/export_specifications.py#TASK_MODEL_NAMES.classification}}, class probabilities [B, {{classification.head.number_classes}}]"}
     narration:
       - "To recap: read the report with the confusion matrices, check the thresholds and the probabilities of the errors, choose a temperature on the explorer page if they are squeezed, and export the checkpoint from that page with the thresholds found at it."
       - "The next series covers object detection: boxes with their class and score, the anchors, the region proposals and the detection heads."

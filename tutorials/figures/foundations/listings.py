@@ -42,6 +42,12 @@ SELF_SUPERVISED_TASK = "self_supervised"
 # the run folder scene only lists what a run writes
 CONFIGURATION_BACKUP_PATTERN = re.compile(pattern=r"training_configuration_before_\w+\.yaml")
 
+# Position of the backbone section in a run name (after the task and input sections), and its token of the layers and
+# filters of every block (B1x16.2x32...), which follows the tokens of the modules and of the normalization
+RUN_NAME_BACKBONE_SECTION = 2
+RUN_NAME_BLOCKS_TOKEN_PATTERN = re.compile(pattern=r"B\d+x\d+(?:\.\d+x\d+)*")
+
+
 def read_iteration_number(folder_name: str) -> int:
     """
     Gives the iteration of a checkpoint or evaluation folder of a run (Iteration_1500 gives 1500), to sort them.
@@ -244,9 +250,10 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
     """
     Gives the facts of the backbone chapter of the foundations series, read from the model of the classification run
     so that the narration follows the configuration when the run is trained again: the receptive field and stride
-    after the last convolution of every block, the parameters of every block and of the Squeeze-and-Excitation modules,
-    the blocks adding a residual shortcut, the shapes of the block drawn layer by layer, the input channels of the
-    backbone, and the side of the convolution kernels and of the max pooling of its blocks.
+    after the last convolution of every block, the parameters of every block and of the Squeeze-and-Excitation modules
+    with the reduction of their channels, the blocks adding a residual shortcut, the shapes of the block drawn layer by
+    layer, the input channels of the backbone, and the side of the convolution kernels and of the max pooling of its
+    blocks.
 
     Args:
         model (ImageClassifier): The model of the classification run, built on the CPU.
@@ -275,6 +282,14 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
     model_parameter_count = sum(parameter.numel() for parameter in model.parameters())
     squeeze_excitation_parameter_count = sum(parameter.numel() for block in blocks
                                              for parameter in block.squeeze_and_excitation_layers.parameters())
+
+    # Reduction of the channels between the two linear layers of every Squeeze-and-Excitation module, the same in
+    # every layer of the backbone
+    reduction_ratios = {layer.first_adaptive_recalibrator.in_features // layer.first_adaptive_recalibrator.out_features
+                        for block in blocks for layer in block.squeeze_and_excitation_layers}
+    if len(reduction_ratios) != 1:
+        raise ValueError(f"The Squeeze-and-Excitation modules of the backbone reduce their channels by "
+                         f"{reduction_ratios} instead of one ratio.")
 
     # Blocks adding at least one residual shortcut, from the residual pairs of every block, and the blocks after the
     # first that add none because their pairs are shifted by a change of channels
@@ -320,6 +335,7 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
             "listings.last_block_parameter_percent": round(100 * block_parameter_counts[-1] /
                                                            backbone_parameter_count),
             "listings.squeeze_excitation_parameter_count": squeeze_excitation_parameter_count,
+            "listings.squeeze_excitation_reduction_ratio": reduction_ratios.pop(),
             "listings.block_parameter_labels": [f"{count:,}" for count in block_parameter_counts],
             "listings.block_labels": [f"block {block_number}" for block_number in range(1, len(blocks) + 1)],
             "listings.block_table": block_table,
@@ -350,8 +366,9 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
     Returns:
         Dict[str, Any]: The facts: the number of checkpoints and evaluations of the run, the parameters of its model,
             the schedule of its training (batch size, summaries, checkpoints, evaluations, validation, iterations),
-            the hidden units and classes of its head, the facts of its backbone blocks and data pipeline
-            (describe_backbone_blocks, describe_data_pipeline) and those of the repository (describe_repository).
+            the hidden units and classes of its head, the sections of its run name, the facts of its backbone blocks
+            and data pipeline (describe_backbone_blocks, describe_data_pipeline) and those of the repository
+            (describe_repository).
     """
     listings_folder = output_folder / "listings"
     listings_folder.mkdir(parents=True, exist_ok=True)
@@ -391,9 +408,21 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
                           if isinstance(layer, torch.nn.Linear)]
     if not head_linear_layers:
         raise ValueError(f"The classification head of {run_folder} has no hidden layer.")
+
+    # Sections of the run name ("_" separated) drawn one by one by the run name scene, and the module and normalization
+    # tokens of the backbone section, those before its B<layers>x<filters> token
+    run_name_sections = run_folder.name.split(sep="_")
+    backbone_tokens = run_name_sections[RUN_NAME_BACKBONE_SECTION].split(sep="-")
+    block_token_indices = [index for index, token in enumerate(backbone_tokens)
+                           if RUN_NAME_BLOCKS_TOKEN_PATTERN.fullmatch(string=token)]
+    if not block_token_indices:
+        raise ValueError(f"The section {run_name_sections[RUN_NAME_BACKBONE_SECTION]} of the run name of {run_folder} "
+                         f"has no B<layers>x<filters> token.")
     return {**backbone_facts, **data_facts, **repository_facts,
             "listings.checkpoint_count": len(checkpoint_names), "listings.evaluation_count": len(evaluation_names),
-            "listings.run_name": run_folder.name, "listings.last_evaluation": evaluation_names[-1],
+            "listings.run_name": run_folder.name, "listings.run_name_sections": run_name_sections,
+            "listings.run_name_backbone_modules": "-".join(backbone_tokens[:block_token_indices[0]]),
+            "listings.last_evaluation": evaluation_names[-1],
             "listings.last_checkpoint": checkpoint_names[-1] if checkpoint_names else None,
             "listings.parameter_count": sum(parameter.numel() for parameter in model.parameters()),
             "run.batch_size": int(experiment_configuration["batch_size"]),

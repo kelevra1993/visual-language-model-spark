@@ -40,15 +40,19 @@ scenes:
       keys: [Backbone.convolutions, Backbone.last_max_pooling, Backbone.normalization, Backbone.modules]
       comments: false
     highlights:
-      - {match: "\"\\d+\": \\[", sentences: [0]}
-      - {match: "last_max_pooling", sentences: [1]}
-      - {match: "input_normalization|feature_map_normalization", sentences: [2]}
-      - {match: "residual_nets|inception|squeeze_and_excite", sentences: [3]}
+      - {key: Backbone.convolutions, sentences: [0]}
+      - {key: Backbone.last_max_pooling, sentences: [1]}
+      - {key: Backbone.normalization.input_normalization, sentences: [2]}
+      - {key: Backbone.normalization.feature_map_normalization, sentences: [2]}
+      - {key: Backbone.modules.residual_nets, sentences: [3]}
+      - {key: Backbone.modules.residual_nets_v2, sentences: [3]}
+      - {key: Backbone.modules.inception, sentences: [3]}
+      - {key: Backbone.modules.squeeze_and_excite, sentences: [3]}
     narration:
       - "The convolutions list the blocks in order: every entry gives the number of convolution layers of a block, then the filters of each of its layers."
       - "Every block ends with a {{foundations.listings.pooling_size:words}} by {{foundations.listings.pooling_size:words}} max pooling, but the last one while last max pooling is false, which gives this backbone a stride of {{foundations.listings.final_stride}}."
-      - "The input normalization maps the pixels to minus one half to one half, and the feature map normalization follows every convolution: batch, layer or none, the batch statistics following the training batches at a fixed momentum of {{constant:vision_training/models/components/convolution_block.py#BATCH_NORMALIZATION_MOMENTUM}}."
-      - "The modules switch on the residual shortcuts, their pre-activation placement, inception from the third block, and squeeze and excitation; every one of them enters the run name."
+      - "The input normalization maps the pixels to {{foundations.data.normalized_pixel_minimum}} to {{foundations.data.normalized_pixel_maximum}}, and the feature map normalization follows every convolution: batch, layer or none, the batch statistics following the training batches at a fixed momentum of {{constant:vision_training/models/components/convolution_block.py#BATCH_NORMALIZATION_MOMENTUM}}."
+      - "The modules switch on the residual shortcuts, their pre-activation placement, inception from block {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK:words}}, and squeeze and excitation; every one of them enters the run name."
 
   - kind: html
     page: diagram
@@ -113,9 +117,9 @@ scenes:
       - {type: text, position: [1090, 85], text: "block {{foundations.feature_maps.shown_blocks[2]}} output · {{foundations.feature_maps.block_6.output_height}}×{{foundations.feature_maps.block_6.output_width}}×{{foundations.feature_maps.block_6.output_channels}} · the {{foundations.feature_maps.shown_channel_count}} most active of {{foundations.feature_maps.block_6.output_channels}} channels", font: diagram_bold, anchor: mm, appear: 2}
       - {type: image, path: "figures:foundations/model/feature_maps_block_6.png", box: [440, 115, 1740, 735], scaling: pixel, appear: 2}
     narration:
-      - "Here is what the trained classification model computes for a test star: after the first block, at {{foundations.feature_maps.block_1.output_height}} pixels a side, the most active channels respond to the flat colours of the star and of the background."
-      - "After the third block, at {{foundations.feature_maps.block_3.output_height}} pixels a side, the channels trace the outline of the star."
-      - "After the sixth block, the map is {{foundations.feature_maps.block_6.output_height}} by {{foundations.feature_maps.block_6.output_width}}, and every channel lights up where the star is: these are the values the head of the task reads."
+      - "Here is what the trained classification model computes for a test star: after block {{foundations.feature_maps.shown_blocks[0]}}, at {{foundations.feature_maps.block_1.output_height}} pixels a side, the most active channels respond to the flat colours of the star and of the background."
+      - "After block {{foundations.feature_maps.shown_blocks[1]}}, at {{foundations.feature_maps.block_3.output_height}} pixels a side, the channels trace the outline of the star."
+      - "After block {{foundations.feature_maps.shown_blocks[2]}}, the last one, the map is {{foundations.feature_maps.block_6.output_height}} by {{foundations.feature_maps.block_6.output_width}}, and every channel lights up where the star is: these are the values the head of the task reads."
       - "Every tile is scaled to its own strongest response, from dark for zero to white, the ReLU leaving no negative value."
 
   - kind: html
@@ -131,9 +135,9 @@ scenes:
       - {type: box, box: [260, 245, 470, 345], text: "average of\nevery channel", font: diagram_small, outline: magenta, appear: 0, highlight: [0]}
       - {type: arrow, points: [[478, 295], [528, 295]], appear: 1}
       - {type: text, position: [782, 228], text: "excitation", font: diagram_small, colour: dim, anchor: md, appear: 1}
-      - {type: box, box: [538, 245, 748, 345], text: "linear C → C/2\nReLU", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: box, box: [538, 245, 748, 345], text: "linear C → C/{{foundations.listings.squeeze_excitation_reduction_ratio}}\nReLU", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
       - {type: arrow, points: [[756, 295], [806, 295]], appear: 1}
-      - {type: box, box: [816, 245, 1026, 345], text: "linear C/2 → C\nsigmoid", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: box, box: [816, 245, 1026, 345], text: "linear C/{{foundations.listings.squeeze_excitation_reduction_ratio}} → C\nsigmoid", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
       - {type: arrow, points: [[921, 353], [921, 425]], appear: 2}
       - {type: text, position: [730, 450], text: "the {{foundations.squeeze_excitation.gate_count}} gates of layer {{foundations.squeeze_excitation.layer}} of block {{foundations.squeeze_excitation.block}} for the test star: {{foundations.squeeze_excitation.minimum_gate:.2f}} to {{foundations.squeeze_excitation.maximum_gate:.2f}}", font: diagram_small, anchor: mm, appear: 2}
       - {type: text, position: [48, 482], text: "1", font: diagram_small, colour: dim, anchor: rm, appear: 2}
@@ -145,10 +149,10 @@ scenes:
       - {type: text, position: [1560, 450], text: "{{foundations.listings.squeeze_excitation_parameter_count:,}} parameters\nin this backbone", font: diagram_small, anchor: mm, align: center, appear: 4, highlight: [4]}
     narration:
       - "Squeeze and excitation weighs the channels of every layer output: it first averages every channel over the whole map, one number per channel."
-      - "Two linear layers without bias, with half as many units in between, turn these numbers into one gate per channel, between zero and one after a sigmoid."
+      - "Two linear layers without bias, the first dividing the channels by {{foundations.listings.squeeze_excitation_reduction_ratio:words}}, turn these numbers into one gate per channel, between zero and one after a sigmoid."
       - "Here are the {{foundations.squeeze_excitation.gate_count}} real gates of one layer of the last block of the trained model for the test star, from {{foundations.squeeze_excitation.minimum_gate:.2f}} to {{foundations.squeeze_excitation.maximum_gate:.2f}}."
       - "Every channel is multiplied by its gate, so the network strengthens the channels that matter for this image and mutes the others, a context taken from the whole image."
-      - "With C squared weights per layer, the module adds {{foundations.listings.squeeze_excitation_parameter_count:,}} parameters to this backbone."
+      - "Its two layers hold C squared over {{foundations.listings.squeeze_excitation_reduction_ratio:words}} weights each, so the module adds {{foundations.listings.squeeze_excitation_parameter_count:,}} parameters to this backbone."
 
   - kind: html
     page: diagram
@@ -323,8 +327,11 @@ scenes:
       keys: [Backbone.pretrained]
       comments: false
     highlights:
-      - {match: "experiment_folder|iteration", sentences: [0]}
-      - {match: "freeze:|freeze_normalization_parameters|learning_rate_multiplier", sentences: [2]}
+      - {key: Backbone.pretrained.experiment_folder, sentences: [0]}
+      - {key: Backbone.pretrained.iteration, sentences: [0]}
+      - {key: Backbone.pretrained.freeze, sentences: [2]}
+      - {key: Backbone.pretrained.freeze_normalization_parameters, sentences: [2]}
+      - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [2]}
     narration:
       - "Say you want to reuse another run: every component can start from its weights, the experiment folder naming that run folder, and the iteration the checkpoint, null taking the last one."
       - "The backbone needs the same blocks, modules and normalization as the source, or the first blocks of the source backbone; the image size and the task may differ."
@@ -346,8 +353,8 @@ scenes:
     literal_numbers: [three]
     narration:
       - "The repository was benchmarked on the synthetic shapes, one setting changed at a time with at least {{foundations.benchmark.minimum_launches_per_setting:words}} launches each, on a deeper backbone of {{foundations.benchmark.backbone_layer_count:words}} convolution layers trained for {{foundations.benchmark.last_iteration}} iterations."
-      - "Without residual shortcuts, this deep backbone never learns: both launches stay at one class in {{foundations.benchmark.class_count:words}}, while the shortcuts reach {{foundations.benchmark.model_settings.residual_on.accuracy_2000:percent}}."
-      - "With layer normalization of the feature maps, the network had not learned after {{foundations.benchmark.model_settings.layer_normalization_last_iteration}} iterations either, training about three times slower, so the batch normalization stays."
+      - "Without residual shortcuts, this deep backbone never learns: its launches stay at one class in {{foundations.benchmark.class_count:words}}, while the shortcuts reach {{foundations.benchmark.model_settings.residual_on.accuracy_2000:percent}}."
+      - "With layer normalization of the feature maps, the network had not learned after {{foundations.benchmark.model_settings.layer_normalization_last_iteration}} iterations either, training about three times slower, so the benchmark kept the batch normalization."
 
   - kind: image
     title: "Within the noise"

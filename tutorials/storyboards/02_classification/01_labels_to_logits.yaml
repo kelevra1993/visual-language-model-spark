@@ -127,14 +127,20 @@ scenes:
                  ClassificationHead.output_mode, ClassificationHead.label_smoothing, ClassificationHead.class_weighting]
           comments: false
         highlights:
-          - {match: "global_pooling|fully_connected:", sentences: [0]}
-          - {match: "fully_connected_normalization|dropout_rate", sentences: [1]}
-          - {match: "label_smoothing|class_weighting|output_mode", sentences: [2]}
-      - {type: text, position: [960, 90], font: code_text, segments: [{text: "..._", colour: dim}, {text: "HFLAT.128", highlight: [0]}, {text: "-", colour: dim}, {text: "HLN", highlight: [1]}, {text: "-", colour: dim}, {text: "CWB", highlight: [2]}, {text: "_", colour: dim}, {text: "MC9", highlight: [2]}]}
-      - {type: box, box: [960, 150, 1740, 270], text: "HFLAT.128 · flatten, one hidden layer of {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ClassificationHead.fully_connected[0]}}\nHAVG, HMAX · average or max pooling", font: diagram_small, outline: violet, appear: 0, highlight: [0]}
+          - {key: ClassificationHead.global_pooling, sentences: [0]}
+          - {key: ClassificationHead.fully_connected, sentences: [0]}
+          - {key: ClassificationHead.fully_connected_normalization, sentences: [1]}
+          - {key: ClassificationHead.dropout_rate, sentences: [1]}
+          - {key: ClassificationHead.label_smoothing, sentences: [2]}
+          - {key: ClassificationHead.class_weighting, sentences: [2]}
+          - {key: ClassificationHead.output_mode, sentences: [2]}
+      # The tokens of the head section of the file shown, built by the run name code (classification_head.py of the
+      # classification figures)
+      - {type: text, position: [960, 90], font: code_text, segments: [{text: "..._", colour: dim}, {text: "{{classification.run_name.head_tokens[0]}}", highlight: [0]}, {text: "-", colour: dim}, {text: "{{classification.run_name.head_tokens[1]}}", highlight: [1]}, {text: "-", colour: dim}, {text: "{{classification.run_name.head_tokens[2]}}", highlight: [2]}, {text: "_", colour: dim}, {text: "{{classification.run_name.classes_token}}", highlight: [2]}]}
+      - {type: box, box: [960, 150, 1740, 270], text: "{{classification.run_name.head_tokens[0]}} · flatten, one hidden layer of {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ClassificationHead.fully_connected[0]}}\nHAVG, HMAX · average or max pooling", font: diagram_small, outline: violet, appear: 0, highlight: [0]}
       - {type: box, box: [960, 300, 1740, 420], text: "HLN · layer normalization · HBN · batch\ndropout rate: no token", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: box, box: [960, 450, 1740, 570], text: "LS<rate> · label smoothing above 0\nCWB · balanced class weights", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
-      - {type: box, box: [960, 600, 1740, 720], text: "MC9 · multi_class, {{classification.data.class_count}} classes\nML<classes> · multi_label", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [960, 600, 1740, 720], text: "{{classification.run_name.classes_token}} · multi_class, {{classification.data.class_count}} classes\nML<classes> · multi_label", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
     narration:
       - "The head section gives the run name its last tokens: first the pooling and the sizes of the hidden layers, flatten and one layer of {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ClassificationHead.fully_connected[0]}} units here, average or max for the global poolings."
       - "Layer normalization of the hidden layers adds HLN, batch normalization HBN; the dropout gives no token, so that it can change when a run resumes."
@@ -213,14 +219,14 @@ scenes:
     narration:
       - "The class layer gives logits, raw scores of any sign: for this test star, {{classification.star_image.logits.star:.2f}} for star and below zero for every other class."
       - "In the multi class mode, a softmax turns them into probabilities summing to one: {{classification.star_image.probabilities.star:.1%}} for star, then {{classification.star_image.probabilities.pentagon:.1%}} for pentagon."
-      - "In the multi label mode, a sigmoid reads every logit alone, and the batch accuracy and the evaluation decide every class at a probability of one half."
+      - "In the multi label mode, a sigmoid reads every logit alone, and the batch accuracy and the evaluation decide every class at a probability of {{constant:vision_training/trainers/classification_trainer.py#MULTI_LABEL_THRESHOLD}}."
       - "The model returns both the logits and the probabilities, and the exported model returns only the probabilities."
 
   - kind: html
     page: diagram
     title: "The loss"
     code_reference: "vision_training/losses/classification_losses.py · compute_classification_loss"
-    # A label smoothing above zero, and the smoothing of zero of every shipped classification configuration
+    # A label smoothing above zero, and the smoothing of zero advised with balanced weights
     literal_numbers: [zero, "0"]
     elements:
       - type: listing
@@ -228,19 +234,19 @@ scenes:
         font: diagram_monospace_tiny
         source: {file: vision_training/losses/classification_losses.py, function: compute_classification_loss}
         highlights:
-          - {match: "return torch.nn.functional.cross_entropy", sentences: [0]}
+          - {match: "\\bcross_entropy\\(", sentences: [0]}
           - {match: "weight=class_weights", sentences: [1]}
           - {match: "smoothed_targets|binary_cross_entropy_with_logits", sentences: [2]}
-          - {match: "label_smoothing=label_smoothing\\)", sentences: [3]}
+          - {match: "label_smoothing=label_smoothing", sentences: [3]}
       - {type: box, box: [20, 340, 560, 520], text: "this star: −ln {{classification.star_image.probabilities.star:.3f}} = {{classification.star_image.cross_entropy:.3f}}\nuntrained: ln {{classification.head.number_classes}} ≈ {{classification.head.untrained_cross_entropy:.3f}}", font: diagram_small, outline: blue, appear: 0, highlight: [0]}
       - {type: text, position: [640, 330], text: "balanced weights N / (K · N_k) of the training split", font: diagram_small, colour: dim, appear: 1}
       - {type: grid, box: [640, 410, 1740, 480], values: "{{classification.class_weights.weight_rows}}", show_values: true, decimals: 3, minimum: 0.95, maximum: 1.05, column_labels: "{{classification.confusion.short_class_names}}", font: diagram_monospace_small, appear: 1, highlight: [1]}
-      - {type: box, box: [20, 560, 1740, 700], text: "label_smoothing above 0 with class_weighting balanced: PyTorch also weights the smoothing term,\nevery image is pulled towards the rare classes · shipped configurations: smoothing 0", font: diagram_small, outline: red, appear: 3, highlight: [3]}
+      - {type: box, box: [20, 560, 1740, 700], text: "label_smoothing above 0 with class_weighting balanced: PyTorch also weights the smoothing term,\nevery image is pulled towards the rare classes · keep the smoothing at 0 with balanced weights", font: diagram_small, outline: red, appear: 3, highlight: [3]}
     narration:
       - "In the multi class mode, the loss is the PyTorch cross entropy against the class index: minus the log of the probability of the true class, {{classification.star_image.cross_entropy:.2f}} for this star, and the log of {{classification.head.number_classes:words}}, about {{classification.head.untrained_cross_entropy:.1f}}, for an untrained network."
       - "Balanced class weighting multiplies the loss of every image by the weight of its class, the training images over the number of classes times the images of that class; these classes are nearly balanced, so the weights stay between {{classification.class_weights.minimum:.2f}} and {{classification.class_weights.maximum:.2f}}."
       - "In the multi label mode, the loss is a binary cross entropy per class, its targets smoothed towards one half."
-      - "Do not combine label smoothing with balanced weights: PyTorch also weights the smoothing term, which pulls every image towards the rare classes, and every shipped configuration keeps a smoothing of zero."
+      - "Do not combine label smoothing with balanced weights: PyTorch also weights the smoothing term, which pulls every image towards the rare classes, so keep a smoothing of zero with balanced weights."
 
   - kind: html
     page: diagram
@@ -258,12 +264,14 @@ scenes:
           keys: [ClassificationHead.decorrelation]
           comments: false
         highlights:
-          - {match: "activated|weight|hidden_layer", sentences: [0]}
+          - {key: ClassificationHead.decorrelation.activated, sentences: [0]}
+          - {key: ClassificationHead.decorrelation.weight, sentences: [0]}
+          - {key: ClassificationHead.decorrelation.hidden_layer, sentences: [0]}
       - {type: box, box: [840, 230, 1740, 360], text: "{{classification.hidden_features.image_count}} validation images, {{classification.hidden_features.unit_count}} units: mean |correlation| {{classification.hidden_features.mean_absolute_correlation:.2f}}\nloss {{classification.hidden_features.decorrelation_loss:.2f}} at the weight {{classification.hidden_features.decorrelation_weight}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: box, box: [840, 390, 1740, 520], text: "a batch of {{classification.hidden_features.batch_size}}: sampling noise alone ≈ {{classification.hidden_features.batch_noise_floor:.0f}}\nunits × (units − 1) / (N − 1), never 0", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
       - {type: box, box: [840, 550, 1740, 680], text: "no run name token:\nturned on when a run resumes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
     narration:
-      - "The decorrelation, off in this run, adds a second loss so that the units of one hidden layer carry different information: the squared correlations of every pair of units over the batch, summed and multiplied by the weight."
+      - "When activated, the decorrelation adds a second loss so that the units of one hidden layer carry different information: the squared correlations of every pair of units over the batch, summed and multiplied by the weight."
       - "Over {{classification.hidden_features.image_count}} validation images, the {{classification.hidden_features.unit_count}} units of this trained head have a mean absolute correlation of {{classification.hidden_features.mean_absolute_correlation:.2f}}, which would add {{classification.hidden_features.decorrelation_loss:.2f}} to the loss at the weight of the configuration."
       - "Over a training batch of {{classification.hidden_features.batch_size}} images, sampling noise alone gives a sum of about {{classification.hidden_features.batch_noise_floor:.0f}}, so the term never reaches zero: pick the weight so that the term is about a tenth of the classification loss."
       - "Assuming you want it on a trained run: it gives no run name token, so it can be turned on when the run resumes, after a warm-up of the classification loss."
@@ -294,7 +302,7 @@ scenes:
     items:
       - {text: "labels.json + label_mapping.json: category → class index 0 to K − 1"}
       - {text: "multi_class: softmax, cross entropy · multi_label: sigmoids, binary cross entropy"}
-      - {text: "Head tokens: HFLAT.128-HLN-CWB_MC9", monospace: true}
+      - {text: "Head tokens: {{classification.run_name.head_tokens[0]}}-{{classification.run_name.head_tokens[1]}}-{{classification.run_name.head_tokens[2]}}_{{classification.run_name.classes_token}}", monospace: true}
       - {text: "flatten: {{classification.head.input_features:,}} features, {{classification.head.first_linear_share:.0%}} of the parameters, tied to the image size"}
       - {text: "Balanced weights N / (K · N_k), never with label smoothing"}
       - {text: "Decorrelation: no token, mind the noise floor of the batch"}

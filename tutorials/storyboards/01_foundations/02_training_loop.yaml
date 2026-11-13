@@ -35,7 +35,7 @@ scenes:
       - {type: arrow, points: [[275, 120], [315, 120]]}
       - {type: box, box: [320, 70, 570, 170], text: "augmentation\non the GPU", outline: yellow, highlight: [0]}
       - {type: arrow, points: [[575, 120], [615, 120]]}
-      - {type: box, box: [620, 70, 870, 170], text: "forward pass\nbfloat16", outline: blue, highlight: [0]}
+      - {type: box, box: [620, 70, 870, 170], text: "forward pass\n{{foundations.optimization.mixed_precision_dtype}}", outline: blue, highlight: [0]}
       - {type: arrow, points: [[875, 120], [915, 120]], appear: 1}
       - {type: box, box: [920, 70, 1170, 170], text: "losses and\nbatch metrics", outline: magenta, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1175, 120], [1215, 120]], appear: 1}
@@ -59,7 +59,7 @@ scenes:
       - {type: arrow, points: [[1170, 140], [1260, 405]], colour: violet, appear: 3}
       - {type: arrow, points: [[1175, 460], [1215, 460]], colour: violet, appear: 3}
     narration:
-      - "Every iteration takes one batch prefetched by the worker of the training loader, augments it on the GPU, and runs the forward pass in bfloat16, the mixed precision of every run."
+      - "Every iteration takes one batch prefetched by the worker of the training loader, augments it on the GPU, and runs the forward pass in {{foundations.optimization.mixed_precision_dtype}}, the mixed precision of every run."
       - "The task trainer returns its losses and batch metrics, the backward pass follows, then one optimizer step: the learning rate of the schedule, and the moving average of the weights when it is on."
       - "Every validation ratio iterations, one validation batch goes through the model without augmentation and without any update, for the validation curves."
       - "Every value goes to the metric tracker, which writes it to TensorBoard at every iteration and averages it over the interval for the console."
@@ -148,8 +148,9 @@ scenes:
       keys: [ExperimentConfiguration.tracking]
       comments: false
     highlights:
-      - {match: "activated:", sentences: [0]}
-      - {match: "tracking_uri:|experiment_name:", sentences: [1]}
+      - {key: ExperimentConfiguration.tracking.activated, sentences: [0]}
+      - {key: ExperimentConfiguration.tracking.tracking_uri, sentences: [1]}
+      - {key: ExperimentConfiguration.tracking.experiment_name, sentences: [1]}
     narration:
       - "Tracking records the settings, the interval averages, the learning rate and the test metrics from a background thread, so it never slows down nor stops the training."
       - "Without a tracking address, the database sits in the experiment folder, and the experiment name defaults to the task."
