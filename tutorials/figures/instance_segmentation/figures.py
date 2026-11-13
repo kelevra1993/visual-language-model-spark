@@ -6,15 +6,16 @@ repository: the run length encoding of the masks and its decoding, the mask targ
 trained instance segmenter predicts on the CPU and their pasting (mask_figures.py), the mask against box average
 precision and the report tables (evaluation_figures.py), and, with the run figures of the object detection series
 imported from tutorials/figures/object_detection/run_figures.py, the losses, the sample images along the run, the mask
-mAP of the trained and averaged weights and the console summaries, with the geometry of the mask heads and the values
-the narration derives from them (describe_quoted_facts). The facts are quoted by the storyboards as
+mAP of the trained and averaged weights and the console summaries, with the geometry of the mask heads, the deployment
+score threshold of the run (read from its saved configuration, the shipped one free to move on) and the values the
+narration derives from them (describe_quoted_facts). The facts are quoted by the storyboards as
 {{instance_segmentation.<name>}}.
 """
 
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_run_folder, merge_facts
+from tutorials.figures.figure_utilities import find_run_folder, merge_facts, read_run_configuration
 from tutorials.figures.instance_segmentation.evaluation_figures import (draw_mask_box_figure,
                                                                         write_mask_report_listings)
 from tutorials.figures.instance_segmentation.mask_figures import describe_mask_geometry, make_mask_figures
@@ -114,7 +115,9 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                    output_folder=listings_folder),
         read_proposal_recall(evaluation_folder=evaluation_folder),
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),
-         "run.checkpoint_iteration": CHECKPOINT_ITERATION}])
+         "run.checkpoint_iteration": CHECKPOINT_ITERATION,
+         "run.score_threshold": read_run_configuration(run_folder=run_folder)["Detector"]["inference"][
+             "score_threshold"]}])
 
     # Values the narration quotes that are derived from the facts above
     return merge_facts(fact_groups=[facts, describe_quoted_facts(facts=facts)])

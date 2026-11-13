@@ -59,7 +59,7 @@ scenes:
       - {type: box, box: [560, 610, 1740, 700], text: "every object: class, key points [{{keypoint_detection.channels_table_columns}}, 2] in input pixels (NaN when missing),\nkey point scores and object score", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "The detector is bottom-up, as in Higher HR Net with associative embedding: the network sees the whole image and finds the key points of all its objects at once."
-      - "For every key point of every class it predicts a heat map and a tag map at a quarter of the image, and a second set of heat maps at half the image."
+      - "For every key point of every class it predicts a heat map and a tag map at a quarter of the image, and, with its higher resolution branch, a second set of heat maps at half the image."
       - "The peaks of the heat maps are the candidates, and their tags group them into objects on the CPU, outside the network: no box is needed, and an image without object gives none."
       - "Every object comes out with its class, its key points in network input pixels, not a number where one is missing, their scores and the score of the object."
 
@@ -106,8 +106,7 @@ scenes:
       file: vision_training/models/keypoints/keypoint_detector.py
       function: build_keypoint_channel_table
     highlights:
-      - {match: "fill_value=-1", sentences: [0]}
-      - {match: "channel_table\\[int\\(class_index\\), keypoint_index\\]", sentences: [0]}
+      - {match: "channel_table = |channel_table\\[", sentences: [0]}
       - {match: "channel_names.append", sentences: [1]}
     narration:
       - "The table is filled with minus one, then every key point of every class takes the next free channel."
@@ -129,13 +128,12 @@ scenes:
       - {match: "random_left_right_flip|random_up_down_flip|random_90_rotation", sentences: [1, 2]}
       - {match: "random_rotation:", sentences: [2]}
       - {match: "random_perspective|random_jigsaw", sentences: [3]}
-    # The name of the random_90_rotation type, and maximum_rotation_degrees of SUPERVISED_AUGMENTATION_STRENGTHS
-    # (augmentations.py), a dictionary holding computed values that a constant placeholder cannot read
-    literal_numbers: [ninety, five]
+    # The name of the random_90_rotation type
+    literal_numbers: [ninety]
     narration:
-      - "The geometric augmentations move the key points with the image; a key point leaving the image becomes unlabelled, and an object is removed only when less than a quarter of its box and none of its key points stay inside."
+      - "The geometric augmentations move the key points with the image; a key point leaving the image becomes unlabelled, and an object is removed only when less than {{constant:vision_training/data/augmentations.py#MINIMUM_VISIBLE_AREA_FRACTION:percent_label}} of its box and none of its key points stay inside."
       - "They never rename a key point: after a flip, the top left corner lies on the right and is still trained in the top left channel."
-      - "So the synthetic configuration turns both flips and the ninety degree rotation off and keeps rotations within five degrees; picture a data set whose names depend on the side, like a left and a right eye: augment it offline."
+      - "So keep both flips and the ninety degree rotation off, their activated keys in the excerpt, the rotations staying within {{keypoint_detection.augmentation_maximum_rotation_degrees:words}} degrees; picture a data set whose names depend on the side, like a left and a right eye: augment it offline."
       - "The perspective and the jigsaw move the image only, so the checks refuse them for this task."
 
   - kind: code
@@ -146,11 +144,11 @@ scenes:
     source:
       file: vision_training/data/keypoints/heatmap_targets.py
       function: draw_gaussian_heatmaps
-      start: "centres = points"
+      start: "centres = "
     highlights:
       - {match: "centres = |radius = ", sentences: [1]}
-      - {match: "values = torch.exp", sentences: [1]}
-      - {match: "values\\[:, radius, radius\\] = 1.0", sentences: [2]}
+      - {match: "\\bvalues = ", sentences: [1]}
+      - {match: "values\\[:, radius, radius\\]", sentences: [2]}
       - {match: "scatter_reduce_", sentences: [2]}
     narration:
       - "The targets are built on the device for every batch, after the augmentations, at the strides {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}} and {{keypoint_detection.branch_stride:words}}."
@@ -209,7 +207,7 @@ scenes:
       - {text: "Bottom-up: heat maps and tags of every key point of every class, grouped on the CPU"}
       - {text: "Key point names and skeletons come from the COCO categories of labels.json"}
       - {text: "Consecutive channels per class: {{keypoint_detection.channels_total}} for {{keypoint_detection.channels_classes}} classes, the table saved in the checkpoint"}
-      - {text: "Augmentations move key points but never rename them: no flips here"}
+      - {text: "Augmentations move key points but never rename them: flips off for sided names"}
       - {text: "Gaussian targets of sigma {{keypoint_detection.grid_sigma:g}} cells at strides {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE}} and {{keypoint_detection.branch_stride}}, the key point cell at exactly 1"}
       - {text: "Almost empty targets: the reason for the focal loss"}
     narration:

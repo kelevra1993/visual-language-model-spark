@@ -4,12 +4,12 @@ the INS run of tutorials/tutorial_sources.yaml and its test split: the run lengt
 the test manifest with the mask it decodes to and the box read from that mask (the chapter on the masks and their
 loading); the target of the mask loss built for a real proposal of the trained region proposal network around the
 star of the test image of the series, cropped and resized by build_mask_targets (the chapter on the mask head and its
-loss); and the 28 x 28 masks the trained instance segmenter predicts for the detections of that image on the CPU,
+loss); and the masks the trained instance segmenter predicts for the detections of that image on the CPU,
 pasted into the image at their boxes and thresholded by paste_instance_masks, against the ground truth masks, with
 their mask overlaps (the chapter on scoring and shipping masks). The functions of the repository decode, crop, paste
 and compare the masks, so that the figures show what the code computes. The inference is reused unless forced; the
-geometry of the mask heads and of the mask evaluation quoted by both chapters (levels, strides, kernels, chunk size,
-object size limits) is read from the rebuilt model and the constants of the repository at every build.
+geometry of the mask heads and of the mask evaluation quoted by both chapters (levels, strides, kernels, image size,
+chunk size, object size limits) is read from the rebuilt model and the constants of the repository at every build.
 """
 
 import math
@@ -160,6 +160,23 @@ def draw_rectangle(image: Image.Image, box: List[float], colour: Tuple[int, int,
     return drawn_image
 
 
+def compute_overlap_chunk_size(image_height: int, image_width: int) -> int:
+    """
+    Gives the number of detection masks the mask evaluation compares at once at an image size, as
+    InstanceSegmentationTrainer.compute_mask_overlaps computes it from MASK_OVERLAP_CHUNK_SIZE masks at
+    MASK_OVERLAP_REFERENCE_PIXELS, so that the figures compare the masks of the test image by the chunks of the
+    evaluation and the mask IoU scene quotes the chunk of the run.
+
+    Args:
+        image_height (int): The height of the images the masks are pasted into.
+        image_width (int): Their width.
+
+    Returns:
+        int: The masks compared at once, at least one.
+    """
+    return max(1, MASK_OVERLAP_CHUNK_SIZE * MASK_OVERLAP_REFERENCE_PIXELS // (image_height * image_width))
+
+
 def make_annotation_figure(test_folder: Path, output_folder: Path) -> Dict[str, Any]:
     """
     Decodes the run length encoding of the first annotation of the test manifest with build_instance_mask, as the
@@ -204,7 +221,8 @@ def make_annotation_figure(test_folder: Path, output_folder: Path) -> Dict[str, 
     mask_image = Image.fromarray(obj=(mask * 255).astype(numpy.uint8)).convert(mode="RGB")
     panel_boxes = paste_panels(panels=[
         (f"{category_name} of {image_entry['file_name']}", "white: the box of the mask", masked_image),
-        ("decoded mask, 512 × 512", f"{int(mask.sum()):,} pixels = area {annotation['area']:,}", mask_image)],
+        (f"decoded mask, {mask.shape[1]} × {mask.shape[0]}", f"{int(mask.sum()):,} pixels = area "
+                                                              f"{annotation['area']:,}", mask_image)],
         output_path=output_folder / "masks" / "decoded_annotation.png")
     return {"annotation.category": category_name, "annotation.image_name": image_entry["file_name"],
             "annotation.bbox": annotation["bbox"], "annotation.mask_box": [int(value) for value in mask_box],
@@ -238,17 +256,20 @@ def read_object_masks(test_folder: Path) -> Tuple[torch.Tensor, torch.Tensor, Li
 
 
 def make_target_figure(object_masks: torch.Tensor, object_boxes: torch.Tensor, object_names: List[str],
-                       proposals: torch.Tensor, image: Image.Image, output_path: Path) -> Dict[str, Any]:
+                       proposals: torch.Tensor, mask_size: int, image: Image.Image,
+                       output_path: Path) -> Dict[str, Any]:
     """
     Builds the mask target of a real positive proposal of the trained region proposal network around TARGET_OBJECT_NAME
-    with build_mask_targets (RoIAlign of the full-size ground truth mask in the proposal, 28 x 28, thresholded at 0.5),
-    and draws the object with its mask and the proposal, the mask inside the proposal, and the 28 x 28 target.
+    with build_mask_targets (RoIAlign of the full-size ground truth mask in the proposal, at the mask resolution of the
+    run, thresholded at 0.5), and draws the object with its mask and the proposal, the mask inside the proposal, and
+    the target.
 
     Args:
-        object_masks (torch.Tensor): The [N, 512, 512] ground truth masks.
+        object_masks (torch.Tensor): The [N, H, W] ground truth masks.
         object_boxes (torch.Tensor): Their [N, 4] boxes.
         object_names (List[str]): Their class names.
         proposals (torch.Tensor): The [P, 4] proposals of the image in evaluation.
+        mask_size (int): The side of the masks of the run ('MaskHead.mask_resolution').
         image (Image.Image): The RGB test image.
         output_path (Path): The PNG file of the figure.
 
@@ -270,7 +291,8 @@ def make_target_figure(object_masks: torch.Tensor, object_boxes: torch.Tensor, o
     # Target of the proposal, the matched ground truth being the object
     target = build_mask_targets(ground_truth_masks=[object_masks],
                                 proposal_boxes=torch.cat(tensors=[torch.zeros(size=(1,)), proposal]).unsqueeze(dim=0),
-                                matched_ground_truth_indices=torch.tensor(data=[object_index]), mask_size=28)[0]
+                                matched_ground_truth_indices=torch.tensor(data=[object_index]),
+                                mask_size=mask_size)[0]
 
     # Panels: the object with its mask and the proposal, the crop of the mask in the proposal, and the target
     colour = hexadecimal_to_rgb(colour=SERIES_COLOURS[4])
@@ -287,7 +309,8 @@ def make_target_figure(object_masks: torch.Tensor, object_boxes: torch.Tensor, o
          with_proposal),
         ("ground truth mask in the proposal", f"{right - left} × {bottom - top} pixels",
          crop.resize(size=(side, side), resample=Image.Resampling.NEAREST).convert(mode="RGB")),
-        ("target, 28 × 28", f"RoIAlign aligned, >= 0.5: {int(target.sum())} of 784 pixels",
+        (f"target, {mask_size} × {mask_size}", f"RoIAlign aligned, >= 0.5: {int(target.sum())} of "
+                                                f"{mask_size ** 2} pixels",
          target_image.convert(mode="RGB"))], output_path=output_path)
     return {"target.object": TARGET_OBJECT_NAME,
             "target.proposal_iou": round_fact(value=float(overlaps[proposal_index])),
@@ -297,19 +320,20 @@ def make_target_figure(object_masks: torch.Tensor, object_boxes: torch.Tensor, o
 
 
 def make_prediction_figures(outputs: Dict[str, Any], object_masks: torch.Tensor, object_names: List[str],
-                            category_names: Dict[int, str], image: Image.Image,
+                            category_names: Dict[int, str], mask_threshold: float, image: Image.Image,
                             output_folder: Path) -> Dict[str, Any]:
     """
-    Draws the 28 x 28 mask probabilities of the detections of the test image (final_detection_masks), each under its
-    class and score; then the ground truth masks, the detection masks pasted into the image at their boxes and
-    thresholded at the mask threshold (paste_instance_masks), and the best mask overlap of every detection
-    (compute_mask_intersection_over_union), the computation of the mask evaluation.
+    Draws the mask probabilities of the detections of the test image (final_detection_masks), each under its class
+    and score; then the ground truth masks, the detection masks pasted into the image at their boxes and thresholded
+    at the mask threshold (paste_instance_masks), and the best mask overlap of every detection
+    (compute_mask_intersection_over_union, by the chunks of the evaluation), the computation of the mask evaluation.
 
     Args:
         outputs (Dict[str, Any]): The outputs of the instance segmenter in evaluation mode for the image.
-        object_masks (torch.Tensor): The [N, 512, 512] ground truth masks.
+        object_masks (torch.Tensor): The [N, H, W] ground truth masks.
         object_names (List[str]): Their class names.
         category_names (Dict[int, str]): The name of every class.
+        mask_threshold (float): The mask threshold of the run ('MaskHead.inference.mask_threshold').
         image (Image.Image): The RGB test image.
         output_folder (Path): The folder of the figures.
 
@@ -327,13 +351,14 @@ def make_prediction_figures(outputs: Dict[str, Any], object_masks: torch.Tensor,
 
     # Pasted and thresholded masks, compared with the ground truth masks as the evaluation does
     pasted = paste_instance_masks(masks=masks, boxes=boxes, image_height=image.height, image_width=image.width)
-    binary = pasted >= 0.5
-    mask_overlaps = compute_mask_intersection_over_union(predicted_masks=binary, ground_truth_masks=object_masks,
-                                                         chunk_size=64)
+    binary = pasted >= mask_threshold
+    mask_overlaps = compute_mask_intersection_over_union(
+        predicted_masks=binary, ground_truth_masks=object_masks,
+        chunk_size=compute_overlap_chunk_size(image_height=image.height, image_width=image.width))
     box_overlaps = get_intersection_over_union(boxes_1=boxes, boxes_2=compute_mask_bounding_boxes(
         instance_masks=object_masks).float())
 
-    # Figure of the 28 x 28 masks, one tile per detection, the probabilities from black to white
+    # Figure of the masks in the frame of their boxes, one tile per detection, the probabilities from black to white
     heading_font, note_font = load_figure_fonts()
     tile_side, tile_gap = 300, 30
     canvas = Image.new(mode="RGB", size=(FIGURE_WIDTH, FIGURE_HEIGHT), color=CARD_COLOUR)
@@ -350,7 +375,8 @@ def make_prediction_figures(outputs: Dict[str, Any], object_masks: torch.Tensor,
         draw.text(xy=(left, 200 + tile_side + 30), text=f"block {int(levels[detection_index])}", fill=DIM_TEXT_COLOUR,
                   font=note_font, anchor="lm")
         tile_boxes.append([left, 140, left + tile_side, 200 + tile_side + 50])
-    draw.text(xy=(tiles_left, 60), text="final_detection_masks [1, 100, 28, 28]: the sigmoid of the detected class",
+    draw.text(xy=(tiles_left, 60), text=f"final_detection_masks {list(outputs['final_detection_masks'].shape)}: the "
+                                        f"sigmoid of the detected class",
               fill=TEXT_COLOUR, font=heading_font, anchor="lm")
     canvas.save(fp=output_folder / "predicted_masks.png")
 
@@ -365,7 +391,7 @@ def make_prediction_figures(outputs: Dict[str, Any], object_masks: torch.Tensor,
     panel_boxes = paste_panels(panels=[
         ("ground truth masks", f"{len(object_names)} objects", ground_truth_image),
         ("pasted probabilities", "paste_instance_masks at the boxes", pixel_probabilities.convert(mode="RGB")),
-        (f"masks >= 0.5 · {detection_count} detections", "mask IoU " + " · ".join(
+        (f"masks >= {mask_threshold:g} · {detection_count} detections", "mask IoU " + " · ".join(
             f"{value:.2f}" for value in mask_overlaps.max(dim=1).values.tolist()), detection_image)],
         output_path=output_folder / "pasted_masks.png")
 
@@ -412,9 +438,9 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
     value holds as it is, read from the trained instance segmenter rebuilt on the CPU (not run) and from the constants
     of the repository: the detection levels and the strides their mask heads pool from, the feature map of the first
     level in a training batch, the kernels of the upsampling and of the mask predictor, the pixels of a mask, the masks
-    compared at once by compute_mask_overlaps at the network resolution, the object size limits of the size tables and
-    the beta of the smooth L1 box loss. Cheap, it runs at every build, outside the reused inference of
-    make_mask_figures, so that its facts never come from an older build.
+    compared at once by compute_mask_overlaps at the network resolution of the run (and that resolution), the object
+    size limits of the size tables and the beta of the smooth L1 box loss. Cheap, it runs at every build, outside the
+    reused inference of make_mask_figures, so that its facts never come from an older build.
 
     Args:
         run_folder (Path): The folder of the INS run of tutorial_sources.yaml.
@@ -444,9 +470,10 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
                          f"convolution, which the mask head diagrams of the chapters show.")
     upsampling_layer = first_head.upsampling_layers[0]
 
-    # Masks compared at once by the evaluation at the network resolution, as compute_mask_overlaps computes it
-    overlap_chunk_size = max(1, MASK_OVERLAP_CHUNK_SIZE * MASK_OVERLAP_REFERENCE_PIXELS // (image_size * image_size))
+    # Masks compared at once by the evaluation at the network resolution of the run
+    overlap_chunk_size = compute_overlap_chunk_size(image_height=image_size, image_width=image_size)
     return {"geometry.level_names": ", ".join(level_names), "geometry.level_count": len(level_names),
+            "geometry.image_size": image_size,
             "geometry.first_level": int(level_names[0]),
             "geometry.first_level_channels": first_head.convolutional_block.input_channels,
             "geometry.first_level_shape": f"[{batch_size}, {first_head.convolutional_block.input_channels}, "
@@ -494,11 +521,13 @@ def make_mask_figures(output_folder: Path, run_folder: Path, force: bool) -> Dic
     # Target of a real proposal, the predicted masks and their pasting
     inference_facts = make_target_figure(object_masks=object_masks, object_boxes=object_boxes,
                                          object_names=object_names, proposals=outputs["proposal_boxes"][0],
-                                         image=image, output_path=figure_folder / "mask_target.png")
+                                         mask_size=model.mask_size, image=image,
+                                         output_path=figure_folder / "mask_target.png")
     inference_facts.update(make_prediction_figures(outputs=outputs, object_masks=object_masks,
                                                    object_names=object_names,
                                                    category_names=read_category_names(test_folder=test_folder),
-                                                   image=image, output_folder=figure_folder))
+                                                   mask_threshold=model.mask_threshold, image=image,
+                                                   output_folder=figure_folder))
     inference_facts.update(count_mask_parameters(model=model))
     write_reused_facts(facts_path=facts_path, figure_paths=[figure_folder / "mask_target.png",
                                                             figure_folder / "predicted_masks.png",

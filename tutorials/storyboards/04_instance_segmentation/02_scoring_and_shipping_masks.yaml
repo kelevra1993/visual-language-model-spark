@@ -77,12 +77,12 @@ scenes:
     highlights:
       - {match: "for chunk_start in range", sentences: [0]}
       - {match: "prediction_segments = cut_mask_segments", sentences: [0]}
-      - {match: "intersections = torch\\.bmm\\(", sentences: [1]}
+      - {match: "intersections = ", sentences: [1]}
       - {match: "unions = prediction_areas", sentences: [2]}
     # A worked example of a ratio that float32 rounds down
     literal_numbers: ["13", "20", "0.65"]
     narration:
-      - "The mask IoU compares {{instance_segmentation.geometry.overlap_chunk_size}} detections at a time at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels, their flattened masks cut into segments of {{constant:vision_training/models/instance_segmentation/mask_operations.py#MASK_PRODUCT_SEGMENT_PIXELS:,}} pixels."
+      - "The mask IoU compares {{instance_segmentation.geometry.overlap_chunk_size}} detections at a time at {{instance_segmentation.geometry.image_size}} pixels, their flattened masks cut into segments of {{constant:vision_training/models/instance_segmentation/mask_operations.py#MASK_PRODUCT_SEGMENT_PIXELS:,}} pixels."
       - "Each segment is multiplied with the same segment of every ground truth mask, exact in float16 on the GPU and far faster than one product over the whole image."
       - "The counts are summed and the ratio taken in float64, so that an exact 13 over 20 is not pushed below 0.65; the mAP then runs as for the boxes, once on the masks and once on the boxes of the same detections."
 
@@ -100,7 +100,7 @@ scenes:
     literal_numbers: ["0.5"]
     narration:
       - "At iteration {{instance_segmentation.samples.iterations[0]:words}}, at a mask mAP at 0.5 of {{instance_segmentation.samples.metric_1000:.2f}}, only {{instance_segmentation.outcomes.1000.right:,}} of the {{object_detection.data.test_objects:,}} test objects are found right at the deployment threshold, and the samples stay empty."
-      - "At the shipped {{instance_segmentation.samples.iterations[1]:words}} iterations the mask mAP is {{instance_segmentation.samples.metric_2000:.2f}}; resumed to {{instance_segmentation.samples.iterations[2]:words}}, {{instance_segmentation.samples.metric_5000:.2f}}, with masks on {{instance_segmentation.predictions.found_object_count:words}} of the {{instance_segmentation.predictions.object_count:words}} shapes of this image."
+      - "At {{instance_segmentation.samples.iterations[1]:words}} iterations the mask mAP is {{instance_segmentation.samples.metric_2000:.2f}}; resumed to {{instance_segmentation.samples.iterations[2]:words}}, {{instance_segmentation.samples.metric_5000:.2f}}, with masks on {{instance_segmentation.predictions.found_object_count:words}} of the {{instance_segmentation.predictions.object_count:words}} shapes of this image."
 
   - kind: html
     page: diagram
@@ -152,9 +152,9 @@ scenes:
     literal_numbers: [two]
     elements:
       - {type: text, position: [40, 40], text: "test objects by mask area", font: diagram_bold}
-      - {type: bars, box: [40, 100, 820, 330], orientation: horizontal, values: "{{instance_segmentation.report.mask_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.mask_sizes_count_labels}}", colours: [magenta, magenta, magenta], maximum: 51000, label_width: 120, highlight: [1]}
+      - {type: bars, box: [40, 100, 820, 330], orientation: horizontal, values: "{{instance_segmentation.report.mask_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.mask_sizes_count_labels}}", colours: [magenta, magenta, magenta], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 120, highlight: [1]}
       - {type: text, position: [940, 40], text: "test objects by box area", font: diagram_bold}
-      - {type: bars, box: [940, 100, 1720, 330], orientation: horizontal, values: "{{instance_segmentation.report.box_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.box_sizes_count_labels}}", colours: [blue, blue, blue], maximum: 51000, label_width: 120, highlight: [1]}
+      - {type: bars, box: [940, 100, 1720, 330], orientation: horizontal, values: "{{instance_segmentation.report.box_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.box_sizes_count_labels}}", colours: [blue, blue, blue], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 120, highlight: [1]}
       - {type: box, box: [40, 420, 1720, 560], text: "small below {{instance_segmentation.geometry.small_object_limit}}, medium to {{instance_segmentation.geometry.large_object_limit}}, large above · a shape fills only part of its box\nmask mAP@0.5 of the small objects {{instance_segmentation.report.trained.mask_sizes.small.1:.3f}} · box {{instance_segmentation.report.trained.box_sizes.small.1:.3f}}", font: diagram_small, outline: border, appear: 2, highlight: [2]}
     narration:
       - "The size tables measure the objects differently: by mask area for the mask table, by box area for the box table."
@@ -172,7 +172,7 @@ scenes:
       - {match: "original_resolution", sentences: [0, 1]}
       - {match: "mask_threshold", sentences: [1]}
     narration:
-      - "By default the masks are scored at the network resolution, the objects whose mask vanished at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels being left out."
+      - "With the original resolution off, the masks are scored at the network resolution, the objects whose mask vanished at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels being left out."
       - "When the goal is a score as COCO computes it, turn the original resolution on: the boxes are restored to the original images, the masks pasted and thresholded at that size, and the objects are those of the original annotations."
 
   - kind: html
@@ -206,7 +206,7 @@ scenes:
     columns:
       - heading: "Training"
         lines:
-          - "{{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations shipped: samples empty"
+          - "{{instance_segmentation.samples.iterations[0]}} iterations: samples empty"
           - "per-level mask heads: own positives only"
           - "block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals"
           - "overlapping masks: one full-size mask each"

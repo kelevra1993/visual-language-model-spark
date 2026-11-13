@@ -21,6 +21,7 @@ from tutorials.figures.keypoint_detection.keypoint_sources import (CHECKPOINT_IT
 from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.keypoints.heatmap_targets import build_keypoint_targets
 from vision_training.losses.keypoint_losses import compute_heatmap_loss, compute_tag_losses
+from vision_training.models.keypoints.hrnet import BRANCH_SCALE_FACTOR
 from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE, extract_keypoint_candidates
 from vision_training.models.model_loading import load_trained_model
 from vision_training.trainers.checkpointing import get_checkpoint_path
@@ -155,7 +156,8 @@ def build_sample_targets(sample: Dict[str, Any], channel_table: numpy.ndarray, n
     return build_keypoint_targets(keypoints=[sample["keypoints"]], labels=[sample["labels"]],
                                   channel_table=torch.from_numpy(channel_table), number_channels=number_channels,
                                   image_height=image_height, image_width=image_width,
-                                  heatmap_strides=[HEATMAP_STRIDE, HEATMAP_STRIDE // 2], tag_stride=HEATMAP_STRIDE,
+                                  heatmap_strides=[HEATMAP_STRIDE, HEATMAP_STRIDE // BRANCH_SCALE_FACTOR],
+                                  tag_stride=HEATMAP_STRIDE,
                                   heatmap_sigma=heatmap_sigma)
 
 

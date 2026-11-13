@@ -7,6 +7,8 @@ tables of the report of that checkpoint (Results.txt): the methods, the object s
 the box areas, and the mean average recall of both.
 """
 
+import math
+
 import numpy
 
 from matplotlib import pyplot
@@ -25,6 +27,9 @@ REPORT_TABLES = [("Mask Mean Average Precision", "mask_methods"), ("Box Mean Ave
                  ("Mask Mean Average Precision By Object Size (Area)", "mask_sizes"),
                  ("Box Mean Average Precision By Object Size (Area)", "box_sizes"),
                  ("Mask Mean Average Recall", "mask_recall"), ("Box Mean Average Recall", "box_recall")]
+
+# Step the axes of the object size bars end on, above the largest count of the mask and box tables
+SIZE_AXIS_STEP = 1000
 
 # Size of the charts: the card of an image scene
 CHART_WIDTH = 1720
@@ -90,7 +95,9 @@ def write_mask_report_listings(run_folder: Path, iteration: int, output_folder: 
         output_folder (Path): The listings folder.
 
     Returns:
-        Dict[str, Any]: The values of the tables, named report.<weights>.<table>.<row>.<column index>.
+        Dict[str, Any]: The values of the tables, named report.<weights>.<table>.<row>.<column index>, the object
+            counts of every size by mask and by box area with their labels, and the common end of the axes of their
+            bars (report.sizes_axis_maximum).
     """
     facts = {}
     for averaged_weights, weights_name in [(False, "trained"), (True, "averaged")]:
@@ -111,4 +118,8 @@ def write_mask_report_listings(run_folder: Path, iteration: int, output_folder: 
         facts[f"report.{table_name}_counts"] = [facts[f"report.trained.{table_name}.{size}.0"] for size in
                                                 ["small", "medium", "large"]]
         facts[f"report.{table_name}_count_labels"] = [f"{count:,}" for count in facts[f"report.{table_name}_counts"]]
+
+    # Common end of the axes of both bar charts, the largest count rounded up to the next SIZE_AXIS_STEP
+    largest_count = max(facts["report.mask_sizes_counts"] + facts["report.box_sizes_counts"])
+    facts["report.sizes_axis_maximum"] = SIZE_AXIS_STEP * math.ceil(largest_count / SIZE_AXIS_STEP)
     return facts
