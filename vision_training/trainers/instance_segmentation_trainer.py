@@ -294,7 +294,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
             overlaps.append(compute_mask_intersection_over_union(
                 predicted_masks=binary_detection_masks, ground_truth_masks=binary_ground_truth_masks,
                 chunk_size=chunk_size))
-            mask_areas.append(binary_detection_masks.flatten(start_dim=1).sum(dim=1))
+            # Pixels counted in int32 (twice as fast as the int64 sum of booleans), kept in int64 for the evaluation
+            mask_areas.append(binary_detection_masks.flatten(start_dim=1).sum(dim=1, dtype=torch.int32).to(
+                dtype=torch.int64))
         return torch.cat(tensors=overlaps, dim=0), torch.cat(tensors=mask_areas)
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:

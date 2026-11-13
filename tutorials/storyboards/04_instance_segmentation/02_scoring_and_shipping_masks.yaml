@@ -76,13 +76,15 @@ scenes:
       function: compute_mask_intersection_over_union
     highlights:
       - {match: "for chunk_start in range", sentences: [0]}
-      - {match: "intersections = \\(flattened_predictions @", sentences: [0]}
-      - {match: "dtype=torch.float64\\) - intersections", sentences: [1]}
+      - {match: "prediction_segments = cut_mask_segments", sentences: [0]}
+      - {match: "intersections = torch\\.bmm\\(", sentences: [1]}
+      - {match: "unions = prediction_areas", sentences: [2]}
     # A worked example of a ratio that float32 rounds down
     literal_numbers: ["13", "20", "0.65"]
     narration:
-      - "The mask IoU multiplies the flattened masks of a chunk of detections with every ground truth mask, {{instance_segmentation.geometry.overlap_chunk_size}} detections at a time at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels, the pixel counts summed in float32."
-      - "The ratio is taken in float64, so that an exact 13 over 20 is not pushed below 0.65; the mAP then runs as for the boxes, once on the masks and once on the boxes of the same detections."
+      - "The mask IoU compares {{instance_segmentation.geometry.overlap_chunk_size}} detections at a time at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels, their flattened masks cut into segments of {{constant:vision_training/models/instance_segmentation/mask_operations.py#MASK_PRODUCT_SEGMENT_PIXELS:,}} pixels."
+      - "Each segment is multiplied with the same segment of every ground truth mask, exact in float16 on the GPU and far faster than one product over the whole image."
+      - "The counts are summed and the ratio taken in float64, so that an exact 13 over 20 is not pushed below 0.65; the mAP then runs as for the boxes, once on the masks and once on the boxes of the same detections."
 
   - kind: image
     title: "One test image through the run"
