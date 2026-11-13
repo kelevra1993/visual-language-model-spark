@@ -7,7 +7,6 @@ warnings shared with the sequence pair dataset, and the collate function padding
 longest sequence. Instantiated by get_sequence_dataloaders of data/loaders.py.
 """
 
-import json
 import os
 import random
 import numpy as np
@@ -18,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -241,8 +241,8 @@ class SequenceDataset(Dataset):
         self.maximum_sequence_length = sequence_settings["maximum_sequence_length"]
         self.number_classes = len(set(label_dictionary.values()))
 
-        with open(file=labels_file, mode="r") as labels_file_handler:
-            manifest = json.load(fp=labels_file_handler)
+        # The manifest of the split, parsed once per launch and shared with its other readers, never modified
+        manifest = read_manifest(labels_path=labels_file)
 
         # Name of every class, taken from the categories of the manifest
         self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)

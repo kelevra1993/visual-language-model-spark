@@ -6,7 +6,6 @@ get_segmentation_dataloaders of data/loaders.py, and read again by the segmentat
 the evaluation at the original resolution.
 """
 
-import json
 import os
 import random
 import cv2
@@ -19,6 +18,7 @@ from typing import Any, Dict, List, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.utilities.os_utilities import format_path_link
 
@@ -108,8 +108,8 @@ class SegmentationDataset(Dataset):
         self.number_classes = len(set(label_dictionary.values()))
         self.class_lookup_table = build_class_lookup_table(label_mode=label_mode, label_dictionary=label_dictionary)
 
-        with open(file=labels_file, mode="r") as labels_file_handler:
-            manifest = json.load(fp=labels_file_handler)
+        # The manifest of the split, parsed once per launch and shared with its other readers, never modified
+        manifest = read_manifest(labels_path=labels_file)
 
         # Every sample of the manifest, with its image and mask files
         self.samples = [{"identifier": sample["id"], "file_name": sample["file_name"],

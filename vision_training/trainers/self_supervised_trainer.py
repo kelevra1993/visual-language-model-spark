@@ -25,6 +25,7 @@ from vision_training.core.contracts import (IGNORED_LABEL_INDEX, LOSS_KEY_SUFFIX
 from vision_training.data.grouped_batch_sampler import GroupedBatchSampler
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import build_native_loader, get_classification_dataloaders
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.split_description import count_split_samples
 from vision_training.evaluation.classification.class_metrics_report import (build_class_metric_scalars,
                                                                              build_class_metrics_rows,
@@ -41,7 +42,7 @@ from vision_training.losses.self_supervised_losses import compute_embedding_stan
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
-from vision_training.utilities.os_utilities import print_color, read_json
+from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.visualization import (add_caption_bar, build_batch_mosaic, convert_image_to_array,
                                                      show_viewer_windows, view_input_data)
 
@@ -224,7 +225,7 @@ class SelfSupervisedTrainer(BaseTrainer):
             if loader is None:
                 validation_labels_file = os.path.join(str(self.experiment_configuration["validation_data_folder"]),
                                                       "labels.json")
-                split_categories.append(read_json(path=validation_labels_file)["categories"])
+                split_categories.append(read_manifest(labels_path=validation_labels_file)["categories"])
             else:
                 split_categories.append(loader.dataset.categories)
 

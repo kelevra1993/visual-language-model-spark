@@ -7,7 +7,6 @@ split (select_samples). Instantiated by get_classification_dataloaders of data/l
 """
 
 import copy
-import json
 import os
 import random
 import numpy as np
@@ -19,6 +18,7 @@ from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.preprocessing import preprocess_image, read_image
 
 
@@ -63,8 +63,8 @@ class ClassificationDataset(Dataset):
         self.output_mode = output_mode
         self.number_classes = len(set(label_dictionary.values()))
 
-        with open(file=labels_file, mode="r") as labels_file_handler:
-            manifest = json.load(fp=labels_file_handler)
+        # The manifest of the split, parsed once per launch and shared with its other readers, never modified
+        manifest = read_manifest(labels_path=labels_file)
 
         # Keep the samples of the mapped categories with their class indices, and the others without class when the
         # unlabelled samples are kept, which also reads the categories of a multi-label manifest, counting the samples

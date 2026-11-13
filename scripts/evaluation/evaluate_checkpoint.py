@@ -18,6 +18,7 @@ from vision_training.core.task_registry import get_trainer_class
 from vision_training.configuration_processing.classification_checks import check_target_precisions
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_nms_criterion_configuration
+from vision_training.data.manifest_cache import read_manifests_once
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, evaluate_checkpoints
 from vision_training.models.model_transfer import disable_pretrained_settings
 from vision_training.trainers.checkpointing import get_checkpoint_iterations, get_last_checkpoint_iteration
@@ -261,9 +262,11 @@ if __name__ == "__main__":
     # The weights come from the evaluated checkpoints, so the pretrained components the run started from are not loaded
     disable_pretrained_settings(model_configuration=model_configuration)
 
+    # The trainer of the task, every 'labels.json' parsed once for all its readers and freed before the evaluation
     trainer_class = get_trainer_class(task=experiment_configuration["task"])
-    trainer = trainer_class(experiment_configuration=experiment_configuration,
-                            model_configuration=model_configuration, configuration_path=configuration_path)
+    with read_manifests_once():
+        trainer = trainer_class(experiment_configuration=experiment_configuration,
+                                model_configuration=model_configuration, configuration_path=configuration_path)
 
     # Every checkpoint of the registry from the last saved one, so that the most trained weights are evaluated first,
     # the last one, or the given one

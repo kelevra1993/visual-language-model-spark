@@ -11,7 +11,6 @@ get_keypoint_dataloaders of data/loaders.py.
 """
 
 import random
-import json
 import os
 import numpy as np
 import torch
@@ -22,6 +21,7 @@ from torch.utils.data import Dataset
 from vision_training.data.detection.coco_masks import (MAXIMUM_INDEX_MAP_OBJECTS, build_instance_index_map,
                                                        build_instance_mask, compute_mask_bounding_boxes,
                                                        compute_segmentation_bounding_box, find_index_map_objects)
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.preprocessing import preprocess_boxes, preprocess_image_and_boxes, read_image
 from vision_training.data.serialized_records import SerializedRecords
 from vision_training.utilities.os_utilities import format_path_link, print_color, release_freed_heap_memory
@@ -210,10 +210,10 @@ class CocoDetectionDataset(Dataset):
         self.maximum_keypoints = maximum_keypoints
         self.load_ignored_regions = load_ignored_regions
 
-        # Parse the JSON annotation file, its images shuffled once and its categories kept as they are (a short list)
-        with open(file=labels_file, mode='r') as file_handler:
-            manifest = json.load(fp=file_handler)
-        images = manifest['images']
+        # Parse the JSON annotation file, or share the one parsed by the other readers of the launch, its images
+        # shuffled once in a list of their own (the shared manifest is never modified) and its categories kept
+        manifest = read_manifest(labels_path=labels_file)
+        images = list(manifest['images'])
 
         # Every image identifier names the annotations of one image only, each image taking its own when packed
         identifier_count = len({image_information['id'] for image_information in images})

@@ -5,7 +5,6 @@ the pairs with a member longer than 'Data.sequence_settings.maximum_sequence_len
 the helper splitting the pair tensors. Used by data/loaders.py and the sequence comparison trainer.
 """
 
-import json
 import random
 import torch
 
@@ -13,6 +12,7 @@ from torch.utils.data import Dataset
 from typing import Any, Dict, List, Tuple
 
 from vision_training.data.label_mapping import get_class_names
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.sequence.sequence_dataset import (read_sequence_frames, warn_long_sequence,
                                                             warn_long_sequence_total)
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -82,8 +82,8 @@ class SequencePairDataset(Dataset):
         self.maximum_sequence_length = sequence_settings["maximum_sequence_length"]
         self.number_classes = len(set(label_dictionary.values()))
 
-        with open(file=labels_file, mode="r") as labels_file_handler:
-            manifest = json.load(fp=labels_file_handler)
+        # The manifest of the split, parsed once per launch and shared with its other readers, never modified
+        manifest = read_manifest(labels_path=labels_file)
 
         # Keep the pairs of mapped categories whose two members both hold frames, and not too many
         self.pairs = []
