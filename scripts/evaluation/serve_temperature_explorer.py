@@ -2,8 +2,9 @@
 When run, serves on the local machine the temperature explorers of every classifier evaluated in the experiments folders
 of the repository, to choose the logit temperature of a checkpoint, save its thresholds and export it from the page.
 The index lists the evaluations (run, iteration, weights, saved temperature, exports); every page is built again with
-the current template, from the 'class_logits.npz' of the evaluation (any temperature can be typed in) or from the data
-of its written 'temperature_explorer.html' (the temperatures of its slider). The save button writes
+the current template, from the 'class_logits.npz' of the evaluation (any temperature can be typed in, and the images of
+every class are counted in the score ranges of the cut points typed on the page, at the temperature shown) or from the
+data of its written 'temperature_explorer.html' (the temperatures of its slider). The save button writes
 'saved_temperature_thresholds.json' next to the page, the thresholds being found here from the logits; the export button
 exports the checkpoint at the saved temperature into '<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/'
 (vision_training/deployment/explorer_export.py), in a separate process whose console output the page shows. The pages
@@ -34,6 +35,8 @@ from vision_training.evaluation.classification.temperature_explorer import (CLAS
                                                                             SAVED_THRESHOLDS_FILE_NAME,
                                                                             build_explorer_data_from_logits,
                                                                             check_logit_temperature,
+                                                                            check_score_cut_points,
+                                                                            compute_score_ranges,
                                                                             compute_temperature_thresholds,
                                                                             describe_explorer_temperature,
                                                                             load_class_logits,
@@ -400,7 +403,8 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         """
         Answers the index ('/'), the page of an evaluation ('/explorer'), the description of a typed temperature
-        ('/api/temperature') and the deployment status of an evaluation ('/api/status').
+        ('/api/temperature'), the images of every class counted in score ranges at a temperature ('/api/score_ranges')
+        and the deployment status of an evaluation ('/api/status').
         """
         route, query = urlparse(url=self.path).path, self.read_query()
         try:
@@ -411,7 +415,7 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
                 self.send_body(status=HTTPStatus.OK, body=page.encode(encoding="utf-8"),
                                content_type="text/html; charset=utf-8")
                 return
-            if route not in ["/explorer", "/api/temperature", "/api/status"]:
+            if route not in ["/explorer", "/api/temperature", "/api/score_ranges", "/api/status"]:
                 self.send_json(status=HTTPStatus.NOT_FOUND, content={"error": f"Unknown route {route}."})
                 return
             identifier = query["evaluation"] if "evaluation" in query else ""
@@ -442,6 +446,25 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
                 self.send_json(status=HTTPStatus.BAD_REQUEST, content={"error": str(error)})
                 return
             self.send_json(status=HTTPStatus.OK, content=state)
+        # Score ranges typed on the page, the images of every drawn class counted from the class logits at the
+        # temperature shown, the cut points given as '0.5,0.8'
+        elif route == "/api/score_ranges":
+            try:
+                if not (evaluation_folder / CLASS_LOGITS_FILE_NAME).is_file():
+                    raise ValueError(f"No {CLASS_LOGITS_FILE_NAME} for this evaluation: the score ranges are counted "
+                                     f"from the logits. Evaluate the checkpoint again to count them.")
+                logit_temperature = check_logit_temperature(logit_temperature=float(query["temperature"]))
+                cut_points = check_score_cut_points(cut_points=[float(cut_point) for cut_point in
+                                                                query["cut_points"].split(",")])
+                page_data = self.build_page_data(identifier=identifier, evaluation_folder=evaluation_folder)
+                score_ranges = compute_score_ranges(
+                    class_logits_record=load_class_logits(evaluation_folder=evaluation_folder),
+                    shown_class_indices=page_data["class_indices"], logit_temperature=logit_temperature,
+                    cut_points=cut_points)
+            except (ValueError, KeyError) as error:
+                self.send_json(status=HTTPStatus.BAD_REQUEST, content={"error": str(error)})
+                return
+            self.send_json(status=HTTPStatus.OK, content=score_ranges)
         else:
             self.send_json(status=HTTPStatus.OK,
                            content=self.describe_status(identifier=identifier, evaluation_folder=evaluation_folder))
