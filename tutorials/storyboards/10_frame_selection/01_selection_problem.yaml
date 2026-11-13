@@ -91,7 +91,7 @@ scenes:
         appear: 1
         source: {file: "figures:frame_selection/listings/label_mapping.txt"}
         highlights:
-          - {match: "\"1\": 0", sentences: [1]}
+          - {match: "\"{{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SELECTION_CATEGORIES.unselected}}\":", sentences: [1]}
       - type: listing
         box: [40, 500, 1720, 720]
         font: diagram_monospace_tiny
@@ -117,15 +117,16 @@ scenes:
              Selection.selection_loss_weight, TemporalModel.type, TemporalModel.hidden_size, TemporalModel.bidirectional]
       comments: false
     highlights:
-      - {match: "unselected_category", sentences: [0]}
-      - {match: "frames_per_class", sentences: [1]}
-      - {match: "selection_loss_weight|decoding", sentences: [2]}
-      - {match: "bidirectional", sentences: [3]}
+      - {key: Selection.unselected_category, sentences: [0]}
+      - {key: Selection.frames_per_class, sentences: [1]}
+      - {key: Selection.selection_loss_weight, sentences: [2]}
+      - {key: Selection.decoding, sentences: [2]}
+      - {key: TemporalModel.bidirectional, sentences: [3]}
     narration:
       - "unselected category names the category that is never chosen; every other class of the mapping is a wanted class."
       - "frames per class sets the count, and gives the FPC token of the run name."
       - "selection loss weight weighs the selection loss of the next chapter, the SLW token when above zero, and decoding chooses the Hungarian assignment or the greedy rule, without any token."
-      - "And the temporal module is a bidirectional GRU: to compare a frame with the whole sequence, it must also read the frames after it."
+      - "And keep the temporal module bidirectional: to compare a frame with the whole sequence, it must also read the frames after it."
 
   - kind: html
     page: diagram
@@ -135,18 +136,18 @@ scenes:
     literal_numbers: ["zero"]
     elements:
       # Frame encoder of the sequence labeller
-      - {type: box, box: [20, 90, 300, 200], text: "images\n[{{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}}, T, {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#Backbone.input_channels}}, {{frame_selection.dataset.image_size}}, {{frame_selection.dataset.image_size}}]", font: diagram_small, outline: blue}
+      - {type: box, box: [20, 90, 300, 200], text: "images\n[{{frame_selection.run.batch_size}}, T, {{frame_selection.run.input_channels}}, {{frame_selection.dataset.image_size}}, {{frame_selection.dataset.image_size}}]", font: diagram_small, outline: blue}
       - {type: arrow, points: [[300, 145], [355, 145]]}
       - {type: box, box: [360, 90, 680, 200], text: "Backbone, real frames\n[N, {{frame_selection.model.backbone_channels}}, {{frame_selection.model.backbone_map_size}}, {{frame_selection.model.backbone_map_size}}]", font: diagram_small, outline: blue, highlight: [0]}
       - {type: arrow, points: [[680, 145], [735, 145]]}
-      - {type: box, box: [740, 90, 1060, 200], text: "average pooling\n[{{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}}, T, {{frame_selection.model.frame_feature_size}}]", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [740, 90, 1060, 200], text: "average pooling\n[{{frame_selection.run.batch_size}}, T, {{frame_selection.model.frame_feature_size}}]", font: diagram_small, outline: blue, highlight: [0]}
       - {type: arrow, points: [[1060, 145], [1115, 145]], appear: 1}
-      - {type: box, box: [1120, 90, 1740, 200], text: "GRU {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#TemporalModel.number_layers}}x{{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#TemporalModel.hidden_size}}, bidirectional\n[{{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}}, T, {{frame_selection.model.temporal_feature_size}}]", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [1120, 90, 1740, 200], text: "GRU {{frame_selection.run.temporal_number_layers}}x{{frame_selection.run.temporal_hidden_size}}, bidirectional\n[{{frame_selection.run.batch_size}}, T, {{frame_selection.model.temporal_feature_size}}]", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
       # Head and the wanted class mask
       - {type: arrow, points: [[1430, 200], [1430, 295]], appear: 2}
-      - {type: box, box: [740, 300, 1740, 410], text: "ClassificationHead on every frame\nDropout · Linear({{frame_selection.model.temporal_feature_size}}, {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#ClassificationHead.fully_connected[0]}}) · ReLU · Dropout · Linear({{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#ClassificationHead.fully_connected[0]}}, {{frame_selection.dataset.class_count}})", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [740, 300, 1740, 410], text: "ClassificationHead on every frame\nDropout · Linear({{frame_selection.model.temporal_feature_size}}, {{frame_selection.run.head_hidden_units}}) · ReLU · Dropout · Linear({{frame_selection.run.head_hidden_units}}, {{frame_selection.dataset.class_count}})", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: arrow, points: [[740, 355], [685, 355]], appear: 2}
-      - {type: box, box: [360, 300, 680, 410], text: "class_logits\n[{{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}}, T, {{frame_selection.dataset.class_count}}]", font: diagram_small, outline: violet, appear: 2}
+      - {type: box, box: [360, 300, 680, 410], text: "class_logits\n[{{frame_selection.run.batch_size}}, T, {{frame_selection.dataset.class_count}}]", font: diagram_small, outline: violet, appear: 2}
       - {type: box, box: [20, 300, 300, 410], text: "wanted_class_mask\n{{frame_selection.model.wanted_class_mask}}", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
       # Parameters of the trained model
       - {type: text, position: [20, 470], text: "Parameters of the trained model", font: diagram_bold, appear: 4}
@@ -162,8 +163,8 @@ scenes:
         appear: 4
       - {type: box, box: [1260, 540, 1740, 680], text: "{{frame_selection.model.total_parameters:,}} parameters\n{{frame_selection.model.total_megabytes:.2f}} MB", font: diagram_bold, outline: yellow, appear: 4}
     narration:
-      - "A batch of {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}} sequences of {{frame_selection.dataset.image_size}} pixel frames goes through the encoder of the frames of the sequence labeler: the backbone gives {{frame_selection.model.backbone_channels}} channels of {{frame_selection.model.backbone_map_size}} by {{frame_selection.model.backbone_map_size}}, averaged into {{frame_selection.model.frame_feature_size}} values per frame."
-      - "The bidirectional GRU of {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#TemporalModel.hidden_size}} units per direction gives {{frame_selection.model.temporal_feature_size}} values per frame, every frame seen with the whole sequence."
+      - "A batch of {{frame_selection.run.batch_size}} sequences of {{frame_selection.dataset.image_size}} pixel frames goes through the encoder of the frames of the sequence labeler: the backbone gives {{frame_selection.model.backbone_channels}} channels of {{frame_selection.model.backbone_map_size}} by {{frame_selection.model.backbone_map_size}}, averaged into {{frame_selection.model.frame_feature_size}} values per frame."
+      - "The bidirectional GRU of {{frame_selection.run.temporal_hidden_size}} units per direction gives {{frame_selection.model.temporal_feature_size}} values per frame, every frame seen with the whole sequence."
       - "The head maps them to {{frame_selection.dataset.class_count:words}} logits per frame: unselected, circle, triangle and star."
       - "The frame selector adds the wanted class mask, a buffer of ones with zero on the unselected class, set by the trainer and saved with the weights, so that an exported model knows its unselected class without any labels file."
       - "That is {{frame_selection.model.backbone_parameters:,}} parameters in the backbone, {{frame_selection.model.temporal_parameters:,}} in the GRU and {{frame_selection.model.head_parameters:,}} in the head: {{frame_selection.model.total_parameters:,}} in all."
@@ -175,13 +176,13 @@ scenes:
     # The SLW token is left out at a weight of 0 (build_frame_selection_sections)
     literal_numbers: ["zero", "0"]
     elements:
-      - {type: text, position: [191, 110], font: code_text, segments: [{text: "SEL", dim: [0, 1]}, {text: "_", colour: dim}, {text: "IN-KAR-256", dim: [0, 1]}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", dim: [0, 1]}, {text: "_", colour: dim}, {text: "T50", dim: [0, 1]}, {text: "_", colour: dim}, {text: "GRU1x128-BI", highlight: [0]}, {text: "_", colour: dim}, {text: "HAVG.64", dim: [0, 1]}, {text: "_", colour: dim}, {text: "MC4", highlight: [0]}, {text: "_", colour: dim}, {text: "FPC1-SLW1", highlight: [1]}]}
-      - {type: box, box: [180, 240, 860, 470], text: "GRU1x128-BI · MC4\n\none bidirectional GRU layer,\n{{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#TemporalModel.hidden_size}} units per direction;\n{{frame_selection.dataset.class_count}} classes, unselected included", font: diagram_small, outline: aqua, highlight: [0]}
-      - {type: box, box: [900, 240, 1580, 470], text: "FPC1-SLW1\n\none frame per wanted class,\nselection loss weight {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#Selection.selection_loss_weight:g}},\nno SLW token at 0", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: text, position: [191, 110], font: code_text, segments: [{text: "SEL", dim: [0, 1]}, {text: "_", colour: dim}, {text: "IN-KAR-{{frame_selection.dataset.image_size}}", dim: [0, 1]}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", dim: [0, 1]}, {text: "_", colour: dim}, {text: "T{{frame_selection.run.maximum_sequence_length}}", dim: [0, 1]}, {text: "_", colour: dim}, {text: "GRU{{frame_selection.run.temporal_number_layers}}x{{frame_selection.run.temporal_hidden_size}}-BI", highlight: [0]}, {text: "_", colour: dim}, {text: "HAVG.{{frame_selection.run.head_hidden_units}}", dim: [0, 1]}, {text: "_", colour: dim}, {text: "MC{{frame_selection.dataset.class_count}}", highlight: [0]}, {text: "_", colour: dim}, {text: "FPC{{frame_selection.run.frames_per_class}}-SLW{{frame_selection.run.selection_loss_weight:g}}", highlight: [1]}]}
+      - {type: box, box: [180, 240, 860, 470], text: "GRU{{frame_selection.run.temporal_number_layers}}x{{frame_selection.run.temporal_hidden_size}}-BI · MC{{frame_selection.dataset.class_count}}\n\nbidirectional GRU layers: {{frame_selection.run.temporal_number_layers}},\n{{frame_selection.run.temporal_hidden_size}} units per direction;\n{{frame_selection.dataset.class_count}} classes, unselected included", font: diagram_small, outline: aqua, highlight: [0]}
+      - {type: box, box: [900, 240, 1580, 470], text: "FPC{{frame_selection.run.frames_per_class}}-SLW{{frame_selection.run.selection_loss_weight:g}}\n\nframes per wanted class: {{frame_selection.run.frames_per_class}},\nselection loss weight {{frame_selection.run.selection_loss_weight:g}},\nno SLW token at 0", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: box, box: [240, 540, 1520, 680], text: "No token: Selection.decoding, both decodings being scored at every evaluation\nthe same run can change it and resume in its folder", font: diagram_text, outline: yellow, appear: 1}
     narration:
-      - "In the run name of the README run, GRU {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#TemporalModel.number_layers:words}} by {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#TemporalModel.hidden_size}} BI marks the bidirectional GRU, and MC {{frame_selection.dataset.class_count:words}} the {{frame_selection.dataset.class_count:words}} classes, the unselected one included."
-      - "FPC one is one frame per class, and SLW one the selection loss weight of one, absent at zero; the decoding leaves no token, both decodings being scored at every evaluation."
+      - "In the run name of the README run, GRU {{frame_selection.run.temporal_number_layers:words}} by {{frame_selection.run.temporal_hidden_size}} BI marks the bidirectional GRU, and MC {{frame_selection.dataset.class_count:words}} the {{frame_selection.dataset.class_count:words}} classes, the unselected one included."
+      - "FPC {{frame_selection.run.frames_per_class:words}} gives the frames per class, and SLW {{frame_selection.run.selection_loss_weight:.2g}} the selection loss weight, absent at zero; the decoding leaves no token, both decodings being scored at every evaluation."
 
   - kind: terminal
     title: "Generate, train, evaluate, export"

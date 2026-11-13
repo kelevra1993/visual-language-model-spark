@@ -48,9 +48,9 @@ CONSOLE_CODE_PATTERN = re.compile(pattern=r"\x1b\]8;;.*?\x1b\\|\x1b\[[0-9;]*m")
 
 def draw_sequence_strip(dataset: SequenceDataset, output_path: Path) -> Dict[str, Any]:
     """
-    Draws the frames of the strip sequence as the test dataset reads them (256 pixels, shown at 210), every frame
-    captioned with its position and its class, the frames to select outlined, and gives the box of every frame for
-    the views of its scene.
+    Draws the frames of the strip sequence as the test dataset reads them (at the image size of the run, shown at
+    STRIP_FRAME_SIZE pixels), every frame captioned with its position and its class, the frames to select outlined,
+    and gives the box of every frame for the views of its scene.
 
     Args:
         dataset (SequenceDataset): The test split of the run, in the order of its labels file.
@@ -75,7 +75,8 @@ def draw_sequence_strip(dataset: SequenceDataset, output_path: Path) -> Dict[str
                                                 canvas_size=(CHART_WIDTH, CHART_HEIGHT), top=62, outlines=outlines,
                                                 fonts=fonts)
     draw_figure_header(canvas=canvas, text=f"synthetic_selected_shapes/test · {STRIP_SEQUENCE_NAME} · "
-                                           f"{len(frames)} frames of 256 pixels · outlined: the frames to select",
+                                           f"{len(frames)} frames of {dataset.image_size} pixels · outlined: the "
+                                           f"frames to select",
                        fonts=fonts)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(fp=output_path)
@@ -172,6 +173,7 @@ def write_label_listings(experiment_configuration: Dict[str, Any], model_configu
             "dataset.minimum_frames": int(sequence_lengths.min()),
             "dataset.maximum_frames": int(sequence_lengths.max()),
             "dataset.mean_log_length": round_fact(value=numpy.log(sequence_lengths).mean()),
+            "dataset.category_count": len(training_labels["categories"]),
             "dataset.log_class_count": round_fact(value=math.log(len(training_labels["categories"])))}
 
 
@@ -201,14 +203,16 @@ def make_dataset_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any
     for record in classes:
         facts[f"dataset.{record['class_name']}_training_frames"] = record["frames"]["train"]
 
-    # Classes of the model and wanted classes (every class but the unselected one), quoted by the shapes and counts
+    # Classes of the model and wanted classes (every class but the unselected one), quoted by the shapes and counts,
+    # and the sequences of a split, every one holding frames_per_class frames of the first wanted class
     wanted_class_count = sum(record["class_index"] != test_dataset.unselected_class_index for record in classes)
+    frames_per_class = model_configuration["Selection"]["frames_per_class"]
     facts.update({"dataset.class_count": len(classes), "dataset.wanted_class_count": wanted_class_count,
                   "dataset.training_frames": training_frames,
                   "dataset.unselected_share": round_fact(value=classes[0]["frames"]["train"] / training_frames),
                   "dataset.test_frames": sum(record["frames"]["test"] for record in classes),
-                  "dataset.validation_sequences": classes[1]["frames"]["validation"],
-                  "dataset.test_sequences": classes[1]["frames"]["test"],
+                  "dataset.validation_sequences": classes[1]["frames"]["validation"] // frames_per_class,
+                  "dataset.test_sequences": classes[1]["frames"]["test"] // frames_per_class,
                   "dataset.image_size": model_configuration["Data"]["image_settings"]["size"],
                   "dataset.class_names": [record["class_name"] for record in classes]})
     return facts

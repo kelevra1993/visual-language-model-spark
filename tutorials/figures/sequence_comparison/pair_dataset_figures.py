@@ -182,7 +182,7 @@ def build_training_batch_mask(train_folder: Path, label_dictionary: Dict[int, in
     pair_indices = list(range(len(dataset)))
     random.Random(seed).shuffle(pair_indices)
     batch = collate_padded_sequences(samples=[dataset[pair_index] for pair_index in pair_indices[:batch_size]],
-                                     members_per_sample=2)
+                                     members_per_sample=len(PAIR_MEMBERS))
     return batch["sequence_mask"]
 
 

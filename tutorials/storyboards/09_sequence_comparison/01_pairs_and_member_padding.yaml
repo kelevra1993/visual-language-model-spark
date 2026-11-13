@@ -66,7 +66,7 @@ scenes:
       - {type: box, box: [40, 380, 560, 520], text: "M2O\none sequence, one class", font: diagram_small, outline: blue, appear: 2}
       - {type: box, box: [620, 380, 1140, 520], text: "CMP\ntwo sequences of their own lengths,\none class for their comparison", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
       - {type: box, box: [1200, 380, 1720, 520], text: "M2M · SEL\na class or a choice per frame", font: diagram_small, outline: violet, appear: 2}
-      - {type: box, box: [40, 580, 1720, 700], text: "SequenceComparisonTrainer: the SequenceClassificationTrainer with LABEL_TYPE \"pair\", MEMBERS_PER_SAMPLE {{sequence_comparison.code.members_per_sample}}", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
+      - {type: box, box: [40, 580, 1720, 700], text: "SequenceComparisonTrainer: the SequenceClassificationTrainer with LABEL_TYPE \"{{constant:vision_training/trainers/sequence_comparison_trainer.py#SequenceComparisonTrainer.LABEL_TYPE}}\", MEMBERS_PER_SAMPLE {{sequence_comparison.code.members_per_sample}}", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "In the synthetic object loss pairs, the before member shows {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#PAIR_MINIMUM_OBJECTS:words}} to four objects in independent views, up to {{sequence_comparison.generator.maximum_objects_words}} with the generator now, and the after member shows the same objects, or loses one of them."
       - "No single member gives the class, only their comparison: here a pair keeping its objects, and a test pair that lost its small dark rectangle."
@@ -121,20 +121,21 @@ scenes:
              TemporalModel.type, Fusion, ClassificationHead.global_pooling]
       comments: false
     highlights:
-      - {match: "^Fusion:", sentences: [0]}
-      - {match: "maximum_sequence_length", sentences: [1]}
+      - {key: Fusion, sentences: [0]}
+      - {key: Data.sequence_settings.maximum_sequence_length, sentences: [1]}
       - {key: Data.image_settings.size, sentences: [2]}
       - {key: TemporalModel.type, sentences: [2]}
       - {key: Fusion.type, sentences: [2]}
-      - {match: "global_pooling|random_left_right_flip", sentences: [3]}
+      - {key: ClassificationHead.global_pooling, sentences: [3]}
+      - {key: Data.data_augmentation.types.random_left_right_flip, sentences: [3]}
       - {key: Fusion.number_heads, sentences: [4]}
       - {key: Fusion.dropout_rate, sentences: [4]}
       - {key: Fusion.sequence_normalization_scope, sentences: [4]}
     narration:
       - "The comparator reads the keys of the sequence classifier, and a Fusion section."
       - "The maximum length applies to every member: a pair with a longer member is left out of its split, with a red warning naming the pair."
-      - "This configuration reads the frames at {{config:vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml#Data.image_settings.size}} pixels, averages the frame vectors of a member with a mean pooling, and fuses the two members with their difference."
-      - "Average pooling is right here, since the class is a count of objects, not a position, the opposite of the moving shapes; and the left-right flip is on, since a mirrored pair keeps its objects."
+      - "This configuration reads the frames at {{config:vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml#Data.image_settings.size}} pixels; the temporal module type turns the frame vectors of a member into one vector, and the fusion type combines the vectors of the two members."
+      - "Average global pooling suits this task, the class being a count of objects, not a position, the opposite of the moving shapes; and so does the left-right flip, a mirrored pair keeping its objects."
       - "Should your fusion type ignore the number of heads, the dropout or the normalization scope of the fusion, they are all still required, as for every fusion type."
 
   - kind: code
@@ -144,9 +145,9 @@ scenes:
       file: vision_training/data/sequence/sequence_pair_dataset.py
       function: SequencePairDataset.__getitem__
     highlights:
-      - {match: "member_length = max", sentences: [0]}
-      - {match: "read_sequence_frames|number_frames=member_length", sentences: [0]}
-      - {match: "torch.cat\\(tensors=member_frames|torch.cat\\(tensors=member_masks", sentences: [1]}
+      - {match: "member_length = ", sentences: [0]}
+      - {match: "read_sequence_frames\\(|number_frames=", sentences: [0]}
+      - {match: "torch\\.cat\\(", sentences: [1]}
     narration:
       - "The pair data set reads both members whole, and pads the shorter one with black frames to the length of the longer one."
       - "A sample is one tensor of 2T frames, the before member then the after member, so that the augmentation, the input viewer and the evaluation handle a pair as one sequence, and both members get the same augmentation draw."

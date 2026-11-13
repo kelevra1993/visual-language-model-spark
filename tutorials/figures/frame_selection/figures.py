@@ -6,7 +6,7 @@ test sequence frame by frame, the labels listings and the error of the selection
 two losses against the losses of equal logits, the wrong picks of iteration 1000 drawn by the selection image of the
 repository with the matrix data of the decoding animations, and the evaluation listing and thresholds figure. Every
 figure family is a module of this folder writing into a subfolder of the output folder, its facts gathered here into the
-facts.json the storyboards quote as {{frame_selection.<name>}}.
+facts.json the storyboards quote as {{frame_selection.<name>}}, with the settings the run was trained with.
 """
 
 from pathlib import Path
@@ -17,6 +17,33 @@ from tutorials.figures.frame_selection.dataset_figures import make_dataset_figur
 from tutorials.figures.frame_selection.evaluation_figures import make_evaluation_figures
 from tutorials.figures.frame_selection.selection_figures import make_selection_figures
 from tutorials.figures.frame_selection.training_figures import make_training_figures
+from tutorials.figures.sequence_labelling.sequence_utilities import read_run_sections
+
+
+def read_run_setting_facts(run_folder: Path) -> Dict[str, Any]:
+    """
+    Reads the settings the frame selection run was trained with from its saved training configuration, those the
+    scenes of its model, its run name and its export quote (batch size, input channels, maximum sequence length,
+    temporal module, head, frames per class and selection loss weight), so that the narration describes the README
+    run even when the shipped configuration changes.
+
+    Args:
+        run_folder (Path): The folder of the frame selection run.
+
+    Returns:
+        Dict[str, Any]: The facts, named run.*.
+    """
+    experiment_configuration, model_configuration = read_run_sections(run_folder=run_folder)
+    temporal_configuration = model_configuration["TemporalModel"]
+    selection_configuration = model_configuration["Selection"]
+    return {"run.batch_size": experiment_configuration["batch_size"],
+            "run.input_channels": model_configuration["Backbone"]["input_channels"],
+            "run.maximum_sequence_length": model_configuration["Data"]["sequence_settings"]["maximum_sequence_length"],
+            "run.temporal_number_layers": temporal_configuration["number_layers"],
+            "run.temporal_hidden_size": temporal_configuration["hidden_size"],
+            "run.head_hidden_units": model_configuration["ClassificationHead"]["fully_connected"][0],
+            "run.frames_per_class": selection_configuration["frames_per_class"],
+            "run.selection_loss_weight": selection_configuration["selection_loss_weight"]}
 
 
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
@@ -41,4 +68,4 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                               reference_facts=dataset_facts),
         make_selection_figures(output_folder=output_folder, run_folder=run_folder, force=force),
         make_evaluation_figures(output_folder=output_folder, run_folder=run_folder),
-        {"run.name": run_folder.name, "run.label": run_label}])
+        read_run_setting_facts(run_folder=run_folder), {"run.name": run_folder.name, "run.label": run_label}])

@@ -178,7 +178,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     label_dictionary = model_configuration["Data"]["label_dictionary"]
     model = load_sequence_model(run_folder=run_folder, iteration=iteration)
     train_folder = Path(experiment_configuration["train_data_folder"])
-    image_size = run_configuration["Data"]["image_settings"]["size"]
+    image_settings = run_configuration["Data"]["image_settings"]
+    image_size = image_settings["size"]
     facts = {"run.name": run_folder.name, "run.batch_size": experiment_configuration["batch_size"],
              "run.image_size": image_size, "run.iteration": iteration}
     return add_number_words(facts=merge_facts(fact_groups=[
@@ -189,7 +190,9 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_pair_dataset_figures(output_folder=output_folder, train_folder=train_folder,
                                   label_dictionary=label_dictionary, batch_size=experiment_configuration["batch_size"]),
         make_pair_batch_animation(output_folder=output_folder, model=model, train_folder=train_folder,
-                                  label_dictionary=label_dictionary, image_size=image_size, force=force),
+                                  label_dictionary=label_dictionary, image_size=image_size,
+                                  keep_ratio=image_settings["keep_ratio"], force=force),
         make_pair_evaluation_figures(output_folder=output_folder, run_folder=run_folder, log_path=log_path,
-                                     iteration=iteration,
-                                     test_folder=Path(experiment_configuration["test_data_folder"]))]))
+                                     iteration=iteration, test_folder=Path(experiment_configuration["test_data_folder"]),
+                                     class_count=len(set(label_dictionary.values())),
+                                     information_dump=experiment_configuration["information_dump"])]))
