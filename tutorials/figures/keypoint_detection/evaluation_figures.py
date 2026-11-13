@@ -35,6 +35,7 @@ from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.evaluation.keypoints.object_keypoint_similarity import (CORRECT_KEYPOINT_FRACTION,
                                                                              compute_object_keypoint_similarity)
 from vision_training.models.keypoints.hrnet import BRANCH_SCALE_FACTOR
+from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE
 from vision_training.models.keypoints.keypoint_grouping import group_keypoint_candidates, match_candidates_to_objects
 
 # Classes of the test image shown by the heatmap figure, one row each, and the region of the image every row crops
@@ -126,7 +127,8 @@ def draw_heatmap_figure(output_folder: Path, sample_record: Dict[str, Any], infe
     panel_height = (CHART_HEIGHT - HEATMAP_TITLE_HEIGHT - HEATMAP_ROW_GAP) / 2
     figure = pyplot.figure(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH,
                            facecolor=SURFACE_COLOUR)
-    column_titles = ["Test image", "Heat maps at stride 4", "Heat maps at stride 2",
+    column_titles = ["Test image", f"Heat maps at stride {HEATMAP_STRIDE}",
+                     f"Heat maps at stride {HEATMAP_STRIDE // BRANCH_SCALE_FACTOR}",
                      f"Average, candidates above {keypoint_threshold:g}"]
     for column_index, column_title in enumerate(column_titles):
         figure.text(x=column_index * (panel_width + HEATMAP_COLUMN_GAP) / CHART_WIDTH,

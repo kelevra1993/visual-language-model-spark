@@ -28,6 +28,7 @@ from tutorials.figures.keypoint_detection.network_figures import (describe_archi
                                                                   describe_stem_and_run, describe_tags,
                                                                   draw_training_curves)
 from vision_training.configuration_processing.configuration_loader import load_configuration
+from vision_training.data.augmentations import SUPERVISED_AUGMENTATION_STRENGTHS
 
 
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
@@ -67,6 +68,9 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                          tag_loss_weight=architecture_facts["tag_loss_weight"])
     run_configuration = load_configuration(configuration_path=run_folder / "training_configuration.yaml")
     run_label = f"{experiments_folder.name}/{run_folder.relative_to(experiments_folder)}"
+
+    # Facts of every family, with the settings of the run and the largest rotation of the augmentations of the
+    # supervised tasks (SUPERVISED_AUGMENTATION_STRENGTHS, whose computed values a constant placeholder cannot read)
     return merge_facts(fact_groups=[
         architecture_facts,
         {"run_label": run_label, "run_iterations": run_configuration["ExperimentConfiguration"]["number_iterations"],
@@ -76,7 +80,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
          "run_warmup_iterations": run_configuration["Optimization"]["warmup_iterations"],
          "run_decay_iterations": run_configuration["Optimization"]["decay_iterations"],
          "sample_image_name": sample_record["image_record"]["file_name"],
-         "checkpoint_iteration": inference_facts["inference_checkpoint_iteration"]},
+         "checkpoint_iteration": inference_facts["inference_checkpoint_iteration"],
+         "augmentation_maximum_rotation_degrees": SUPERVISED_AUGMENTATION_STRENGTHS["maximum_rotation_degrees"]},
         write_labels_listing(output_folder=output_folder, sample_record=sample_record),
         write_channel_table(output_folder=output_folder, channel_table=channel_table,
                             keypoint_categories=keypoint_categories, objects=objects),

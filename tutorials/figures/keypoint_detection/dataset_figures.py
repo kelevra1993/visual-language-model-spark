@@ -23,6 +23,8 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
 from tutorials.figures.keypoint_detection.keypoint_inference import build_sample_targets
 from tutorials.figures.keypoint_detection.keypoint_sources import OBJECT_COLOURS, write_json
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.models.keypoints.hrnet import BRANCH_SCALE_FACTOR
+from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE
 
 # Size of the labelled test image of the labels.json scene, the image element of the diagram
 LABELLED_IMAGE_SIZE = 660
@@ -270,8 +272,9 @@ def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], chan
     """
     Builds the targets of the test image with build_keypoint_targets and draws them next to the image at both
     strides (the maximum over the channels, every peak cell at 1), and gives the values of the cells around the top
-    left corner of the trapezoid at stride 4 for the grid of the storyboard, with the counts of positive and non-zero
-    cells.
+    left corner of the trapezoid at HEATMAP_STRIDE for the grid of the storyboard, with the counts of positive and
+    non-zero cells. The facts of the two strides keep the names stride_4 and stride_2 of the other figure families,
+    their strides being HEATMAP_STRIDE and BRANCH_SCALE_FACTOR finer.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -288,34 +291,36 @@ def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], chan
     number_channels = int(channel_table.max()) + 1
     targets = build_sample_targets(sample=sample, channel_table=channel_table, number_channels=number_channels,
                                    heatmap_sigma=heatmap_sigma)
-    stride_heatmaps = {4: targets["heatmaps"][0][0].numpy(), 2: targets["heatmaps"][1][0].numpy()}
+    branch_stride = HEATMAP_STRIDE // BRANCH_SCALE_FACTOR
+    stride_heatmaps = {"stride_4": (HEATMAP_STRIDE, targets["heatmaps"][0][0].numpy()),
+                       "stride_2": (branch_stride, targets["heatmaps"][1][0].numpy())}
 
-    # Cells of every stride: the keypoint cells at 1, the cells not 0, and all the cells of the 243 channels
+    # Cells of every stride: the keypoint cells at 1, the cells not 0, and all the cells of every channel
     facts = {}
-    for stride, heatmaps in stride_heatmaps.items():
-        facts[f"targets_stride_{stride}_positive_cells"] = int((heatmaps == 1.0).sum())
-        facts[f"targets_stride_{stride}_nonzero_cells"] = int((heatmaps > 0.0).sum())
-        facts[f"targets_stride_{stride}_cells"] = int(heatmaps.size)
-        facts[f"targets_stride_{stride}_nonzero_share"] = round_fact(value=(heatmaps > 0.0).mean())
-        facts[f"targets_stride_{stride}_positive_share"] = round_fact(value=(heatmaps == 1.0).mean())
+    for stride_name, (_, heatmaps) in stride_heatmaps.items():
+        facts[f"targets_{stride_name}_positive_cells"] = int((heatmaps == 1.0).sum())
+        facts[f"targets_{stride_name}_nonzero_cells"] = int((heatmaps > 0.0).sum())
+        facts[f"targets_{stride_name}_cells"] = int(heatmaps.size)
+        facts[f"targets_{stride_name}_nonzero_share"] = round_fact(value=(heatmaps > 0.0).mean())
+        facts[f"targets_{stride_name}_positive_share"] = round_fact(value=(heatmaps == 1.0).mean())
     facts["targets_trained_keypoints"] = int(targets["tag_valid"].sum())
 
-    # Window of cells around the top left corner of the trapezoid at stride 4, its keypoint in its cell
+    # Window of cells around the top left corner of the trapezoid at HEATMAP_STRIDE, its keypoint in its cell
     trapezoid = next(sample_object for sample_object in objects if sample_object["class_name"] == GRID_CLASS_NAME)
     keypoint_index = trapezoid["keypoint_names"].index(GRID_KEYPOINT_NAME)
     position_x, position_y = trapezoid["positions"][keypoint_index]
     channel = trapezoid["channels"][keypoint_index]
-    cell_column, cell_row = int(position_x // 4), int(position_y // 4)
-    window = stride_heatmaps[4][channel, cell_row - GRID_HALF_SIDE:cell_row + GRID_HALF_SIDE + 1,
-                                cell_column - GRID_HALF_SIDE:cell_column + GRID_HALF_SIDE + 1]
+    cell_column, cell_row = int(position_x // HEATMAP_STRIDE), int(position_y // HEATMAP_STRIDE)
+    window = stride_heatmaps["stride_4"][1][channel, cell_row - GRID_HALF_SIDE:cell_row + GRID_HALF_SIDE + 1,
+                                            cell_column - GRID_HALF_SIDE:cell_column + GRID_HALF_SIDE + 1]
     facts.update({"grid_values": [[round(float(value), 2) for value in row] for row in window],
                   "grid_column_labels": [str(column) for column in range(cell_column - GRID_HALF_SIDE,
                                                                          cell_column + GRID_HALF_SIDE + 1)],
                   "grid_row_labels": [str(row) for row in range(cell_row - GRID_HALF_SIDE,
                                                                     cell_row + GRID_HALF_SIDE + 1)],
                   "grid_keypoint_x": round_fact(value=position_x), "grid_keypoint_y": round_fact(value=position_y),
-                  "grid_centre_x": round_fact(value=position_x / 4 - 0.5),
-                  "grid_centre_y": round_fact(value=position_y / 4 - 0.5),
+                  "grid_centre_x": round_fact(value=position_x / HEATMAP_STRIDE - 0.5),
+                  "grid_centre_y": round_fact(value=position_y / HEATMAP_STRIDE - 0.5),
                   "grid_cell_column": cell_column, "grid_cell_row": cell_row, "grid_channel": int(channel),
                   "grid_left_value": round_fact(value=window[GRID_HALF_SIDE, GRID_HALF_SIDE - 1]),
                   "grid_right_value": round_fact(value=window[GRID_HALF_SIDE, GRID_HALF_SIDE + 1]),
@@ -329,16 +334,20 @@ def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], chan
     image = sample["images"].permute(1, 2, 0).numpy()[..., ::-1]
     panel_lefts = [index * (TARGET_PANEL_SIDE + TARGET_PANEL_GAP) for index in range(3)]
     image_axes = draw_heatmap_panel(figure=figure, left=panel_lefts[0], image=image, title="Test image",
-                                    subtitle=f"{facts['targets_trained_keypoints']} labelled key points, 512 x 512")
+                                    subtitle=f"{facts['targets_trained_keypoints']} labelled key points, "
+                                             f"{image.shape[1]} x {image.shape[0]}")
     for object_index, sample_object in enumerate(objects):
         positions = numpy.array(sample_object["positions"])
         image_axes.scatter(positions[:, 0], positions[:, 1], s=(6 * POINTS_PER_PIXEL) ** 2,
                            color=OBJECT_COLOURS[object_index], edgecolors=TEXT_PRIMARY_COLOUR,
                            linewidths=POINTS_PER_PIXEL, zorder=3)
-    draw_heatmap_panel(figure=figure, left=panel_lefts[1], image=stride_heatmaps[4].max(axis=0),
-                       title="Targets at stride 4", subtitle="128 x 128 cells, maximum over the 243 channels")
-    draw_heatmap_panel(figure=figure, left=panel_lefts[2], image=stride_heatmaps[2].max(axis=0),
-                       title="Targets at stride 2", subtitle="256 x 256 cells, maximum over the 243 channels")
+
+    # Targets of both strides, the maximum over the channels, with their cell grid and channel count
+    for panel_left, (stride, heatmaps) in zip(panel_lefts[1:], stride_heatmaps.values()):
+        draw_heatmap_panel(figure=figure, left=panel_left, image=heatmaps.max(axis=0),
+                           title=f"Targets at stride {stride}",
+                           subtitle=f"{heatmaps.shape[2]} x {heatmaps.shape[1]} cells, maximum over the "
+                                    f"{heatmaps.shape[0]} channels")
     save_figure(figure=figure, output_path=output_folder / "dataset" / "targets.png")
     pyplot.close(fig=figure)
 

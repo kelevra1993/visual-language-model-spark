@@ -189,7 +189,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
       - "To train a run like it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration set to {{keypoint_detection.run_iterations}} iterations and a cosine decay over {{keypoint_detection.run_decay_iterations}}."
-      - "The run shown predates the current augmentation probabilities and the haze, which the configuration now turns on."
+      - "The run shown predates the current augmentation probabilities and the haze augmentation."
       - "The evaluation script skips its maximum error images per class pair with a yellow warning, key point detection saving no error images."
       - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
 

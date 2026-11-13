@@ -138,13 +138,13 @@ scenes:
       function: compute_heatmap_loss
     highlights:
       - {match: "positive_losses =", sentences: [1]}
-      - {match: "negative_losses = \\(|probabilities \\*\\* FOCAL_EXPONENT", sentences: [1]}
-      - {match: "number_positives|cell_losses.sum\\(\\)", sentences: [2]}
+      - {match: "FOCAL_EXPONENT|PENALTY_REDUCTION_EXPONENT", sentences: [1]}
+      - {match: "number_positives", sentences: [2]}
       - {match: "ignored_cells", sentences: [3]}
     literal_numbers: [zero]
     narration:
       - "The heat map loss is the penalty-reduced focal loss of Corner Net, computed in float32 from the logits at both strides and summed."
-      - "A positive cell costs one minus p squared times minus log p; any other cell is weighted by one minus its target to the fourth and by p squared, so the cells near a key point and those already near zero count for little."
+      - "A positive cell costs one minus p, to the power {{constant:vision_training/losses/keypoint_losses.py#FOCAL_EXPONENT:words}}, times minus log p; any other cell is weighted by one minus its target to the power {{constant:vision_training/losses/keypoint_losses.py#PENALTY_REDUCTION_EXPONENT:words}} and by p to the power {{constant:vision_training/losses/keypoint_losses.py#FOCAL_EXPONENT:words}}, so the cells near a key point and those already near zero count for little."
       - "The sum over all the cells and channels is divided by the number of positive cells, so that neither the {{keypoint_detection.channels_total}} channels nor the size of the maps dilute the key points."
       - "With ignore unlabelled objects, the cells mostly covered by the objects without labels are left out, except the key point cells."
 

@@ -28,6 +28,7 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL,
 from tutorials.figures.object_detection.detection_sources import (extract_table, parse_table_rows,
                                                                   read_results_block, write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
 
 # Tables of the report of a checkpoint shown as listings, with the names of their files
 REPORT_TABLES = [("Mean Average Precision", "results_methods.txt"),
@@ -134,15 +135,19 @@ def draw_class_average_precision_figure(evaluation_folder: Path, output_path: Pa
     return facts
 
 
-def draw_confusion_matrix_figure(evaluation_folder: Path, output_path: Path) -> Dict[str, Any]:
+def draw_confusion_matrix_figure(evaluation_folder: Path, score_threshold: float,
+                                 output_path: Path) -> Dict[str, Any]:
     """
     Draws the confusion matrix of the detections reaching the deployment threshold from confusion_matrix.csv, rows the
     true classes and columns the predicted ones, the background first, every cell coloured by its share of its row and
     labelled with its count, the background row (false positives) and column (missed objects) outlined; and gives the
-    totals of the four outcomes and the recall of every class at the threshold.
+    totals of the four outcomes and the recall of every class at the threshold. The caption writes the deployment
+    threshold of the run and the overlap of the matching (MATCHING_INTERSECTION_OVER_UNION_THRESHOLD of
+    detection_confusion.py), the values the evaluation counted the matrix with.
 
     Args:
         evaluation_folder (Path): The evaluation folder of the last checkpoint.
+        score_threshold (float): 'Detector.inference.score_threshold' of the run, the deployment threshold.
         output_path (Path): The PNG file of the figure.
 
     Returns:
@@ -193,7 +198,10 @@ def draw_confusion_matrix_figure(evaluation_folder: Path, output_path: Path) -> 
                     fontsize=44 * POINTS_PER_PIXEL, weight="bold")
         figure.text(x=0.62, y=0.73 - outcome_index * 0.17, s=outcome_name, color=TEXT_SECONDARY_COLOUR,
                     fontsize=20 * POINTS_PER_PIXEL)
-    figure.text(x=0.62, y=0.9, s="Detections with score >= 0.5, IoU >= 0.5", color=TEXT_PRIMARY_COLOUR,
+
+    # Caption: the deployment threshold of the run and the overlap matching a detection to an object
+    figure.text(x=0.62, y=0.9, s=f"Detections with score >= {score_threshold:g}, IoU >= "
+                                 f"{MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g}", color=TEXT_PRIMARY_COLOUR,
                 fontsize=22 * POINTS_PER_PIXEL)
     figure.canvas.draw()
 

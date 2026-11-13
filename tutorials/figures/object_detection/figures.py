@@ -5,7 +5,8 @@ tutorials/tutorial_sources.yaml (the synthetic configuration resumed to 5000 ite
 the COCO manifest and anchor recall of its data, the trained detector run on the CPU on the test image of the series
 (anchors, proposals, anchor labels, training targets), its training losses and console summaries, and its evaluation
 (sample images at three iterations, mAP of the trained and averaged weights, average precision of every class,
-confusion matrix, report tables, proposal recall), and the joint and per-level proposal selections compared by stage 7
+confusion matrix, report tables, proposal recall), the settings of the run quoted next to its measurements (read from
+its saved configuration, not from the shipped one), and the joint and per-level proposal selections compared by stage 7
 of the detection benchmark (proposal_selection.py). Every figure family is a module of this folder writing into a
 subfolder of the output folder, its facts gathered here into the facts.json the storyboards quote as
 {{object_detection.<name>}}. The instance segmentation series imports the run figures of this folder for its own run.
@@ -74,6 +75,38 @@ def describe_box_loss_beta() -> Dict[str, Any]:
             "losses.box_loss_beta_denominator": beta_fraction.denominator}
 
 
+def describe_run_settings(run_configuration: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Gives the settings of the DET run that the chapters quote next to its measurements (the detections of its sample
+    images and of the test image, the labels of its anchors and the targets of its proposals, its proposal filter, its
+    losses), read from the configuration saved in the run folder rather than from the shipped configuration, which has
+    moved on since (the learning rate, the background minimum, the neck): the deployment score threshold, the overlap
+    thresholds and sampling of the anchor labels, the suppression of the proposal filter, the sampling of the
+    proposals of the detection heads, the learning rate, the iterations and the sample images of every evaluation.
+
+    Args:
+        run_configuration (Dict[str, Any]): The configuration saved in the run folder (read_run_configuration).
+
+    Returns:
+        Dict[str, Any]: The settings, named run.*.
+    """
+    # Sections of the saved configuration holding the settings quoted with the measurements of the run
+    experiment_configuration = run_configuration["ExperimentConfiguration"]
+    region_proposal_configuration = run_configuration["RegionProposal"]
+    return {"run.number_iterations": experiment_configuration["number_iterations"],
+            "run.learning_rate": experiment_configuration["learning_rate"],
+            "run.number_sample_images": experiment_configuration["evaluation"]["number_sample_images"],
+            "run.score_threshold": run_configuration["Detector"]["inference"]["score_threshold"],
+            "run.anchor_foreground_minimum": region_proposal_configuration["foreground_iou_threshold"]["min"],
+            "run.anchor_background_maximum": region_proposal_configuration["background_iou_threshold"]["max"],
+            "run.anchor_training_samples": region_proposal_configuration["total_training_samples"],
+            "run.anchor_training_positives": region_proposal_configuration["number_training_positives"],
+            "run.proposal_nms_threshold": region_proposal_configuration["nms_iou_threshold"],
+            "run.detector_foreground_minimum": run_configuration["Detector"]["foreground_iou_threshold"],
+            "run.detector_training_samples": run_configuration["Detector"]["total_training_samples"],
+            "run.detector_training_positives": run_configuration["Detector"]["number_training_positives"]}
+
+
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes every figure of the object detection series into its output folder and gives their facts, the checkpoint
@@ -87,7 +120,9 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     Returns:
         Dict[str, Any]: The facts of every figure family, keyed by their dotted names.
     """
+    # Run folder, the settings it was trained and evaluated with, and its last evaluated checkpoint
     run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="object_detection")
+    run_settings = describe_run_settings(run_configuration=read_run_configuration(run_folder=run_folder))
     evaluation_folder = run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}"
     listings_folder = output_folder / "listings"
 
@@ -117,13 +152,12 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         draw_class_average_precision_figure(evaluation_folder=evaluation_folder,
                                             output_path=output_folder / "evaluation" / "class_average_precision.png"),
         draw_confusion_matrix_figure(evaluation_folder=evaluation_folder,
+                                     score_threshold=run_settings["run.score_threshold"],
                                      output_path=output_folder / "evaluation" / "confusion_matrix.png"),
         write_report_listings(run_folder=run_folder, iteration=CHECKPOINT_ITERATION, output_folder=listings_folder),
         read_proposal_recall(evaluation_folder=evaluation_folder),
         make_proposal_selection_facts(experiments_folder=experiments_folder),
-        describe_box_loss_beta(),
+        describe_box_loss_beta(), run_settings,
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),
          "run.checkpoint_iteration": CHECKPOINT_ITERATION,
-         "run.number_iterations": read_run_configuration(run_folder=run_folder)["ExperimentConfiguration"][
-             "number_iterations"],
          "samples.iterations": SAMPLE_ITERATIONS, "console.iterations": CONSOLE_SUMMARY_ITERATIONS}])
