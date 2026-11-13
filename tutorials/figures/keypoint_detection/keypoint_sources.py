@@ -173,14 +173,14 @@ def load_test_sample(configuration: Dict[str, Any], test_split: Path, label_dict
                                    maximum_keypoints=maximum_keypoints, shuffle=False)
 
     # The image by its file name, and its records of the manifest
-    image_indices = [index for index, image_record in enumerate(dataset.images)
-                     if image_record["file_name"] == SAMPLE_IMAGE_NAME]
-    if not image_indices:
+    image_index = next((image_index for image_index in range(len(dataset))
+                        if dataset.get_image_record(image_index=image_index)[0]["file_name"] == SAMPLE_IMAGE_NAME),
+                       None)
+    if image_index is None:
         raise FileNotFoundError(f"No image {SAMPLE_IMAGE_NAME} in {test_split / 'labels.json'}.")
-    image_record = dataset.images[image_indices[0]]
-    return {"sample": dataset[image_indices[0]], "image_record": image_record,
-            "annotations": dataset.image_to_annotations[image_record["id"]],
-            "categories": dataset.data["categories"], "image_path": test_split / "data" / SAMPLE_IMAGE_NAME}
+    image_record, image_annotations = dataset.get_image_record(image_index=image_index)
+    return {"sample": dataset[image_index], "image_record": image_record, "annotations": image_annotations,
+            "categories": dataset.categories, "image_path": test_split / "data" / SAMPLE_IMAGE_NAME}
 
 
 def describe_sample_objects(sample: Dict[str, Any], keypoint_categories: Dict[int, Dict[str, Any]],

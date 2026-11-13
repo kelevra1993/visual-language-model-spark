@@ -1,15 +1,19 @@
 """
 Tests of vision_training/utilities/os_utilities.py: the expandable segments of the CUDA allocator turned on by the
-training launch, and the images of a folder listed with or without its subfolders.
+training launch, the images of a folder listed with or without its subfolders, and the freed heap memory given back to
+the system after a dataset packs its manifest and at the end of the trainer launch, on Linux only.
 """
 
+import ctypes
 import os
 import pytest
+import sys
 import torch
 
 from pathlib import Path
 
-from vision_training.utilities.os_utilities import enable_expandable_cuda_segments, get_image_paths
+from vision_training.utilities.os_utilities import (enable_expandable_cuda_segments, get_image_paths,
+                                                    release_freed_heap_memory)
 
 
 @pytest.mark.parametrize(argnames="settings_given, expected_settings",
@@ -76,3 +80,46 @@ def test_image_paths_of_the_subfolders_are_listed_on_request(tmp_path: Path) -> 
     assert get_image_paths(folder=image_folder) == [image_folder / "top.jpg"]
     assert get_image_paths(folder=image_folder, search_subfolders=True) == [
         image_folder / "camera_1" / "frame.PNG", image_folder / "camera_2" / "linked.jpeg", image_folder / "top.jpg"]
+
+
+def read_resident_megabytes() -> float:
+    """
+    Reads the resident memory of the test process from the kernel, for the check of the release of the freed heap.
+
+    Returns:
+        float: The resident memory in megabytes.
+    """
+    with open(file="/proc/self/smaps_rollup", mode="r") as file_handler:
+        resident_line = next(line for line in file_handler if line.startswith("Rss:"))
+    return int(resident_line.split()[1]) / 1024
+
+
+@pytest.mark.skipif(condition=not sys.platform.startswith("linux"), reason="malloc_trim is a GNU C library function")
+def test_freed_heap_memory_is_given_back() -> None:
+    """
+    Verifies that the memory freed in the heap of the C allocator, which stays resident while live objects sit between
+    the freed ones (like the strings of a parsed manifest among the objects allocated after it), is given back to the
+    system: 200 MB of strings of 2 KB, one in 64 kept alive.
+    """
+    # Distinct strings above the 512 bytes of the Python object allocator, hence in the heap of the C allocator, freed
+    strings = [string_index.to_bytes(length=2048, byteorder="little") for string_index in range(100_000)]
+    kept_strings = strings[::64]
+    del strings
+    resident_before = read_resident_megabytes()
+
+    release_freed_heap_memory()
+
+    assert resident_before - read_resident_megabytes() > 100 and len(kept_strings) == 1563
+
+
+def test_freed_heap_memory_is_left_outside_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the release of the freed heap memory does nothing outside Linux, without loading any C library.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture setting the platform and the C library loader.
+    """
+    monkeypatch.setattr(target=sys, name="platform", value="darwin")
+    monkeypatch.setattr(target=ctypes, name="CDLL", value=lambda name: pytest.fail(reason=f"{name} loaded"))
+
+    assert release_freed_heap_memory() is None

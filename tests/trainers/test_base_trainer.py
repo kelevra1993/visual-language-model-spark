@@ -6,7 +6,8 @@ holds, and the moving average of the weights is saved, evaluated next to the tra
 run keeps the classes saved in its folder, a fresh start moves the previous training of the same settings aside,
 unreadable images and failed evaluations never stop the training, a training whose data vanished ends with a final
 checkpoint, and a split without batch is refused. A training without validation builds no validation loader, which
-the input viewer still gets, and a task whose validation loader does not follow that setting is refused.
+the input viewer still gets, and a task whose validation loader does not follow that setting is refused. The launch
+gives the heap memory it freed back to the system once it ends, before any loader worker is forked.
 """
 
 import copy
@@ -651,3 +652,26 @@ def test_validation_loader_follows_the_validation_setting(tmp_path: Path, capsys
         build_dummy_trainer(temporary_directory=tmp_path / "input_viewer", number_iterations=1, view_input_images=True,
                             number_sample_images=0, validation_iteration_ratio=0)
     assert "View Of The Training And Validation Images That Are Fed To The Neural Network" in capsys.readouterr().out
+
+
+def test_launch_gives_back_the_freed_heap_memory_once_it_ends(tmp_path: Path) -> None:
+    """
+    Verifies that the launch of a trainer gives the heap memory it freed back to the system once, after the last
+    checkpoint is restored, the manifests parsed again by the launch leaving their memory resident otherwise, inherited
+    by the loader workers forked by the first batch.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # The steps of the launch, the checkpoint still restored by the method of the trainer
+    launch_steps = []
+    original_restore_last_model = DummyTrainer.restore_last_model
+    with patch(target="vision_training.trainers.base_trainer.release_freed_heap_memory",
+               new=lambda: launch_steps.append("heap released")), \
+            patch.object(target=DummyTrainer, attribute="restore_last_model",
+                         new=lambda trainer, **arguments: launch_steps.append("checkpoint restored")
+                         or original_restore_last_model(self=trainer, **arguments)):
+        trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                      number_sample_images=0)
+
+    assert launch_steps == ["checkpoint restored", "heap released"] and trainer.start_iteration == 1
