@@ -2,10 +2,10 @@
 CocoDetectionDataset, the dataset of the object detection, instance segmentation and keypoint detection tasks reading
 a COCO 'labels.json' split with OpenCV on the CPU workers, the selection of the objects of an image from its annotations
 (also used by the anchor recall of the detection trainer), and the collate function batching its images and per-image
-boxes, labels, instance masks and keypoints, with the masks and boxes of the objects at the original image resolution
-for the evaluation of the instance segmentation at that resolution, and the regions of the objects without labelled
-keypoint that the keypoint heatmap loss leaves out. Used by get_detection_dataloader and get_keypoint_dataloaders of
-data/loaders.py.
+boxes, labels, instance masks (or one instance index map per image, 'Data.instance_index_maps') and keypoints, with the
+masks and boxes of the objects at the original image resolution for the evaluation of the instance segmentation at that
+resolution, and the regions of the objects without labelled keypoint that the keypoint heatmap loss leaves out. Used by
+get_detection_dataloader and get_keypoint_dataloaders of data/loaders.py.
 """
 
 import random
@@ -17,8 +17,9 @@ import torch
 from typing import Any, Dict, List, Optional, Tuple
 from torch.utils.data import Dataset
 
-from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
-                                                       compute_segmentation_bounding_box)
+from vision_training.data.detection.coco_masks import (MAXIMUM_INDEX_MAP_OBJECTS, build_instance_index_map,
+                                                       build_instance_mask, compute_mask_bounding_boxes,
+                                                       compute_segmentation_bounding_box, find_index_map_objects)
 from vision_training.data.preprocessing import preprocess_boxes, preprocess_image_and_boxes, read_image
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -28,9 +29,10 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     Collates a list of dataset samples into a batched format dictionary.
 
     This function is used by the PyTorch DataLoader to aggregate individual data samples
-    into mini-batches. It stacks images into a single tensor for efficient GPU processing,
-    while preserving bounding boxes, labels, instance masks (instance segmentation only) and keypoints (keypoint
-    detection only) as lists since they vary in quantity per image.
+    into mini-batches. It stacks images into a single tensor for efficient GPU processing, and the instance index
+    maps of the instance segmentation, one per image, while preserving bounding boxes, labels, instance masks
+    (instance segmentation only) and keypoints (keypoint detection only) as lists since they vary in quantity per
+    image.
 
     Args:
         batch (List[Dict[str, torch.Tensor]]): A list of dictionaries containing individual (image, boxes, labels).
@@ -40,7 +42,7 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
             tensor of COCO image identifiers ('sample_identifiers'), the list of instance masks when the samples
             have them, the lists of the original instance masks and boxes when the samples have them, the list of
             keypoints when the samples have them, and the [B, S, S] uint8 'ignored_regions' of the keypoint detection
-            when the samples have them.
+            and 'instance_index_maps' of the instance segmentation when the samples have them.
     """
     images = [item["images"] for item in batch]
     bounding_boxes = [item["bounding_boxes"] for item in batch]
@@ -58,9 +60,11 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
         if key in batch[0]:
             batched_samples[key] = [item[key] for item in batch]
 
-    # Stack the ignored regions of the keypoint detection, of the network size in every image
-    if "ignored_regions" in batch[0]:
-        batched_samples["ignored_regions"] = torch.stack(tensors=[item["ignored_regions"] for item in batch])
+    # Stack the ignored regions of the keypoint detection and the instance index maps of the instance segmentation, of
+    # the network size in every image
+    for key in ["ignored_regions", "instance_index_maps"]:
+        if key in batch[0]:
+            batched_samples[key] = torch.stack(tensors=[item[key] for item in batch])
     return batched_samples
 
 
@@ -133,8 +137,9 @@ class CocoDetectionDataset(Dataset):
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
                  label_mode: str, label_dictionary: Dict[str, Any], load_instance_masks: bool = False,
-                 load_original_instances: bool = False, load_keypoints: bool = False, maximum_keypoints: int = 0,
-                 load_ignored_regions: bool = False, shuffle: bool = True) -> None:
+                 load_instance_index_maps: bool = False, load_original_instances: bool = False,
+                 load_keypoints: bool = False, maximum_keypoints: int = 0, load_ignored_regions: bool = False,
+                 shuffle: bool = True) -> None:
         """
         Initializes the COCO detection dataset and parses the JSON file.
 
@@ -148,6 +153,10 @@ class CocoDetectionDataset(Dataset):
             load_instance_masks (bool): Whether to return the binary mask of every object (instance segmentation).
                 Defaults to False (object detection). The crowd annotations are objects like the others in both
                 tasks.
+            load_instance_index_maps (bool): Whether the masks of the objects of an image come as one [S, S] uint8
+                instance index map (k on the pixels of the k-th object) instead of [N, S, S] binary masks
+                ('Data.instance_index_maps'), for run length encodings whose masks never overlap. Needs
+                load_instance_masks, and not load_original_instances. Defaults to False.
             load_original_instances (bool): Whether to also return the masks and boxes of the objects at the original
                 image resolution, for the evaluation of the instance segmentation at that resolution (test split of
                 'evaluation.original_resolution'), every object being then kept at the network resolution. Needs
@@ -163,12 +172,19 @@ class CocoDetectionDataset(Dataset):
             shuffle (bool): Whether to randomly shuffle the dataset internally. Defaults to True.
 
         Raises:
-            ValueError: If the original instances are asked without the instance masks, the keypoints without a
-                positive maximum_keypoints, or the ignored regions without the keypoints.
+            ValueError: If the original instances or the instance index maps are asked without the instance masks, the
+                instance index maps with the original instances, the keypoints without a positive maximum_keypoints, or
+                the ignored regions without the keypoints.
         """
         if load_original_instances and not load_instance_masks:
             raise ValueError("The objects at the original resolution (load_original_instances) are those of the "
                              "instance segmentation, which needs load_instance_masks.")
+        if load_instance_index_maps and not load_instance_masks:
+            raise ValueError("The instance index maps (load_instance_index_maps) hold the masks of the instance "
+                             "segmentation, which needs load_instance_masks.")
+        if load_instance_index_maps and load_original_instances:
+            raise ValueError("The test samples of the evaluation at the original resolution (load_original_instances) "
+                             "carry one mask per object, without instance index maps (load_instance_index_maps).")
         if load_keypoints and maximum_keypoints <= 0:
             raise ValueError(f"The keypoints (load_keypoints) need a positive maximum_keypoints, got "
                              f"{maximum_keypoints}.")
@@ -181,6 +197,7 @@ class CocoDetectionDataset(Dataset):
         self.label_mode = label_mode
         self.label_dictionary = label_dictionary
         self.load_instance_masks = load_instance_masks
+        self.load_instance_index_maps = load_instance_index_maps
         self.load_original_instances = load_original_instances
         self.load_keypoints = load_keypoints
         self.maximum_keypoints = maximum_keypoints
@@ -243,7 +260,8 @@ class CocoDetectionDataset(Dataset):
         Returns:
             dict: A dictionary containing the preprocessed image tensor, bounding boxes tensor, labels tensor, the
                 COCO identifier of the image ('sample_identifiers'), with load_instance_masks the [N, S, S] uint8
-                instance masks ('instance_masks'), with load_original_instances the [N, H, W] uint8 masks
+                instance masks ('instance_masks'), or with load_instance_index_maps the [S, S] uint8 instance index
+                map ('instance_index_maps'), with load_original_instances the [N, H, W] uint8 masks
                 ('original_instance_masks') and [N, 4] boxes ('original_bounding_boxes') at the original resolution,
                 with load_keypoints the [N, K, 3] float32 keypoints ('keypoints'), and with load_ignored_regions the
                 [S, S] uint8 pixels of the objects left out for having no labelled keypoint ('ignored_regions').
@@ -290,6 +308,9 @@ class CocoDetectionDataset(Dataset):
                   "labels": torch.tensor(data=labels, dtype=torch.int64), "sample_identifiers": image_identifier}
         if self.load_original_instances:
             sample = self.add_original_instances(sample=sample, annotations=kept_annotations,
+                                                 image_height=image.shape[0], image_width=image.shape[1])
+        elif self.load_instance_index_maps:
+            sample = self.add_instance_index_map(sample=sample, annotations=kept_annotations,
                                                  image_height=image.shape[0], image_width=image.shape[1])
         elif self.load_instance_masks:
             sample = self.add_instance_masks(sample=sample, annotations=kept_annotations, image_height=image.shape[0],
@@ -401,6 +422,44 @@ class CocoDetectionDataset(Dataset):
 
         # Box of every object from its mask at the network resolution
         sample["bounding_boxes"] = compute_mask_bounding_boxes(instance_masks=sample["instance_masks"])
+        return sample
+
+    def add_instance_index_map(self, sample: Dict[str, Any], annotations: List[Dict[str, Any]], image_height: int,
+                               image_width: int) -> Dict[str, Any]:
+        """
+        Adds the instance index map of a sample at the network resolution ('Data.instance_index_maps'), the single
+        uint8 channel numbering the objects that replaces their stacked masks for the datasets whose run length
+        encodings never overlap: the same objects, labels and boxes as add_instance_masks, the objects whose mask
+        vanishes once resized being removed with their box and label and the others renumbered from 1 in their
+        order, every box being the tight box of its object in the map. The trainer expands the map into the masks of
+        add_instance_masks on the GPU (expand_instance_index_maps), so that only the [S, S] map goes through the
+        loader worker, the shared and pinned memory and the copy to the device.
+
+        Args:
+            sample (Dict[str, Any]): The sample built by __getitem__, whose boxes and labels follow the annotations.
+            annotations (List[Dict[str, Any]]): The annotations of the kept objects, in the order of the boxes.
+            image_height (int): The height of the original image.
+            image_width (int): The width of the original image.
+
+        Returns:
+            Dict[str, Any]: The sample with its 'instance_index_maps' [S, S] uint8, the boxes of its objects in the map
+                and the objects of empty mask removed.
+        """
+        index_map = build_instance_index_map(segmentations=[annotation['segmentation'] for annotation in annotations],
+                                             image_width=image_width, image_height=image_height,
+                                             image_size=self.image_size, keep_ratio=self.keep_ratio)
+        is_present, boxes = find_index_map_objects(index_map=index_map, number_objects=len(annotations))
+
+        # Renumber the objects left after the resize from 1 in their order, the vanished ones having no pixel left
+        if not is_present.all():
+            renumbering = np.zeros(shape=(MAXIMUM_INDEX_MAP_OBJECTS + 1,), dtype=np.uint8)
+            renumbering[1:len(annotations) + 1][is_present] = np.arange(start=1, stop=int(is_present.sum()) + 1)
+            index_map = renumbering[index_map]
+
+        # Map, labels and boxes of the objects left, the boxes those of their pixels in the map
+        sample["instance_index_maps"] = torch.from_numpy(index_map)
+        sample["labels"] = sample["labels"][torch.from_numpy(is_present)]
+        sample["bounding_boxes"] = torch.from_numpy(boxes)
         return sample
 
     def add_original_instances(self, sample: Dict[str, Any], annotations: List[Dict[str, Any]], image_height: int,

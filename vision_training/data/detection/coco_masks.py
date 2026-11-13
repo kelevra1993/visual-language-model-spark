@@ -6,17 +6,24 @@ original resolution then resized and padded like their image. The masks feed the
 segmenter and the mask evaluation, which can also read the masks at the original image resolution
 (evaluation.original_resolution). The boxes of the instance segmentation come from the masks too: from the
 segmentation field without decoding it (selection of the objects, anchor recall) and from the masks at the network
-resolution (loader, geometric augmentations). The encoding functions write the visible parts of the synthetic instance
+resolution (loader, geometric augmentations). With 'Data.instance_index_maps', the run length encodings of an image
+whose masks never overlap are painted into one uint8 instance index map instead (build_instance_index_map), whose
+objects and boxes the loader reads with find_index_map_objects and which the trainer expands back into the masks on the
+GPU (expand_instance_index_maps). The encoding functions write the visible parts of the synthetic instance
 segmentation objects, compressed so that the labels of the large hard datasets fit in memory.
 """
 
 import cv2
 import numpy as np
+import scipy.ndimage
 import torch
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from vision_training.data.preprocessing import preprocess_boxes, preprocess_image
+
+# Most objects an instance index map holds, its uint8 pixels numbering the objects from 1 with 0 for the background
+MAXIMUM_INDEX_MAP_OBJECTS = 255
 
 
 def fill_polygon_part(mask: np.ndarray, vertices: np.ndarray) -> None:
@@ -362,3 +369,124 @@ def build_instance_mask(segmentation: Union[List[List[float]], Dict[str, Any]], 
     # from it, by half a pixel when the image shrinks
     return preprocess_image(image=original_mask, image_size=image_size, keep_ratio=keep_ratio,
                             interpolation=cv2.INTER_NEAREST_EXACT, padding_value=0)
+
+
+def build_instance_index_map(segmentations: List[Dict[str, Any]], image_width: int, image_height: int,
+                             image_size: int, keep_ratio: bool) -> np.ndarray:
+    """
+    Builds the instance index map of one image at the network resolution, the single uint8 channel that replaces its
+    stacked binary masks when 'Data.instance_index_maps' is on: every pixel holds the number of its object (its position
+    in the segmentations plus one) and 0 on the background. The run length encodings are painted at the original
+    resolution through one difference array (the number of an object added where each of its object runs starts and
+    removed where it ends, then one cumulative sum), and the map is resized once like the per-object masks of
+    build_instance_mask (pixel centres, padding 0), so that every object number gives exactly the mask that
+    build_instance_mask gives. The loader worker then resizes one map instead of N masks, and one [S, S] map instead of
+    [N, S, S] masks goes through the shared memory, the pinned memory and the copy to the GPU, where
+    expand_instance_index_maps turns it back into the masks.
+
+    Args:
+        segmentations (List[Dict[str, Any]]): The run length encodings of the objects, 'size' [height, width] and
+            'counts' (a list of run lengths or a compressed string), in the order of their object numbers.
+        image_width (int): The width of the original image.
+        image_height (int): The height of the original image.
+        image_size (int): The size of the square network input.
+        keep_ratio (bool): Whether the image is letterboxed (aspect ratio kept) or stretched.
+
+    Returns:
+        np.ndarray: The [image_size, image_size] uint8 map, 0 on the background and the padding, k on the pixels of
+            the k-th object.
+
+    Raises:
+        ValueError: If the image has more than MAXIMUM_INDEX_MAP_OBJECTS objects, if a segmentation is not a run length
+            encoding or does not cover its image exactly, or if two masks share a pixel, which one map cannot hold.
+    """
+    if len(segmentations) > MAXIMUM_INDEX_MAP_OBJECTS:
+        raise ValueError(f"The image has {len(segmentations)} objects, more than the {MAXIMUM_INDEX_MAP_OBJECTS} that "
+                         f"a uint8 instance index map holds: turn 'Data.instance_index_maps' off.")
+    number_pixels = image_height * image_width
+
+    # Difference array of the object numbers, one element longer for the runs ending on the last pixel
+    differences = np.zeros(shape=(number_pixels + 1,), dtype=np.int32)
+    object_pixels = 0
+    for object_number, segmentation in enumerate(segmentations, start=1):
+        # Only the run length encodings of the image size can be painted at its original resolution
+        if not isinstance(segmentation, dict):
+            raise ValueError("The instance index maps ('Data.instance_index_maps') are painted from run length "
+                             "encodings, and an object of the image is a polygon: turn the setting off for this "
+                             "dataset.")
+        if [int(side) for side in segmentation["size"]] != [image_height, image_width]:
+            raise ValueError(f"The run length encoding has the size {segmentation['size']} instead of the "
+                             f"[{image_height}, {image_width}] of its image.")
+        counts = segmentation["counts"]
+        if isinstance(counts, str):
+            counts = decode_compressed_counts(compressed_counts=counts)
+        counts = np.asarray(a=counts, dtype=np.int64)
+        run_ends = np.cumsum(a=counts)
+        if counts.size == 0 or int(run_ends[-1]) != number_pixels:
+            raise ValueError(f"The run length encoding covers {int(counts.sum())} pixels instead of {image_height} x "
+                             f"{image_width}.")
+
+        # The object runs (odd positions) start where the background run before them ends, in the column by column
+        # order of the pixels
+        object_ends = run_ends[1::2]
+        object_starts = run_ends[0::2][:object_ends.size]
+        np.add.at(differences, object_starts, object_number)
+        np.subtract.at(differences, object_ends, object_number)
+        object_pixels += int((object_ends - object_starts).sum())
+
+    # Every pixel gets the sum of the numbers of the objects covering it: with disjoint masks, as many covered pixels
+    # as object pixels, fewer as soon as two masks share a pixel
+    flat_map = np.cumsum(a=differences[:-1])
+    if np.count_nonzero(flat_map) != object_pixels:
+        raise ValueError("Two masks of the image share pixels, which one instance index map cannot hold: turn "
+                         "'Data.instance_index_maps' off for this dataset.")
+
+    # Column by column pixels turned into the map by the OpenCV transpose, then resized and padded like the image
+    original_map = cv2.transpose(src=flat_map.astype(np.uint8).reshape(image_width, image_height))
+    return preprocess_image(image=original_map, image_size=image_size, keep_ratio=keep_ratio,
+                            interpolation=cv2.INTER_NEAREST_EXACT, padding_value=0)
+
+
+def find_index_map_objects(index_map: np.ndarray, number_objects: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Finds the objects of an instance index map still covering a pixel once resized and their tight boxes, the boxes
+    the instance segmentation learns, as compute_mask_bounding_boxes gives them from the binary masks:
+    CocoDetectionDataset removes the vanished objects with their box and label, like the per-object masks.
+
+    Args:
+        index_map (np.ndarray): The [S, S] uint8 map of build_instance_index_map.
+        number_objects (int): The number of objects painted into the map, numbered from 1.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: The [number_objects] flags of the objects covering a pixel, and the [P, 4]
+            float32 [x1, y1, x2, y2] boxes of those P objects in their order, x2 and y2 one past the last pixel of the
+            object.
+    """
+    # Row and column slices of every object number, None for a number without any pixel
+    object_slices = scipy.ndimage.find_objects(input=index_map, max_label=number_objects)
+    is_present = np.array(object=[object_slice is not None for object_slice in object_slices], dtype=bool)
+    boxes = np.array(object=[[object_slice[1].start, object_slice[0].start, object_slice[1].stop, object_slice[0].stop]
+                             for object_slice in object_slices if object_slice is not None],
+                     dtype=np.float32).reshape(-1, 4)
+    return is_present, boxes
+
+
+def expand_instance_index_maps(index_maps: torch.Tensor, object_counts: List[int]) -> List[torch.Tensor]:
+    """
+    Expands the instance index maps of a batch into the binary masks of its objects, on the device of the maps: the
+    instance segmentation trainer moves the [B, S, S] maps to the GPU and expands them there, so that the augmentations,
+    the mask targets, the evaluation and the images receive the [N_i, S, S] masks the loader gives without the maps.
+
+    Args:
+        index_maps (torch.Tensor): The [B, S, S] uint8 maps, k on the pixels of the k-th object of every image.
+        object_counts (List[int]): The number of objects of every image, the length of its labels.
+
+    Returns:
+        List[torch.Tensor]: One [N_i, S, S] uint8 tensor of binary masks per image, in the order of its labels.
+    """
+    instance_masks = []
+    for index_map, object_count in zip(index_maps, object_counts, strict=True):
+        # One mask per object number, the comparison broadcast over the numbers of the image
+        object_numbers = torch.arange(start=1, end=object_count + 1, device=index_map.device, dtype=torch.int64)
+        instance_masks.append((index_map[None] == object_numbers[:, None, None]).to(dtype=torch.uint8))
+    return instance_masks

@@ -65,6 +65,10 @@ class DetectionTrainer(CocoSplitTrainer):
     # segmentation subclass from 'evaluation.original_resolution' to score its boxes and masks at that resolution
     original_resolution = False
 
+    # Whether the loaders give the masks as one instance index map per image, set by the instance segmentation
+    # subclass from 'Data.instance_index_maps'
+    instance_index_maps = False
+
     # Overlap matching the detections to the objects for the class thresholds, the confusion matrix and the error
     # images, the one of the headline metric: the boxes, or the masks for the instance segmentation subclass
     MATCHING_OVERLAP_TYPE = "boxes"
@@ -100,7 +104,8 @@ class DetectionTrainer(CocoSplitTrainer):
         Builds the COCO detection loaders of the three splits, names the classes after the categories of the test
         split for the per-class report, with a colour per class for the sample images, and keeps the file name of
         every test image, which names the sample images. The test loader also gives the objects at the original
-        resolution of the images when the evaluation is made at that resolution (instance segmentation only).
+        resolution of the images when the evaluation is made at that resolution, and the loaders give one instance
+        index map per image instead of its masks with 'Data.instance_index_maps' (instance segmentation only).
 
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
@@ -110,6 +115,7 @@ class DetectionTrainer(CocoSplitTrainer):
         return get_detection_dataloaders(experiment_configuration=self.experiment_configuration,
                                          model_configuration=self.model_configuration, batch_size=self.batch_size,
                                          load_instance_masks=self.LOAD_INSTANCE_MASKS,
+                                         load_instance_index_maps=self.instance_index_maps,
                                          load_original_instances=self.original_resolution)
 
     def analyse_training_data(self) -> Dict[str, Path]:

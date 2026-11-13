@@ -15,6 +15,9 @@ Batch dictionary, produced by the loaders and moved to the device by the 'prepar
   its boxes, keypoint detection only.
 - "instance_masks": one [N_i, H, W] uint8 tensor of binary masks per image, in the order of its boxes, instance
   segmentation only.
+- "instance_index_maps": [B, H, W] uint8 instance index maps given by the loaders instead of "instance_masks" with
+  'Data.instance_index_maps', k on the pixels of the k-th object of the image (in the order of its boxes) and 0
+  elsewhere; the 'prepare_batch' hook of the instance segmentation expands them into "instance_masks" on the device.
 - "original_instance_masks" and "original_bounding_boxes": one [N_i, H0, W0] uint8 tensor of binary masks and one
   [N_i, 4] tensor of boxes per image at its original resolution, in the order of its boxes, test split of the instance
   segmentation evaluated at the original resolution only.

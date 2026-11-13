@@ -179,6 +179,7 @@ The detector of DET with one mask head per detection level, as in Mask R-CNN ([H
 ```
 
 - The masks are built at the network resolution. The box of every object is the tight box of its mask, so no `bbox` is needed.
+- With `Data.instance_index_maps: True`, the loader sends one uint8 map per image numbering its objects, expanded into the masks on the GPU: about a ninth of the bytes on the hard synthetic dataset and a faster loader. It needs run length encodings whose masks never overlap, as the synthetic datasets write them; keep it `False` for COCO (polygons, overlapping masks).
 - An object without `segmentation` stops the loading. An object whose mask vanishes at the network resolution is removed, except from the test objects with `evaluation.original_resolution`.
 - After augmentation, an object keeping less than 25 % of its mask pixels inside the image is removed.
 
@@ -186,6 +187,7 @@ The detector of DET with one mask head per detection level, as in Mask R-CNN ([H
 - a `mask_head` in every level, e.g. `mask_head: { roi_align_pool_size: 14, convolutions: [4, 64] }`;
 - `MaskHead`: mask resolution, upsampling, normalization, modules, and `inference.mask_threshold`, the probability from which a pixel belongs to its object;
 - the weight of the `mask_loss` in `Optimization.loss_weights`, raised when the masks lag behind the boxes;
+- `Data.instance_index_maps`;
 - `evaluation.original_resolution`.
 
 **Evaluation**

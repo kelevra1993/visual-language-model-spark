@@ -2,20 +2,23 @@
 Smoke test of InstanceSegmentationTrainer of vision_training/trainers/instance_segmentation_trainer.py on a synthetic
 instance segmentation dataset: training with the geometric augmentations moving the masks saves checkpoints,
 evaluates the box and mask average precisions with its sample images, and resumes. The weights of the losses in the
-total loss (Optimization.loss_weights) are checked on a training batch, and the detections and objects of a test image
-at the original resolution of the image (evaluation.original_resolution).
+total loss (Optimization.loss_weights) are checked on a training batch, the detections and objects of a test image
+at the original resolution of the image (evaluation.original_resolution), and the instance index maps of the loaders
+(Data.instance_index_maps) expanded into the masks by prepare_batch, by augment_batch and by the input viewer.
 """
 
 import csv
+import numpy as np
 import pytest
 import torch
 import yaml
 
 from pathlib import Path
-from typing import Any, Dict, Tuple
-from unittest.mock import patch
+from typing import Any, Dict, List, Optional, Tuple
+from unittest.mock import MagicMock, patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.data.detection.coco_masks import expand_instance_index_maps
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
@@ -167,10 +170,10 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert "Proposal Recall@0.5/all" in results["scalars"] and "Proposal Recall" in results["files"]
 
     # Box and mask average precisions and recalls of every class, the ground truth objects summing to those of the test
-    # images
+    # images, counted by their labels since the test samples of the synthetic configuration carry instance index maps
     test_dataset = trainer.test_dataloader.dataset
-    number_objects = sum(test_dataset[sample_index]["instance_masks"].shape[0]
-                         for sample_index in range(len(test_dataset)))
+    assert test_dataset.load_instance_index_maps and "instance_index_maps" in test_dataset[0]
+    number_objects = sum(test_dataset[sample_index]["labels"].shape[0] for sample_index in range(len(test_dataset)))
     with open(file=trainer.experiment_folder / "Evaluation" / "Iteration_5" / "class_metrics.csv", mode="r",
               newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
@@ -352,3 +355,73 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     ground_truth = trainer.gather_image_ground_truth(batch=batch, image_index=0)
     assert torch.equal(input=ground_truth["boxes"], other=batch["bounding_boxes"][0])
     assert ground_truth["mask_areas"].tolist() == [4, 2, 0]
+
+
+
+def pass_batch_through(images: torch.Tensor, bounding_boxes: List[torch.Tensor], labels: List[torch.Tensor],
+                       instance_masks: Optional[List[torch.Tensor]]) -> Tuple[Any, ...]:
+    """
+    Stands for DataAugmenter.augment_batch without augmenting anything, returning its outputs in its order, so that the
+    test reads the instance masks the trainer gives to the augmenter.
+
+    Args:
+        images (torch.Tensor): The images of the batch.
+        bounding_boxes (List[torch.Tensor]): The boxes of every image.
+        labels (List[torch.Tensor]): The labels of every image.
+        instance_masks (Optional[List[torch.Tensor]]): The masks of every image.
+
+    Returns:
+        Tuple[Any, ...]: The images, boxes, labels, no segmentation masks, the instance masks, no keypoints and one
+            empty report per image.
+    """
+    return images, bounding_boxes, labels, None, instance_masks, None, [{} for _ in range(images.shape[0])]
+
+
+def test_instance_index_maps_are_expanded_into_the_masks() -> None:
+    """
+    Verifies that a loader batch carrying instance index maps reaches the instance segmenter with the masks of its
+    objects: prepare_batch expands the maps on the device into one [N_i, S, S] uint8 mask per object in the order of the
+    labels (an image without objects giving [0, S, S]) without keeping the maps; augment_batch expands the maps of the
+    input viewer batch, which comes without prepare_batch, and leaves them out of the augmented batch; the input viewer
+    paints the validation image from its map; and the masks of a loader without maps are moved as they are.
+    """
+    # Two images of 6 pixels: two objects numbered 1 and 2, and an image without objects
+    index_maps = torch.zeros(size=(2, 6, 6), dtype=torch.uint8)
+    index_maps[0, 1:3, 1:3] = 1
+    index_maps[0, 4:6, 0:6] = 2
+    expected_masks = torch.stack(tensors=[index_maps[0] == 1, index_maps[0] == 2]).to(dtype=torch.uint8)
+    batch = {"images": torch.zeros(size=(2, 3, 6, 6), dtype=torch.uint8),
+             "bounding_boxes": [torch.tensor(data=[[1.0, 1.0, 3.0, 3.0], [0.0, 4.0, 6.0, 6.0]]),
+                                torch.zeros(size=(0, 4))],
+             "labels": [torch.tensor(data=[3, 1]), torch.zeros(size=(0,), dtype=torch.int64)],
+             "sample_identifiers": torch.tensor(data=[7, 8]), "instance_index_maps": index_maps}
+
+    # Only the attributes read by the preparation, the augmentation and the input viewer, without building the model
+    trainer = InstanceSegmentationTrainer.__new__(InstanceSegmentationTrainer)
+    trainer.device, trainer.dtype = torch.device("cpu"), torch.float32
+    trainer.data_augmenter = MagicMock()
+    trainer.data_augmenter.augment_batch.side_effect = pass_batch_through
+    trainer.class_colours = np.array(object=[[0, 0, 0], [0, 0, 255], [0, 255, 0], [255, 0, 0]], dtype=np.uint8)
+
+    # The prepared batch holds the masks of every image, without the maps
+    prepared_batch = trainer.prepare_batch(batch=batch)
+    assert "instance_index_maps" not in prepared_batch
+    assert torch.equal(prepared_batch["instance_masks"][0], expected_masks)
+    assert prepared_batch["instance_masks"][1].shape == (0, 6, 6)
+
+    # The input viewer batch, augmented without prepare_batch, gets the same masks and loses its maps
+    augmented_batch = trainer.augment_batch(batch={**batch, "images": batch["images"].float()})
+    assert "instance_index_maps" not in augmented_batch
+    assert torch.equal(augmented_batch["instance_masks"][0], expected_masks)
+
+    # The validation image of the input viewer painted from its map, as from its masks
+    painted_from_map = trainer.get_input_sample_image(batch=batch, sample_index=0)
+    painted_from_masks = trainer.get_input_sample_image(
+        batch={**batch, "instance_masks": expand_instance_index_maps(index_maps=index_maps, object_counts=[2, 0])},
+        sample_index=0)
+    assert torch.equal(painted_from_map, painted_from_masks) and painted_from_map.abs().sum() > 0
+
+    # A loader without maps gives its masks, moved as they are
+    mask_batch = {key: value for key, value in batch.items() if key != "instance_index_maps"}
+    mask_batch["instance_masks"] = [expected_masks, torch.zeros(size=(0, 6, 6), dtype=torch.uint8)]
+    assert torch.equal(trainer.prepare_batch(batch=mask_batch)["instance_masks"][0], expected_masks)

@@ -1534,6 +1534,7 @@ def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, con
     assert model_configuration["Data"]["label_dictionary"]["background"] == 0
     assert model_configuration["MaskHead"]["mask_resolution"] == 28
     assert model_configuration["DetectionLevels"]["5"]["mask_head"]["roi_align_pool_size"] == 14
+    assert model_configuration["Data"]["instance_index_maps"] is False
 
 
 def transfer_mask_heads_and_class_layers(configuration: Dict[str, Any]) -> None:
@@ -1599,9 +1600,31 @@ def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     mask_head_configuration["inference"]["mask_threshold"] = 1.5
 
 
+def set_invalid_instance_index_maps(configuration: Dict[str, Any]) -> None:
+    """
+    Sets the instance index maps of the loaders to a string instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["Data"]["instance_index_maps"] = "yes"
+
+
+def remove_instance_index_maps(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the instance index maps of the loaders, as in the files written before the setting.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    del configuration["Data"]["instance_index_maps"]
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (remove_level_mask_head, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector', "
                               "'mask_head'], got ['anchors', 'detector', 'region_proposal']."]),
+    (set_invalid_instance_index_maps, ["'Data.instance_index_maps' must be True or False, got 'yes'."]),
+    (remove_instance_index_maps, ["Missing configuration key 'Data.instance_index_maps'."]),
     (set_invalid_mask_head, ["'MaskHead.mask_resolution' must be an integer >= 1, got 0.",
                              "'MaskHead.upsampling' must be one of ['transposed', 'bilinear'], got 'nearest'.",
                              "'DetectionLevels.5.mask_head.roi_align_pool_size' must be an integer >= 1, got 0.",
@@ -1616,8 +1639,8 @@ def test_inconsistent_instance_segmentation_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the mask head section stops the loading with a short message naming the
-    faulty key, the mask head of every detection level included.
+    Verifies that every inconsistency of the mask head section and of the instance index maps stops the loading with
+    a short message naming the faulty key, the mask head of every detection level included.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
