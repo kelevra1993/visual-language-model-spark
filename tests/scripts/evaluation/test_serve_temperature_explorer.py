@@ -1,7 +1,8 @@
 """
 Tests of scripts/evaluation/serve_temperature_explorer.py, the local server of the temperature explorers of the
 experiments folders: the index lists the evaluations holding a page, every page is served with the current template
-and names its evaluation, a typed temperature is described from the class logits, the thresholds saved from a page
+and names its evaluation, a typed temperature is described from the class logits, the score ranges are counted from
+them (wrong requests refused), the thresholds saved from a page
 with logits are found by the server for every class whatever was posted, those of a page without logits are checked
 against its class_thresholds.json, the status gives the saved temperature and the export folder, and an export without
 saved thresholds or without its run is refused with the reason, nothing being written by a refused request.
@@ -23,6 +24,7 @@ from tests.evaluation.classification.test_temperature_explorer import (EXPLORER_
                                                                        write_explorer_evaluation)
 from vision_training.evaluation.classification.temperature_explorer import (EXPLORER_DATA_PATTERN,
                                                                             SAVED_THRESHOLDS_FILE_NAME,
+                                                                            compute_score_ranges,
                                                                             compute_temperature_thresholds,
                                                                             describe_explorer_temperature)
 
@@ -127,6 +129,40 @@ def test_typed_temperature_is_described_from_the_logits(served_experiments: Tupl
     assert status == 200
     assert json.loads(s=body) == describe_explorer_temperature(class_logits_record=evaluations["live_logits"],
                                                                shown_class_indices=[1, 0, 2], logit_temperature=2.3)
+
+
+def test_score_ranges_are_counted_from_the_logits(served_experiments: Tuple[Dict[str, Any], str]) -> None:
+    """
+    Verifies that the score ranges asked by the page at the temperature 2.3, with cut points typed in any order, are
+    those the explorer counts for the classes of the page, and that the served page holds the score ranges section.
+    """
+    evaluations, address = served_experiments
+    status, body = request_server(url=f"{address}/api/score_ranges?evaluation={quote(LIVE_EVALUATION)}"
+                                      f"&temperature=2.3&cut_points=0.8,0.4", content=None)
+    assert status == 200
+    assert json.loads(s=body) == compute_score_ranges(class_logits_record=evaluations["live_logits"],
+                                                      shown_class_indices=[1, 0, 2], logit_temperature=2.3,
+                                                      cut_points=[0.4, 0.8])
+    status, page = request_server(url=f"{address}/explorer?evaluation={quote(LIVE_EVALUATION)}", content=None)
+    assert status == 200 and b'id="score-ranges"' in page
+
+
+@pytest.mark.parametrize(argnames=("query", "expected_message"), argvalues=[
+    (f"evaluation={quote(GRID_EVALUATION)}&temperature=2.3&cut_points=0.5", "the score ranges are counted from"),
+    (f"evaluation={quote(LIVE_EVALUATION)}&temperature=0&cut_points=0.5", "Expected a logit temperature"),
+    (f"evaluation={quote(LIVE_EVALUATION)}&temperature=2.3&cut_points=0.5,1", "Expected 1 to 10 distinct scores"),
+    (f"evaluation={quote(LIVE_EVALUATION)}&temperature=2.3&cut_points=0.5,0.5", "Expected 1 to 10 distinct scores"),
+    (f"evaluation={quote(LIVE_EVALUATION)}&temperature=2.3&cut_points=0.5,high", "could not convert"),
+    (f"evaluation={quote(LIVE_EVALUATION)}&temperature=2.3", "cut_points")])
+def test_wrong_score_range_requests_are_refused(served_experiments: Tuple[Dict[str, Any], str], query: str,
+                                                expected_message: str) -> None:
+    """
+    Verifies that score ranges are refused for an evaluation without logits, at a temperature outside the calibration
+    range, and for cut points outside ]0, 1[, repeated, not numbers or missing.
+    """
+    _, address = served_experiments
+    status, body = request_server(url=f"{address}/api/score_ranges?{query}", content=None)
+    assert status == 400 and expected_message in json.loads(s=body)["error"]
 
 
 def test_saved_thresholds_are_found_by_the_server_or_checked(served_experiments: Tuple[Dict[str, Any], str]) -> None:

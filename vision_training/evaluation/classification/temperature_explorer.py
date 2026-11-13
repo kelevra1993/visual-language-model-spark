@@ -6,7 +6,8 @@ log likelihood, calibration error, reliability), written as the self-contained p
 evaluation folder of the checkpoint, next to the logits themselves ('class_logits.npz'). Written by the classification
 trainer with the per-class report, to choose the temperature of the export:
 scripts/evaluation/serve_temperature_explorer.py serves the page again from the logits with the current template,
-shows any temperature, saves the thresholds of the chosen one to 'saved_temperature_thresholds.json' (checked here
+shows any temperature, counts the images of every class in score ranges of the user's choice at the temperature shown
+(compute_score_ranges), saves the thresholds of the chosen one to 'saved_temperature_thresholds.json' (checked here
 against class_thresholds.json), and exports the classifier with that temperature
 (vision_training/deployment/explorer_export.py).
 """
@@ -55,6 +56,10 @@ CLASS_LOGITS_FILE_NAME = "class_logits.npz"
 # Thresholds of the temperature chosen on the page, in the format of class_thresholds.json, written next to the page by
 # scripts/evaluation/serve_temperature_explorer.py and read by the export
 SAVED_THRESHOLDS_FILE_NAME = "saved_temperature_thresholds.json"
+
+# Largest number of cut points of the score ranges table of the served page, which splits the images of every class by
+# the range of [0, 1] their own class score falls in
+MAXIMUM_SCORE_CUT_POINTS = 10
 
 
 def compute_negative_log_likelihood(class_logits: torch.Tensor, labels: torch.Tensor, output_mode: str,
@@ -501,6 +506,68 @@ def compute_temperature_thresholds(class_logits_record: Dict[str, Any], logit_te
     return build_class_thresholds_file(class_names=class_logits_record["class_names"],
                                        target_precisions=class_logits_record["target_precisions"],
                                        target_thresholds=target_thresholds, logit_temperature=logit_temperature)
+
+
+def check_score_cut_points(cut_points: Any) -> List[float]:
+    """
+    Checks the cut points typed on the served page for its score ranges table, the scores splitting [0, 1] into the
+    ranges the images of every class are counted in (0.5 and 0.8 giving below 0.5, from 0.5 to 0.8, and from 0.8):
+    one to MAXIMUM_SCORE_CUT_POINTS distinct finite numbers strictly between 0 and 1, in any order.
+
+    Args:
+        cut_points (Any): The cut points, read from the address of the request.
+
+    Returns:
+        List[float]: The cut points in increasing order.
+
+    Raises:
+        ValueError: If the cut points are not 1 to MAXIMUM_SCORE_CUT_POINTS distinct numbers strictly between 0 and 1.
+    """
+    if (not isinstance(cut_points, list) or not 1 <= len(cut_points) <= MAXIMUM_SCORE_CUT_POINTS or
+            not all(is_json_number(value=cut_point) and 0 < cut_point < 1 for cut_point in cut_points) or
+            len(set(cut_points)) != len(cut_points)):
+        raise ValueError(f"Expected 1 to {MAXIMUM_SCORE_CUT_POINTS} distinct scores strictly between 0 and 1 as cut "
+                         f"points, got {cut_points!r}.")
+    return sorted(float(cut_point) for cut_point in cut_points)
+
+
+def compute_score_ranges(class_logits_record: Dict[str, Any], shown_class_indices: List[int], logit_temperature: float,
+                         cut_points: List[float]) -> Dict[str, Any]:
+    """
+    Counts, at a temperature, the images of every drawn class by the range their score for their own class falls in,
+    for the score ranges table of the served page: with the cut points 0.5 and 0.8, the images of a class scoring below
+    0.5, from 0.5 to below 0.8, and from 0.8, a score equal to a cut point counting in the range above it, as an image
+    is given a class from its threshold. The scores are those of the thresholds and of the export
+    (compute_temperature_probabilities); in multi-label mode, the images of a class are those labelled with it.
+
+    Args:
+        class_logits_record (Dict[str, Any]): The class logits of the evaluation (load_class_logits).
+        shown_class_indices (List[int]): The indices of the classes drawn by the page, in their order on the page.
+        logit_temperature (float): The temperature dividing the logits.
+        cut_points (List[float]): The cut points in increasing order (check_score_cut_points).
+
+    Returns:
+        Dict[str, Any]: The 'temperature', the 'cut_points' and the 'counts' of every drawn class, in the order of the
+            page, one count per range (len(cut_points) + 1), adding up to the images of the class.
+    """
+    class_logits = class_logits_record["class_logits"]
+    probabilities = compute_temperature_probabilities(class_logits=class_logits,
+                                                      output_mode=class_logits_record["output_mode"],
+                                                      logit_temperature=logit_temperature)
+    positive_masks = build_positive_masks(labels=class_logits_record["labels"],
+                                          output_mode=class_logits_record["output_mode"],
+                                          number_classes=class_logits.shape[1])
+
+    # Range of every score: the number of cut points at or below it, so that a score equal to a cut point is counted
+    # in the range above it
+    boundaries = torch.tensor(data=cut_points, dtype=torch.float64)
+    range_indices = torch.bucketize(input=probabilities, boundaries=boundaries, right=True)
+
+    # Images of every drawn class, counted by the range of their own class score
+    counts = [torch.bincount(input=range_indices[positive_masks[:, class_index], class_index],
+                             minlength=len(cut_points) + 1).tolist()
+              for class_index in shown_class_indices]
+    return {"temperature": logit_temperature, "cut_points": cut_points, "counts": counts}
 
 
 def read_explorer_page_data(explorer_path: Path) -> Dict[str, Any]:

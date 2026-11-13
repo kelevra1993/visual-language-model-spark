@@ -4,11 +4,13 @@ Template of temperature_explorer.html, filled by vision_training/evaluation/clas
 the probabilities of the class logits of a classification evaluation divided by every temperature of its slider. The
 page is self-contained (no library), so that it opens from the evaluation folder of the checkpoint, its save button
 downloading the thresholds of the temperature shown. Served by scripts/evaluation/serve_temperature_explorer.py (its
-data then naming the evaluation), it shows any typed temperature, saves the thresholds next to the evaluation and
-exports the checkpoint at the saved temperature. Its rates (shares, recalls, calibration error) are written as the
-percentages of the reports by formatPercent, formatPercentLabel and formatPoints, the twins of format_percentage,
-format_percentage_label and format_points of vision_training/evaluation/report_formatting.py; the probabilities,
-confidences, thresholds and temperatures stay between 0 and 1.
+data then naming the evaluation), it shows any typed temperature, counts the images of every class in the score
+ranges of a list of cut points at the temperature shown (with the class logits of the evaluation), saves the
+thresholds next to the evaluation and exports the checkpoint at the saved temperature. Its rates (shares, recalls,
+calibration error, score range shares) are written as the percentages of the reports by formatPercent,
+formatPercentLabel and formatPoints, the twins of format_percentage, format_percentage_label and format_points of
+vision_training/evaluation/report_formatting.py; the probabilities, confidences, thresholds, cut points and
+temperatures stay between 0 and 1.
 -->
 <html lang="en">
 <head>
@@ -66,14 +68,17 @@ confidences, thresholds and temperatures stay between 0 and 1.
   button:disabled { cursor: not-allowed; opacity: 0.5; }
   .save-status { flex: 1 1 100%; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
   .save-status:empty { display: none; }
-  input[type="number"], select { font: inherit; font-size: 13px; color: var(--text-primary); background: var(--surface);
-                                 border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; width: 84px; }
+  input[type="number"], input[type="text"], select { font: inherit; font-size: 13px; color: var(--text-primary);
+                                                     background: var(--surface); border: 1px solid var(--border);
+                                                     border-radius: 6px; padding: 3px 6px; width: 84px; }
   select { width: auto; }
+  #score-cut-points { width: 240px; max-width: 100%; }
+  #score-ranges .button-row { margin: 8px 0; }
   [hidden] { display: none !important; }
   .export-form { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 8px 0; }
   .export-form label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
-  .deployment-line { margin: 6px 0; overflow-wrap: anywhere; }
-  .deployment-line:empty { display: none; }
+  .deployment-line, .range-status { margin: 6px 0; overflow-wrap: anywhere; }
+  .deployment-line:empty, .range-status:empty { display: none; }
   .export-log { background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 8px;
                 font-size: 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
   #exports-table td:first-child { white-space: normal; overflow-wrap: anywhere; }
@@ -186,6 +191,19 @@ confidences, thresholds and temperatures stay between 0 and 1.
 
   <h2 id="table-title"></h2>
   <div class="table-wrapper"><table id="threshold-table"></table></div>
+
+  <section id="score-ranges" hidden>
+    <h2 id="score-ranges-title">Score Ranges</h2>
+    <p>Share of the images of every class whose score for their own class falls in each range, at the temperature
+       shown, counted again when the temperature changes. Type the cut points as a list: 0.5, 0.8 gives below 0.5, from
+       0.5 to below 0.8, and from 0.8, a score equal to a cut point counting in the range above it.</p>
+    <div class="button-row">
+      <input type="text" id="score-cut-points" placeholder="0.5, 0.8" aria-label="Cut points of the score ranges">
+      <button type="button" id="show-score-ranges">Show Ranges</button>
+    </div>
+    <p class="range-status" id="score-ranges-status" role="status"></p>
+    <div class="table-wrapper" id="score-ranges-wrapper" hidden><table id="score-ranges-table"></table></div>
+  </section>
 </main>
 <div class="tooltip" id="tooltip"></div>
 
@@ -202,6 +220,11 @@ confidences, thresholds and temperatures stay between 0 and 1.
   // Delay between two reads of the status of a running export, in milliseconds
   const EXPORT_POLL_MILLISECONDS = 2000;
   const deployment = {status: null, pollTimer: null};
+  // Cut points of the score ranges table, the number of its latest request (the answer of an older one, for a
+  // temperature or cut points no longer shown, is dropped) and the timer waiting for the slider to stop
+  const scoreRanges = {cutPoints: null, requestNumber: 0, timer: null};
+  // Delay before counting the score ranges of the temperature shown, so that moving the slider sends one request
+  const SCORE_RANGES_DELAY_MILLISECONDS = 250;
 
   // Index of the state of a temperature, the closest one of the slider
   function findStateIndex(temperature) {
@@ -601,6 +624,105 @@ confidences, thresholds and temperatures stay between 0 and 1.
     document.getElementById("exports-wrapper").hidden = status.exports.length === 0;
   }
 
+  // Cut points typed as scores separated by commas or spaces, null when one of them is not a finite number (the serve
+  // script checks that they lie between 0 and 1 and sorts them)
+  function parseCutPoints(text) {
+    const parts = text.split(/[\s,;]+/).filter(part => part.length > 0);
+    const cutPoints = parts.map(Number);
+    return parts.length === 0 || cutPoints.some(cutPoint => !Number.isFinite(cutPoint)) ? null : cutPoints;
+  }
+
+  // Key of the cut points of the evaluation in the storage of the browser, so that a reload of its page keeps them
+  function cutPointsStorageKey() { return `temperature-explorer-cut-points:${DATA.evaluation}`; }
+
+  // Cut points kept by the browser for the evaluation, an empty text when there are none or the storage is blocked
+  function readStoredCutPoints() {
+    try {
+      return localStorage.getItem(cutPointsStorageKey()) || "";
+    } catch (error) {
+      console.warn(`Cut points not read from the browser storage: ${error.message}`);
+      return "";
+    }
+  }
+
+  // Keeps the cut points the serve script accepted, for the next visit of the evaluation
+  function storeCutPoints(cutPoints) {
+    try {
+      localStorage.setItem(cutPointsStorageKey(), cutPoints.join(", "));
+    } catch (error) {
+      console.warn(`Cut points not kept in the browser storage: ${error.message}`);
+    }
+  }
+
+  // Reads the typed cut points and counts the score ranges of the temperature shown with them
+  function applyCutPoints() {
+    const cutPoints = parseCutPoints(document.getElementById("score-cut-points").value);
+    if (cutPoints === null) {
+      document.getElementById("score-ranges-status").textContent =
+        "Not counted: type the cut points as numbers separated by commas, such as 0.5, 0.8.";
+      return;
+    }
+    scoreRanges.cutPoints = cutPoints;
+    requestScoreRanges();
+  }
+
+  // Counts the score ranges of the temperature shown once the slider stops, when cut points were given
+  function scheduleScoreRanges() {
+    if (scoreRanges.cutPoints === null) return;
+    clearTimeout(scoreRanges.timer);
+    scoreRanges.timer = setTimeout(requestScoreRanges, SCORE_RANGES_DELAY_MILLISECONDS);
+  }
+
+  // Asks the serve script for the number of images of every class in every score range at the temperature shown,
+  // counted from the logits of the evaluation; the answer of a request overtaken by a newer one is dropped
+  async function requestScoreRanges() {
+    clearTimeout(scoreRanges.timer);
+    const temperature = DATA.states[view.stateIndex].temperature;
+    const requestNumber = ++scoreRanges.requestNumber;
+    const status = document.getElementById("score-ranges-status");
+    status.textContent = `Counting at T = ${formatTemperature(temperature)}…`;
+    try {
+      const answer = await fetchJson(`/api/score_ranges?${evaluationQuery()}&temperature=${temperature}` +
+                                     `&cut_points=${encodeURIComponent(scoreRanges.cutPoints.join(","))}`);
+      if (requestNumber !== scoreRanges.requestNumber) return;
+      status.textContent = "";
+      renderScoreRanges(answer);
+      storeCutPoints(answer.cut_points);
+    } catch (error) {
+      if (requestNumber !== scoreRanges.requestNumber) return;
+      // A refused list hides the table of the previous one, whose columns no longer match the typed cut points
+      status.textContent = `Not counted: ${error.message}`;
+      document.getElementById("score-ranges-title").textContent = "Score Ranges";
+      document.getElementById("score-ranges-wrapper").hidden = true;
+    }
+  }
+
+  // Table of the score ranges: per drawn class, the share of its images in every range with their number below it,
+  // the cut points sorted by the serve script
+  function renderScoreRanges(answer) {
+    const cutPoints = answer.cut_points.map(String);
+    const rangeHeaders = [`&lt; ${cutPoints[0]}`];
+    for (let cutIndex = 1; cutIndex < cutPoints.length; cutIndex++) {
+      rangeHeaders.push(`${cutPoints[cutIndex - 1]} – ${cutPoints[cutIndex]}`);
+    }
+    rangeHeaders.push(`≥ ${cutPoints[cutPoints.length - 1]}`);
+    const headers = ["Class", "Images", ...rangeHeaders];
+    const rows = [`<tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr>`];
+    DATA.class_names.forEach((className, shownIndex) => {
+      const counts = answer.counts[shownIndex];
+      const total = counts.reduce((sum, count) => sum + count, 0);
+      const cells = [escapeHtml(className), String(total)];
+      // A class without images in the evaluation has no shares
+      counts.forEach(count => cells.push(total === 0 ? "—"
+        : `${formatPercent(count / total)} <span class="delta">${count} images</span>`));
+      rows.push(`<tr>${cells.map(cell => `<td>${cell}</td>`).join("")}</tr>`);
+    });
+    document.getElementById("score-ranges-title").textContent =
+      `Score Ranges At T = ${formatTemperature(answer.temperature)}`;
+    document.getElementById("score-ranges-table").innerHTML = rows.join("");
+    document.getElementById("score-ranges-wrapper").hidden = false;
+  }
+
   // Starts the export of the checkpoint at the saved temperature with the settings of the form
   async function startExport() {
     const precision = document.getElementById("tensorrt-precision").value;
@@ -689,6 +811,7 @@ confidences, thresholds and temperatures stay between 0 and 1.
     });
     renderTable(state);
     renderDeployment();
+    scheduleScoreRanges();
   }
 
   // Header, slider, shortcut buttons, scale toggle and save button, then the first drawing at the temperature 1
@@ -730,7 +853,8 @@ confidences, thresholds and temperatures stay between 0 and 1.
         `${DATA.number_classes} classes are shown: the thresholds of every class cannot be saved from this page.`;
     }
 
-    // Served page: the link to the index, the typed temperatures (with the logits of the evaluation) and the export
+    // Served page: the link to the index, the typed temperatures and the score ranges (with the logits of the
+    // evaluation) and the export
     if (SERVED) {
       document.getElementById("index-link").hidden = false;
       document.getElementById("deployment").hidden = false;
@@ -739,6 +863,14 @@ confidences, thresholds and temperatures stay between 0 and 1.
         document.getElementById("temperature-entry").hidden = false;
         document.getElementById("show-temperature").addEventListener("click", showTemperature);
         temperatureInput.addEventListener("keydown", event => { if (event.key === "Enter") showTemperature(); });
+
+        // Score ranges, counted at the first drawing with the cut points kept from the last visit, if any
+        const cutPointsInput = document.getElementById("score-cut-points");
+        document.getElementById("score-ranges").hidden = false;
+        document.getElementById("show-score-ranges").addEventListener("click", applyCutPoints);
+        cutPointsInput.addEventListener("keydown", event => { if (event.key === "Enter") applyCutPoints(); });
+        cutPointsInput.value = readStoredCutPoints();
+        scoreRanges.cutPoints = parseCutPoints(cutPointsInput.value);
       }
       buildExportForm();
       refreshStatus();

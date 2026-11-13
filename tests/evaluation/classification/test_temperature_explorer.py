@@ -3,9 +3,11 @@ Tests of vision_training/evaluation/classification/temperature_explorer.py: the 
 temperature that made calibrated logits overconfident, the calibration error is 0 for probabilities matching their
 frequencies, the thresholds saved from the page are written next to it, those of other classes than its
 class_thresholds.json being refused, and the class logits written next to the page give it back with any other
-temperature and the thresholds of every class at it; read_explorer_data reads the data of a written page, and
-write_explorer_evaluation writes the evaluation folder of the serve script tests. The percentages written by the
-script of the page are those of the report helpers (run with Node.js when it is installed).
+temperature and the thresholds of every class at it; the score ranges of the served page count the images of every
+class by their own class score, a score equal to a cut point counting in the range above, and wrong cut points are
+refused; read_explorer_data reads the data of a written page, and write_explorer_evaluation writes the evaluation
+folder of the serve script tests. The percentages written by the script of the page are those of the report helpers
+(run with Node.js when it is installed).
 """
 
 import json
@@ -19,11 +21,14 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME, TEMPLATE_PATH,
+from vision_training.evaluation.classification.temperature_explorer import (MAXIMUM_SCORE_CUT_POINTS,
+                                                                           SAVED_THRESHOLDS_FILE_NAME, TEMPLATE_PATH,
                                                                            build_explorer_data_from_logits,
                                                                            check_logit_temperature,
                                                                            check_saved_thresholds,
-                                                                           compute_calibration,
+                                                                           check_score_cut_points,
+                                                                           compute_calibration, compute_score_ranges,
+                                                                           compute_temperature_probabilities,
                                                                            compute_temperature_thresholds,
                                                                            describe_explorer_temperature,
                                                                            find_calibrated_temperature,
@@ -284,6 +289,65 @@ def test_temperatures_outside_the_calibration_range_are_refused(logit_temperatur
     with pytest.raises(expected_exception=ValueError, match="Expected a logit temperature from 0.05 to 100"):
         check_logit_temperature(logit_temperature=logit_temperature)
     assert check_logit_temperature(logit_temperature=2.3) == 2.3
+
+
+def test_score_ranges_count_every_class_by_its_own_score(tmp_path: Path) -> None:
+    """
+    Verifies that the score ranges of the served page count the images of every drawn class, in the order of the page,
+    by the range their score for their own class falls in at the temperature asked, the counts of a class adding up to
+    its images on the page.
+    """
+    class_logits_record = write_explorer_evaluation(evaluation_folder=tmp_path, seed=3, with_logits=True)
+    page_data = read_explorer_page_data(explorer_path=tmp_path / "temperature_explorer.html")
+    score_ranges = compute_score_ranges(class_logits_record=class_logits_record,
+                                        shown_class_indices=page_data["class_indices"], logit_temperature=2.3,
+                                        cut_points=[0.4, 0.8])
+    assert (score_ranges["temperature"], score_ranges["cut_points"]) == (2.3, [0.4, 0.8])
+
+    # Own class scores of the images of every drawn class, counted range by range
+    probabilities = compute_temperature_probabilities(class_logits=class_logits_record["class_logits"],
+                                                      output_mode="multi_class", logit_temperature=2.3)
+    expected_counts = []
+    for class_index in page_data["class_indices"]:
+        own_scores = probabilities[class_logits_record["labels"] == class_index, class_index]
+        expected_counts.append([int((own_scores < 0.4).sum()), int(((own_scores >= 0.4) & (own_scores < 0.8)).sum()),
+                                int((own_scores >= 0.8).sum())])
+    assert score_ranges["counts"] == expected_counts
+    assert [sum(counts) for counts in score_ranges["counts"]] == page_data["positives"]
+
+    # Every range holds images of every class, so that a count given to the wrong range is caught
+    assert all(count > 0 for counts in expected_counts for count in counts)
+
+
+def test_score_equal_to_a_cut_point_counts_in_the_range_above() -> None:
+    """
+    Verifies that an image scoring exactly a cut point is counted in the range above it, as an image scoring the
+    threshold of its class is given the class: two equal logits score 0.5 at any temperature.
+    """
+    class_logits_record = {"class_logits": torch.tensor(data=[[0.0, 0.0], [0.0, 0.0], [2.0, 0.0], [-2.0, 0.0],
+                                                              [0.0, 3.0]]),
+                           "labels": torch.tensor(data=[0, 1, 0, 0, 1]), "output_mode": "multi_class"}
+    score_ranges = compute_score_ranges(class_logits_record=class_logits_record, shown_class_indices=[1, 0],
+                                        logit_temperature=1.0, cut_points=[0.5, 0.9])
+
+    # The second class first, as the page draws it: own scores 0.5 and 0.95, then 0.5, 0.88 and 0.12
+    assert score_ranges["counts"] == [[0, 1, 1], [1, 2, 0]]
+
+
+@pytest.mark.parametrize(argnames="cut_points", argvalues=[
+    [], [0.0], [1.0], [-0.2, 0.5], [0.5, 0.5], [math.nan], [math.inf], [True], [0.5, "0.8"], "0.5",
+    [index / (MAXIMUM_SCORE_CUT_POINTS + 2) for index in range(1, MAXIMUM_SCORE_CUT_POINTS + 2)]])
+def test_wrong_cut_points_are_refused(cut_points: Any) -> None:
+    """
+    Verifies that cut points of the score ranges outside ]0, 1[, repeated, not numbers or too many are refused, and that
+    accepted ones are sorted, up to the largest number of cut points.
+    """
+    with pytest.raises(expected_exception=ValueError,
+                       match=f"Expected 1 to {MAXIMUM_SCORE_CUT_POINTS} distinct scores strictly between 0 and 1"):
+        check_score_cut_points(cut_points=cut_points)
+    assert check_score_cut_points(cut_points=[0.8, 0.5, 0.95]) == [0.5, 0.8, 0.95]
+    largest_list = [index / (MAXIMUM_SCORE_CUT_POINTS + 1) for index in range(MAXIMUM_SCORE_CUT_POINTS, 0, -1)]
+    assert check_score_cut_points(cut_points=largest_list) == sorted(largest_list)
 
 
 def test_page_written_before_the_save_button_is_refused(tmp_path: Path) -> None:
