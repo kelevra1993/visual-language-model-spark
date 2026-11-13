@@ -1,9 +1,11 @@
 """
 Tests of SerializedRecords (vision_training/data/serialized_records.py), the read-only byte buffer of pickled records
-holding the per-image records of CocoDetectionDataset, so that the forked loader workers never copy Python objects of
-the main process: every record comes back equal to the one given, as a new object, in any order and alone, even when
-records share objects, the records are kept as NumPy arrays only, an empty set of records gives an empty buffer, and an
-index outside the records is refused.
+holding the per-image records of CocoDetectionDataset and the samples, sequences and pairs of the classification,
+segmentation and sequence datasets, so that the forked loader workers never copy Python objects of the main process:
+every record comes back equal to the one given, as a new object, in any order and alone, even when records share
+objects, the records are kept as NumPy arrays only, an empty set of records gives an empty buffer, an index outside the
+records is refused, the records read by slice and in order like a list, and the records packed with an identifier key
+are found by their integer identifier.
 """
 
 import numpy as np
@@ -87,3 +89,54 @@ def test_index_outside_the_records_is_refused(record_index: int) -> None:
 
     with pytest.raises(expected_exception=IndexError, match=f"Record index {record_index} is outside the 3 records"):
         serialized_records[record_index]
+
+
+def test_records_read_by_slice_and_in_order() -> None:
+    """
+    Verifies that the records read like a read-only list: a slice gives the list of its records, its step and its
+    bounds past the last record included, and a pass gives every record in its order, as the passes of the datasets
+    over their samples (class counts, reference images of the self-supervised evaluation) read them.
+    """
+    records = build_coco_records()
+    serialized_records = SerializedRecords(records=records)
+
+    assert serialized_records[1:] == records[1:] and serialized_records[::2] == records[::2]
+    assert serialized_records[:10] == records and serialized_records[3:] == []
+    assert list(serialized_records) == records
+
+
+def test_records_are_found_by_their_identifier() -> None:
+    """
+    Verifies that records packed with an identifier key are found by their identifier whatever their order, the last
+    of the records sharing an identifier being given, that an identifier of no record is refused, even among no
+    records, and that records packed without identifier key cannot be searched.
+    """
+    records = [{"identifier": 12, "file_name": "a.png"}, {"identifier": 3, "file_name": "b.png"},
+               {"identifier": 7, "file_name": "c.png"}, {"identifier": 3, "file_name": "d.png"}]
+    serialized_records = SerializedRecords(records=records, identifier_key="identifier")
+
+    assert [serialized_records.find_record(identifier=identifier) for identifier in [12, 7, 3]] == [records[0],
+                                                                                                  records[2],
+                                                                                                  records[3]]
+    for missing_identifier in [0, 5, 13]:
+        with pytest.raises(expected_exception=KeyError, match=f"No record has the identifier {missing_identifier}."):
+            serialized_records.find_record(identifier=missing_identifier)
+    with pytest.raises(expected_exception=KeyError, match="No record has the identifier 1."):
+        SerializedRecords(records=[], identifier_key="identifier").find_record(identifier=1)
+    with pytest.raises(expected_exception=ValueError, match="packed without identifier key"):
+        SerializedRecords(records=records).find_record(identifier=12)
+
+
+@pytest.mark.parametrize(argnames="identifier", argvalues=["12", 1.5, None])
+def test_identifiers_must_be_integers(identifier: Any) -> None:
+    """
+    Verifies that a record whose identifier is not an integer is refused, the identifiers of the samples being the
+    integers given in the batches.
+
+    Args:
+        identifier (Any): The identifier of the second record.
+    """
+    with pytest.raises(expected_exception=ValueError, match=f"The 'identifier' of every record must be an integer, "
+                                                            f"the identifier of its sample in the batches, got "
+                                                            f"{identifier!r}."):
+        SerializedRecords(records=[{"identifier": 1}, {"identifier": identifier}], identifier_key="identifier")

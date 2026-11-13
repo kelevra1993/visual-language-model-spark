@@ -2,7 +2,9 @@
 SequencePairDataset, the Native (OpenCV, CPU) dataset of the sequence comparison task, reading the before and after
 members of every pair of a 'labels.json' split whole, both padded to the longer member and stored one after the other,
 the pairs with a member longer than 'Data.sequence_settings.maximum_sequence_length' being left out with a warning, and
-the helper splitting the pair tensors. Used by data/loaders.py and the sequence comparison trainer.
+the helper splitting the pair tensors. The kept pairs are packed into SerializedRecords (data/serialized_records.py),
+which the forked loader workers read without copying the Python objects of the main process. Used by data/loaders.py
+and the sequence comparison trainer.
 """
 
 import random
@@ -15,6 +17,7 @@ from vision_training.data.label_mapping import get_class_names
 from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.sequence.sequence_dataset import (read_sequence_frames, warn_long_sequence,
                                                             warn_long_sequence_total)
+from vision_training.data.serialized_records import SerializedRecords
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Members of a pair in the manifests, in the order they are stacked along the frame axis of a sample
@@ -86,7 +89,7 @@ class SequencePairDataset(Dataset):
         manifest = read_manifest(labels_path=labels_file)
 
         # Keep the pairs of mapped categories whose two members both hold frames, and not too many
-        self.pairs = []
+        pairs = []
         number_left_out_pairs = 0
         number_long_pairs = 0
         for pair in manifest["pairs"]:
@@ -102,19 +105,21 @@ class SequencePairDataset(Dataset):
                                    maximum_sequence_length=self.maximum_sequence_length)
                 number_long_pairs += 1
                 continue
-            self.pairs.append({"identifier": len(self.pairs), "pair_identifier": pair["id"], "name": pair["name"],
-                               **{member_name: pair[member_name] for member_name in PAIR_MEMBERS},
-                               "label": label_dictionary[pair["category_id"]]})
+            pairs.append({"identifier": len(pairs), "pair_identifier": pair["id"], "name": pair["name"],
+                          **{member_name: pair[member_name] for member_name in PAIR_MEMBERS},
+                          "label": label_dictionary[pair["category_id"]]})
         warn_long_sequence_total(sample_kind="Pair", number_long_samples=number_long_pairs, split_name=split_name,
                                  maximum_sequence_length=self.maximum_sequence_length)
         if number_left_out_pairs > 0:
             print_color(color="yellow", output=f"{number_left_out_pairs} pairs of unmapped categories or with an empty "
                                                f"member left out : {format_path_link(path=labels_file)}")
         if shuffle:
-            random.shuffle(self.pairs)
+            random.shuffle(pairs)
 
-        # Every pair by identifier, to name the evaluated pairs in the evaluation outputs
-        self.pair_records = {pair["identifier"]: pair for pair in self.pairs}
+        # The kept pairs packed in their order into one read-only buffer, which the loader workers read without
+        # copying Python objects of the main process, every pair found by its identifier to name the evaluated
+        # pairs in the evaluation outputs
+        self.pairs = SerializedRecords(records=pairs, identifier_key="identifier")
 
         # Name of every class, taken from the categories of the manifest
         self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
@@ -168,7 +173,7 @@ class SequencePairDataset(Dataset):
         Returns:
             Dict[str, str]: The 'pair' column, the name of the pair in the manifest.
         """
-        return {"pair": self.pair_records[sample_identifier]["name"]}
+        return {"pair": self.pairs.find_record(identifier=sample_identifier)["name"]}
 
     def get_sample_name(self, sample_identifier: int) -> str:
         """
@@ -180,7 +185,7 @@ class SequencePairDataset(Dataset):
         Returns:
             str: The name of the pair in the manifest, its folders joined with underscores.
         """
-        return self.pair_records[sample_identifier]["name"].replace("/", "_")
+        return self.pairs.find_record(identifier=sample_identifier)["name"].replace("/", "_")
 
     def get_sample_class_indices(self) -> Dict[int, List[int]]:
         """

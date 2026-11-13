@@ -570,8 +570,9 @@ class SelfSupervisedTrainer(BaseTrainer):
         sample_identifiers = training_batch[SAMPLE_IDENTIFIERS_KEY]
         if isinstance(sample_identifiers, torch.Tensor):
             sample_identifiers = sample_identifiers.tolist()
-        sample_records = self.train_dataloader.dataset.sample_records
-        image_groups = [sample_records[sample_identifier]["groups"] for sample_identifier in sample_identifiers]
+        training_samples = self.train_dataloader.dataset.samples
+        image_groups = [training_samples.find_record(identifier=sample_identifier)["groups"]
+                        for sample_identifier in sample_identifiers]
 
         # Mosaic of the blocks of the batch under the header describing it, shown alone in its window
         title, lines, block_captions, image_captions = self.describe_input_batch(

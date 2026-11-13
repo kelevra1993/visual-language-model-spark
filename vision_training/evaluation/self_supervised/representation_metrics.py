@@ -11,7 +11,7 @@ import torch
 
 from collections import defaultdict
 from torch.nn import functional as torch_functional
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 # Temperature of the similarity weights of the neighbours in the vote of the k-nearest neighbour classification, as in
 # the evaluations of DINO: a neighbour of cosine similarity s weighs exp(s / temperature)
@@ -25,7 +25,8 @@ SIMILARITY_CHUNK_SIZE = 1024
 EFFECTIVE_RANK_EPSILON = 1e-12
 
 
-def select_reference_samples(samples: List[Dict[str, Any]], number_images_per_class: int) -> List[Dict[str, Any]]:
+def select_reference_samples(samples: Iterable[Dict[str, Any]],
+                             number_images_per_class: int) -> List[Dict[str, Any]]:
     """
     Chooses the reference images of the k-nearest neighbour evaluation of the self-supervised task among the labelled
     training images: in every class, the number_images_per_class images whose file names have the smallest MD5 hashes,
@@ -35,8 +36,9 @@ def select_reference_samples(samples: List[Dict[str, Any]], number_images_per_cl
     without class are left out.
 
     Args:
-        samples (List[Dict[str, Any]]): The sample records of the training split, each with its 'file_name' and its
-            'class_indices' (one class index, or none for an image without class).
+        samples (Iterable[Dict[str, Any]]): The sample records of the training split (the packed 'samples' of its
+            dataset), each with its 'file_name' and its 'class_indices' (one class index, or none for an image without
+            class).
         number_images_per_class (int): The largest number of reference images of a class.
 
     Returns:
