@@ -12,7 +12,7 @@ import torch
 
 from vision_training.data.detection.coco_masks import (build_instance_mask, compress_counts,
                                                         compute_mask_bounding_boxes, compute_segmentation_bounding_box,
-                                                        decode_run_length_encoding, encode_run_length_encoding,
+                                                        decode_compressed_counts, decode_run_length_encoding, encode_run_length_encoding,
                                                         rasterize_polygons)
 
 
@@ -124,6 +124,66 @@ def test_compressed_encoding_writes_the_coco_string_and_decodes_back() -> None:
         assert compressed_encoding["size"] == encode_run_length_encoding(mask=mask)["size"]
         assert np.array_equal(decode_run_length_encoding(segmentation=compressed_encoding), mask)
 
+
+
+def decode_compressed_counts_one_character_at_a_time(compressed_counts: str) -> list:
+    """
+    Reference decoder of the compressed COCO counts, reading the string one character at a time as the COCO API does,
+    against which the numpy decoder of the training loader is compared.
+
+    Args:
+        compressed_counts (str): The 'counts' string of the encoding.
+
+    Returns:
+        list: The run lengths.
+    """
+    counts = []
+    position = 0
+    while position < len(compressed_counts):
+        value, shift, has_more_groups = 0, 0, True
+        # Groups of 5 bits of one run, the last one carrying the sign bit
+        while has_more_groups:
+            group = ord(compressed_counts[position]) - 48
+            value |= (group & 0x1F) << (5 * shift)
+            has_more_groups = bool(group & 0x20)
+            position, shift = position + 1, shift + 1
+            if not has_more_groups and group & 0x10:
+                value |= -1 << (5 * shift)
+        # From the fourth run on, a difference with the run two places before
+        if len(counts) > 2:
+            value += counts[-2]
+        counts.append(value)
+    return counts
+
+
+def test_numpy_decoder_matches_the_character_decoder_on_non_square_masks() -> None:
+    """
+    Verifies the numpy decoding of the training loader: the run lengths of the compressed strings of random masks
+    (long runs over several groups, negative differences, a single row and a single column, an empty string) equal
+    those of the character by character decoder as an int64 array, and the masks of non-square images decode back to
+    themselves through the OpenCV transpose of the column by column pixels.
+    """
+    random_generator = np.random.default_rng(seed=3)
+    masks = [np.zeros(shape=(1, 9), dtype=np.uint8), np.ones(shape=(9, 1), dtype=np.uint8)]
+    # Rectangles of random sizes in non-square images, giving runs from one pixel to thousands of pixels
+    for height, width in [(37, 53), (300, 120), (64, 1000)]:
+        mask = np.zeros(shape=(height, width), dtype=np.uint8)
+        for _ in range(4):
+            top, left = random_generator.integers(low=0, high=height), random_generator.integers(low=0, high=width)
+            mask[top: top + random_generator.integers(low=1, high=height), left: left + 40] = 1
+        masks.append(mask)
+    masks.append((random_generator.random(size=(31, 17)) > 0.5).astype(np.uint8))
+
+    # Same run lengths as the reference decoder, and the mask back from its compressed encoding
+    for mask in masks:
+        encoding = encode_run_length_encoding(mask=mask, compressed=True)
+        counts = decode_compressed_counts(compressed_counts=encoding["counts"])
+        assert isinstance(counts, np.ndarray) and counts.dtype == np.int64
+        assert counts.tolist() == decode_compressed_counts_one_character_at_a_time(compressed_counts=encoding["counts"])
+        decoded_mask = decode_run_length_encoding(segmentation=encoding)
+        assert decoded_mask.shape == mask.shape and decoded_mask.flags["C_CONTIGUOUS"]
+        assert np.array_equal(decoded_mask, mask)
+    assert decode_compressed_counts(compressed_counts="").shape == (0,)
 
 def test_polygon_and_encoding_of_one_object_give_the_same_mask() -> None:
     """
