@@ -399,7 +399,7 @@ INS_IN-KAR-512_..._MRES-MBN-MUTC-M14.4x64-MR28_MC20/
 ```
 
 ### Step 2.7 — `build_dataloaders()`
-The hook of the detection (see `object_detection_workflow.md`, Step 2.7): `class_names`, `class_colours` and the test image names from the `labels.json` of the test split (`read_test_manifest()`), then the loaders, all three with the instance masks, the test loader also giving the objects at the original resolution when `evaluation.original_resolution` is on.
+The hook of the detection (see `object_detection_workflow.md`, Step 2.7): `class_names`, `class_colours` and the test image names from the `labels.json` of the test split (`read_test_manifest()`), then the loaders with the instance masks, the validation one only when the run reads it (`validation_iteration_ratio > 0` or a diagnosis mode ending the program, `classification_workflow.md`, Step 2.7; none now for the configuration of the 5000-iteration run of Stage 3, without validation), the test loader also giving the objects at the original resolution when `evaluation.original_resolution` is on.
 
 **Example output**
 ```text
@@ -411,7 +411,7 @@ test_image_file_names: 20 entries, [(1, 'test_000000.png'), (2, 'test_000001.png
 
 ### Step 2.8 — `get_detection_dataloaders(load_instance_masks=True, load_instance_index_maps=...)`
 `load_instance_index_maps` is `Data.instance_index_maps`, read by `InstanceSegmentationTrainer.__init__()`. The test loader of `evaluation.original_resolution` is built without maps, its samples carrying one mask per object at both resolutions.
-**Example: the three loaders** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
+**Example: the three loaders** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1, and the validation loader is built only with `validation_iteration_ratio > 0`)
 ```text
 train_dataloader        100 images   3 batches   collate_function   num_workers 8   prefetch 2   pin True   persistent True
 validation_dataloader    20 images   1 batch     collate_function   num_workers 8   prefetch 2   pin True   persistent True

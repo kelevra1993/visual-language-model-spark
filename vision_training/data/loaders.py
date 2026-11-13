@@ -2,7 +2,9 @@
 Builds the training, validation and test data loaders of every task from the experiment and model configurations:
 COCO detection and keypoint detection (one sample per image), classification and self-supervised learning (same
 layout), semantic segmentation, and the sequence and sequence comparison tasks, every one with a PyTorch DataLoader over
-its dataset. Called by the task trainers.
+its dataset. Called by the task trainers, which ask for the validation loader only when the training reads validation
+batches (BaseTrainer.builds_validation_loader), None being given in its place otherwise, without any validation
+dataset, batch or worker process.
 """
 
 import os
@@ -134,7 +136,9 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
 def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                               batch_size: int, load_instance_masks: bool = False,
                               load_instance_index_maps: bool = False,
-                              load_original_instances: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                              load_original_instances: bool = False,
+                              build_validation_loader: bool = True) -> Tuple[DataLoader, Optional[DataLoader],
+                                                                             DataLoader]:
     """
     Initializes the training, validation and testing loaders of the object detection and instance segmentation tasks,
     consumed by the detection trainer and its subclass: it resolves each split folder from the experiment configuration
@@ -154,10 +158,13 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
             one mask per object. Defaults to False.
         load_original_instances (bool): Whether the test samples also carry the masks and boxes of the objects at
             the original image resolution (instance segmentation evaluated at that resolution). Defaults to False.
+        build_validation_loader (bool): Whether the validation loader is built, False when the training reads no
+            validation batch (BaseTrainer.builds_validation_loader), no validation dataset or worker process being
+            then created. Defaults to True.
 
     Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: The loaders for the training, validation and testing splits
-            respectively.
+        Tuple[DataLoader, Optional[DataLoader], DataLoader]: The loaders for the training, validation (None when it
+            is not built) and testing splits respectively.
     """
     # Map each split name to its corresponding root folder containing images and labels.json
     split_folder_mapping = {"Train": str(experiment_configuration["train_data_folder"]),
@@ -169,11 +176,15 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
                                             model_configuration=model_configuration, batch_size=batch_size,
                                             load_instance_masks=load_instance_masks,
                                             load_instance_index_maps=load_instance_index_maps)
-    validation_loader = get_detection_dataloader(split_name="Validation",
-                                                 split_data_folder=split_folder_mapping["Validation"],
-                                                 model_configuration=model_configuration, batch_size=batch_size,
-                                                 load_instance_masks=load_instance_masks,
-                                                 load_instance_index_maps=load_instance_index_maps)
+
+    # The validation loader only when the training reads its batches, no validation dataset or worker otherwise
+    validation_loader = None
+    if build_validation_loader:
+        validation_loader = get_detection_dataloader(split_name="Validation",
+                                                     split_data_folder=split_folder_mapping["Validation"],
+                                                     model_configuration=model_configuration, batch_size=batch_size,
+                                                     load_instance_masks=load_instance_masks,
+                                                     load_instance_index_maps=load_instance_index_maps)
 
     # The test objects at the original resolution come with one mask per object at both resolutions, without maps
     test_loader = get_detection_dataloader(split_name="Test", split_data_folder=split_folder_mapping["Test"],
@@ -187,7 +198,9 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
 
 
 def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                             batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                             batch_size: int,
+                             build_validation_loader: bool = True) -> Tuple[DataLoader, Optional[DataLoader],
+                                                                            DataLoader]:
     """
     Initializes the training, validation and testing loaders of the keypoint detection task, read from the COCO
     'labels.json' of every split like the object detection: every sample is one whole image resized on the CPU
@@ -203,9 +216,13 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
             the keypoint categories injected by the configuration loader and the
             'KeypointHead.ignore_unlabelled_objects' setting.
         batch_size (int): The number of images of a batch.
+        build_validation_loader (bool): Whether the validation loader is built, False when the training reads no
+            validation batch (BaseTrainer.builds_validation_loader), no validation dataset or worker process being
+            then created. Defaults to True.
 
     Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+        Tuple[DataLoader, Optional[DataLoader], DataLoader]: The training, validation (None when it is not built) and
+            test loaders.
     """
     maximum_keypoints = max(len(definition["keypoints"])
                             for definition in model_configuration["Data"]["keypoint_categories"].values())
@@ -215,6 +232,10 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
     # Build the loader of every split with the same settings, the ignored regions only where a loss is computed
     for split_name, split_key in [("Train", "train_data_folder"), ("Validation", "validation_data_folder"),
                                   ("Test", "test_data_folder")]:
+        # The validation loader only when the training reads its batches, no validation dataset or worker otherwise
+        if split_name == "Validation" and not build_validation_loader:
+            loaders.append(None)
+            continue
         load_ignored_regions = ignore_unlabelled_objects and split_name != "Test"
         loaders.append(get_detection_dataloader(split_name=split_name,
                                                 split_data_folder=str(experiment_configuration[split_key]),
@@ -227,7 +248,9 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
 
 def get_classification_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                                    batch_size: int, self_supervised: bool = False,
-                                   drop_last_training_batch: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                                   drop_last_training_batch: bool = False,
+                                   build_validation_loader: bool = True) -> Tuple[DataLoader, Optional[DataLoader],
+                                                                                  DataLoader]:
     """
     Initializes the training, validation and testing loaders of the classification task, read from the
     'labels.json' manifest of every split with the Native loader (OpenCV decoding and CPU resizing). The
@@ -251,9 +274,13 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
         drop_last_training_batch (bool): Whether the training loader leaves out the last incomplete batch of every
             pass, for a batch-normalized classification head, which a last batch of a single image would break
             (ClassificationTrainer.drops_last_training_batch). Defaults to False.
+        build_validation_loader (bool): Whether the validation loader is built, False when the training reads no
+            validation batch (BaseTrainer.builds_validation_loader), no validation dataset or worker process being
+            then created. Defaults to True.
 
     Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+        Tuple[DataLoader, Optional[DataLoader], DataLoader]: The training, validation (None when it is not built) and
+            test loaders.
 
     Raises:
         ValueError: If a split whose batches must be full (self-supervised training and validation splits, training
@@ -272,6 +299,10 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
     # Build the loader of every split with the same settings
     for split_key, split_label in [("train_data_folder", "Train"), ("validation_data_folder", "Validation"),
                                    ("test_data_folder", "Test")]:
+        # The validation loader only when the training reads its batches, no validation dataset or worker otherwise
+        if split_key == "validation_data_folder" and not build_validation_loader:
+            loaders.append(None)
+            continue
         split_data_folder = str(experiment_configuration[split_key])
         labels_file = os.path.join(split_data_folder, "labels.json")
         dataset = ClassificationDataset(data_directory=os.path.join(split_data_folder, "data"), labels_file=labels_file,
@@ -316,7 +347,9 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
 
 
 def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                                 batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                                 batch_size: int,
+                                 build_validation_loader: bool = True) -> Tuple[DataLoader, Optional[DataLoader],
+                                                                                DataLoader]:
     """
     Initializes the training, validation and testing loaders of the semantic segmentation task, read from the
     'labels.json' manifest, the 'data' images and the 'masks' class masks of every split with the Native loader
@@ -330,9 +363,13 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
         model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label mode and
             the label dictionary.
         batch_size (int): The number of images of a batch.
+        build_validation_loader (bool): Whether the validation loader is built, False when the training reads no
+            validation batch (BaseTrainer.builds_validation_loader), no validation dataset or worker process being
+            then created. Defaults to True.
 
     Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+        Tuple[DataLoader, Optional[DataLoader], DataLoader]: The training, validation (None when it is not built) and
+            test loaders.
     """
     data_configuration = model_configuration["Data"]
     tiling_configuration = data_configuration["tiling"]
@@ -342,6 +379,10 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
     # whole test images of different sizes coming one per batch
     for split_key, tile_sampling in [("train_data_folder", "random"), ("validation_data_folder", "fixed"),
                                      ("test_data_folder", "whole")]:
+        # The validation loader only when the training reads its batches, no validation dataset or worker otherwise
+        if split_key == "validation_data_folder" and not build_validation_loader:
+            loaders.append(None)
+            continue
         split_data_folder = str(experiment_configuration[split_key])
         dataset = SegmentationDataset(data_directory=os.path.join(split_data_folder, "data"),
                                       masks_directory=os.path.join(split_data_folder, "masks"),
@@ -358,8 +399,9 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
 
 
 def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                             batch_size: int, label_type: str,
-                             drop_last_training_batch: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                             batch_size: int, label_type: str, drop_last_training_batch: bool = False,
+                             build_validation_loader: bool = True) -> Tuple[DataLoader, Optional[DataLoader],
+                                                                            DataLoader]:
     """
     Initializes the training, validation and testing loaders of the sequence tasks, read from the 'labels.json'
     manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every sequence is given whole
@@ -379,9 +421,13 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
         drop_last_training_batch (bool): Whether the training loader leaves out the last incomplete batch of every
             pass, for a batch-normalized classification head, which a last batch of a single sequence would break
             (ClassificationTrainer.drops_last_training_batch). Defaults to False.
+        build_validation_loader (bool): Whether the validation loader is built, False when the training reads no
+            validation batch (BaseTrainer.builds_validation_loader), no validation dataset or worker process being
+            then created. Defaults to True.
 
     Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+        Tuple[DataLoader, Optional[DataLoader], DataLoader]: The training, validation (None when it is not built) and
+            test loaders.
 
     Raises:
         ValueError: If the training split holds fewer samples than a batch with drop_last_training_batch.
@@ -399,6 +445,10 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
     # Build the loader of every split with the same settings, its name given to the warnings of the left out sequences
     for split_key, split_name in [("train_data_folder", "Training"), ("validation_data_folder", "Validation"),
                                   ("test_data_folder", "Test")]:
+        # The validation loader only when the training reads its batches, no validation dataset or worker otherwise
+        if split_key == "validation_data_folder" and not build_validation_loader:
+            loaders.append(None)
+            continue
         split_data_folder = str(experiment_configuration[split_key])
 
         # Pairs of before and after sequences, or whole sequences

@@ -58,7 +58,7 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
     └── labels.json
 ```
 
-- `train_data_folder`, `validation_data_folder` and `test_data_folder` point to the splits. The validation split gives the validation curves (`validation_iteration_ratio`), and the test split is evaluated whole at every `weight_saving_iterations` checkpoint. Both may be the same folder.
+- `train_data_folder`, `validation_data_folder` and `test_data_folder` point to the splits. The validation split gives the validation curves (`validation_iteration_ratio`; at 0 its loader is not built, the split being only described at the start and recorded in `data.json`), and the test split is evaluated whole at every `weight_saving_iterations` checkpoint. Both may be the same folder.
 - `labels.json` names the images relative to `data/`, and its categories have integer identifiers.
 - `label_mapping.json` (`Data.label_mapping.mapping_file_path`, `mode: "multi_class"`) maps every category identifier, as a string, to a class index. The converters and the synthetic generator write it next to the splits.
 

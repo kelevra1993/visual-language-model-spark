@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults, KeypointBatch
 from vision_training.data.loaders import get_keypoint_dataloaders
@@ -82,19 +82,21 @@ class KeypointTrainer(CocoSplitTrainer):
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
         Builds the keypoint loaders of the three splits, one whole image per sample, names the classes after the
         categories of the test split for the per-class report, with a colour per class for the sample images, and
         keeps the file name of every test image, which names the sample images.
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not
+                built) and test loaders.
         """
         # Class names, class colours and test image names from the test manifest, then the loaders of the three splits
         self.read_test_manifest()
         return get_keypoint_dataloaders(experiment_configuration=self.experiment_configuration,
-                                        model_configuration=self.model_configuration, batch_size=self.batch_size)
+                                        model_configuration=self.model_configuration, batch_size=self.batch_size,
+                                        build_validation_loader=self.builds_validation_loader)
 
     def build_model(self) -> KeypointDetector:
         """

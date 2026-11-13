@@ -223,7 +223,7 @@ main()
 │   └── BaseTrainer.__init__()
 │       │   Does everything that does not depend on the task, in this order: pick the device, name the run folder,
 │       │   read the settings, build the augmenter, keep the classes of a resumed run, refuse a resume on changed
-│       │   labels, the paths, the three loaders (refused when one gives no batch), the record of the data, choose the
+│       │   labels, the paths, the loaders (refused when one gives no batch), the record of the data, choose the
 │       │   sample images, build the model, the optimizer and the metric tracker, print the experiment information
 │       │   and the model summaries, then restore the last checkpoint of the run folder, a run always resuming. The
 │       │   steps that depend on the task (loaders, classes of the test samples, model, tracked metrics, split
@@ -263,12 +263,14 @@ main()
 │       ├── build_dataloaders()
 │       │   │   Hook implemented by ClassificationTrainer. Builds the loaders of the three splits and keeps class_names
 │       │   │   (one name per class index, read from the manifest of the training split) for the evaluation reports.
-│       │   │   Returns the training, validation and test loaders.
+│       │   │   Returns the training, validation and test loaders, None in place of the validation loader when
+│       │   │   builds_validation_loader is False (validation_iteration_ratio 0 without a diagnosis mode ending the
+│       │   │   program): no validation dataset, batch or worker process is then made.
 │       │   │
 │       │   └── get_classification_dataloaders()
-│       │       │   For each of the train, validation and test folders: builds a ClassificationDataset from
-│       │       │   <folder>/labels.json and <folder>/data/, then wraps it in a loader. The three splits share the same
-│       │       │   image size, keep_ratio and label dictionary.
+│       │       │   For each of the train, validation (only with build_validation_loader) and test folders: builds a
+│       │       │   ClassificationDataset from <folder>/labels.json and <folder>/data/, then wraps it in a loader. The
+│       │       │   splits share the same image size, keep_ratio and label dictionary.
 │       │       │
 │       │       ├── ClassificationDataset.__init__()
 │       │       │       Reads the labels.json manifest, converts the raw category of every sample into a class index
@@ -284,7 +286,8 @@ main()
 │       ├── check_loaders_give_batches()
 │       │       Refuses the run (ValueError) when the training or test loader, or the validation loader when
 │       │       validation_iteration_ratio > 0, gives no batch: an empty split, or a split whose every sample is left
-│       │       out by the label mapping, would make the training loop wait for a batch that never comes.
+│       │       out by the label mapping, would make the training loop wait for a batch that never comes. Also refuses
+│       │       a validation loader that does not follow builds_validation_loader (built without it, None with it).
 │       ├── save_data_record() -> build_class_records() + record_split() -> build_split_record()
 │       │       Writes data.json next to the YAML: the classes of the run (index, name from list_class_names,
 │       │       categories and images of every split), then the data folder, the SHA-256 of labels.json and the images
@@ -409,8 +412,8 @@ main()
         │       Creates Tensorboard/Train and, when validation_iteration_ratio > 0, Tensorboard/Validation. The Test
         │       writer is only created at the first evaluation.
         ├── initialize_training_loop_state()
-        │   │   Creates the iterators over the training and validation loaders, the two tracker dictionaries and the
-        │   │   counter of consecutive errors.
+        │   │   Creates the iterator over the training loader and, when validation_iteration_ratio > 0, the one over
+        │   │   the validation loader, the two tracker dictionaries and the counter of consecutive errors.
         │   │
         │   └── MetricTracker.create_trackers()
         │           Returns {start_time, interval_batches: 0, total_loss: 0.0, classification_loss: 0.0,
@@ -851,12 +854,14 @@ A run resumed from a checkpoint first compares the launched YAML with the copy s
 ### Step 2.7 — `build_dataloaders()`
 This hook of `ClassificationTrainer` builds the loaders of the three splits (Step 2.8) and keeps `class_names`: one name per class index, read from the categories of the manifest of the training split. The evaluation reports, the error images and the sample images use them. It returns the training, validation and test loaders, which `BaseTrainer` stores as `train_dataloader`, `validation_dataloader` and `test_dataloader`.
 
+The validation loader is built only when the run reads it: `BaseTrainer.__init__()` sets `builds_validation_loader` to True when `validation_iteration_ratio > 0`, or for a diagnosis mode ending the program (`view_input_images`, and `compute_anchor_coverage` of the detection tasks), which shows or measures the validation split. Every task passes it to its loader function (`build_validation_loader`), which gives `None` in place of the validation loader when it is False: a training without validation then builds no validation dataset and starts no worker process for it, which held 4.4 to 4.8 GB in a 1024-pixel instance segmentation training (2026-11-13). The validation folder is still described at the start of the run and recorded in `data.json`.
+
 **Example: the first class names of ImageNet-1k (the folder names, called wnids)**
 ```text
 trainer.class_names[:5] -> ['n01440764', 'n01443537', 'n01484850', 'n01491361', 'n01494475']
 ```
 
-Once the loaders exist, `check_loaders_give_batches()` refuses a training split or a test split whose loader gives no batch, and a validation split too when `validation_iteration_ratio > 0`, with a `ValueError` naming the split, the number of samples its dataset keeps and its folder: an empty split, or a split whose every sample has a category left out by the label mapping, would otherwise make the training loop wait for a batch that never comes. `BaseTrainer.__init__()` then writes `data.json` in the run folder (`save_data_record()` and its hook `record_split()` of `BaseTrainer`, with `build_class_records()` and `build_split_record()` of `vision_training/data/data_record.py`). It starts with the classes of the run in class index order (`classes`): for every class its `class_index`, its `class_name` (given by `list_class_names()`, which a run adding classes to this one compares with its own, Step 2.19), the `category_ids` of the manifest mapped to it and its number of `images` in every split, counted in the `labels.json` files. For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. Changed labels were already refused by `check_resumed_data()` (Step 2.6) unless `allow_data_change_on_resume` is true: with that switch, or when only the data folder moved, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
+Once the loaders exist, `check_loaders_give_batches()` refuses a training split or a test split whose loader gives no batch, and a validation split too when `validation_iteration_ratio > 0`, with a `ValueError` naming the split, the number of samples its dataset keeps and its folder: an empty split, or a split whose every sample has a category left out by the label mapping, would otherwise make the training loop wait for a batch that never comes. It also refuses a validation loader that does not follow `builds_validation_loader` (built without it, or `None` with it), so that a task forgetting to pass the setting to its loaders stops at its launch. `BaseTrainer.__init__()` then writes `data.json` in the run folder (`save_data_record()` and its hook `record_split()` of `BaseTrainer`, with `build_class_records()` and `build_split_record()` of `vision_training/data/data_record.py`). It starts with the classes of the run in class index order (`classes`): for every class its `class_index`, its `class_name` (given by `list_class_names()`, which a run adding classes to this one compares with its own, Step 2.19), the `category_ids` of the manifest mapped to it and its number of `images` in every split, counted in the `labels.json` files. For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. Changed labels were already refused by `check_resumed_data()` (Step 2.6) unless `allow_data_change_on_resume` is true: with that switch, or when only the data folder moved, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
 
 **Example: the start of `data.json` for ImageNet-1k (2.4 seconds to build, 69 MB for the 1,271,167 training images; every class record is written here on one line, the file giving every value its own line)**
 ```text
@@ -879,7 +884,7 @@ Once the loaders exist, `check_loaders_give_batches()` refuses a training split 
 ```
 
 ### Step 2.8 — `get_classification_dataloaders()`
-For each of `train_data_folder`, `validation_data_folder` and `test_data_folder`, it builds one `ClassificationDataset` (Step 2.9) from `<folder>/labels.json` and the images in `<folder>/data/`, then wraps it in a loader (Step 2.10). The three splits share the image size, `keep_ratio`, the label dictionary of Stage 1 and the number of loader workers. Only the training split is used to learn: the validation split gives the curves of Stage 3 and the test split is only used by Stage 4.
+For each of `train_data_folder`, `validation_data_folder` and `test_data_folder`, it builds one `ClassificationDataset` (Step 2.9) from `<folder>/labels.json` and the images in `<folder>/data/`, then wraps it in a loader (Step 2.10). The three splits share the image size, `keep_ratio`, the label dictionary of Stage 1 and the number of loader workers. With `build_validation_loader=False`, the validation folder is skipped and `None` is returned in place of its loader. Only the training split is used to learn: the validation split gives the curves of Stage 3 and the test split is only used by Stage 4.
 
 **Example: size of the three splits**
 ```text
@@ -1233,7 +1238,7 @@ Tensorboard/Test_EMA/     created by the first evaluation of the moving average 
 ```
 
 ### Step 3.3 — `initialize_training_loop_state()`
-This prepares what the loop body needs: an iterator over the training loader and one over the validation loader (the loop pulls batches by hand with `get_next_batch()`, see Step 3.8), a flag telling whether validation is enabled, the tracker dictionaries of Step 3.4 (the validation one is `None` without validation), and the counter of consecutive errors.
+This prepares what the loop body needs: an iterator over the training loader and, when `validation_iteration_ratio > 0`, one over the validation loader (`None` otherwise, the loader not being built; the loop pulls batches by hand with `get_next_batch()`, see Step 3.8), a flag telling whether validation is enabled, the tracker dictionaries of Step 3.4 (the validation one is `None` without validation), and the counter of consecutive errors.
 
 ### Step 3.4 — `MetricTracker.create_trackers()`
 This returns a dictionary with one sum per tracked metric (see Step 2.21), the number of batches added to it (`interval_batches`) and the start time of the interval. One is used for the training metrics and one for the validation metrics. `accumulate()` fills them batch by batch (Step 3.20), and at the end of the interval `average_trackers()` divides the sums by the batch count, `print_interval_summary()` prints them and the loop creates fresh ones (Step 3.24). The sequence tasks also count `interval_frames`.

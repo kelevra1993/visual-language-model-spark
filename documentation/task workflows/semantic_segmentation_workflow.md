@@ -438,7 +438,7 @@ SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32
 With `class_weighting: "balanced"`, the run folder also receives `class_pixel_counts.json` at Step 2.18.
 
 ### Step 2.7 — `build_dataloaders()`
-This hook builds the loaders of the three splits (Step 2.8), keeps `class_names` (background first, then the categories of the training manifest) and `class_colours`, one BGR colour per class (black for the background), used to paint the masks in the input viewer and the sample images.
+This hook builds the loaders of the three splits (Step 2.8), the validation one only when the run reads it (`validation_iteration_ratio > 0` or a diagnosis mode ending the program, `classification_workflow.md`, Step 2.7), keeps `class_names` (background first, then the categories of the training manifest) and `class_colours`, one BGR colour per class (black for the background), used to paint the masks in the input viewer and the sample images.
 
 **Example output**
 ```text

@@ -186,6 +186,11 @@ class BaseTrainer(ABC):
         # detection tasks): the run folder, its data record and the resume checks are then left untouched
         self.exits_after_diagnosis = self.uses_exiting_diagnosis_mode()
 
+        # The validation loader is built only when the training reads validation batches, or for a diagnosis mode
+        # ending the program, which shows or measures the validation split: otherwise no validation batch is loaded
+        # and no worker process holds validation samples (build_dataloaders gives None in its place)
+        self.builds_validation_loader = self.validation_iteration_ratio > 0 or self.exits_after_diagnosis
+
         # Whether the evaluation reports show every class (table, TensorBoard scalars, confusion matrix image) or only
         # the global metrics, for the runs with many classes
         self.per_class_report = self.experiment_configuration["evaluation"]["per_class_report"]
@@ -238,6 +243,9 @@ class BaseTrainer(ABC):
         print_color(color="blue",
                     output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.build_dataloaders()
+        if not self.builds_validation_loader:
+            print_color(color="blue", output="- Validation Loader Not Built : 'validation_iteration_ratio' Is 0, No "
+                                             "Validation Batch Is Loaded")
         self.check_loaders_give_batches()
 
         # Record of the images of every split next to the configuration, written for a training only like the run
@@ -324,12 +332,16 @@ class BaseTrainer(ABC):
     # ------------------------------------------------------------------------------------------------------------------
 
     @abstractmethod
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
-        Builds the loaders of the training, validation and test splits of the task.
+        Builds the loaders of the training, validation and test splits of the task, the validation one only when
+        builds_validation_loader is True (a training reading validation batches, or a diagnosis mode ending the
+        program), None otherwise, so that no validation batch is loaded and no worker process started for it
+        (check_loaders_give_batches refuses any other case).
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders, yielding batch dictionaries.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not built) and
+                test loaders, yielding batch dictionaries.
         """
 
     @abstractmethod
@@ -928,11 +940,22 @@ class BaseTrainer(ABC):
         """
         Refuses a run whose training or test loader, or validation loader when the validation is on, gives no batch,
         before anything is trained: an empty split, or a split whose every sample has a category left out by the label
-        mapping, would make the training loop wait for a batch that never comes.
+        mapping, would make the training loop wait for a batch that never comes. A task whose build_dataloaders gives
+        a validation loader without builds_validation_loader, or none with it, is refused as well, so that no task
+        loads validation batches in a training without validation.
 
         Raises:
-            ValueError: If a checked loader gives no batch.
+            ValueError: If a checked loader gives no batch, or if the validation loader does not follow
+                builds_validation_loader.
         """
+        # The validation loader exists exactly when the training or a diagnosis mode ending the program reads it
+        if (self.validation_dataloader is not None) != self.builds_validation_loader:
+            built_state = "built" if self.validation_dataloader is not None else "not built"
+            raise ValueError(f"The validation loader of {type(self).__name__}.build_dataloaders is {built_state} while "
+                             f"builds_validation_loader is {self.builds_validation_loader} "
+                             f"('validation_iteration_ratio' {self.validation_iteration_ratio}, diagnosis mode ending "
+                             f"the program {self.exits_after_diagnosis}): the task must pass builds_validation_loader "
+                             f"to its loaders.")
         checked_loaders = {"train_data_folder": self.train_dataloader, "test_data_folder": self.test_dataloader}
         if self.validation_iteration_ratio > 0:
             checked_loaders["validation_data_folder"] = self.validation_dataloader
@@ -1388,12 +1411,13 @@ class BaseTrainer(ABC):
         Args:
             benchmarking_iterations (int): The total number of iterations to run the benchmark. Defaults to 100,000.
         """
-        # Get dataloader
-        training_dataloader_iterator = iter(self.train_dataloader)
-        validation_dataloader_iterator = iter(self.validation_dataloader)
-
         # Determine whether validation is enabled based on the configured ratio
         validation_enabled = self.validation_iteration_ratio > 0
+
+        # Get dataloader, the validation iterator only with validation, so that its worker process never starts
+        # otherwise
+        training_dataloader_iterator = iter(self.train_dataloader)
+        validation_dataloader_iterator = iter(self.validation_dataloader) if validation_enabled else None
 
         for training_iteration in tqdm(range(int(benchmarking_iterations)), desc="Benchmarking Loop"):
             # Get next training elements
@@ -1428,7 +1452,7 @@ class BaseTrainer(ABC):
                                                     tracker_dictionary=None)
 
     def initialize_training_loop_state(self) -> Tuple[
-            Iterator, Iterator, bool, Dict[str, float], Optional[Dict[str, float]], int]:
+            Iterator, Optional[Iterator], bool, Dict[str, float], Optional[Dict[str, float]], int]:
         """
         Initializes and returns the state variables required for the main training loop.
 
@@ -1439,18 +1463,20 @@ class BaseTrainer(ABC):
         Returns:
             Tuple: A tuple containing:
                 - training_dataloader_iterator (Iterator): Iterator for the training dataset.
-                - validation_dataloader_iterator (Iterator): Iterator for the validation dataset.
+                - validation_dataloader_iterator (Optional[Iterator]): Iterator for the validation dataset, None
+                  without validation.
                 - validation_enabled (bool): Flag indicating if validation is enabled.
                 - training_trackers (Dict[str, float]): Dictionary for accumulating training metrics.
                 - validation_trackers (Optional[Dict[str, float]]): Dictionary for validation metrics, or None.
                 - consecutive_errors (int): Counter for consecutive errors encountered during training.
         """
-        # Get dataloader
-        training_dataloader_iterator = iter(self.train_dataloader)
-        validation_dataloader_iterator = iter(self.validation_dataloader)
-
         # Determine whether validation is enabled based on the configured ratio
         validation_enabled = self.validation_iteration_ratio > 0
+
+        # Get dataloader, the validation iterator only with validation, so that its worker process never starts
+        # otherwise
+        training_dataloader_iterator = iter(self.train_dataloader)
+        validation_dataloader_iterator = iter(self.validation_dataloader) if validation_enabled else None
 
         # Get the metric trackers of the training and validation batches, which count the batches of their interval
         training_trackers = self.metric_tracker.create_trackers()
@@ -1488,13 +1514,14 @@ class BaseTrainer(ABC):
     def list_dataloaders(self) -> List[Iterable]:
         """
         Lists the loaders whose worker processes are stopped at the end of the training (shutdown_loader_workers): the
-        training, validation and test loaders, to which a task adds its own (the reference images of the k-nearest
-        neighbour evaluation of the self-supervised task).
+        training, validation (when built) and test loaders, to which a task adds its own (the reference images of the
+        k-nearest neighbour evaluation of the self-supervised task).
 
         Returns:
             List[Iterable]: The loaders of the trainer.
         """
-        return [self.train_dataloader, self.validation_dataloader, self.test_dataloader]
+        return [dataloader for dataloader in [self.train_dataloader, self.validation_dataloader, self.test_dataloader]
+                if dataloader is not None]
 
     def shutdown_loader_workers(self) -> None:
         """

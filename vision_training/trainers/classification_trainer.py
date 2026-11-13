@@ -120,18 +120,20 @@ class ClassificationTrainer(BaseTrainer):
         """
         return TOP_K_ACCURACY_CLASSES
 
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
         Builds the classification loaders of the three splits, and takes the class names from the categories of the
         training manifest.
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not
+                built) and test loaders.
         """
         loaders = get_classification_dataloaders(experiment_configuration=self.experiment_configuration,
                                                  model_configuration=self.model_configuration,
                                                  batch_size=self.batch_size,
-                                                 drop_last_training_batch=self.drops_last_training_batch())
+                                                 drop_last_training_batch=self.drops_last_training_batch(),
+                                                 build_validation_loader=self.builds_validation_loader)
         training_dataset = loaders[0].dataset
         self.class_names = [training_dataset.class_names[class_index]
                             for class_index in range(training_dataset.number_classes)]
