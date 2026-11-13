@@ -82,7 +82,7 @@ stay between 0 and 1.
                 font-size: 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
   #exports-table td:first-child { white-space: normal; overflow-wrap: anywhere; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-  .class-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(560px, 100%), 1fr)); gap: 10px; }
+  .class-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
   .card-title { font-weight: 600; overflow-wrap: anywhere; }
   .card-subtitle { color: var(--text-muted); font-size: 12px; }
   svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -264,7 +264,8 @@ stay between 0 and 1.
     const classState = state.classes[classIndex];
     const positives = DATA.positives[classIndex];
     const labelHeight = 12 * DATA.target_precisions.length + 4;
-    const left = 34, width = 600, top = labelHeight, plotHeight = 160;
+    // Plot as wide as the page, one class per row, so that the 50 bins of the histogram stay readable
+    const left = 44, width = 1150, top = labelHeight, plotHeight = 280;
     const baseline = top + plotHeight, binWidth = width / DATA.number_score_bins;
     const shares = classState.positive_counts.map(count => positives ? count / positives : 0);
     const largestShare = Math.max(...shares);
