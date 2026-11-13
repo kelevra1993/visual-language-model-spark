@@ -181,7 +181,8 @@ def build_pair_layout(member_lengths: List[List[int]], pair_names: List[str], cl
 
 
 def make_pair_batch_animation(output_folder: Path, model: TaskModel, train_folder: Path,
-                              label_dictionary: Dict[int, int], image_size: int, force: bool) -> Dict[str, Any]:
+                              label_dictionary: Dict[int, int], image_size: int, keep_ratio: bool,
+                              force: bool) -> Dict[str, Any]:
     """
     Makes the frames, vector squares and layout file of the animated pair batch, and gives its facts: the pairs and
     their member lengths, the shapes of the samples, the batch, its halves and the stacked members, the real and
@@ -195,6 +196,7 @@ def make_pair_batch_animation(output_folder: Path, model: TaskModel, train_folde
         train_folder (Path): The training split of the run.
         label_dictionary (Dict[int, int]): The class index of every category of the run.
         image_size (int): The frame size of the run.
+        keep_ratio (bool): Whether the run resizes its frames keeping their aspect ratio.
         force (bool): Whether the encoding runs again even when the previous build left it.
 
     Returns:
@@ -211,12 +213,12 @@ def make_pair_batch_animation(output_folder: Path, model: TaskModel, train_folde
     manifest = json.loads((train_folder / "labels.json").read_text(encoding="utf-8"))
     first_index = choose_pair_window(pairs=manifest["pairs"])
     dataset = SequencePairDataset(data_directory=str(train_folder / "data"), labels_file=str(train_folder /
-                                  "labels.json"), image_size=image_size, keep_ratio=True,
+                                  "labels.json"), image_size=image_size, keep_ratio=keep_ratio,
                                   label_dictionary=label_dictionary, sequence_settings={
                                       "maximum_sequence_length": 10 ** 6}, split_name="Training", shuffle=False)
     pair_indices = list(range(first_index, first_index + PAIR_COUNT))
     samples = [dataset[pair_index] for pair_index in pair_indices]
-    batch = collate_padded_sequences(samples=samples, members_per_sample=2)
+    batch = collate_padded_sequences(samples=samples, members_per_sample=len(PAIR_MEMBERS))
     before_images, after_images = split_pair_members(pair_tensor=batch["images"])
     before_mask, after_mask = split_pair_members(pair_tensor=batch["sequence_mask"])
 

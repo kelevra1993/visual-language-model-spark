@@ -2,11 +2,11 @@
 Training curves of the frame selection tutorials (the chapter on the losses and the decoding), made at every build by
 tutorials/figures/frame_selection/figures.py from the TensorBoard logs of the real frame selection run: the per-frame
 classification loss and the selection loss of the training batches on a logarithmic axis, with the references of equal
-logits (ln 4 for the per-frame loss over four classes, the mean ln T of the training sequences for the selection loss),
-and the frame accuracy of the training and validation batches with the share of unselected frames. Two PNG files are
-written, the empty panels with the references (the base image of the scene) and the whole chart (its overlay), with the
-boxes of the panels, the values of the curves and the median throughput of the training (from the wall times of the
-logs) as facts.
+logits (ln K for the per-frame loss over the K categories, the mean ln T of the training sequences for the selection
+loss), and the frame accuracy of the training and validation batches with the share of unselected frames. Two PNG files
+are written, the empty panels with the references (the base image of the scene) and the whole chart (its overlay), with
+the boxes of the panels, the values of the curves and the median throughput of the training (from the wall times of
+the logs) as facts.
 """
 
 import matplotlib
@@ -138,8 +138,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
         output_folder (Path): The figures folder of the series.
         run_folder (Path): The folder of the frame selection run.
         run_label (str): The run folder written in the header, from the experiments folder.
-        reference_facts (Dict[str, Any]): The facts of the data figures: the mean ln T, ln 4 and the share of
-            unselected frames.
+        reference_facts (Dict[str, Any]): The facts of the data figures: the mean ln T, the number of categories and
+            its natural log, and the share of unselected frames.
 
     Returns:
         Dict[str, Any]: The facts of the figure, named training.*.
@@ -172,7 +172,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
                         label=f"selection, equal logits: mean ln T = {reference_facts['dataset.mean_log_length']:.3f}",
                         last_iteration=last_iteration, vertical_alignment="bottom")
     draw_reference_line(axes=loss_axes, value=reference_facts["dataset.log_class_count"],
-                        label=f"per frame, equal logits: ln 4 = {reference_facts['dataset.log_class_count']:.3f}",
+                        label=f"per frame, equal logits: ln {reference_facts['dataset.category_count']} = "
+                              f"{reference_facts['dataset.log_class_count']:.3f}",
                         last_iteration=last_iteration, vertical_alignment="top")
     draw_reference_line(axes=accuracy_axes, value=reference_facts["dataset.unselected_share"],
                         label=f"share of unselected frames: {reference_facts['dataset.unselected_share']:.3f}",

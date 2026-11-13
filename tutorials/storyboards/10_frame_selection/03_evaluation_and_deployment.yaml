@@ -48,7 +48,7 @@ scenes:
           - {match: "^Iteration", sentences: [0]}
           - {match: "Hungarian Selection Accuracy|Greedy Selection Accuracy", sentences: [1]}
           - {match: "Fully Right|Unselected Precision", sentences: [2]}
-          - {match: "Top-2 Selection", sentences: [3]}
+          - {match: "Top-{{frame_selection.evaluation.top_k}} Selection", sentences: [3]}
           - {match: "Frame Accuracy|Frame Macro F1", sentences: [4]}
           - {match: "^   triangle", sentences: [5]}
     narration:
@@ -97,7 +97,7 @@ scenes:
       file: vision_training/models/sequence/frame_selection_decoding.py
       function: flag_low_confidence
     highlights:
-      - {match: "NO_FRAME|class_threshold is None|< class_threshold", sentences: [0]}
+      - {match: "NO_FRAME|class_threshold is None|low_confidence\\[wanted_index\\]", sentences: [0]}
     narration:
       - "flag low confidence applies them in the deployed decoder: a missing frame, a frame below the threshold of its class, or any frame of a class without threshold."
       - "The selections file of every evaluation gives the same flags, one row per sequence and class, with the true frames, their probabilities and ranks, and the picks of both decodings."
@@ -109,7 +109,7 @@ scenes:
     # The three kinds of models of the export (network, decoder, ensemble), the ensemble chaining the two others
     literal_numbers: ["three", "two"]
     elements:
-      - {type: box, box: [20, 300, 300, 440], text: "images\n[B, T, {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#Backbone.input_channels}}, {{frame_selection.dataset.image_size}}, {{frame_selection.dataset.image_size}}]", font: diagram_small, outline: blue}
+      - {type: box, box: [20, 300, 300, 440], text: "images\n[B, T, {{frame_selection.run.input_channels}}, {{frame_selection.dataset.image_size}}, {{frame_selection.dataset.image_size}}]", font: diagram_small, outline: blue}
       - {type: arrow, points: [[300, 370], [375, 370]]}
       # The ensemble the clients query, chaining the network and the decoder
       - {type: box, box: [380, 60, 1320, 700], fill: null, outline: yellow, appear: 5, highlight: [5]}
@@ -118,30 +118,30 @@ scenes:
       - {type: arrow, points: [[850, 300], [850, 375]], appear: 3}
       - {type: box, box: [420, 380, 1280, 660], text: "frame_selector_decoder\nPython backend on the CPU, numpy and scipy\n\nmodel.py · frame_selection_decoding.py (a copy)\ndecoding_settings.json: decoding, frames_per_class,\nunselected class, thresholds, class names", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: arrow, points: [[1280, 520], [1375, 520]], appear: 4}
-      - {type: box, box: [1380, 200, 1740, 640], text: "selected_frames [B, {{frame_selection.dataset.wanted_class_count}}, {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#Selection.frames_per_class}}]\nselected_probabilities\nlow_confidence\n\ncandidate_frames [B, {{frame_selection.dataset.wanted_class_count}}, {{frame_selection.evaluation.top_k}}]\ncandidate_probabilities", font: diagram_small, outline: aqua, appear: 4, highlight: [4]}
+      - {type: box, box: [1380, 200, 1740, 640], text: "selected_frames [B, {{frame_selection.dataset.wanted_class_count}}, {{frame_selection.run.frames_per_class}}]\nselected_probabilities\nlow_confidence\n\ncandidate_frames [B, {{frame_selection.dataset.wanted_class_count}}, {{frame_selection.evaluation.top_k}}]\ncandidate_probabilities", font: diagram_small, outline: aqua, appear: 4, highlight: [4]}
       - {type: text, position: [160, 520], text: "one T for all\nthe sequences\nof a request", font: diagram_small, colour: dim, anchor: ma, appear: 6}
     narration:
       - "The export writes three kinds of Triton models for a frame selection run."
-      - "frame selector Torch Script or ONNX is the network alone: images of B by T by {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#Backbone.input_channels:words}} by {{frame_selection.dataset.image_size}} by {{frame_selection.dataset.image_size}} in, class probabilities of B by T by {{frame_selection.dataset.class_count:words}} out, without sequence mask and without decoding."
+      - "frame selector Torch Script or ONNX is the network alone: images of B by T by {{frame_selection.run.input_channels:words}} by {{frame_selection.dataset.image_size}} by {{frame_selection.dataset.image_size}} in, class probabilities of B by T by {{frame_selection.dataset.class_count:words}} out, without sequence mask and without decoding."
       - "Like every export, it also writes the input settings of the run, its resize, colour order and layout with the frames after the batch dimension, in a preprocessing file next to it and in the ONNX metadata."
       - "frame selector decoder is a Python backend model run on the CPU: its folder holds a copy of the decoding file of the evaluation, and a decoding settings json file with the decoding, the frames per class, the unselected class, the thresholds and the class names."
-      - "It gives the selected frames with their probabilities and low confidence flags, {{frame_selection.dataset.wanted_class_count:words}} by {{config:vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml#Selection.frames_per_class:words}} per sequence here, and the top-k candidate frames of every class with their probabilities, k being the top k of the evaluation, {{frame_selection.evaluation.top_k:words}}."
+      - "It gives the selected frames with their probabilities and low confidence flags, {{frame_selection.dataset.wanted_class_count:words}} by {{frame_selection.run.frames_per_class:words}} per sequence here, and the top-k candidate frames of every class with their probabilities, k being the top k of the evaluation, {{frame_selection.evaluation.top_k:words}}."
       - "frame selector Torch Script ensemble, or ONNX ensemble, chains the two: the model the clients query."
       - "Picture a client with mixed lengths: without a mask, the sequences of one request share their number of frames, from one to the maximum sequence length."
 
   - kind: code
     title: "The settings of the decoder"
     code_reference: "vision_training/deployment/frame_selection_deployment.py · build_decoding_settings"
-    # The thresholds of an export without evaluation, class_thresholds = [0.0] in the excerpt and its highlight
+    # The thresholds of an export without evaluation, the class_thresholds of zero of the else branch of the excerpt
     literal_numbers: ["zero"]
     source:
       file: vision_training/deployment/frame_selection_deployment.py
       function: build_decoding_settings
       start: "# Thresholds of the evaluation"
-      end: "class_thresholds = \\[0.0\\]"
+      end: "class_thresholds = .*wanted_class_indices"
     highlights:
-      - {match: "thresholds_path = find_class_thresholds_path", sentences: [0, 1, 3]}
-      - {match: "class_thresholds = \\[0.0\\]|class_names = \\[str", sentences: [2]}
+      - {match: "find_class_thresholds_path\\(", sentences: [0, 1, 3]}
+      - {match: "^    else:|wanted_class_indices", sentences: [2]}
     narration:
       - "The decoding settings read the class thresholds file of the evaluation of the exported iteration, written by the training or by the evaluation script."
       - "Should both folders hold one, the export stops rather than pick one of them."

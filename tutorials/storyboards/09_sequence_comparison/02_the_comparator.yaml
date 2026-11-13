@@ -44,7 +44,7 @@ scenes:
       - {match: "summarise_members\\(", sentences: [0]}
       - {match: "combine_member_vectors", sentences: [0]}
       - {match: "class_logits = ", sentences: [0]}
-      - {match: "before_mask: Optional|after_mask: Optional", sentences: [1]}
+      - {match: "before_mask:|after_mask:", sentences: [1]}
     narration:
       - "Its forward pass has five steps: encode the members, let their frames attend to each other for the cross attention only, summarize every member, combine the two member vectors, and classify."
       - "Training and evaluation give it both members with their masks; the export gives it two tensors of real frames, of their own lengths, without masks."
@@ -58,10 +58,10 @@ scenes:
       start: "# Both members padded to the same number of frames"
       end: "before_features, after_features = frame_features.chunk"
     highlights:
-      - {match: "torch.cat\\(tensors=\\[before_images, after_images\\], dim=0\\)|torch.cat\\(tensors=\\[before_mask", sentences: [0]}
-      - {match: "frame_features = encode_frames", sentences: [1]}
-      - {match: "arange\\(2 \\* batch_size|normalization_scope == \"pair\"", sentences: [2]}
-      - {match: "chunk\\(chunks=2", sentences: [0]}
+      - {match: "torch\\.cat\\(", sentences: [0]}
+      - {match: "encode_frames\\(", sentences: [1]}
+      - {match: "self\\.normalization_scope|torch\\.arange\\(", sentences: [2]}
+      - {match: "\\.chunk\\(", sentences: [0]}
     narration:
       - "With masks, both members are padded to the same length, so encode members stacks them along the batch axis into 2B sequences, and cuts the result in two again."
       - "One call to encode frames, the function of the sequence classifier, then runs only the real frames through the backbone, with batch normalization statistics computed over the frames of both members."
@@ -89,8 +89,8 @@ scenes:
       file: vision_training/models/sequence/sequence_comparator.py
       function: SequenceComparator.summarise_members
     highlights:
-      - {match: "member_features = torch.cat|member_vectors = self.temporal_module|chunk\\(chunks=2", sentences: [0]}
-      - {match: "if before_mask is None|self.temporal_module\\(frame_features=before_features", sentences: [1]}
+      - {match: "member_features = |member_vectors = |\\.chunk\\(", sentences: [0]}
+      - {match: "if before_mask is None|frame_features=before_features|frame_features=after_features", sentences: [1]}
     narration:
       - "The temporal module, shared by both members, also summarizes the 2B sequences in one call, then the result is cut back into the before and after vectors: here a mean pooling, {{sequence_comparison.features.member}} features per member and no weights."
       - "Without masks, every member is summarised on its own; any of the {{sequence_comparison.code.temporal_type_count_words}} temporal modules works, but never a causal one."
@@ -113,7 +113,7 @@ scenes:
       - {type: box, box: [1040, 270, 1300, 340], text: "a − b · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#4a3a10", outline: yellow, appear: 2}
       - {type: text, position: [1600, 305], text: "{{sequence_comparison.features.difference}} features", font: diagram_text, anchor: rm, appear: 2}
       # Cross attention
-      - {type: text, position: [40, 450], text: "cross_attention · FXA4", font: diagram_bold, appear: 3, highlight: [3]}
+      - {type: text, position: [40, 450], text: "cross_attention · FXA{{sequence_comparison.run.fusion_number_heads}}", font: diagram_bold, appear: 3, highlight: [3]}
       - {type: box, box: [500, 410, 1300, 490], text: "every frame attends to the real frames of the other member:\none MultiheadAttention and LayerNorm for both directions", font: diagram_small, outline: violet, appear: 3}
       - {type: box, box: [500, 520, 760, 590], text: "b · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#1b3f32", outline: aqua, appear: 3}
       - {type: box, box: [770, 520, 1030, 590], text: "a · {{sequence_comparison.features.member}}", font: diagram_small, fill: "#4a2233", outline: magenta, appear: 3}
@@ -164,16 +164,16 @@ scenes:
     title: "The run name"
     code_reference: "vision_training/configuration_processing/run_name.py · build_fusion_tokens"
     elements:
-      - {type: text, position: [214, 110], font: code_text, segments: [{text: "CMP", colour: dim}, {text: "_", colour: dim}, {text: "IN-KAR-512", colour: dim}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", colour: dim}, {text: "_", colour: dim}, {text: "T50", highlight: [0]}, {text: "_", colour: dim}, {text: "MEAN", highlight: [0]}, {text: "_", colour: dim}, {text: "FDIF", highlight: [0]}, {text: "_", colour: dim}, {text: "HAVG.64", highlight: [1]}, {text: "_", colour: dim}, {text: "MC2", highlight: [1]}]}
-      - {type: box, box: [420, 250, 820, 400], text: "T50 · MEAN\n\nmaximum length per member,\nmean pooling", font: diagram_small, outline: aqua, appear: 0, highlight: [0]}
+      - {type: text, position: [214, 110], font: code_text, segments: [{text: "CMP", colour: dim}, {text: "_", colour: dim}, {text: "IN-KAR-{{sequence_comparison.run.image_size}}", colour: dim}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", colour: dim}, {text: "_", colour: dim}, {text: "T{{sequence_comparison.run.maximum_sequence_length}}", highlight: [0]}, {text: "_", colour: dim}, {text: "MEAN", highlight: [0]}, {text: "_", colour: dim}, {text: "FDIF", highlight: [0]}, {text: "_", colour: dim}, {text: "HAVG.{{sequence_comparison.run.head_hidden_units}}", highlight: [1]}, {text: "_", colour: dim}, {text: "MC{{sequence_comparison.run.class_count}}", highlight: [1]}]}
+      - {type: box, box: [420, 250, 820, 400], text: "T{{sequence_comparison.run.maximum_sequence_length}} · MEAN\n\nmaximum length per member,\nmean pooling", font: diagram_small, outline: aqua, appear: 0, highlight: [0]}
       - {type: box, box: [880, 250, 1280, 400], text: "FDIF\n\nFCAT · FDIF · FXA<heads>\n+ SNP with the pair scope", font: diagram_small, outline: yellow, appear: 0, highlight: [0, 2]}
-      - {type: box, box: [1340, 250, 1740, 400], text: "HAVG.64 · MC2\n\naverage pooling, {{sequence_comparison.run.head_hidden_units}} hidden\nunits, {{sequence_comparison.run.class_count}} classes", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [1340, 250, 1740, 400], text: "HAVG.{{sequence_comparison.run.head_hidden_units}} · MC{{sequence_comparison.run.class_count}}\n\naverage pooling, {{sequence_comparison.run.head_hidden_units}} hidden\nunits, {{sequence_comparison.run.class_count}} classes", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1072, 130], [620, 245]], appear: 0}
       - {type: arrow, points: [[1170, 130], [1080, 245]], appear: 0}
       - {type: arrow, points: [[1340, 130], [1540, 245]], appear: 1}
     narration:
-      - "The run name gives the maximum length per member, T50, the temporal module, MEAN, and the fusion, FDIF, between the backbone and the head."
-      - "HAVG.64 is the average pooling with {{sequence_comparison.run.head_hidden_units}} hidden units, and MC2 the {{sequence_comparison.run.class_count_words}} classes."
+      - "The run name gives the maximum length per member, T{{sequence_comparison.run.maximum_sequence_length}}, the temporal module, MEAN, and the fusion, FDIF, between the backbone and the head."
+      - "HAVG.{{sequence_comparison.run.head_hidden_units}} is the average pooling with {{sequence_comparison.run.head_hidden_units}} hidden units, and MC{{sequence_comparison.run.class_count}} the {{sequence_comparison.run.class_count_words}} classes."
       - "SNP is added after the fusion only when the backbone uses the sequence normalization with the pair scope."
 
   - kind: summary

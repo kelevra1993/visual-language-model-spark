@@ -96,21 +96,25 @@ scenes:
              ProjectionHead.barlow_twins]
       comments: false
     highlights:
-      - {match: "global_pooling", sentences: [0]}
-      - {match: "fully_connected", sentences: [1]}
-      - {match: "method:|temperature|off_diagonal_weight", sentences: [2]}
-      - {match: "batch_size|number_neighbours|number_reference_images_per_class", sentences: [3]}
+      - {key: ProjectionHead.global_pooling, sentences: [0]}
+      - {key: ProjectionHead.fully_connected, sentences: [1]}
+      - {key: ProjectionHead.fully_connected_normalization, sentences: [1]}
+      - {key: ProjectionHead.method, sentences: [2]}
+      - {key: ProjectionHead.simclr.temperature, sentences: [2]}
+      - {key: ProjectionHead.barlow_twins.off_diagonal_weight, sentences: [2]}
+      - {key: ExperimentConfiguration.batch_size, sentences: [3]}
+      - {key: ExperimentConfiguration.evaluation.number_neighbours, sentences: [3]}
+      - {key: ExperimentConfiguration.evaluation.number_reference_images_per_class, sentences: [3]}
     narration:
       - "The task adds one section, the projection head: its global pooling turns the last feature map into the representation, the vector that is evaluated, exported and transferred."
-      - "Its fully connected layers map the representation to the embedding the loss compares: here one hidden layer of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[0]}} units with batch normalization, then an embedding of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[1]}} values."
+      - "Its fully connected layers map the representation to the embedding the loss compares: here one hidden layer of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[0]}} units, normalized as fully connected normalization sets, then an embedding of {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[1]}} values."
       - "The method is SimCLR or Barlow Twins, each with one setting, the temperature of SimCLR, {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.simclr.temperature}} here, or the off-diagonal weight of Barlow Twins; both are checked whatever the method, so that one key switches between them."
       - "The batch size weighs more than in a supervised task, every view being compared with the {{self_supervised.curves.other_view_count}} other views of its batch, and the evaluation votes with {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_neighbours}} neighbours among {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_reference_images_per_class}} training images per class."
 
   - kind: yaml
     title: "The views come from the augmentation"
     code_reference: "vision_training/data/augmentations.py · SELF_SUPERVISED_AUGMENTATION_STRENGTHS"
-    # The two views of the methods, and the largest aspect ratio of the crop, 2.0 in crop_aspect_ratio_range of
-    # SELF_SUPERVISED_AUGMENTATION_STRENGTHS, which a placeholder cannot read (1.0 / 2.0 is not a literal)
+    # The two views of the methods
     literal_numbers: ["two"]
     source:
       file: vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml
@@ -124,13 +128,16 @@ scenes:
     highlights:
       - {key: Data.data_augmentation.activated, sentences: [0]}
       - {key: Data.data_augmentation.probability, sentences: [0]}
-      - {match: "random_crop", sentences: [1]}
-      - {match: "brightness_contrast_saturation|random_hue|gray_scale_augment", sentences: [2]}
-      - {match: "random_solarize|random_black_out", sentences: [3]}
+      - {key: Data.data_augmentation.types.random_crop, sentences: [1]}
+      - {key: Data.data_augmentation.types.brightness_contrast_saturation, sentences: [2]}
+      - {key: Data.data_augmentation.types.random_hue, sentences: [2]}
+      - {key: Data.data_augmentation.types.gray_scale_augment, sentences: [2]}
+      - {key: Data.data_augmentation.types.random_solarize, sentences: [3]}
+      - {key: Data.data_augmentation.types.random_black_out, sentences: [3]}
     narration:
       - "The views are drawn by the data augmentation section every task has, and it must be on; its global probability is ignored, every image getting its two views."
-      - "The random crop must stay at a probability of one: a fifth of the area or more, at an aspect ratio between one half and two, it is the main difference between the views."
-      - "Every activated type is then drawn for each view on its own, with its probability: {{self_supervised.run.activated_type_count}} of the {{self_supervised.run.type_count}} types here, at the stronger self-supervised strengths of the code, compared side by side in the foundations series."
+      - "The random crop must stay at a probability of one: {{self_supervised.views.crop_minimum_area:.0%}} of the area or more, at an aspect ratio between {{self_supervised.views.crop_minimum_aspect_ratio:.2g}} and {{self_supervised.views.crop_maximum_aspect_ratio:.2g}}, it is the main difference between the views."
+      - "Every activated type is then drawn for each view on its own, with its probability: {{self_supervised.run.activated_type_count}} of the {{self_supervised.run.type_count}} types in the run, at the stronger self-supervised strengths of the code, compared in the foundations series."
       - "The solarization and the black-out are drawn for the second view only, as in the asymmetric views of Barlow Twins."
 
   - kind: code
@@ -143,8 +150,8 @@ scenes:
       function: DataAugmenter.create_views
       start: "# Every view of the batch drawn"
     highlights:
-      - {match: "return views\\[0\\], views\\[1\\]", sentences: [0]}
-      - {match: "for view_index in range|for image in float_images", sentences: [1]}
+      - {match: "return views", sentences: [0]}
+      - {match: "for view_index in|for image in", sentences: [1]}
       - {match: "view_index=view_index", sentences: [1]}
       - {match: "with torch.autocast", sentences: [2]}
     narration:
@@ -183,7 +190,7 @@ scenes:
           - {match: ".", sentences: [2]}
     narration:
       - "Here is a star of the test split and the two views its sample image draws at every evaluation, from a seed of the image, each listed with the augmentations it drew."
-      - "The first view is a crop of a fifth to the whole of the area, followed by the geometric and photometric changes its draw picked, listed beside it."
+      - "The first view is a crop of {{self_supervised.views.crop_minimum_area:.0%}} to {{self_supervised.views.crop_maximum_area:.0%}} of the area, followed by the geometric and photometric changes its draw picked, listed beside it."
       - "The second view draws again from the same image, so its crop and its changes differ, and the black-out and solarization types only ever appear in this second view."
       - "The shape is what both views keep, and the loss pulls their embeddings together, so the backbone has to learn what survives these changes, and nothing else."
 
@@ -217,10 +224,10 @@ scenes:
     title: "The run name"
     code_reference: "vision_training/configuration_processing/run_name.py · build_self_supervised_sections"
     elements:
-      - {type: text, position: [148, 110], font: code_text, segments: [{text: "SSL", highlight: [0]}, {text: "_", colour: dim}, {text: "IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128", dim: [1, 2]}, {text: "_", colour: dim}, {text: "PAVG.512.128-PBN", highlight: [1]}, {text: "_", colour: dim}, {text: "SIMCLR-T0.2", highlight: [1]}]}
+      - {type: text, position: [148, 110], font: code_text, segments: [{text: "SSL", highlight: [0]}, {text: "_", colour: dim}, {text: "IN-KAR-{{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Data.image_settings.size}}_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128", dim: [1, 2]}, {text: "_", colour: dim}, {text: "PAVG.{{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[0]}}.{{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[1]}}-PBN", highlight: [1]}, {text: "_", colour: dim}, {text: "SIMCLR-T{{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.simclr.temperature}}", highlight: [1]}]}
       - {type: box, box: [60, 230, 470, 430], text: "SSL\n\ntask: self_supervised\nno class count:\nno label is trained", font: diagram_small, outline: violet, highlight: [0]}
-      - {type: box, box: [560, 230, 1030, 430], text: "PAVG.512.128-PBN\n\naverage pooling,\nlayers {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[0]}} then {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[1]}},\nbatch normalization", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: box, box: [1120, 230, 1700, 430], text: "SIMCLR-T0.2\n\nSimCLR, temperature {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.simclr.temperature}}\nor BT-OD<weight>\nfor Barlow Twins", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [560, 230, 1030, 430], text: "PAVG.{{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[0]}}.{{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[1]}}-PBN\n\naverage pooling,\nlayers {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[0]}} then {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.fully_connected[1]}},\nbatch normalization", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [1120, 230, 1700, 430], text: "SIMCLR-T{{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.simclr.temperature}}\n\nSimCLR, temperature {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#ProjectionHead.simclr.temperature}}\nor BT-OD<weight>\nfor Barlow Twins", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
       - {type: arrow, points: [[230, 130], [260, 225]], colour: dim}
       - {type: arrow, points: [[1140, 130], [800, 225]], colour: dim, appear: 1}
       - {type: arrow, points: [[1450, 130], [1410, 225]], colour: dim, appear: 1}

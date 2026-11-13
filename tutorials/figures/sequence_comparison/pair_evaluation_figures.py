@@ -50,16 +50,18 @@ RIGHT_SAMPLE = "test_000000"
 PROBABILITY_BINS = numpy.linspace(start=0.0, stop=1.0, num=41)
 
 
-def draw_curve_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
+def draw_curve_figure(output_folder: Path, run_folder: Path, class_count: int) -> Dict[str, Any]:
     """
     Draws the total loss and the accuracy of the training and validation batches of the run on two panels, every
-    curve smoothed like TensorBoard over its faint raw values, with the test accuracy of every evaluation; the empty
-    axes are written as the base image and the whole chart as its overlay. Gives the boxes of the panels and their
-    reveal regions, and the first and last values of the curves.
+    curve smoothed like TensorBoard over its faint raw values, with the test accuracy of every evaluation and the loss
+    of a uniform guess over the classes of the run; the empty axes are written as the base image and the whole chart
+    as its overlay. Gives the boxes of the panels and their reveal regions, and the first and last values of the
+    curves.
 
     Args:
         output_folder (Path): The figures folder of the series.
         run_folder (Path): The comparison run.
+        class_count (int): The number of classes of the run, whose natural log is the loss of a uniform guess.
 
     Returns:
         Dict[str, Any]: The facts, named training.*.
@@ -83,10 +85,13 @@ def draw_curve_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
         axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
     # Accuracy ticks written as the percentages of the reports of the repository, the loss keeping its decimals
     accuracy_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
-    loss_axes.axhline(y=numpy.log(2), color=TEXT_SECONDARY_COLOUR, linewidth=1.5 * POINTS_PER_PIXEL, linestyle="--")
-    loss_axes.annotate(text="ln 2 = 0.693, a uniform guess", xy=(last_iteration, numpy.log(2)), xytext=(-8, 8),
-                       textcoords="offset points", ha="right", va="bottom", color=TEXT_SECONDARY_COLOUR,
-                       fontsize=17 * POINTS_PER_PIXEL)
+    # Loss of a uniform guess over the classes of the run, the natural log of their number
+    uniform_guess_loss = numpy.log(class_count)
+    loss_axes.axhline(y=uniform_guess_loss, color=TEXT_SECONDARY_COLOUR, linewidth=1.5 * POINTS_PER_PIXEL,
+                      linestyle="--")
+    loss_axes.annotate(text=f"ln {class_count} = {uniform_guess_loss:.3f}, a uniform guess",
+                       xy=(last_iteration, uniform_guess_loss), xytext=(-8, 8), textcoords="offset points", ha="right",
+                       va="bottom", color=TEXT_SECONDARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
     colours = {"Train": SERIES_COLOURS[0], "Validation": SERIES_COLOURS[1], "Test": SERIES_COLOURS[2]}
     legend_handles = [Line2D(xdata=[0], ydata=[0], color=colours["Train"], linewidth=3 * POINTS_PER_PIXEL),
                       Line2D(xdata=[0], ydata=[0], color=colours["Validation"], linewidth=3 * POINTS_PER_PIXEL),
@@ -186,7 +191,7 @@ def draw_probability_figure(output_path: Path, predictions: List[Dict[str, str]]
 
 
 def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path: Path, iteration: int,
-                                 test_folder: Path) -> Dict[str, Any]:
+                                 test_folder: Path, class_count: int, information_dump: int) -> Dict[str, Any]:
     """
     Makes the training and evaluation figures of the comparison run and gives their facts.
 
@@ -196,6 +201,9 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
         log_path (Path): The console log of its training.
         iteration (int): Its last evaluated iteration.
         test_folder (Path): Its test split, which gives the member lengths of the wrong pairs.
+        class_count (int): The number of classes of the run, for the loss of a uniform guess on the curves.
+        information_dump (int): The interval of the console summaries of the run, the iteration of the first summary
+            the console figure shows.
 
     Returns:
         Dict[str, Any]: The facts, named launch.*, console.*, training.*, evaluation.*, probabilities.*, errors.* and
@@ -209,10 +217,11 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
                                        "launch_console.png", font_size=17,
                                        highlight_patterns={"splits": r"Data Folder", "epoch": r"Iterations Per Epoch"})
     facts.update({f"launch.{name}": box for name, box in launch_boxes.items()})
-    console_lines = extract_interval_block(log_path=log_path, iteration=100)
+    console_lines = extract_interval_block(log_path=log_path, iteration=information_dump)
     console_boxes = draw_console_figure(lines=console_lines, output_path=output_folder / "evaluation" /
                                         "training_console.png", font_size=17,
-                                        highlight_patterns={"header": r"Iteration:\s+100", "interval": r"Interval Of"})
+                                        highlight_patterns={"header": rf"Iteration:\s+{information_dump}\b",
+                                                            "interval": r"Interval Of"})
     facts.update({f"console.{name}": box for name, box in console_boxes.items()})
     summaries = read_interval_summaries(log_path=log_path)
     throughputs = [summary["throughput"] for summary in summaries[1:]]
@@ -228,7 +237,7 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     facts["console.first_interval_time"] = interval_line.split("Took")[-1].strip().rstrip(".")
 
     # Curves, Results.txt and the headline metrics of every evaluation
-    facts.update(draw_curve_figure(output_folder=output_folder, run_folder=run_folder))
+    facts.update(draw_curve_figure(output_folder=output_folder, run_folder=run_folder, class_count=class_count))
     write_text_lines(output_path=output_folder / "listings" / "results.txt",
                      lines=(run_folder / "Results.txt").read_text(encoding="utf-8").splitlines())
     for scalar_name, fact_name in TEST_SCALARS.items():

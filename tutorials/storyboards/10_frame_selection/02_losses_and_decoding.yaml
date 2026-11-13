@@ -155,7 +155,7 @@ scenes:
           notes:
             - {text: "gain(f, c) = log p(f, c) − log p(f, unselected)", font: diagram_bold}
             - {text: "every column repeated frames_per_class times"}
-            - {text: "here 1: one frame per column", colour: dim}
+            - {text: "here {{frame_selection.run.frames_per_class}}: one frame per column", colour: dim}
         - sentence: 3
           values: gains
           title: "test_000052 · iteration {{frame_selection.picks.iteration}} · gains"
@@ -210,7 +210,7 @@ scenes:
       file: vision_training/models/sequence/frame_selection_decoding.py
       function: decode_hungarian_selection
     highlights:
-      - {match: "log_probabilities =|gains =", sentences: [0]}
+      - {match: "log_probabilities =|^\\s*gains =", sentences: [0]}
       - {match: "np.repeat|linear_sum_assignment", sentences: [1]}
       - {match: "order_selected_frames", sentences: [2]}
     narration:
@@ -249,7 +249,7 @@ scenes:
           notes:
             - {text: "Greedy: A ← frame 1, B ← frame 3", font: diagram_bold, colour: violet}
             - {text: "labelling A · unselected · B"}
-            - {text: "0.50 × 0.50 × 0.08 = {{frame_selection.readme.greedy_labelling_probability:.3f}}"}
+            - {text: "{{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[0][0]:.2f}} × {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[1][2]:.2f}} × {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[2][1]:.2f}} = {{frame_selection.readme.greedy_labelling_probability:.3f}}"}
         - sentence: 2
           values: probabilities
           title: "Tasks reference example: classes A and B, 3 frames"
@@ -257,9 +257,9 @@ scenes:
           pick_delay: 0.5
           notes:
             - {text: "Greedy: A ← frame 1, B ← frame 3", font: diagram_bold, colour: violet}
-            - {text: "0.50 × 0.50 × 0.08 = {{frame_selection.readme.greedy_labelling_probability:.3f}}"}
+            - {text: "{{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[0][0]:.2f}} × {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[1][2]:.2f}} × {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[2][1]:.2f}} = {{frame_selection.readme.greedy_labelling_probability:.3f}}"}
             - {text: "Hungarian: B ← frame 1, A ← frame 2", font: diagram_bold, colour: accent}
-            - {text: "0.45 × 0.45 × 0.90 = {{frame_selection.readme.hungarian_labelling_probability:.3f}}"}
+            - {text: "{{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[0][1]:.2f}} × {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[1][0]:.2f}} × {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[2][2]:.2f}} = {{frame_selection.readme.hungarian_labelling_probability:.3f}}"}
             - {text: "{{frame_selection.readme.probability_ratio:.1f}} times more probable", colour: accent}
         - sentence: 3
           values: probabilities
@@ -267,8 +267,8 @@ scenes:
           picks: [greedy, hungarian]
           bands: [{row: 0, colour: yellow}]
           notes:
-            - {text: "frame 1 prefers A only slightly: 0.50 against 0.45", font: diagram_bold}
-            - {text: "B has no better frame: 0.05 and 0.08"}
+            - {text: "frame 1 prefers A only slightly: {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[0][0]:.2f}} against {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[0][1]:.2f}}", font: diagram_bold}
+            - {text: "B has no better frame: {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[1][1]:.2f}} and {{constant:tutorials/figures/frame_selection/selection_figures.py#README_PROBABILITIES[2][1]:.2f}}"}
             - {text: "greedy gives frame 1 to A, and B loses most", colour: dim}
         - sentence: 4
           values: probabilities

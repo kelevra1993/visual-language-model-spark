@@ -5,7 +5,8 @@ matrix), made by tutorials/figures/self_supervised/figures.py: four sample image
 run draws for it from the seed of its sample image, and the augmentations drawn for both views of the star as the input
 viewer lists them (describe_report), the listings of the views scene. The views of the star are compared with the
 sample image the run saved (views.star_saved_difference), 0 only while the augmentation strengths of the code are those
-the run was trained with.
+the run was trained with. The area and aspect ratio ranges of the crop of the views, which the narration quotes, are
+read from those strengths.
 """
 
 import cv2
@@ -19,6 +20,7 @@ from tutorials.figures.figure_utilities import round_fact
 from tutorials.figures.self_supervised.ssl_sources import (build_view_augmenter, draw_sample_views, find_sample,
                                                           list_evaluated_iterations, read_image_settings,
                                                           read_images, read_test_samples)
+from vision_training.data.augmentations import SELF_SUPERVISED_AUGMENTATION_STRENGTHS
 
 # Sample images of the evaluations whose views the figures show, in the order of the InfoNCE matrix: the star whose
 # views the first chapter details, then a circle, a triangle and a square
@@ -70,10 +72,27 @@ def compare_with_saved_sample(images: List[torch.Tensor], saved_path: Path) -> f
     return float(numpy.abs(drawn_image.astype(numpy.float64) - saved_panels.astype(numpy.float64)).mean())
 
 
+def describe_crop_ranges() -> Dict[str, Any]:
+    """
+    Gives the ranges of the random crop of the views, the share of the image area it keeps and its aspect ratio, read
+    from SELF_SUPERVISED_AUGMENTATION_STRENGTHS of the code, so that the views scenes of the first chapter quote the
+    strengths the views are drawn with (the ratio 1.0 / 2.0 of the constant is not a literal the storyboards can read).
+
+    Returns:
+        Dict[str, Any]: The facts, named views.crop_*.
+    """
+    minimum_area, maximum_area = SELF_SUPERVISED_AUGMENTATION_STRENGTHS["crop_area_range"]
+    minimum_aspect_ratio, maximum_aspect_ratio = SELF_SUPERVISED_AUGMENTATION_STRENGTHS["crop_aspect_ratio_range"]
+    return {"views.crop_minimum_area": float(minimum_area), "views.crop_maximum_area": float(maximum_area),
+            "views.crop_minimum_aspect_ratio": float(minimum_aspect_ratio),
+            "views.crop_maximum_aspect_ratio": float(maximum_aspect_ratio)}
+
+
 def make_view_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
     Writes the image and the two views of every sample image of VIEW_SAMPLE_NAMES into views/, the listings of the
-    augmentations drawn for both views of the star into listings/, and gives the facts the views scenes quote.
+    augmentations drawn for both views of the star into listings/, and gives the facts the views scenes quote, the
+    ranges of the crop of the views among them.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -86,7 +105,7 @@ def make_view_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     image_size, keep_ratio = read_image_settings(run_folder=run_folder)
     augmenter = build_view_augmenter(run_folder=run_folder)
     last_iteration = list_evaluated_iterations(run_folder=run_folder)[-1]
-    facts = {"views.image_size": image_size}
+    facts = {"views.image_size": image_size, **describe_crop_ranges()}
 
     # Every sample image with its two views, as the evaluation draws them
     for sample_index, file_name in enumerate(VIEW_SAMPLE_NAMES):

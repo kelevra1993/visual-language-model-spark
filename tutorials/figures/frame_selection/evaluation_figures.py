@@ -2,9 +2,9 @@
 Evaluation figures of the frame selection tutorials (the chapter on the evaluation and the deployment), made at every
 build by tutorials/figures/frame_selection/figures.py from the evaluation folders of the real frame selection run: the
 listing of the evaluation block of iteration 1000 in Results.txt, and the probability of every frame chosen by the
-Hungarian decoding (selections.csv) for every wanted class at iterations 1000 and 2000, the right and wrong choices
-apart, against the confidence threshold of the class in class_thresholds.json, so that the scene shows which wrong
-choices the deployed decoder flags as low confidence and which go through.
+decoding of the run (selections.csv) for every wanted class at iterations 1000 and 2000, the right and wrong choices
+apart, against the confidence threshold of the class in class_thresholds.json, found with that decoding, so that the
+scene shows which wrong choices the deployed decoder flags as low confidence and which go through.
 """
 
 import json
@@ -43,14 +43,15 @@ THRESHOLD_COLOUR = SERIES_COLOURS[2]
 def draw_threshold_panel(axes: matplotlib.axes.Axes, selection_rows: Dict[Any, Dict[str, str]],
                          thresholds: Dict[str, Any], class_names: List[str], iteration: int) -> Dict[str, Any]:
     """
-    Draws one evaluation on a panel: for every wanted class (one row), the probability of every frame the Hungarian
-    decoding chose for it, right choices and wrong choices in their colours, and the threshold of the class as a tick
-    with its value, and gives the facts of the panel.
+    Draws one evaluation on a panel: for every wanted class (one row), the probability of every frame the decoding of
+    the thresholds (the decoding of the run) chose for it, right choices and wrong choices in their colours, and the
+    threshold of the class as a tick with its value, and gives the facts of the panel.
 
     Args:
         axes (matplotlib.axes.Axes): The panel.
         selection_rows (Dict[Any, Dict[str, str]]): The rows of selections.csv of the evaluation.
-        thresholds (Dict[str, Any]): The class_thresholds.json of the evaluation.
+        thresholds (Dict[str, Any]): The class_thresholds.json of the evaluation, with the decoding they were found
+            with.
         class_names (List[str]): The wanted classes, one row each from the top.
         iteration (int): The evaluated iteration.
 
@@ -59,11 +60,13 @@ def draw_threshold_panel(axes: matplotlib.axes.Axes, selection_rows: Dict[Any, D
     """
     facts = {}
     random_generator = numpy.random.default_rng(seed=0)
+    decoding = thresholds["decoding"]
     for row_index, class_name in enumerate(class_names):
+        # Choices of the decoding the thresholds were found with, in the columns of selections.csv named after it
         rows = [row for row in selection_rows.values() if row["class"] == class_name]
-        chosen_probabilities = numpy.array([float(row["hungarian_probabilities"]) for row in rows])
-        right_choices = numpy.array([row["hungarian_right_selections"] == "1" for row in rows])
-        flagged_choices = numpy.array([row["hungarian_low_confidence"] == "1" for row in rows])
+        chosen_probabilities = numpy.array([float(row[f"{decoding}_probabilities"]) for row in rows])
+        right_choices = numpy.array([row[f"{decoding}_right_selections"] == "1" for row in rows])
+        flagged_choices = numpy.array([row[f"{decoding}_low_confidence"] == "1" for row in rows])
 
         # Every right choice as a dot jittered around the row of its class, the wrong ones larger, on the row and on top
         row_position = len(class_names) - 1 - row_index
@@ -118,8 +121,15 @@ def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any
         CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH, sharey=True)
     figure.patch.set_facecolor(SURFACE_COLOUR)
     figure.subplots_adjust(left=0.075, right=0.985, top=0.79, bottom=0.13, wspace=0.08)
-    figure.text(x=0.012, y=0.955, s="Evaluation/Iteration_<n>/selections.csv · class_thresholds.json · hungarian "
-                                    "decoding, target precision 0.99", color=TEXT_SECONDARY_COLOUR,
+
+    # Thresholds of every panel, the header writing the decoding and the target precision they were found with
+    panel_thresholds = {iteration: json.loads((run_folder / "Evaluation" / f"Iteration_{iteration}" /
+                                               "class_thresholds.json").read_text(encoding="utf-8"))
+                        for iteration in THRESHOLD_ITERATIONS}
+    first_thresholds = panel_thresholds[THRESHOLD_ITERATIONS[0]]
+    figure.text(x=0.012, y=0.955, s=f"Evaluation/Iteration_<n>/selections.csv · class_thresholds.json · "
+                                    f"{first_thresholds['decoding']} decoding, target precision "
+                                    f"{first_thresholds['target_precision']}", color=TEXT_SECONDARY_COLOUR,
                 fontsize=16 * POINTS_PER_PIXEL, va="center", family=MONOSPACE_FONT_FAMILY)
     figure.text(x=0.012, y=0.905, s="Green: right choice · red: wrong choice · yellow tick: threshold of the class, "
                                     "a choice under it is flagged low confidence", color=TEXT_SECONDARY_COLOUR,
@@ -127,7 +137,7 @@ def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any
     facts = {}
     for axes, iteration in zip(panel_axes, THRESHOLD_ITERATIONS):
         evaluation_folder = run_folder / "Evaluation" / f"Iteration_{iteration}"
-        thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text(encoding="utf-8"))
+        thresholds = panel_thresholds[iteration]
         facts.update(draw_threshold_panel(axes=axes, selection_rows=read_selection_rows(
             selections_path=evaluation_folder / "selections.csv"), thresholds=thresholds,
             class_names=list(thresholds["classes"]), iteration=iteration))

@@ -76,8 +76,8 @@ scenes:
       file: vision_training/models/self_supervised/self_supervised_model.py
       function: SelfSupervisedModel.forward
     highlights:
-      - {match: "if second_view_tensor is None|return self.encode\\(images=input_tensor\\)", sentences: [0]}
-      - {match: "torch.cat|\\[:number_images\\]|\\[number_images:\\]", sentences: [1]}
+      - {match: "second_view_tensor is None|return self\\.encode\\(", sentences: [0]}
+      - {match: "torch\\.cat\\(|first_embeddings = |second_embeddings = ", sentences: [1]}
       - {match: "compute_method_loss|compute_embedding_standard_deviation", sentences: [2]}
     narration:
       - "Without second views, the forward pass of the model only encodes the images, as the evaluation and the export do."
@@ -93,8 +93,8 @@ scenes:
       file: vision_training/losses/self_supervised_losses.py
       function: compute_info_nce_loss
     highlights:
-      - {match: "normalize\\(|similarity_logits = embeddings", sentences: [0]}
-      - {match: "masked_fill|partner_indices = torch.cat", sentences: [1]}
+      - {match: "normalize\\(|similarity_logits = ", sentences: [0]}
+      - {match: "masked_fill|partner_indices = ", sentences: [1]}
       - {match: "cross_entropy", sentences: [2]}
       - {match: "positive_pair_accuracy = ", sentences: [3]}
     narration:
@@ -175,7 +175,7 @@ scenes:
     highlights:
       - {match: "compute_feature_cross_correlation\\(", sentences: [0]}
       - {match: "invariance_term = ", sentences: [1]}
-      - {match: "redundancy_term = |barlow_twins_loss = invariance_term", sentences: [1]}
+      - {match: "redundancy_term = |barlow_twins_loss = ", sentences: [1]}
       - {match: "cross_correlation_diagonal = |cross_correlation_off_diagonal = ", sentences: [3]}
     narration:
       - "Barlow Twins compares features instead of views: every embedding feature is normalized over the batch, then the features of the first views are correlated with those of the second views, a {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[1]}} by {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ProjectionHead.fully_connected[1]}} matrix."
@@ -194,7 +194,7 @@ scenes:
       function: compute_embedding_standard_deviation
     highlights:
       - {match: "normalize\\(", sentences: [0]}
-      - {match: "std\\(dim=0|shape\\[1\\] \\*\\* 0.5", sentences: [0]}
+      - {match: "feature_standard_deviations", sentences: [0]}
     narration:
       - "Both methods track the embedding standard deviation: the standard deviation over the batch of every feature of the normalized embeddings, averaged, then multiplied by the square root of the dimension."
       - "Picture a collapse, the same embedding whatever the image: it gives zero, while embeddings spread over the sphere give about one."

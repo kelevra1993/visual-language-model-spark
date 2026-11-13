@@ -38,10 +38,10 @@ scenes:
     source:
       file: vision_training/evaluation/self_supervised/representation_metrics.py
       function: compute_nearest_neighbour_predictions
-      start: "normalized_queries = torch_functional"
+      start: "normalized_queries = "
     highlights:
       - {match: "normalize\\(", sentences: [1]}
-      - {match: "similarities = normalized", sentences: [1]}
+      - {match: "^\\s*similarities = ", sentences: [1]}
       - {match: "topk|torch.exp", sentences: [2]}
       - {match: "scatter_add_|argmax", sentences: [3]}
     narration:
@@ -94,7 +94,7 @@ scenes:
     highlights:
       - {match: "svdvals|singular_value_distribution = ", sentences: [0]}
       - {match: "entropy = |torch.exp", sentences: [0]}
-      - {match: "isfinite|float\\(\"nan\"\\)", sentences: [1]}
+      - {match: "isfinite|\\bnan\\b", sentences: [1]}
     narration:
       - "The effective rank is the exponential of the entropy of the singular values of the representations, normalized to sum to one: one when they all lie along one direction, {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} when they use every direction evenly."
       - "It needs no label, so it is the headline metric of a test split without labels, and the warning of a collapse; diverged weights give not a number instead of stopping the run."
@@ -108,10 +108,10 @@ scenes:
     elements:
       - {type: text, position: [460, 14], text: "iteration {{self_supervised.knn.first_iteration:,}}", font: diagram_small, colour: dim, anchor: ma}
       - {type: text, position: [1310, 14], text: "iteration {{self_supervised.knn.last_iteration:,}}", font: diagram_small, colour: dim, anchor: ma}
-      - {type: image, path: "runs:tutorials/SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2/Evaluation/Iteration_500/Samples/test_000000.png", box: [40, 50, 880, 356], border: border, highlight: [1]}
-      - {type: image, path: "runs:tutorials/SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2/Evaluation/Iteration_2000/Samples/test_000000.png", box: [890, 50, 1730, 356], border: border, highlight: [1]}
-      - {type: image, path: "runs:tutorials/SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2/Evaluation/Iteration_500/Samples/test_000012.png", box: [40, 400, 880, 706], border: border, appear: 0}
-      - {type: image, path: "runs:tutorials/SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2/Evaluation/Iteration_2000/Samples/test_000012.png", box: [890, 400, 1730, 706], border: border, appear: 0}
+      - {type: image, path: "runs:tutorials/{{self_supervised.run.name}}/Evaluation/Iteration_{{self_supervised.knn.first_iteration}}/Samples/test_000000.png", box: [40, 50, 880, 356], border: border, highlight: [1]}
+      - {type: image, path: "runs:tutorials/{{self_supervised.run.name}}/Evaluation/Iteration_{{self_supervised.knn.last_iteration}}/Samples/test_000000.png", box: [890, 50, 1730, 356], border: border, highlight: [1]}
+      - {type: image, path: "runs:tutorials/{{self_supervised.run.name}}/Evaluation/Iteration_{{self_supervised.knn.first_iteration}}/Samples/test_000012.png", box: [40, 400, 880, 706], border: border, appear: 0}
+      - {type: image, path: "runs:tutorials/{{self_supervised.run.name}}/Evaluation/Iteration_{{self_supervised.knn.last_iteration}}/Samples/test_000012.png", box: [890, 400, 1730, 706], border: border, appear: 0}
     narration:
       - "Every evaluation also saves {{self_supervised.run.number_sample_images}} fixed test images, each next to two views drawn from its seed, so that every checkpoint compares the same two views."
       - "The caption gives the cosine similarity of the representations of the two views: {{self_supervised.similarity.star_first:.2f}} for this star at iteration {{self_supervised.knn.first_iteration:,}}, and {{self_supervised.similarity.star_last:.2f}} at the last one."
@@ -209,7 +209,7 @@ scenes:
         appear: 3
         source: {file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml, keys: [Backbone.pretrained.experiment_folder, Backbone.pretrained.iteration, Backbone.pretrained.freeze], comments: false}
         highlights:
-          - {match: "experiment_folder", sentences: [3]}
+          - {key: Backbone.pretrained.experiment_folder, sentences: [3]}
       - {type: box, box: [1060, 450, 1720, 700], text: "same modules and normalization,\nthe same blocks or the first ones,\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
     narration:
       - "The export wraps the trained model in the inference encoder, served by Triton as the image encoder: float32 BGR images of {{self_supervised.run.image_size}} pixels in, L2-normalized representations of {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} values out, so that a dot product is a cosine similarity."
