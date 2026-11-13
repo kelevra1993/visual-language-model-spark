@@ -48,9 +48,6 @@ BATCH_SEQUENCE_COUNT = 4
 # Name of the class of the frames without change, always the class of the first frame
 NO_CHANGE_CLASS_NAME = "no_change"
 
-# Frame positions of the share of no_change per position, the synthetic sequences holding 2 to 12 frames
-MAXIMUM_FRAME_POSITIONS = 12
-
 # Size of the thumbnails of the sequence strip and of the padded batch
 STRIP_FRAME_SIZE = 390
 BATCH_FRAME_SIZE = 110
@@ -115,8 +112,8 @@ def draw_sequence_strip(dataset: Any, output_path: Path) -> Dict[str, Any]:
 
 def compute_position_shares(training_labels: Dict[str, Any], no_change_category: int) -> Dict[str, Any]:
     """
-    Counts, at every frame position of the training sequences, the frames and the share of them labelled no_change,
-    the prior a model can learn from the position of a frame alone.
+    Counts, at every frame position of the training sequences up to the longest one, the frames and the share of them
+    labelled no_change, the prior a model can learn from the position of a frame alone.
 
     Args:
         training_labels (Dict[str, Any]): The labels.json of the training split.
@@ -125,10 +122,12 @@ def compute_position_shares(training_labels: Dict[str, Any], no_change_category:
     Returns:
         Dict[str, Any]: The 'frames' and 'no_change_shares' of every position, and the number of 'sequences'.
     """
-    position_frames = numpy.zeros(shape=(MAXIMUM_FRAME_POSITIONS,), dtype=numpy.int64)
-    position_no_change = numpy.zeros(shape=(MAXIMUM_FRAME_POSITIONS,), dtype=numpy.int64)
+    # One position per frame of the longest training sequence
+    position_count = max(len(sequence["frame_category_ids"]) for sequence in training_labels["sequences"])
+    position_frames = numpy.zeros(shape=(position_count,), dtype=numpy.int64)
+    position_no_change = numpy.zeros(shape=(position_count,), dtype=numpy.int64)
     for sequence in training_labels["sequences"]:
-        category_ids = numpy.array(sequence["frame_category_ids"][:MAXIMUM_FRAME_POSITIONS])
+        category_ids = numpy.array(sequence["frame_category_ids"])
         position_frames[:len(category_ids)] += 1
         position_no_change[:len(category_ids)] += category_ids == no_change_category
     return {"frames": position_frames, "no_change_shares": position_no_change / numpy.maximum(position_frames, 1),
@@ -162,7 +161,7 @@ def compute_prior_facts(class_frames: List[int], sequence_count: int) -> Dict[st
 
 def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any], output_path: Path) -> Dict[str, Any]:
     """
-    Draws the class balance of the training split: the frames of every class (no_change first, then the 70 change
+    Draws the class balance of the training split: the frames of every class (no_change first, then the change
     classes in class order) on the left, and the share of no_change at every frame position on the right, and gives
     the boxes of the two panels.
 
@@ -204,9 +203,9 @@ def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any],
                         fontsize=19 * POINTS_PER_PIXEL)
 
     # Share of no_change at every frame position: 1 on the first frame, the frequency of the later frames after it
-    positions = numpy.arange(MAXIMUM_FRAME_POSITIONS)
+    positions = numpy.arange(len(position_shares["no_change_shares"]))
     position_axes.bar(x=positions, height=position_shares["no_change_shares"], width=0.7,
-                      color=[SERIES_COLOURS[2]] + [SERIES_COLOURS[1]] * (MAXIMUM_FRAME_POSITIONS - 1))
+                      color=[SERIES_COLOURS[2]] + [SERIES_COLOURS[1]] * (len(positions) - 1))
     style_chart_panel(axes=position_axes, title="Share of no_change by frame position", x_label="Frame position",
                       y_label="Share of the frames")
     position_axes.set_ylim(bottom=0, top=1.12)
@@ -216,7 +215,7 @@ def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any],
                            textcoords="offset points", ha="left", va="center", color=TEXT_PRIMARY_COLOUR,
                            fontsize=18 * POINTS_PER_PIXEL)
     later_share = float(position_shares["no_change_shares"][1:].mean())
-    position_axes.annotate(text=f"later frames: about {later_share:.0%}", xy=(6, later_share),
+    position_axes.annotate(text=f"later frames: about {later_share:.0%}", xy=(len(positions) // 2, later_share),
                            xytext=(0, 30 * POINTS_PER_PIXEL), textcoords="offset points", ha="center", va="bottom",
                            color=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL)
     save_figure(figure=figure, output_path=output_path)

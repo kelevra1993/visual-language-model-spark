@@ -40,16 +40,20 @@ scenes:
       keys: [SegmentationLoss]
       comments: false
     highlights:
-      - {match: "cross_entropy_weight|dice_weight|lovasz_weight|boundary_weight", sentences: [0]}
-      - {match: "class_weighting", sentences: [1]}
-      - {match: "focal_gamma|label_smoothing", sentences: [2]}
-      - {match: "^SegmentationLoss:", sentences: [3]}
+      - {key: SegmentationLoss.cross_entropy_weight, sentences: [0]}
+      - {key: SegmentationLoss.dice_weight, sentences: [0]}
+      - {key: SegmentationLoss.lovasz_weight, sentences: [0]}
+      - {key: SegmentationLoss.boundary_weight, sentences: [0]}
+      - {key: SegmentationLoss.class_weighting, sentences: [1]}
+      - {key: SegmentationLoss.focal_gamma, sentences: [2]}
+      - {key: SegmentationLoss.label_smoothing, sentences: [2]}
+      - {key: SegmentationLoss, sentences: [3]}
     # A weight of zero leaves its loss out, what the weights mean rather than a setting
     literal_numbers: [zero]
     narration:
-      - "Each loss is multiplied by its weight and left out at zero: the pixel cross entropy and the soft Dice loss are on, the IOU surrogate and the boundary loss are off, and at least one region loss must stay on."
+      - "Each loss is multiplied by its weight and left out at zero, here the pixel cross entropy at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:.2g}}, the soft Dice loss at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:.2g}}, the IOU surrogate at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.lovasz_weight:.2g}} and the boundary loss at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_weight:.2g}}; at least one region loss must stay on."
       - "Class weighting none weighs every pixel the same; balanced weighs a class by the total pixels over the number of classes times its pixels, counted once over the training masks and cached in the run folder."
-      - "The focal gamma and the label smoothing apply to the cross entropy, here at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.focal_gamma:words}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.label_smoothing:words}}."
+      - "The focal gamma and the label smoothing apply to the cross entropy, here at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.focal_gamma:.2g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.label_smoothing:.2g}}."
       - "Take a run whose losses change midway: none of these settings gives a token to the run name, so it resumes the same run folder, the loading of the checkpoint setting the class weights of the new configuration again."
 
   - kind: code
@@ -60,12 +64,12 @@ scenes:
       function: compute_segmentation_cross_entropy
     highlights:
       - {match: "ignore_index=IGNORED_LABEL_INDEX", sentences: [0]}
-      - {match: "pixel_weights = |pixel_weights.sum\\(\\)", sentences: [0]}
-      - {match: "focal_gamma > 0|\\(1.0 - target_probabilities\\)", sentences: [1]}
+      - {match: "pixel_weights = |^\\s+return ", sentences: [0]}
+      - {match: "if focal_gamma|target_probabilities = ", sentences: [1]}
     # A focal gamma of zero, the power that turns the focal loss back into the cross entropy
     literal_numbers: [zero]
     narration:
-      - "The cross entropy ignores the pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}, weighs every pixel by its class, and is divided by the weights of the labelled pixels, so a focal gamma of zero gives the weighted cross entropy, in float32."
+      - "The cross entropy ignores the pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}, weighs every pixel by its class, and is divided by the weights of the labelled pixels, so a focal gamma of zero gives the weighted cross entropy."
       - "The focal factor, one minus the probability of the true class to the power gamma, would lower the loss of the pixels already right."
       - "At the first iteration the untrained network gives {{semantic_segmentation.curves_cross_entropy_loss_first:.2f}}, next to the {{semantic_segmentation.shares_uniform_cross_entropy:.2f}} of a uniform guess over {{semantic_segmentation.run_number_classes:words}} classes."
 
@@ -85,7 +89,7 @@ scenes:
         value_width: 120
       - {type: text, position: [80, 670], text: "share of the {{semantic_segmentation.shares_labelled_pixels:,}} labelled pixels of the test split, class_metrics.csv of iteration {{semantic_segmentation.run_checkpoint_iteration}}", font: diagram_small, colour: dim}
     narration:
-      - "On the test split the background holds {{semantic_segmentation.shares_background:.1%}} of the labelled pixels and the triangle only {{semantic_segmentation.shares_smallest:.2%}}: a pixel cross entropy is dominated by the background."
+      - "On the test split the background holds {{semantic_segmentation.shares_background:.1%}} of the labelled pixels and the {{semantic_segmentation.shares_smallest_class}} only {{semantic_segmentation.shares_smallest:.2%}}: a pixel cross entropy is dominated by the background."
       - "Balancing that is the job of the Dice loss."
 
   - kind: code
@@ -95,10 +99,10 @@ scenes:
       file: vision_training/losses/segmentation_losses.py
       function: compute_dice_loss
     highlights:
-      - {match: "probabilities = torch.softmax", sentences: [0]}
+      - {match: "^\\s+probabilities = ", sentences: [0]}
       - {match: "intersections = |cardinalities = ", sentences: [0]}
-      - {match: "present_classes = true_pixels > 0", sentences: [1]}
-      - {match: "return 1.0 - dice_coefficients.mean\\(\\)", sentences: [1, 2, 3]}
+      - {match: "present_classes = ", sentences: [1]}
+      - {match: "dice_coefficients", sentences: [1, 2, 3]}
     narration:
       - "The soft Dice loss compares the softmax probabilities with the one-hot masks over the whole batch: twice the intersection over the sum, for every class."
       - "It averages the classes present in the batch, so a small class counts as much as the background, and an absent class is left out."
@@ -106,22 +110,22 @@ scenes:
       - "Its gradient reaches every class of the batch however small, which is what the cross entropy lacks on these masks."
 
   - kind: code
-    title: "The losses left off"
+    title: "The boundary and IoU surrogate losses"
     code_reference: "vision_training/losses/segmentation_losses.py · compute_boundary_loss"
     source:
       file: vision_training/losses/segmentation_losses.py
       function: compute_boundary_loss
       docstring: true
     highlights:
-      - {match: "pixel_losses \\* edge_weights", sentences: [0]}
-      - {match: "edge_weights.sum\\(\\)", sentences: [1]}
+      - {match: "pixel_losses = |^\\s+return ", sentences: [0]}
+      - {match: "^\\s+return ", sentences: [1]}
       - {match: "ignore_index=IGNORED_LABEL_INDEX", sentences: [2]}
     # The edge weights fall to zero beyond the boundary distance, the shape of the weighting rather than a setting
     literal_numbers: [zero]
     narration:
       - "The boundary loss is the plain pixel cross entropy, without class weights, weighted one on the true edges, less with every pixel away, and zero beyond {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_distance:words}} pixels, the boundary distance of the section."
       - "It is divided by the sum of these weights, so the errors near the edges count the most whatever the area of the regions."
-      - "Like the cross entropy, it leaves the ignored pixels out and is computed in float32."
+      - "Like the cross entropy, it leaves the ignored pixels out."
       - "Should you need to push the mean IOU further in the last part of a training, the IOU surrogate is often added then: it sorts the errors of every class and weighs them by the gradient of a convex extension of one minus IOU."
 
   - kind: code
@@ -132,12 +136,12 @@ scenes:
       function: compute_balanced_class_weights
       docstring: true
     highlights:
-      - {match: "clamp\\(min=1.0\\)", sentences: [0]}
-      - {match: "counts.sum\\(\\) / ", sentences: [0, 1]}
+      - {match: "^\\s+counts = ", sentences: [0]}
+      - {match: "^\\s+return ", sentences: [0, 1]}
     narration:
       - "Balanced weights divide the total pixel count by the number of classes times the count of the class, a class without pixels taking the weight of a class with one."
       - "They average one over the training pixels, so the loss keeps its scale, and the same function weighs the images of the classifiers."
-      - "This run keeps every weight at one and leaves the balancing to the Dice loss."
+      - "The synthetic configuration sets the class weighting to {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.class_weighting}}; with none, every weight stays at one and the Dice loss alone balances the classes."
 
   - kind: code
     title: "Metrics of every batch"
@@ -146,7 +150,7 @@ scenes:
       file: vision_training/trainers/segmentation_trainer.py
       function: SegmentationTrainer.compute_batch_metrics
     highlights:
-      - {match: "argmax\\(dim=1\\)", sentences: [0]}
+      - {match: "confusion_matrix = ", sentences: [0]}
       - {match: "compute_segmentation_metrics", sentences: [1]}
     narration:
       - "Every training and validation batch also gives its pixel accuracy and mean IOU, from the argmax of the logits of its forward pass, without a second pass."
@@ -191,7 +195,7 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Cross entropy + soft Dice at weights {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:g}}; IoU surrogate and boundary losses off"}
+      - {text: "Cross entropy + soft Dice at weights {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:g}}; IoU surrogate and boundary at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.lovasz_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_weight:g}}"}
       - {text: "Pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}} left out of every loss and metric"}
       - {text: "class_weighting: balanced, cached in class_pixel_counts.json"}
       - {text: "No run name token for the losses: a change resumes the run"}

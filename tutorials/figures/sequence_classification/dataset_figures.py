@@ -17,21 +17,19 @@ from collections import Counter
 from matplotlib import pyplot
 from matplotlib.lines import Line2D
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, compute_pixel_box,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (copy_frames, read_generator_setting,
                                                                                  write_text_lines)
-from vision_training.data.synthetic.create_synthetic_dataset import MINIMUM_SEQUENCE_FRAMES
 
 # Sequence shown on the scene of the task, the first of the training manifest
 SHOWN_SEQUENCE_NAME = "train_000000"
 
-# Lengths the generator draws for the sequence classification (the bounds of its main block), the training split
-# drawn again with them from a fixed seed, and the seed of the shuffle making the batches of the run
-GENERATOR_MAXIMUM_FRAMES = 12
+# Seed of the training split drawn again with the lengths the generator draws for the sequence classification (the
+# bounds of its main block), and the seed of the shuffle making the batches of the run
 LENGTH_DRAW_SEED = 0
 BATCH_SHUFFLE_SEED = 0
 
@@ -40,6 +38,19 @@ SPLIT_NAMES = ["train", "validation", "test"]
 
 # Task of the synthetic generator whose main block settings the facts read
 GENERATOR_TASK = "sequence_classification"
+
+
+def read_generator_frame_range() -> Tuple[int, int]:
+    """
+    Reads the fewest and the most frames the synthetic generator draws for a sequence of the task, the minimum_frames
+    and maximum_frames of its main block, so that the lengths chart, the animated batch and the narration follow the
+    script rather than a typed range.
+
+    Returns:
+        Tuple[int, int]: The fewest and the most frames of a generated sequence.
+    """
+    return (read_generator_setting(setting_name="minimum_frames", task=GENERATOR_TASK),
+            read_generator_setting(setting_name="maximum_frames", task=GENERATOR_TASK))
 
 
 def read_manifest(split_folder: Path) -> Dict[str, Any]:
@@ -138,7 +149,8 @@ def compute_padding_share(lengths: List[int], batch_size: int, seed: int) -> flo
 
 
 def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_lengths: List[int],
-                        padding_shares: Dict[str, float], batch_size: int) -> Dict[str, Any]:
+                        generator_frame_range: Tuple[int, int], padding_shares: Dict[str, float],
+                        batch_size: int) -> Dict[str, Any]:
     """
     Draws the lengths chart: the number of training sequences of every length on disk and as the current generator
     draws them, and the share of padding frames in the batches of the run for both, and gives the boxes of its panels.
@@ -147,6 +159,7 @@ def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_le
         output_path (Path): The PNG file.
         disk_lengths (List[int]): The frames of every training sequence on disk.
         generator_lengths (List[int]): The frames of every training sequence drawn like the generator.
+        generator_frame_range (Tuple[int, int]): The fewest and the most frames the generator draws.
         padding_shares (Dict[str, float]): The padding share of the batches, 'disk' and 'generator'.
         batch_size (int): The batch size of the run, written on the padding panel.
 
@@ -160,9 +173,12 @@ def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_le
     figure.patch.set_facecolor(SURFACE_COLOUR)
     figure.subplots_adjust(left=0.07, right=0.98, top=0.80, bottom=0.12, wspace=0.28)
 
-    # Training sequences of every length, side by side bars of the two sources
-    all_lengths = list(range(MINIMUM_SEQUENCE_FRAMES, GENERATOR_MAXIMUM_FRAMES + 1))
+    # Training sequences of every length, side by side bars of the two sources, the most frequent length on disk
+    # written over its bar
+    all_lengths = list(range(min(generator_frame_range[0], min(disk_lengths)),
+                             max(generator_frame_range[1], max(disk_lengths)) + 1))
     disk_counts, generator_counts = Counter(disk_lengths), Counter(generator_lengths)
+    disk_length = disk_counts.most_common(1)[0][0]
     bar_width = 0.4
     length_axes.bar(x=numpy.array(all_lengths) - bar_width / 2, height=[disk_counts[length] for length in all_lengths],
                     width=bar_width - 0.04, color=SERIES_COLOURS[0], label="On disk")
@@ -173,7 +189,8 @@ def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_le
                       y_label="Sequences")
     length_axes.set_xticks(ticks=all_lengths)
     length_axes.grid(visible=False, axis="x")
-    length_axes.annotate(text=f"{disk_counts[8]:,}", xy=(8 - bar_width / 2, disk_counts[8]), xytext=(0, 8),
+    length_axes.annotate(text=f"{disk_counts[disk_length]:,}", xy=(disk_length - bar_width / 2,
+                                                                   disk_counts[disk_length]), xytext=(0, 8),
                          textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
                          fontsize=18 * POINTS_PER_PIXEL)
 
@@ -195,8 +212,8 @@ def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_le
     legend_handles = [Line2D(xdata=[0], ydata=[0], color=SERIES_COLOURS[0], linewidth=10 * POINTS_PER_PIXEL),
                       Line2D(xdata=[0], ydata=[0], color=SERIES_COLOURS[1], linewidth=10 * POINTS_PER_PIXEL)]
     figure.legend(handles=legend_handles, labels=["On disk (synthetic_moving_shapes/train)",
-                                                  f"Drawn like the current generator ({MINIMUM_SEQUENCE_FRAMES} to "
-                                                  f"{GENERATOR_MAXIMUM_FRAMES} frames)"],
+                                                  f"Drawn like the current generator ({generator_frame_range[0]} "
+                                                  f"to {generator_frame_range[1]} frames)"],
                   loc="center left", bbox_to_anchor=(0.05, 0.93), ncols=2, frameon=False,
                   labelcolor=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL, handlelength=1.2)
     save_figure(figure=figure, output_path=output_path)
@@ -237,16 +254,17 @@ def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: in
 
     # Lengths on disk, lengths drawn like the generator (one draw per sequence of the training split), padding shares
     disk_lengths = [len(sequence["frames"]) for sequence in manifests["train"]["sequences"]]
+    generator_frame_range = read_generator_frame_range()
     random_generator = numpy.random.default_rng(seed=LENGTH_DRAW_SEED)
-    generator_lengths = [int(random_generator.integers(low=MINIMUM_SEQUENCE_FRAMES, high=GENERATOR_MAXIMUM_FRAMES + 1))
-                         for _ in disk_lengths]
+    generator_lengths = [int(random_generator.integers(low=generator_frame_range[0],
+                                                       high=generator_frame_range[1] + 1)) for _ in disk_lengths]
     padding_shares = {"disk": compute_padding_share(lengths=disk_lengths, batch_size=batch_size,
                                                     seed=BATCH_SHUFFLE_SEED),
                       "generator": compute_padding_share(lengths=generator_lengths, batch_size=batch_size,
                                                          seed=BATCH_SHUFFLE_SEED)}
     facts = draw_lengths_figure(output_path=output_folder / "dataset" / "lengths.png", disk_lengths=disk_lengths,
-                                generator_lengths=generator_lengths, padding_shares=padding_shares,
-                                batch_size=batch_size)
+                                generator_lengths=generator_lengths, generator_frame_range=generator_frame_range,
+                                padding_shares=padding_shares, batch_size=batch_size)
 
     # Sizes and classes of the splits, the lengths on disk and the shown sequence
     first_frame = cv2.imread(filename=str(train_folder / "data" / shown_sequence["frames"][0]))
@@ -264,8 +282,8 @@ def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: in
                   "dataset.disk_lengths": sorted(set(disk_lengths)),
                   "dataset.disk_frames": read_single_length(lengths=disk_lengths),
                   "dataset.generator_mean_length": round_fact(value=float(numpy.mean(generator_lengths))),
-                  "dataset.generator_maximum_frames": GENERATOR_MAXIMUM_FRAMES,
-                  "dataset.generator_minimum_frames": MINIMUM_SEQUENCE_FRAMES,
+                  "dataset.generator_maximum_frames": generator_frame_range[1],
+                  "dataset.generator_minimum_frames": generator_frame_range[0],
                   "lengths.padding_share_disk": round_fact(value=padding_shares["disk"]),
                   "lengths.padding_share_generator": round_fact(value=padding_shares["generator"])})
     for split_name, manifest in manifests.items():

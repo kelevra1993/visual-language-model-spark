@@ -111,17 +111,21 @@ scenes:
              ClassificationHead.global_pooling]
       comments: false
     highlights:
-      - {match: "^(Data|TemporalModel|ClassificationHead):|sequence_settings:", sentences: [0]}
-      - {match: "maximum_sequence_length", sentences: [1]}
+      - {key: Data, sentences: [0]}
+      - {key: Data.sequence_settings, sentences: [0]}
+      - {key: TemporalModel, sentences: [0]}
+      - {key: ClassificationHead, sentences: [0]}
+      - {key: Data.sequence_settings.maximum_sequence_length, sentences: [1]}
       - {key: Data.image_settings.size, sentences: [2]}
       - {key: ClassificationHead.global_pooling, sentences: [2]}
-      - {match: "random_left_right_flip", sentences: [3]}
-      - {match: "independent_frames|shuffle_frames", sentences: [4]}
+      - {key: Data.data_augmentation.types.random_left_right_flip, sentences: [3]}
+      - {key: Data.data_augmentation.independent_frames, sentences: [4]}
+      - {key: Data.data_augmentation.shuffle_frames, sentences: [4]}
     narration:
       - "The task adds the sequence settings and the temporal module to a classification configuration, the global pooling of its head now turning every frame into a vector."
       - "The maximum sequence length, {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#Data.sequence_settings.maximum_sequence_length}} here, is the longest sequence a run accepts, and the number of learned frame positions of a transformer."
-      - "The frames are read at {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#Data.image_settings.size}} pixels, and the flatten pooling keeps the whole last feature map of every frame: the next chapter shows why this run needs it."
-      - "The augmentation draws once per sequence, so all its frames share the same crop, rotation and colour change; the flips stay off, since a mirrored movement keeps its label but reverses its direction."
+      - "The frames are read at {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#Data.image_settings.size}} pixels, and the global pooling, {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#ClassificationHead.global_pooling}} here, decides what survives of the last feature map of every frame: the next chapter shows why the moving shapes need flatten."
+      - "The augmentation draws once per sequence, so all its frames share the same geometric and photometric changes; the flips must stay off, since a mirrored movement keeps its label but reverses its direction."
       - "Independent frames redraws only the photometric types frame by frame, and shuffle frames is for sequences whose order carries nothing: with an ordered temporal module, it only prints a yellow warning."
 
   - kind: code
@@ -130,12 +134,12 @@ scenes:
     source:
       file: vision_training/data/sequence/sequence_dataset.py
       function: SequenceDataset.__init__
-      start: "for sequence in manifest\\[\"sequences\"\\]"
-      end: "number_long_sequences \\+= 1"
+      start: "for sequence in manifest"
+      end: "number_long_sequences"
     highlights:
       - {match: "for sequence in manifest", sentences: [0]}
-      - {match: "number_left_out_sequences \\+= 1|len\\(frames\\) == 0", sentences: [1]}
-      - {match: "len\\(frames\\) > self.maximum_sequence_length|warn_long_sequence|number_long_sequences \\+= 1", sentences: [2]}
+      - {match: "number_left_out_sequences|category_id", sentences: [1]}
+      - {match: "self.maximum_sequence_length|warn_long_sequence|number_long_sequences", sentences: [2]}
     narration:
       - "The data set reads the labels file of the split, and every sequence becomes one sample, read in full, with no window and no subsampling."
       - "A sequence of an unmapped category, or without frames, is counted in one yellow note."
@@ -161,7 +165,7 @@ scenes:
     highlights:
       - {match: "longest_member = max", sentences: [0]}
       - {match: "new_full|torch.cat", sentences: [0]}
-      - {match: "if sample\\[key\\].dim\\(\\) > 0", sentences: [1]}
+      - {match: "FRAME_AXIS_PADDING_VALUES|\\.dim\\(\\)", sentences: [1]}
       - {match: "member_lengths = |unflatten", sentences: [2]}
     # The two members of a pair of the comparator, a before and an after sequence
     literal_numbers: [two]
@@ -179,7 +183,7 @@ scenes:
       phases: [{name: sequences, sentence: -1}, {name: padded, sentence: 1}, {name: mask, sentence: 2}]
     elements:
       - {type: text, position: [330, 560], text: "labels [{{sequence_classification.batch.sequence_count}}] int64 · sample_identifiers [{{sequence_classification.batch.sequence_count}}] int64", font: diagram_monospace_small, colour: key, appear: 2}
-      - {type: text, position: [330, 610], text: "prepare_batch: images to float32, still BGR in [0, 255], on the device with the mask and the labels", font: diagram_small, appear: 3}
+      - {type: text, position: [330, 610], text: "prepare_batch: images in the precision of the model, still BGR in [0, 255], on the device with the mask and the labels", font: diagram_small, appear: 3}
       - {type: text, position: [330, 690], text: "{{sequence_classification.batch.sequence_count}} sequences drawn by the current generator (seed {{sequence_classification.batch.seed}}), read at {{sequence_classification.run.image_size}} pixels like the dataset reads them", font: diagram_small, colour: dim}
     # The range of the unsigned byte values of the frames
     literal_numbers: [zero, "0", "255"]
@@ -187,7 +191,7 @@ scenes:
       - "Here are {{sequence_classification.batch.sequence_count:words}} sequences drawn by the current generator, read at {{sequence_classification.run.image_size}} pixels: {{sequence_classification.batch.length_0_words}}, {{sequence_classification.batch.length_1_words}}, {{sequence_classification.batch.length_2_words}} and {{sequence_classification.batch.length_3_words}} frames, each sample a tensor of its own length."
       - "The collate pads them to the {{sequence_classification.batch.longest_words}} frames of the longest one: a batch of {{sequence_classification.batch.sequence_count_words}} by {{sequence_classification.batch.longest_words}} frames of {{sequence_classification.batch.frame_channels:words}} by {{sequence_classification.run.image_size}} by {{sequence_classification.run.image_size}}, still in unsigned bytes."
       - "The sequence mask marks the {{sequence_classification.batch.real_frames}} real frames, which always come first in their sequence, as the packed recurrent networks need."
-      - "The trainer then casts the frames to float32, still BGR in the zero to 255 range, and moves them to the device with the mask and the labels."
+      - "The trainer then casts the frames to the precision of the model, still BGR in the zero to 255 range, and moves them to the device with the mask and the labels."
 
   - kind: image
     title: "Padding in numbers"

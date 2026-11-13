@@ -1,9 +1,10 @@
 """
 Animated padded batch of the sequence classification tutorials (chapters 1 and 2), made by
 tutorials/figures/sequence_classification/figures.py: four sequences drawn by the current synthetic generator of the
-repository (generate_moving_shape_sequence, 2 to 12 frames of 512 pixels, the dataset on disk holding only sequences
-of 8 frames), saved and read back as the sequence dataset reads them (128 pixel frames), batched by the collate of the
-loaders (collate_padded_sequences) and run through the frame encoder of the trained flatten run on the CPU. It writes
+repository (generate_moving_shape_sequence, with the frame size and the range of frames of the main block of the
+generator, the dataset on disk holding sequences of a single length), saved and read back as the sequence dataset reads
+them (at the frame size of the run), batched by the collate of the loaders (collate_padded_sequences) and run through
+the frame encoder of the trained flatten run on the CPU. It writes
 the frames, the frame vectors drawn as heat squares and the layout file of animations/07_sequence_classification/
 frame_batches.js, whose phases are the samples, the padded batch, its mask, the real frames gathered for the backbone,
 their vectors and the vectors scattered back; its facts are the real lengths and shapes the narration quotes.
@@ -17,18 +18,15 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import round_fact
-from tutorials.figures.sequence_classification.sequence_figure_utilities import (write_animation_layout,
+from tutorials.figures.sequence_classification.dataset_figures import GENERATOR_TASK, read_generator_frame_range
+from tutorials.figures.sequence_classification.sequence_figure_utilities import (read_generator_setting,
+                                                                                 write_animation_layout,
                                                                                  write_vector_square)
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences, read_sequence_frames
-from vision_training.data.synthetic.create_synthetic_dataset import (MINIMUM_SEQUENCE_FRAMES, MOVEMENT_CATEGORIES,
+from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CATEGORIES,
                                                                      generate_moving_shape_sequence, save_frames)
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.task_model import TaskModel
-
-# Frames drawn by the generator for the sequence classification, as set in the main block of
-# vision_training/data/synthetic/create_synthetic_dataset.py: 512 pixels, 2 to 12 frames per sequence
-GENERATOR_IMAGE_SIZE = 512
-GENERATOR_MAXIMUM_FRAMES = 12
 
 # Sequences of the animated batch, and the bounds of the example kept: distinct lengths, at most 10 frames so that the
 # batch fits the scene, four directions; the first seed of the generator giving such a batch is taken
@@ -57,9 +55,10 @@ LAYOUT_PHASES = ["sequences", "padded", "mask", "gather", "encode", "scatter"]
 def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
     """
     Draws the sequences of the example batch with the generator of the repository, the same calls as one chunk of
-    generate_sequence_chunk (the number of frames, then the sequence, from one random generator), from the first seed
-    giving distinct lengths of at most LONGEST_SHOWN_FRAMES frames and four directions, and saves their frames with
-    save_frames, the way the dataset is written.
+    generate_sequence_chunk (the number of frames, then the sequence, from one random generator), with the frame size
+    and the range of frames of the main block of the generator, from the first seed giving distinct lengths of at most
+    LONGEST_SHOWN_FRAMES frames and four directions, and saves their frames with save_frames, the way the dataset is
+    written.
 
     Args:
         output_folder (Path): The folder receiving the frame folders of the sequences.
@@ -70,13 +69,15 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
     Raises:
         RuntimeError: If no seed below MAXIMUM_SEED gives such a batch.
     """
+    # Frame size and range of frames the generator draws for the task, read from its main block
+    generator_image_size = read_generator_setting(setting_name="image_sizes", task=GENERATOR_TASK)
+    minimum_frames, maximum_frames = read_generator_frame_range()
     for seed in range(MAXIMUM_SEED):
         random_generator = numpy.random.default_rng(seed=seed)
         sequences = []
         for _ in range(SEQUENCE_COUNT):
-            number_frames = int(random_generator.integers(low=MINIMUM_SEQUENCE_FRAMES,
-                                                          high=GENERATOR_MAXIMUM_FRAMES + 1))
-            frames, category_identifier = generate_moving_shape_sequence(image_size=GENERATOR_IMAGE_SIZE,
+            number_frames = int(random_generator.integers(low=minimum_frames, high=maximum_frames + 1))
+            frames, category_identifier = generate_moving_shape_sequence(image_size=generator_image_size,
                                                                          number_frames=number_frames,
                                                                          random_generator=random_generator)
             sequences.append({"frames": frames, "category_identifier": category_identifier})
@@ -134,8 +135,8 @@ def format_shape(shape: List[int]) -> str:
 
 
 def build_batch_layout(lengths: List[int], class_names: List[str], frame_images: List[List[str]],
-                       vector_images: List[List[str]], zero_vector_image: str,
-                       shapes: Dict[str, str]) -> Dict[str, List[Dict[str, Any]]]:
+                       vector_images: List[List[str]], zero_vector_image: str, shapes: Dict[str, str],
+                       frame_shape: List[int]) -> Dict[str, List[Dict[str, Any]]]:
     """
     Places every tile and text of the animated batch at every phase: the frames of every sequence on its row of the
     batch grid, the black padding frames after them, the mask on the right, the real frames gathered on one row in
@@ -150,6 +151,8 @@ def build_batch_layout(lengths: List[int], class_names: List[str], frame_images:
         zero_vector_image (str): The square of a zero vector, relative to the layout file.
         shapes (Dict[str, str]): The shapes written in the texts: 'images', 'mask', 'gathered', 'blocks',
             'vectors' and 'frame_features'.
+        frame_shape (List[int]): The [C, H, W] shape of a frame read by the dataset, written after the length of a
+            sample.
 
     Returns:
         Dict[str, List[Dict[str, Any]]]: The 'tiles' and 'texts' of the layout.
@@ -199,7 +202,7 @@ def build_batch_layout(lengths: List[int], class_names: List[str], frame_images:
         texts.append({"text": f"{class_names[row_index]}\n{length} frames", "position": [GRID_LEFT - 28,
                       row_top + TILE_SIDE // 2], "anchor": "rm", "font": "diagram_small", "colour": "text",
                       "phases": LAYOUT_PHASES})
-        texts.append({"text": format_shape(shape=[length, 3, 128, 128]),
+        texts.append({"text": format_shape(shape=[length] + frame_shape),
                       "position": [GRID_LEFT + length * TILE_STRIDE + 4, row_top + TILE_SIDE // 2], "anchor": "lm",
                       "font": "diagram_monospace_small", "colour": "dim", "phases": ["sequences"]})
 
@@ -223,7 +226,7 @@ def build_batch_layout(lengths: List[int], class_names: List[str], frame_images:
 
 
 def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary: Dict[int, int],
-                         image_size: int) -> Dict[str, Any]:
+                         image_size: int, keep_ratio: bool) -> Dict[str, Any]:
     """
     Makes the frames, vector squares and layout file of the animated padded batch, and gives its facts: the seed and
     lengths of the sequences, the shapes of the batch, of its mask, of the gathered frames after every backbone block
@@ -235,6 +238,7 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
         model (TaskModel): The trained flatten run at 128 pixels, on the CPU.
         label_dictionary (Dict[int, int]): The class index of every category of the run.
         image_size (int): The frame size of the run, 'Data.image_settings.size'.
+        keep_ratio (bool): Whether the run pads the frames to keep their aspect ratio, 'Data.image_settings.keep_ratio'.
 
     Returns:
         Dict[str, Any]: The facts, named batch.*.
@@ -249,7 +253,7 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
         frames, sequence_mask = read_sequence_frames(data_directory=str(batch_folder / "generated"),
                                                      frame_files=sequence["frame_files"],
                                                      number_frames=len(sequence["frame_files"]),
-                                                     image_size=image_size, keep_ratio=True)
+                                                     image_size=image_size, keep_ratio=keep_ratio)
         samples.append({"images": frames, "sequence_mask": sequence_mask,
                         "labels": torch.tensor(data=label_dictionary[sequence["category_identifier"]]),
                         "sample_identifiers": sequence_index})
@@ -302,7 +306,7 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
               "frame_features": format_shape(shape=list(frame_features.shape))}
     layout = build_batch_layout(lengths=lengths, class_names=class_names, frame_images=frame_images,
                                 vector_images=vector_images, zero_vector_image="../batch/vector_zero.png",
-                                shapes=shapes)
+                                shapes=shapes, frame_shape=list(batch["images"].shape[2:]))
     write_animation_layout(output_path=output_folder / "animations" / "padded_batch.json", phases=LAYOUT_PHASES,
                            tiles=layout["tiles"], texts=layout["texts"])
 

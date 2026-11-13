@@ -26,6 +26,11 @@ SAMPLE_IMAGE_NAME = "test_000028.png"
 EVALUATED_ITERATIONS = [1000, 2000]
 CHECKPOINT_ITERATION = 2000
 
+# Configuration of the task shipped with the repository, relative to its root, whose decoder section the decoder scene
+# of chapter 1 shows next to the shortcuts it would get
+SYNTHETIC_CONFIGURATION_PATH = ("vision_training/configurations/semantic_segmentation/"
+                                "configuration_synthetic_shapes.yaml")
+
 
 def read_run_configuration(run_folder: Path) -> Dict[str, Any]:
     """

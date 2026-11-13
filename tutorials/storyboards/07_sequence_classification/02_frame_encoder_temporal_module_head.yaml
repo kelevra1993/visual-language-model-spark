@@ -42,8 +42,8 @@ scenes:
     highlights:
       - {match: "^def encode_frames", sentences: [0]}
       - {match: "input_tensor\\[sequence_mask\\]", sentences: [1]}
-      - {match: "new_zeros|frame_features\\[sequence_mask\\] = frame_vectors", sentences: [2]}
-      - {match: "if sequence_mask is None|flatten\\(start_dim=0, end_dim=1\\)|reshape\\(batch_size, sequence_length", sentences: [3]}
+      - {match: "^\\s+frame_features", sentences: [2]}
+      - {match: "if sequence_mask is None|\\.flatten\\(|\\.reshape\\(", sentences: [3]}
     # The zero vectors of the padding frames, made by new_zeros in the excerpt
     literal_numbers: [zero]
     narration:
@@ -108,20 +108,20 @@ scenes:
       - "Should you pick a causal module here, it is refused: it only sees the past frames, which is meant for the sequence labeller and the frame selector."
 
   - kind: code
-    title: "The GRU of the configuration"
+    title: "The GRU of the run"
     code_reference: "vision_training/models/sequence/temporal_modules.py · RecurrentTemporalModule.forward"
     source:
       file: vision_training/models/sequence/temporal_modules.py
       function: RecurrentTemporalModule.forward
     highlights:
-      - {match: "sequence_lengths = |pack_padded_sequence|enforce_sorted|packed_outputs, final_state", sentences: [1]}
-      - {match: "last_layer_states|transpose\\(0, 1\\)", sentences: [2]}
+      - {match: "sequence_lengths = |pack_padded_sequence|enforce_sorted|^\\s+packed_outputs", sentences: [1]}
+      - {match: "last_layer_states", sentences: [2]}
       - {match: "if self.keep_time_axis", sentences: [3]}
     narration:
-      - "The configuration uses {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#TemporalModel.number_layers:words}} bidirectional GRU layer of {{config:vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml#TemporalModel.hidden_size}} units."
+      - "The run uses {{sequence_classification.run.number_layers:words}} bidirectional GRU layer of {{sequence_classification.run.hidden_size}} units."
       - "With a mask, the frame vectors are packed by sequence length, so the GRU stops at the last real frame of every sequence and never reads the padding."
       - "The sequence vector is the final state of the last layer in both directions, concatenated: {{sequence_classification.run.sequence_features}} features."
-      - "The labeller takes the outputs of every frame instead; and the dropout rate of the module only acts between stacked layers, so with a single layer, as here, it does nothing."
+      - "The labeller takes the outputs of every frame instead; and the dropout rate of the module only acts between stacked layers, so with a single layer, as in this run, it does nothing."
 
   - kind: html
     page: diagram
