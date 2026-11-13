@@ -129,3 +129,44 @@ def test_mask_intersection_over_union_of_known_masks() -> None:
                                                           dtype=torch.float64))
     assert compute_mask_intersection_over_union(predicted_masks=predicted_masks[:0],
                                                 ground_truth_masks=ground_truth_masks, chunk_size=4).shape == (0, 2)
+
+
+@pytest.mark.parametrize(argnames="device", argvalues=[
+    "cpu", pytest.param("cuda", marks=pytest.mark.skipif(condition=not torch.cuda.is_available(),
+                                                         reason="The float16 segment products run on the GPU."))])
+@pytest.mark.parametrize(argnames=["image_height", "image_width"], argvalues=[(37, 53), (64, 64), (8, 2048)])
+def test_mask_intersection_over_union_matches_the_pixel_counts(device: str, image_height: int,
+                                                               image_width: int) -> None:
+    """
+    Verifies that the segment products (float16 on the GPU, float32 on the CPU) give the intersection over union of
+    the pixel counts of the masks exactly, on images whose pixels fill whole segments or not, with a full predicted mask
+    and a full ground truth mask counting more pixels than float16 holds exactly, and the [D, 0] and [0, G] results
+    without ground truth or predicted masks.
+
+    Args:
+        device (str): The device of the masks.
+        image_height (int): The height of the masks.
+        image_width (int): The width of the masks.
+    """
+    generator = torch.Generator().manual_seed(0)
+    predicted_masks = torch.rand(size=(6, image_height, image_width), generator=generator) > 0.5
+    ground_truth_masks = torch.rand(size=(4, image_height, image_width), generator=generator) > 0.7
+    predicted_masks[0], ground_truth_masks[0], predicted_masks[1] = True, True, False
+
+    # Intersection over union of the pixel counts in int64, the ratio in float64
+    intersections = (predicted_masks[:, None] & ground_truth_masks[None]).flatten(start_dim=2).sum(dim=2)
+    unions = (predicted_masks.flatten(start_dim=1).sum(dim=1)[:, None] +
+              ground_truth_masks.flatten(start_dim=1).sum(dim=1)[None, :] - intersections)
+    expected_overlaps = intersections.to(dtype=torch.float64) / unions.to(dtype=torch.float64)
+
+    overlaps = compute_mask_intersection_over_union(predicted_masks=predicted_masks.to(device=device),
+                                                    ground_truth_masks=ground_truth_masks.to(device=device),
+                                                    chunk_size=4)
+
+    assert torch.equal(input=overlaps.cpu(), other=expected_overlaps)
+    assert compute_mask_intersection_over_union(predicted_masks=predicted_masks.to(device=device),
+                                                ground_truth_masks=ground_truth_masks[:0].to(device=device),
+                                                chunk_size=4).shape == (6, 0)
+    assert compute_mask_intersection_over_union(predicted_masks=predicted_masks[:0].to(device=device),
+                                                ground_truth_masks=ground_truth_masks.to(device=device),
+                                                chunk_size=4).shape == (0, 4)
