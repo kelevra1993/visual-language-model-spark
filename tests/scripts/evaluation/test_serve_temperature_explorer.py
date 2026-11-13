@@ -111,7 +111,7 @@ def test_index_and_pages_are_served_with_their_evaluation(served_experiments: Tu
 def test_wrong_temperature_requests_are_refused(served_experiments: Tuple[Dict[str, Any], str], query: str,
                                                 expected_status: int, expected_message: str) -> None:
     """
-    Verifies that a typed temperature is refused for an evaluation without logits, outside the calibration range or not
+    Verifies that a typed temperature is refused for an evaluation without logits, outside the temperature range or not
     a number, and that an evaluation outside the experiments folders is unknown.
     """
     _, address = served_experiments
@@ -128,7 +128,7 @@ def test_typed_temperature_is_described_from_the_logits(served_experiments: Tupl
                                   content=None)
     assert status == 200
     assert json.loads(s=body) == describe_explorer_temperature(class_logits_record=evaluations["live_logits"],
-                                                               shown_class_indices=[1, 0, 2], logit_temperature=2.3)
+                                                               shown_class_indices=[0, 1, 2], logit_temperature=2.3)
 
 
 def test_score_ranges_are_counted_from_the_logits(served_experiments: Tuple[Dict[str, Any], str]) -> None:
@@ -141,7 +141,7 @@ def test_score_ranges_are_counted_from_the_logits(served_experiments: Tuple[Dict
                                       f"&temperature=2.3&cut_points=0.8,0.4", content=None)
     assert status == 200
     assert json.loads(s=body) == compute_score_ranges(class_logits_record=evaluations["live_logits"],
-                                                      shown_class_indices=[1, 0, 2], logit_temperature=2.3,
+                                                      shown_class_indices=[0, 1, 2], logit_temperature=2.3,
                                                       cut_points=[0.4, 0.8])
     status, page = request_server(url=f"{address}/explorer?evaluation={quote(LIVE_EVALUATION)}", content=None)
     assert status == 200 and b'id="score-ranges"' in page
@@ -157,7 +157,7 @@ def test_score_ranges_are_counted_from_the_logits(served_experiments: Tuple[Dict
 def test_wrong_score_range_requests_are_refused(served_experiments: Tuple[Dict[str, Any], str], query: str,
                                                 expected_message: str) -> None:
     """
-    Verifies that score ranges are refused for an evaluation without logits, at a temperature outside the calibration
+    Verifies that score ranges are refused for an evaluation without logits, at a temperature outside the temperature
     range, and for cut points outside ]0, 1[, repeated, not numbers or missing.
     """
     _, address = served_experiments
