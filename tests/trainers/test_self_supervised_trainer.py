@@ -5,7 +5,8 @@ report of the labelled test images, its per-class metrics file and the sample im
 mixing labelled and unlabelled images is trained on every image and evaluated on the labelled ones, the classes of
 the evaluation are named after the categories of the three manifests (the validation one read without its loader in
 a training without validation), the labelled test images are classified by the reference training images and not by
-each other, and the reference images are the same for every trainer of a run and bounded per class.
+each other, the reference images are the same for every trainer of a run and bounded per class, and the input viewer
+of the grouped batches finds the groups of every image of a batch by its identifier.
 """
 
 import csv
@@ -19,9 +20,12 @@ from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY
+from vision_training.data.classification.classification_dataset import ClassificationDataset
+from vision_training.data.grouped_batch_sampler import build_grouped_batch_sampler
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.self_supervised_trainer import METHOD_TRACKED_METRICS, SelfSupervisedTrainer
 from vision_training.utilities.visualization import CAPTION_BAR_HEIGHT
@@ -342,3 +346,42 @@ def test_reference_images_are_fixed_and_bounded_per_class(tmp_path: Path) -> Non
     assert reference_counts == {class_index: min(count, 2) for class_index, count in training_counts.items()}
     assert (f"k-NN : {trainer.number_neighbours} neighbours among {len(reference_samples)} labelled training images "
             f"of {len(reference_counts)} classes (2 per class at most)") in trainer.reference_notes
+
+
+def test_input_viewer_finds_the_groups_of_the_batch_images(tmp_path: Path) -> None:
+    """
+    Verifies that the input viewer of the grouped batches finds every image of a training batch among the shuffled
+    samples of the training split by its identifier, and describes the batch from the groups of its images, in the
+    order of the batch, every image having groups of its own.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Eight images of two cameras, shuffled by the dataset, grouped in batches of two blocks of two images of a camera
+    write_split(split_folder=tmp_path, categories=[{"id": 1, "name": "circle"}],
+                samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1,
+                          "groups": {"camera": f"c{sample_identifier % 2}", "image": f"i{sample_identifier}"}}
+                         for sample_identifier in range(1, 9)])
+    dataset = ClassificationDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                                    image_size=32, keep_ratio=True, label_dictionary={1: 0}, output_mode="multi_class",
+                                    keep_unlabelled_samples=True)
+    batch_sampler, _ = build_grouped_batch_sampler(
+        samples=dataset.samples, grouped_batches_configuration={"activated": True, "block_key": "camera",
+                                                                "images_per_block": 2, "batch_key": None},
+        batch_size=4, split_name="train_data_folder")
+
+    # The first batch of a pass as the loader gives it, its images named by their identifiers
+    batch_indices = next(iter(batch_sampler))
+    training_batch = {"images": torch.zeros(size=(4, 3, 32, 32), dtype=torch.uint8),
+                      SAMPLE_IDENTIFIERS_KEY: torch.tensor(data=[dataset.samples[sample_index]["identifier"]
+                                                                 for sample_index in batch_indices])}
+
+    # The viewer of a trainer reduced to its training loader, without window
+    trainer = SimpleNamespace(train_dataloader=SimpleNamespace(batch_sampler=batch_sampler, dataset=dataset),
+                              describe_input_batch=MagicMock(return_value=("Training Batch", [], ["c0", "c1"], None)))
+    with (patch(target="vision_training.trainers.self_supervised_trainer.build_batch_mosaic"),
+          patch(target="vision_training.trainers.self_supervised_trainer.show_viewer_windows", return_value=False)):
+        assert SelfSupervisedTrainer.show_input_batch(self=trainer, training_batch=training_batch,
+                                                      batch_index=0) is False
+    assert trainer.describe_input_batch.call_args.kwargs["image_groups"] == [
+        dataset.samples[sample_index]["groups"] for sample_index in batch_indices]

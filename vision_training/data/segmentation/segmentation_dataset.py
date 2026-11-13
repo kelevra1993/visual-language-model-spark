@@ -3,7 +3,8 @@ SegmentationDataset, the Native (OpenCV, CPU) dataset of the semantic segmentati
 class-index masks of a split from its 'labels.json' manifest, with the label dictionary of the configuration, either
 resized to the network input or, with 'Data.tiling', scaled and cut into tiles of the network size. Instantiated by
 get_segmentation_dataloaders of data/loaders.py, and read again by the segmentation trainer for the original masks of
-the evaluation at the original resolution.
+the evaluation at the original resolution. The samples are packed into SerializedRecords (data/serialized_records.py),
+which the forked loader workers read without copying the Python objects of the main process.
 """
 
 import os
@@ -20,6 +21,7 @@ from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.preprocessing import preprocess_image, read_image
+from vision_training.data.serialized_records import SerializedRecords
 from vision_training.utilities.os_utilities import format_path_link
 
 # Value of the pixels without class in the mask files (unlabelled pixels), also given to the padding of the resized
@@ -112,13 +114,15 @@ class SegmentationDataset(Dataset):
         manifest = read_manifest(labels_path=labels_file)
 
         # Every sample of the manifest, with its image and mask files
-        self.samples = [{"identifier": sample["id"], "file_name": sample["file_name"],
-                         "mask_file_name": sample["mask_file_name"]} for sample in manifest["samples"]]
+        samples = [{"identifier": sample["id"], "file_name": sample["file_name"],
+                    "mask_file_name": sample["mask_file_name"]} for sample in manifest["samples"]]
         if shuffle:
-            random.shuffle(self.samples)
+            random.shuffle(samples)
 
-        # Every sample by identifier, to name the evaluated samples in the evaluation outputs
-        self.sample_records = {sample["identifier"]: sample for sample in self.samples}
+        # The samples packed in their order into one read-only buffer, which the loader workers read without copying
+        # Python objects of the main process, every sample found by its identifier to read its original mask and
+        # to name the evaluated samples in the evaluation outputs
+        self.samples = SerializedRecords(records=samples, identifier_key="identifier")
 
         # Name of every class, taken from the categories of the manifest and the background of the label dictionary
         self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
@@ -163,7 +167,7 @@ class SegmentationDataset(Dataset):
             np.ndarray: The [H, W] int64 class index of every pixel of the original mask, IGNORED_LABEL_INDEX on the
                 unlabelled pixels.
         """
-        return self.class_lookup_table[self.read_mask(sample=self.sample_records[sample_identifier])]
+        return self.class_lookup_table[self.read_mask(sample=self.samples.find_record(identifier=sample_identifier))]
 
     def cut_tile(self, image: np.ndarray, mask: np.ndarray, sample_identifier: int) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -253,7 +257,7 @@ class SegmentationDataset(Dataset):
         Returns:
             Dict[str, str]: The 'sample' column, the file name of the image relative to the 'data' folder.
         """
-        return {"sample": self.sample_records[sample_identifier]["file_name"]}
+        return {"sample": self.samples.find_record(identifier=sample_identifier)["file_name"]}
 
     def get_sample_name(self, sample_identifier: int) -> str:
         """
@@ -266,7 +270,8 @@ class SegmentationDataset(Dataset):
         Returns:
             str: The name of the sample, e.g. 'street_image_000012' for 'street/image_000012.png'.
         """
-        return str(PurePosixPath(self.sample_records[sample_identifier]["file_name"]).with_suffix("")).replace("/", "_")
+        file_name = self.samples.find_record(identifier=sample_identifier)["file_name"]
+        return str(PurePosixPath(file_name).with_suffix("")).replace("/", "_")
 
     def count_class_pixels(self) -> List[int]:
         """

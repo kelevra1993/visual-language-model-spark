@@ -3,7 +3,9 @@ ClassificationDataset, the Native (OpenCV, CPU) dataset of the classification ta
 multi-class or multi-label categories of a split from its 'labels.json' manifest, with the label dictionary of the
 configuration. It also reads the splits of the self-supervised task, which keeps the images without mapped category,
 their labels only serving its k-nearest neighbour evaluation, whose reference images are a subset of the training
-split (select_samples). Instantiated by get_classification_dataloaders of data/loaders.py.
+split (select_samples). The kept samples are packed into SerializedRecords (data/serialized_records.py), which the
+forked loader workers read without copying the Python objects of the main process. Instantiated by
+get_classification_dataloaders of data/loaders.py.
 """
 
 import copy
@@ -20,6 +22,7 @@ from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.preprocessing import preprocess_image, read_image
+from vision_training.data.serialized_records import SerializedRecords
 
 
 class ClassificationDataset(Dataset):
@@ -69,7 +72,7 @@ class ClassificationDataset(Dataset):
         # Keep the samples of the mapped categories with their class indices, and the others without class when the
         # unlabelled samples are kept, which also reads the categories of a multi-label manifest, counting the samples
         # without a single mapped category for the report of the loaders
-        self.samples = []
+        samples = []
         self.number_unlabelled_samples = 0
         for sample in manifest["samples"]:
             if output_mode == "multi_label" or (keep_unlabelled_samples and "category_ids" in sample):
@@ -91,14 +94,16 @@ class ClassificationDataset(Dataset):
             if not isinstance(groups, dict):
                 raise ValueError(f"The 'groups' of the sample {sample['id']} of {labels_file} must be a dictionary of "
                                  f"named attributes, got {groups!r}.")
-            self.samples.append({"identifier": sample["id"], "file_name": sample["file_name"],
-                                 "class_indices": class_indices, "groups": groups})
+            samples.append({"identifier": sample["id"], "file_name": sample["file_name"],
+                            "class_indices": class_indices, "groups": groups})
 
         if shuffle:
-            random.shuffle(x=self.samples)
+            random.shuffle(x=samples)
 
-        # Every kept sample by identifier, to name the evaluated samples in the evaluation outputs
-        self.sample_records = {sample["identifier"]: sample for sample in self.samples}
+        # The kept samples packed in their order into one read-only buffer, which the loader workers read without
+        # copying Python objects of the main process, every sample found by its identifier to name the evaluated
+        # samples in the evaluation outputs
+        self.samples = SerializedRecords(records=samples, identifier_key="identifier")
 
         # Name of every class, taken from the categories of the manifest, which are kept for the trainers naming the
         # classes from the categories of every split
@@ -145,8 +150,8 @@ class ClassificationDataset(Dataset):
         """
         Gives a dataset of some samples of this one, with its image settings, labels and categories, for the reference
         images of the k-nearest neighbour evaluation of the self-supervised task, chosen among the training images and
-        encoded at every evaluation. Only the selected sample records are held, so that a loader worker receiving the
-        dataset does not receive the records of the whole training split.
+        encoded at every evaluation. Only the selected sample records are held, packed like those of the split, so
+        that a loader worker receiving the dataset does not receive the records of the whole training split.
 
         Args:
             samples (List[Dict[str, Any]]): The sample records kept, taken from 'samples', in the order the new
@@ -156,8 +161,7 @@ class ClassificationDataset(Dataset):
             ClassificationDataset: The dataset of the selected samples, read in that order.
         """
         selected_dataset = copy.copy(self)
-        selected_dataset.samples = list(samples)
-        selected_dataset.sample_records = {sample["identifier"]: sample for sample in selected_dataset.samples}
+        selected_dataset.samples = SerializedRecords(records=samples, identifier_key="identifier")
         return selected_dataset
 
     def describe_sample(self, sample_identifier: int) -> Dict[str, str]:
@@ -171,7 +175,7 @@ class ClassificationDataset(Dataset):
         Returns:
             Dict[str, str]: The 'sample' column, the file name of the image relative to the 'data' folder.
         """
-        return {"sample": self.sample_records[sample_identifier]["file_name"]}
+        return {"sample": self.samples.find_record(identifier=sample_identifier)["file_name"]}
 
     def get_sample_name(self, sample_identifier: int) -> str:
         """
@@ -184,7 +188,8 @@ class ClassificationDataset(Dataset):
         Returns:
             str: The name of the sample, e.g. 'circle_image_000012' for 'circle/image_000012.png'.
         """
-        return str(PurePosixPath(self.sample_records[sample_identifier]["file_name"]).with_suffix("")).replace("/", "_")
+        file_name = self.samples.find_record(identifier=sample_identifier)["file_name"]
+        return str(PurePosixPath(file_name).with_suffix("")).replace("/", "_")
 
     def get_sample_class_indices(self) -> Dict[int, List[int]]:
         """

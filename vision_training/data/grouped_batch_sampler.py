@@ -12,7 +12,7 @@ self-supervised trainer reads which batches of a pass are grouped, for its batch
 import torch
 
 from torch.utils.data import Sampler
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from vision_training.utilities.os_utilities import print_color
 
@@ -134,7 +134,7 @@ class GroupedBatchSampler(Sampler[List[int]]):
             yield batches[position]
 
 
-def build_grouped_batch_sampler(samples: List[Dict[str, Any]], grouped_batches_configuration: Dict[str, Any],
+def build_grouped_batch_sampler(samples: Sequence[Dict[str, Any]], grouped_batches_configuration: Dict[str, Any],
                                 batch_size: int, split_name: str) -> Tuple[Optional[GroupedBatchSampler], List[str]]:
     """
     Builds the grouped batch sampler of a training or validation split of the self-supervised task from the "groups"
@@ -144,8 +144,8 @@ def build_grouped_batch_sampler(samples: List[Dict[str, Any]], grouped_batches_c
     leftover batches of every pass), which get_classification_dataloaders prints with those of the other splits.
 
     Args:
-        samples (List[Dict[str, Any]]): The sample records of the dataset of the split, in its order, each with its
-            "groups" dictionary (empty for a sample without groups).
+        samples (Sequence[Dict[str, Any]]): The sample records of the dataset of the split (its packed 'samples'), in
+            its order, each with its "groups" dictionary (empty for a sample without groups).
         grouped_batches_configuration (Dict[str, Any]): The 'Data.grouped_batches' section.
         batch_size (int): The number of images of a batch.
         split_name (str): The configuration key of the split, e.g. "train_data_folder", named in the messages.

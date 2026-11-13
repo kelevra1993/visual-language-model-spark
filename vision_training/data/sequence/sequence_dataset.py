@@ -4,7 +4,9 @@ selection tasks, giving every sequence of a 'labels.json' split whole with its s
 of the frame selection being checked to hold every wanted class), the sequences longer than
 'Data.sequence_settings.maximum_sequence_length' being left out with a warning. Also holds the frame reading and the
 warnings shared with the sequence pair dataset, and the collate function padding the batches of both datasets to their
-longest sequence. Instantiated by get_sequence_dataloaders of data/loaders.py.
+longest sequence. The kept sequences are packed into SerializedRecords (data/serialized_records.py), which the forked
+loader workers read without copying the Python objects of the main process. Instantiated by get_sequence_dataloaders
+of data/loaders.py.
 """
 
 import os
@@ -19,6 +21,7 @@ from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.preprocessing import preprocess_image, read_image
+from vision_training.data.serialized_records import SerializedRecords
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Labels read from the manifest: one class per sequence (many to one), one class per frame (many to many), or one class
@@ -261,7 +264,7 @@ class SequenceDataset(Dataset):
 
         # Keep every sequence of a mapped category, with frames and not too long, with its class or the class of every
         # frame
-        self.sequences = []
+        sequences = []
         number_left_out_sequences = 0
         number_long_sequences = 0
         invalid_sequences = []
@@ -290,8 +293,8 @@ class SequenceDataset(Dataset):
                     frames_per_class=selection_settings["frames_per_class"], class_names=self.class_names)
                 if selection_problem is not None:
                     invalid_sequences.append(f"{sequence['name']} : {selection_problem}")
-            self.sequences.append({"identifier": len(self.sequences), "sequence_identifier": sequence["id"],
-                                   "sequence_name": sequence["name"], "frames": frames, "frame_labels": frame_labels})
+            sequences.append({"identifier": len(sequences), "sequence_identifier": sequence["id"],
+                              "sequence_name": sequence["name"], "frames": frames, "frame_labels": frame_labels})
         warn_long_sequence_total(sample_kind="Sequence", number_long_samples=number_long_sequences,
                                  split_name=split_name, maximum_sequence_length=self.maximum_sequence_length)
 
@@ -308,10 +311,12 @@ class SequenceDataset(Dataset):
             print_color(color="yellow", output=f"{number_left_out_sequences} sequences of unmapped categories or "
                                                f"without frames left out : {format_path_link(path=labels_file)}")
         if shuffle:
-            random.shuffle(self.sequences)
+            random.shuffle(sequences)
 
-        # Every sequence by identifier, to name the evaluated sequences and frames in the evaluation outputs
-        self.sequence_records = {sequence["identifier"]: sequence for sequence in self.sequences}
+        # The kept sequences packed in their order into one read-only buffer, which the loader workers read without
+        # copying Python objects of the main process, every sequence found by its identifier to name the evaluated
+        # sequences and frames in the evaluation outputs
+        self.sequences = SerializedRecords(records=sequences, identifier_key="identifier")
 
     def __len__(self) -> int:
         """
@@ -360,7 +365,7 @@ class SequenceDataset(Dataset):
             Dict[str, str]: The 'sequence', 'first_frame' and 'last_frame' columns, the frames given relative to the
                 'data' folder.
         """
-        sequence = self.sequence_records[sample_identifier]
+        sequence = self.sequences.find_record(identifier=sample_identifier)
         return {"sequence": sequence["sequence_name"], "first_frame": sequence["frames"][0],
                 "last_frame": sequence["frames"][-1]}
 
@@ -374,7 +379,7 @@ class SequenceDataset(Dataset):
         Returns:
             str: The name of the sequence in the manifest, its folders joined with underscores, e.g. 'test_000003'.
         """
-        return self.sequence_records[sample_identifier]["sequence_name"].replace("/", "_")
+        return self.sequences.find_record(identifier=sample_identifier)["sequence_name"].replace("/", "_")
 
     def get_sequence_frame_names(self, sample_identifier: int) -> List[str]:
         """
@@ -387,7 +392,7 @@ class SequenceDataset(Dataset):
         Returns:
             List[str]: The paths of the frames of the sequence relative to the 'data' folder.
         """
-        return self.sequence_records[sample_identifier]["frames"]
+        return self.sequences.find_record(identifier=sample_identifier)["frames"]
 
     def get_sample_class_indices(self) -> Dict[int, List[int]]:
         """
