@@ -4,10 +4,10 @@ classifier), read at every build by tutorials/figures/classification/figures.py 
 benchmark of the repository (benchmark_results of tutorials/tutorial_sources.yaml,
 documentation/architecture_benchmarking/results.csv, its stages described in experiment_plan.md): the test accuracy of
 the launches comparing the normalization of the hidden layers, the global pooling, the class weighting and the
-learning rate, averaged over the two launches of every setting the plan compares, so that the narration quotes the
-benchmark the way the plan reads it, with the image size and classes of the benchmark read from its run names, the
-launches per setting and the evaluated iterations the narration names. Nothing is drawn: the scene draws the values
-as bars.
+learning rate, averaged over the two launches of every setting the plan compares, and the differences of flatten
+over average pooling and of balanced over no class weights, so that the narration quotes the benchmark the way the
+plan reads it, with the image size and classes of the benchmark read from its run names, the launches per setting
+and the evaluated iterations the narration names. Nothing is drawn: the scene draws the values as bars.
 """
 
 import csv
@@ -83,11 +83,12 @@ def average_launches(rows: Dict[str, Dict[str, str]], launches: List[str], colum
 
 def make_head_benchmark_facts() -> Dict[str, Any]:
     """
-    Gives the measured effects of the head settings in the benchmark, the noise between two launches of the same
-    settings, and the largest accuracy at iteration 500 of the launches from a learning rate of 5e-4 up, with what the
-    narration says of the benchmark: the image size and classes of its launches (from their run names), the launches
-    of every compared setting, the last evaluated iteration, the iteration of the normalization comparison and of the
-    high learning rates, and the number of last evaluations averaged.
+    Gives the measured effects of the head settings in the benchmark, the differences of flatten over average pooling
+    and of balanced over no class weights, the noise between two launches of the same settings, and the largest
+    accuracy at iteration 500 of the launches from a learning rate of 5e-4 up, with what the narration says of the
+    benchmark: the image size and classes of its launches (from their run names), the launches of every compared
+    setting, the last evaluated iteration, the iteration of the normalization comparison and of the high learning
+    rates, and the number of last evaluations averaged.
 
     Returns:
         Dict[str, Any]: The facts, named benchmark.*.
@@ -98,6 +99,13 @@ def make_head_benchmark_facts() -> Dict[str, Any]:
     rows = read_benchmark_rows()
     facts = {f"benchmark.{name}": round_fact(value=average_launches(rows=rows, launches=launches, column=column))
              for name, (launches, column) in COMPARED_SETTINGS.items()}
+
+    # Differences of flatten over average pooling and of balanced over no class weights, from the rounded means the
+    # bars draw, so that the quoted difference is the one of the drawn values
+    facts.update({"benchmark.pooling.difference": round_fact(
+                      value=facts["benchmark.pooling.flatten"] - facts["benchmark.pooling.average"]),
+                  "benchmark.weighting.difference": round_fact(
+                      value=facts["benchmark.weighting.balanced"] - facts["benchmark.weighting.none"])})
 
     # Spread between two launches of the same settings, and the stalled launches of the high learning rates
     noise_means = [float(rows[launch]["accuracy_last_4_mean"]) for launch in NOISE_LAUNCHES]

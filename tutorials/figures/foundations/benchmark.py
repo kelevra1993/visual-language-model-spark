@@ -48,6 +48,11 @@ LAYER_NORMALIZATION_LAUNCHES = ["run_17", "run_18"]
 LEARNING_RATE_LAUNCHES = {"1e-4": ["run_1", "run_2"], "2e-4": ["run_3", "run_4"], "5e-4": ["run_9", "run_10"],
                           "1e-3": ["run_5", "run_6"], "2e-3": ["run_7", "run_8"]}
 MOVING_AVERAGE_LAUNCHES = ["run_37", "run_38"]
+
+# Learning rates of the chart whose launches stay near the single class accuracy in their first evaluations, and the
+# last evaluated iteration up to which the optimization chapter quotes their largest accuracy
+STALLED_LEARNING_RATES = ["5e-4", "1e-3", "2e-3"]
+STALLED_LAST_ITERATION = 750
 LAUNCH_NOISE_LAUNCHES = {"squeeze-and-excitation off": ["run_23", "run_23b", "run_23c", "run_24", "run_24b", "run_24c"],
                          "squeeze-and-excitation on": ["run_13", "run_13b", "run_13c", "run_14", "run_14b", "run_14c"]}
 
@@ -412,7 +417,8 @@ def draw_learning_rate_chart(output_folder: Path, launches: Dict[Tuple[str, str]
         launches (Dict[Tuple[str, str], List[float]]): The test accuracies of every launch.
 
     Returns:
-        Dict[str, Any]: The boxes of the panel and the mean curve of every learning rate.
+        Dict[str, Any]: The boxes of the panel, the mean curve of every learning rate, and the largest accuracy of
+            the stalled learning rates up to the last iteration the chapter quotes.
     """
     figure, (axes,) = create_figure(column_count=1)
     add_header(figure=figure, description="Synthetic shapes, 2 launches per learning rate (faint) and their mean",
@@ -432,6 +438,14 @@ def draw_learning_rate_chart(output_folder: Path, launches: Dict[Tuple[str, str]
     for learning_rate, mean_curve in mean_curves.items():
         facts.update(name_curve_values(fact_prefix=f"benchmark.learning_rate.learning_rate_"
                                                    f"{learning_rate.replace('-', '_')}", curve=mean_curve))
+
+    # Largest test accuracy of the launches of the stalled learning rates up to STALLED_LAST_ITERATION
+    stalled_curves = [curve for learning_rate in STALLED_LEARNING_RATES for curve in select_launches(
+        launches=launches, launch_names=LEARNING_RATE_LAUNCHES[learning_rate], evaluated_weights="")]
+    stalled_evaluation_count = EVALUATED_ITERATIONS.index(STALLED_LAST_ITERATION) + 1
+    facts.update({"benchmark.learning_rate.stalled.last_iteration": STALLED_LAST_ITERATION,
+                  "benchmark.learning_rate.stalled.largest_accuracy": round_fact(value=max(
+                      value for curve in stalled_curves for value in curve[:stalled_evaluation_count]))})
 
     # Number of learning rates tried and of launches of each
     facts.update({"benchmark.learning_rate.value_count": len(LEARNING_RATE_LAUNCHES),

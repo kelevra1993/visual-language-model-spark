@@ -162,7 +162,7 @@ scenes:
       file: vision_training/deployment/export_specifications.py
       function: TASK_MODEL_NAMES
     highlights:
-      - {match: "image_classifier|object_detector", sentences: [0]}
+      - {match: "\"object_detection\":|\"classification\":", sentences: [0]}
     # The range of the raw 8-bit pixels the models take
     literal_numbers: [zero, two hundred and fifty five]
     narration:
@@ -177,7 +177,7 @@ scenes:
       - {role: command, text: "cd vision_training/deployment/triton"}
       - {role: command, text: "docker compose up"}
       - {role: comment, text: "# serves every model of served_models/: HTTP on port {{foundations.triton.http_port}}, gRPC on {{foundations.triton.grpc_port}}, metrics on {{foundations.triton.metrics_port}}"}
-      - {role: command, text: "curl localhost:8000/v2/health/ready"}
+      - {role: command, text: "curl localhost:{{foundations.triton.http_port}}/v2/health/ready"}
       - {role: comment, text: "# in another terminal, from the repository root"}
       - {role: command, text: "uv run python -m vision_training.deployment.run_inference"}
     narration:

@@ -124,13 +124,15 @@ scenes:
       comments: false
     highlights:
       - {match: "^(ExperimentConfiguration|Optimization|Data|Backbone|ClassificationHead):", sentences: [0]}
-      - {match: "task:", sentences: [0, 2]}
-      - {match: "number_iterations|weight_saving_iterations|validation_iteration_ratio", sentences: [3]}
+      - {key: ExperimentConfiguration.task, sentences: [0, 2]}
+      - {key: ExperimentConfiguration.number_iterations, sentences: [3]}
+      - {key: ExperimentConfiguration.weight_saving_iterations, sentences: [3]}
+      - {key: ExperimentConfiguration.validation_iteration_ratio, sentences: [3]}
     # The three keys forgotten in the situation of the third sentence
     literal_numbers: [three]
     narration:
       - "A configuration has one section for the experiment, one for the optimization, one for the data, one for the backbone, and the sections of the task, here the classification head."
-      - "Detection and instance segmentation also have a Neck section between the backbone and their heads: a feature pyramid in the object detection configurations, none in the instance segmentation ones."
+      - "Detection and instance segmentation also have a Neck section between the backbone and their heads, whose type picks a feature pyramid, a path aggregation, or no neck."
       - "There are no defaults, the file of a task holding every key the task reads: if, for instance, you forget three keys, the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all three."
       - "The training is counted in iterations, not epochs: checkpoints, evaluations and summaries are all set in iterations."
 
@@ -139,17 +141,17 @@ scenes:
     title: "The run name"
     code_reference: "vision_training/configuration_processing/run_name.py · build_run_name"
     elements:
-      - {type: text, position: [269, 110], font: code_text, segments: [{text: "CLS", highlight: [1]}, {text: "_", colour: dim}, {text: "IN-KAR-512", highlight: [1]}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128", highlight: [2]}, {text: "_", colour: dim}, {text: "HFLAT.128-HLN-CWB", highlight: [3]}, {text: "_", colour: dim}, {text: "MC9", highlight: [3]}]}
+      - {type: text, position: [269, 110], font: code_text, segments: [{text: "{{foundations.listings.run_name_sections[0]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[1]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[2]}}", highlight: [2]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[3]}}", highlight: [3]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[4]}}", highlight: [3]}]}
       - {type: arrow, points: [[293, 130], [158, 240]], appear: 1}
-      - {type: box, box: [0, 245, 316, 445], text: "CLS\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [0, 245, 316, 445], text: "{{foundations.listings.run_name_sections[0]}}\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[410, 130], [519, 240]], appear: 1}
-      - {type: box, box: [361, 245, 677, 445], text: "IN-KAR-512\n\ninput normalization,\nkept aspect ratio,\n{{foundations.listings.input_size}} pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [361, 245, 677, 445], text: "{{foundations.listings.run_name_sections[1]}}\n\ninput normalization,\nkept aspect ratio,\n{{foundations.listings.input_size}} pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[825, 130], [880, 240]], appear: 2}
-      - {type: box, box: [722, 245, 1038, 445], text: "SE-RES-BN-B...\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
+      - {type: box, box: [722, 245, 1038, 445], text: "{{foundations.listings.run_name_backbone_modules}}-B...\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
       - {type: arrow, points: [[1295, 130], [1241, 240]], appear: 3}
-      - {type: box, box: [1083, 245, 1399, 445], text: "HFLAT.128-HLN-CWB\n\nflatten pooling,\n{{foundations.run.hidden_units}} hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: box, box: [1083, 245, 1399, 445], text: "{{foundations.listings.run_name_sections[3]}}\n\nflatten pooling,\n{{foundations.run.hidden_units}} hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
       - {type: arrow, points: [[1467, 130], [1602, 240]], appear: 3}
-      - {type: box, box: [1444, 245, 1760, 445], text: "MC9\n\nmulti-class output,\n{{foundations.run.class_count}} classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [1444, 245, 1760, 445], text: "{{foundations.listings.run_name_sections[4]}}\n\nmulti-class output,\n{{foundations.run.class_count}} classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: box, box: [130, 520, 1630, 700], text: "No token: batch size, learning rate and its schedule, augmentation, dropout,\nmoving average of the weights\nrun_name_suffix: \"v1\"  →  <run name>_v1, a new run of the same settings", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
     narration:
       - "The run folder is named after the settings that shape the model, so that the same settings resume in the same folder and changed ones start a new run."

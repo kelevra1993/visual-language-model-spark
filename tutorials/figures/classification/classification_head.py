@@ -6,7 +6,9 @@ the correlation matrix of the units of the first hidden layer of the head over v
 decorrelation loss of the repository penalizes, drawn on the card colour), the balanced class weights of the training
 split, the parameters of every block of the backbone and of the head, and the shapes and parameters of every layer of
 the head with those of the same head after an average pooling. The checkpoint inference is reused from the previous
-build unless forced.
+build unless forced. It also gives the run name tokens of the head section of the synthetic classification
+configuration the head scene shows, built by the run name code of the repository, so that the tokens drawn next to
+the excerpt follow the file.
 """
 
 import json
@@ -25,6 +27,8 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, SERIES_COLOURS, S
                                                 register_fonts, round_fact, save_figure, write_network_input,
                                                 write_reused_facts)
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.configuration_processing.configuration_loader import load_configuration
+from vision_training.configuration_processing.run_name import build_classification_sections
 from vision_training.losses.classification_losses import (compute_balanced_class_weights,
                                                           compute_decorrelation_loss)
 from vision_training.losses.self_supervised_losses import compute_feature_cross_correlation
@@ -220,6 +224,30 @@ def describe_head_layers(model: TaskModel, head_configuration: Dict[str, Any], i
             "head.flatten_features_at_half_size": channels * half_size_map * half_size_map,
             "head.first_linear_share": round_fact(value=count_parameters(module=first_linear) /
                                                   count_parameters(module=model))}
+
+
+def describe_head_run_name_tokens(configuration_path: Path, run_folder: Path) -> Dict[str, Any]:
+    """
+    Gives the run name tokens of the classification head section of a configuration file, built by
+    build_classification_sections as a training would build them, so that the head scene of the classification
+    tutorials draws the tokens of the excerpt it shows (the pooling and hidden sizes, the normalization, the class
+    weighting) next to the classes token, the class count coming from the label dictionary of the classification run
+    as the configuration file names no class.
+
+    Args:
+        configuration_path (Path): The synthetic classification configuration the head scene shows.
+        run_folder (Path): The folder of the classification run of tutorial_sources.yaml, whose label_dictionary.json
+            gives the classes.
+
+    Returns:
+        Dict[str, Any]: The tokens of the head section, in order, and the classes token, named run_name.*.
+    """
+    # Head section of the configuration with the label dictionary of the run, the only keys the head tokens read
+    configuration = load_configuration(configuration_path=configuration_path)
+    label_dictionary = json.loads(s=(run_folder / "label_dictionary.json").read_text(encoding="utf-8"))
+    head_tokens, classes_tokens = build_classification_sections(model_configuration={
+        "ClassificationHead": configuration["ClassificationHead"], "Data": {"label_dictionary": label_dictionary}})
+    return {"run_name.head_tokens": head_tokens, "run_name.classes_token": classes_tokens[0]}
 
 
 def make_classification_head_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:

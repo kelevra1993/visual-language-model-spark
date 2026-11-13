@@ -2,10 +2,11 @@
 Values of the code and of the files of the repository that the foundations chapters quote but that no
 {{constant:...}} or {{config:...}} placeholder of a storyboard can read, gathered at every build by
 tutorials/figures/foundations/figures.py into the facts of the series: a keyword argument of a call (the momentum of
-SGD in BaseTrainer.create_optimizer), a setting of the main block of a script (the PCA dimensions of
-cluster_image_embeddings.py), the host ports of the Triton docker compose file (strings such as "8000:8000"), the
-strengths of the supervised augmentation (a table holding computed values, which ast.literal_eval refuses), the pixel
-range given by the input normalization, and values of the synthetic classification configuration that need a
+SGD in BaseTrainer.create_optimizer, the data type of the mixed precision autocast in BaseTrainer.run_model_iteration),
+a setting of the main block of a script (the PCA dimensions of cluster_image_embeddings.py), the host ports of the
+Triton docker compose file (strings such as "8000:8000"), the strengths of the supervised and self-supervised
+augmentation (tables holding computed values, which ast.literal_eval refuses), the pixel range given by the input
+normalization, and values of the synthetic classification configuration that need a
 conversion or a computation (its number of iterations written 1e10, the steps averaged by its moving average). The
 storyboards quote them as {{foundations.<name>}}, so that a sentence follows the code when it changes. The readers of
 main blocks are also used by the classification figures for the settings of the synthetic dataset script.
@@ -20,7 +21,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from vision_training.configuration_processing.configuration_loader import load_configuration
-from vision_training.data.augmentations import SUPERVISED_AUGMENTATION_STRENGTHS
+from vision_training.data.augmentations import (SELF_SUPERVISED_AUGMENTATION_STRENGTHS,
+                                                SUPERVISED_AUGMENTATION_STRENGTHS)
 from vision_training.models.components.input_normalization import InputNormalizer
 
 # Ports of the Triton container for its HTTP, gRPC and metrics endpoints, the defaults of Triton, which the docker
@@ -49,11 +51,33 @@ def find_called_name(call: ast.Call) -> str:
     return ""
 
 
+def read_keyword_value(value: ast.expr) -> Any:
+    """
+    Gives the value of a keyword argument of a call read by read_call_keyword: a literal (the momentum 0.9 of SGD), or
+    an attribute of a module (torch.bfloat16, the data type of the autocast) given by its last name, so that a fact
+    names the data type the code passes without importing the module.
+
+    Args:
+        value (ast.expr): The node of the value of the keyword argument.
+
+    Returns:
+        Any: The literal value, or the last name of the attribute of a module ("bfloat16").
+
+    Raises:
+        ValueError: If the value is neither a literal nor an attribute of a module (e.g. an attribute of self).
+    """
+    # Attribute of a module, such as torch.bfloat16, the attributes of an object (self.momentum) being refused below
+    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name) and value.value.id != "self":
+        return value.attr
+    return ast.literal_eval(node_or_string=value)
+
+
 def read_call_keyword(module_path: Path, function_name: str, called_name: str, keyword: str) -> Any:
     """
-    Reads a keyword argument written as a literal in a call inside a function of a Python module, without importing
-    it, for the facts of the values the code passes inline (the momentum of SGD in BaseTrainer.create_optimizer), which
-    no constant placeholder of a storyboard can read.
+    Reads a keyword argument written as a literal, or as a dotted name, in a call inside a function of a Python module,
+    without importing it, for the facts of the values the code passes inline (the momentum of SGD in
+    BaseTrainer.create_optimizer, the data type torch.bfloat16 of the autocast in BaseTrainer.run_model_iteration),
+    which no constant placeholder of a storyboard can read.
 
     Args:
         module_path (Path): The Python module.
@@ -62,11 +86,12 @@ def read_call_keyword(module_path: Path, function_name: str, called_name: str, k
         keyword (str): The keyword argument read.
 
     Returns:
-        Any: The literal value of the keyword argument.
+        Any: The literal value of the keyword argument, or the last name of a dotted name ("bfloat16" for
+            torch.bfloat16).
 
     Raises:
         ValueError: If the function, the call or the keyword is missing, if the call is written twice with the keyword,
-            or if the value is not a literal.
+            or if the value is neither a literal nor a dotted name.
     """
     tree = ast.parse(source=module_path.read_text(encoding="utf-8"), filename=str(module_path))
     functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and
@@ -75,7 +100,7 @@ def read_call_keyword(module_path: Path, function_name: str, called_name: str, k
         raise ValueError(f"Expected one function {function_name} in {module_path}, found {len(functions)}.")
 
     # Keyword of every call of that name inside the function
-    values = [ast.literal_eval(node_or_string=argument.value) for node in ast.walk(functions[0])
+    values = [read_keyword_value(value=argument.value) for node in ast.walk(functions[0])
               if isinstance(node, ast.Call) and find_called_name(call=node) == called_name
               for argument in node.keywords if argument.arg == keyword]
     if len(values) != 1:
@@ -145,10 +170,10 @@ def read_triton_host_ports(compose_path: Path) -> Dict[str, int]:
 def describe_code_values(repository_folder: Path, configuration_path: Path) -> Dict[str, Any]:
     """
     Gives the facts of the foundations chapters read from the code and the files of the repository rather than from a
-    run: the momentum of SGD, the PCA dimensions of the clustering script, the host ports of Triton, the strengths of
-    the supervised augmentation the data pipeline chapter quotes, the range of the input normalization, and the number
-    of iterations and the averaging horizon of the moving average of the synthetic classification configuration the
-    chapters show.
+    run: the momentum of SGD, the data type of the mixed precision forward passes, the PCA dimensions of the clustering
+    script, the host ports of Triton, the strengths of the supervised and self-supervised augmentation the data
+    pipeline chapter quotes, the range of the input normalization, and the number of iterations and the averaging
+    horizon of the moving average of the synthetic classification configuration the chapters show.
 
     Args:
         repository_folder (Path): The root folder of the repository.
@@ -159,9 +184,13 @@ def describe_code_values(repository_folder: Path, configuration_path: Path) -> D
         Dict[str, Any]: The facts, named optimization.*, scripts.*, triton.*, data.* and configuration.*.
     """
     # Values passed inline by the code and settings of the main blocks of the scripts
+    base_trainer_path = repository_folder / "vision_training" / "trainers" / "base_trainer.py"
     facts = {"optimization.sgd_momentum": read_call_keyword(
-                 module_path=repository_folder / "vision_training" / "trainers" / "base_trainer.py",
-                 function_name="create_optimizer", called_name="SGD", keyword="momentum"),
+                 module_path=base_trainer_path, function_name="create_optimizer", called_name="SGD",
+                 keyword="momentum"),
+             "optimization.mixed_precision_dtype": read_call_keyword(
+                 module_path=base_trainer_path, function_name="run_model_iteration", called_name="autocast",
+                 keyword="dtype"),
              "scripts.cluster_pca_dimensions": read_main_block_value(
                  script_path=repository_folder / "scripts" / "embedding" / "cluster_image_embeddings.py",
                  variable_name="pca_dimensions")}
@@ -170,7 +199,7 @@ def describe_code_values(repository_folder: Path, configuration_path: Path) -> D
     facts.update({f"triton.{endpoint}_port": port for endpoint, port in triton_ports.items()})
 
     # Strengths of the supervised augmentation quoted by the data pipeline chapter, the jigsaw cutting its image into
-    # a square grid of cells
+    # a square grid of cells, and the smallest share of the area kept by the crop of the self-supervised views
     jigsaw_grid_size = int(SUPERVISED_AUGMENTATION_STRENGTHS["jigsaw_grid_size"])
     facts.update({"data.supervised_strengths.crop_side_minimum": float(
                       SUPERVISED_AUGMENTATION_STRENGTHS["crop_side_range"][0]),
@@ -178,7 +207,9 @@ def describe_code_values(repository_folder: Path, configuration_path: Path) -> D
                       SUPERVISED_AUGMENTATION_STRENGTHS["brightness_maximum_delta"]),
                   "data.supervised_strengths.noise_standard_deviation": float(
                       SUPERVISED_AUGMENTATION_STRENGTHS["noise_standard_deviation"]),
-                  "data.supervised_strengths.jigsaw_cell_count": jigsaw_grid_size ** 2})
+                  "data.supervised_strengths.jigsaw_cell_count": jigsaw_grid_size ** 2,
+                  "data.self_supervised_strengths.crop_area_minimum": float(
+                      SELF_SUPERVISED_AUGMENTATION_STRENGTHS["crop_area_range"][0])})
 
     # Range of the pixels after the input normalization, measured on the lowest and highest raw pixel values
     input_normalizer = InputNormalizer(input_normalization=True, per_sample_normalization=False)
