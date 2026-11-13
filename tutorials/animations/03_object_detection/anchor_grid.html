@@ -2,10 +2,10 @@
 <!--
  Anchors of the detector on the test image of the object detection series, for the chapter on the data, the levels and
  the anchors: the grid of the cells of block 5 (stride 32) over the image, the cell of the star with its corner, where
- the six anchors of the cell are centred (RegionProposal.anchor_centres "cell_corners" of the run, the corner being
- drawn from the cell, not read from the anchors), the anchors growing from that corner; then the grid of blocks 6 and 7
- (stride 64) with the anchors of both levels at the same corner, the 128 pixel anchors of the two levels being the same
- boxes; then every object with its best anchor over the levels and their overlap, in blue when it reaches the
+ the six anchors of the cell are centred (the corner being drawn from the cell, not read from the anchors), the
+ anchors growing from that corner; then the grid of blocks 6 and 7 (stride 64) with the anchors of both levels at the
+ same corner, the 128 pixel anchors of the two levels being the same boxes; then every object with its best anchor
+ over the levels and their overlap, in blue when it reaches the
  foreground threshold of 0.5 and in magenta when the object only gets that anchor through the fallback of the assignment.
  The anchors, objects and overlaps are those the trained detector computes (scene data: the anchor_page fact of
  tutorials/figures/object_detection/detector_inference.py, and the sentence of every stage). The elements of the scene

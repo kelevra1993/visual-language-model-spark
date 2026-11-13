@@ -171,7 +171,7 @@ uv run python -m scripts.data.visualize_augmentation_strengths
 ## Checking The Anchor Coverage
 `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (object detection and instance segmentation) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, per detection level and object size, then exits without training.
 - Every split is read from its annotations with a progress bar, no image being loaded.
-- The best anchor of every object is the grid anchor nearest its centre for every anchor shape, on the grid of `RegionProposal.anchor_centres`, exact and computed on the CPU.
+- The best anchor of every object is the grid anchor nearest its centre for every anchor shape, on the cell corners, exact and computed on the CPU.
 - It creates no run folder and writes no file; the training launches measure the training split alone at `RegionProposal.foreground_iou_threshold.min` (`anchor_recall.csv`).
 
 ## TensorBoard Monitoring

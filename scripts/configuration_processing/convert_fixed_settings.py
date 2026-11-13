@@ -3,11 +3,11 @@ When run, removes from configuration files written before the fixed settings the
 the code (FIXED_SETTINGS, refused by check_removed_settings of
 vision_training/configuration_processing/common_checks.py: the settings of the first conversion, then the batch
 normalization momentums of the task heads, the strict fallback assignment, the localisation loss beta and the box loss
-of the region proposal network of the detection tasks, then the gradient clipping norm), and adds the sections and the
-settings a task now requires with the values reproducing the runs written before them (ADDED_SECTIONS: the 'Neck' of
-the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss' of their 'Detector' section, the smooth L1, the
-'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section, the greedy NMS, the 'proposal_selection'
-of their 'RegionProposal' section, over all the levels at once, and its 'anchor_centres', on the cell corners), so that
+of the region proposal network of the detection tasks, then the gradient clipping norm, then the anchor centres of the
+detection tasks), and adds the sections and the settings a task now requires with the values reproducing the runs
+written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss' of
+their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section,
+the greedy NMS, and the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once), so that
 the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
@@ -17,9 +17,9 @@ settings of the sequence tasks, the number of candidate frames of the frame sele
 copied to a backup, and a conversion changing anything else than the removed settings and the added sections and
 settings stops the script. A file holding another value than the fixed one is listed with the values its runs change
 to, except for the settings of RECORD_ONLY_SETTINGS, whose other values the code no longer trains (the CIoU box loss of
-the region proposal network, a gradient clipping norm): such a file is reported and left as it is, its runs staying as
-records. A file whose backbone would change (inception modules starting at another block) is refused, the code no
-longer building its layers.
+the region proposal network, a gradient clipping norm, the anchors centred on the cell centres): such a file is
+reported and left as it is, its runs staying as records. A file whose backbone would change (inception modules starting
+at another block) is refused, the code no longer building its layers.
 """
 
 import re
@@ -47,7 +47,8 @@ FIXED_SETTINGS = ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfigu
                   "Backbone.modules.inception_starting_block", *FIXED_MOMENTUM_COMPONENTS,
                   "Data.data_augmentation.independent_frames", "Data.data_augmentation.shuffle_frames",
                   "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
-                  "Detector.localisation_loss_beta", "RegionProposal.box_loss", "Optimization.gradient_clipping_norm"]
+                  "Detector.localisation_loss_beta", "RegionProposal.box_loss", "Optimization.gradient_clipping_norm",
+                  "RegionProposal.anchor_centres"]
 
 # Value the code always uses for every fixed setting, by the path of the setting in a file: a file holding another
 # value changes the behaviour of its runs once converted. The localisation loss beta is compared as the files write it,
@@ -63,7 +64,7 @@ FIXED_VALUES = {"ExperimentConfiguration.evaluation.top_k": TOP_K_ACCURACY_CLASS
                 "Data.data_augmentation.shuffle_frames.activated": False,
                 "RegionProposal.strict_fallback_assignment": False, "RegionProposal.localisation_loss_beta": "1/9",
                 "Detector.localisation_loss_beta": "1/9", "RegionProposal.box_loss": "smooth_l1",
-                "Optimization.gradient_clipping_norm": None}
+                "Optimization.gradient_clipping_norm": None, "RegionProposal.anchor_centres": "cell_corners"}
 
 # Fixed settings whose other values trained otherwise than the code now can, with the reason: a file holding another
 # value than the one of FIXED_VALUES is not converted, its runs staying as records (their numbers kept in the results
@@ -71,7 +72,9 @@ FIXED_VALUES = {"ExperimentConfiguration.evaluation.top_k": TOP_K_ACCURACY_CLASS
 RECORD_ONLY_SETTINGS = {"RegionProposal.box_loss": "the CIoU box loss of the region proposal network was removed, the "
                                                    "region proposal network always using the smooth L1",
                         "Optimization.gradient_clipping_norm": "the gradient clipping was removed, the gradients "
-                                                               "never being clipped"}
+                                                               "never being clipped",
+                        "RegionProposal.anchor_centres": "the anchors centred on the cell centres were removed, the "
+                                                         "anchors always lying on the cell corners"}
 
 # Text of the 'Neck' section added to the detection runs written before the neck, whose heads read the blocks
 NECK_SECTION_TEXT = """# Neck between the level blocks and the heads, every level keeping the size of its block.
@@ -114,13 +117,6 @@ REGION_PROPOSAL_SELECTION_LINES = [
     '# over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per level.',
     'proposal_selection: "joint"']
 
-# Lines of the anchor centres added to the 'RegionProposal' section of the detection runs written before the anchors
-# centred on the cell centres, whose anchors were centred on the cell corners: the comment lines, then the setting
-REGION_PROPOSAL_ANCHOR_CENTRES_LINES = [
-    '# "cell_corners" (anchor centres at column x stride, as torchvision) or "cell_centres" ((column + 0.5) x stride,',
-    '# where RoIAlign and the convolutions place the cells, the offset 0.5 of Detectron2).',
-    'anchor_centres: "cell_corners"']
-
 # Settings a task now requires inside sections its files hold, added to the files of its runs written before them: the
 # tasks holding the setting, the setting it is written after (at its indentation), and its lines, whose value
 # reproduces those runs. They are added in this order, so that a setting can follow one added before it
@@ -134,10 +130,7 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                                                      "lines": DETECTOR_NMS_DISTANCE_EXPONENT_LINES},
                   "RegionProposal.proposal_selection": {"tasks": ["object_detection", "instance_segmentation"],
                                                         "after": "RegionProposal.normalization",
-                                                        "lines": REGION_PROPOSAL_SELECTION_LINES},
-                  "RegionProposal.anchor_centres": {"tasks": ["object_detection", "instance_segmentation"],
-                                                    "after": "RegionProposal.proposal_selection",
-                                                    "lines": REGION_PROPOSAL_ANCHOR_CENTRES_LINES}}
+                                                        "lines": REGION_PROPOSAL_SELECTION_LINES}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -615,9 +608,10 @@ if __name__ == "__main__":
     # settings added on 2026-11-08, '_before_nms_criterion' for the final NMS settings added on 2026-11-08,
     # '_before_region_proposal_box_loss' for the 'RegionProposal.box_loss' removed on 2026-11-10,
     # '_before_gradient_clipping_norm' for the 'Optimization.gradient_clipping_norm' removed on 2026-11-11,
-    # '_before_proposal_selection' for the 'RegionProposal.proposal_selection' added on 2026-11-11, then
-    # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12
-    backup_suffix = "_before_anchor_centres"
+    # '_before_proposal_selection' for the 'RegionProposal.proposal_selection' added on 2026-11-11,
+    # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12, then
+    # '_before_anchor_centres_removal' for its removal on 2026-11-13
+    backup_suffix = "_before_anchor_centres_removal"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

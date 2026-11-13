@@ -22,7 +22,6 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_probability_value,
                                                                            get_configuration_value, is_number)
 from vision_training.losses.detection_losses import BOX_LOSSES
-from vision_training.models.detection.anchors import ANCHOR_CENTRE_OFFSETS
 from vision_training.models.detection.feature_neck import NECK_TYPES
 from vision_training.models.detection.postprocessing import NMS_CRITERIA
 from vision_training.models.detection.region_proposer import PROPOSAL_SELECTIONS
@@ -210,8 +209,7 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     """
     Verifies the 'RegionProposal' section, the settings shared by the region proposal heads of every level (their
     convolutions being checked with the levels): the normalization, the IoU thresholds used to label anchors, the
-    anchors centred on the cell corners or centres, the selection of the proposals over all the levels or level by
-    level, the proposal counts kept around non-maximum
+    selection of the proposals over all the levels or level by level, the proposal counts kept around non-maximum
     suppression, the anchor sampling budget of the proposal losses, and the 'pretrained' settings initialising the
     heads with those of another run. A background range starting above 0.0 is allowed silently: the anchors overlapping
     no object are then ignored, only the hard negatives touching an object being sampled as background, as the 0.1 of
@@ -256,13 +254,6 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
             errors.append(f"'RegionProposal.background_iou_threshold.max' ({background_threshold['max']}) must be <= "
                           f"'RegionProposal.foreground_iou_threshold.min' ({foreground_threshold['min']}), otherwise "
                           f"anchors can be labelled both background and foreground.")
-
-    # Anchors centred on the cell corners or on the cell centres
-    anchor_centres = get_configuration_value(configuration=model_configuration,
-                                             key_path="RegionProposal.anchor_centres")
-    if anchor_centres not in ANCHOR_CENTRE_OFFSETS:
-        errors.append(f"'RegionProposal.anchor_centres' must be one of {list(ANCHOR_CENTRE_OFFSETS)}, got "
-                      f"{anchor_centres!r}.")
 
     # Selection of the proposals over all the levels at once or level by level
     proposal_selection = get_configuration_value(configuration=model_configuration,

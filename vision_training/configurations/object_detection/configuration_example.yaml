@@ -288,9 +288,6 @@ RegionProposal:
   # "joint" (one top-k and NMS over all the levels) or "per_level" (top-k and NMS of every level, then the best
   # over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per level.
   proposal_selection: "per_level"
-  # "cell_corners" (anchor centres at column x stride, as torchvision) or "cell_centres" ((column + 0.5) x stride,
-  # where RoIAlign and the convolutions place the cells, the offset 0.5 of Detectron2).
-  anchor_centres: "cell_corners"
   training:
     # Top raw proposals kept per image (per level with "per_level") before non-maximum suppression in training.
     pre_nms_proposals: 1000

@@ -117,7 +117,7 @@ class TwoStageDetector(TaskModel):
 
         Args:
             region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' section, giving the normalization
-                                                            and the anchor centres shared by every level.
+                                                            shared by every level.
             detection_levels_configuration (Dict[str, Any]): The 'DetectionLevels' section, giving the anchor scales
                                                              and aspect ratios and the region proposal convolutions
                                                              of every level.
@@ -128,7 +128,6 @@ class TwoStageDetector(TaskModel):
         """
         region_proposer_dictionary = nn.ModuleDict()
         feature_map_normalization = region_proposal_configuration["normalization"]["feature_map_normalization"]
-        anchor_centres = region_proposal_configuration["anchor_centres"]
 
         # Iterate over the sequentially ordered detection blocks given by the neck
         for index_string in self.detection_input_information.keys():
@@ -146,7 +145,7 @@ class TwoStageDetector(TaskModel):
                 convolutions=detection_levels_configuration[index_string]["region_proposal"]["convolutions"],
                 input_channels=input_channels, scales=scales, aspect_ratios=aspect_ratios,
                 input_image_size=self.input_image_size, feature_map_size=feature_map_size,
-                anchor_centres=anchor_centres, feature_map_normalization=feature_map_normalization,
+                feature_map_normalization=feature_map_normalization,
                 batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, dtype=self.dtype, device=self.device)
 
         return region_proposer_dictionary

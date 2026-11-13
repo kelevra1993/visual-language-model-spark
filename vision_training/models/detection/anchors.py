@@ -1,7 +1,6 @@
 """
 Anchor generation of the object detection task: the Anchors module computes the reference boxes of one feature map
-level from its scales and aspect ratios, centred on the cell corners or on the cell centres
-('RegionProposal.anchor_centres'), used by the region proposal heads and the target assignment of the
+level from its scales and aspect ratios, used by the region proposal heads and the target assignment of the
 TwoStageDetector, and the best anchor overlap of every object, read by the anchor recall of the detection trainers.
 """
 
@@ -15,12 +14,6 @@ from typing import List
 # synchronisation of the thread pool (12 s on busy cores); 4.35 million boxes then take about 2 s
 BEST_OVERLAP_CHUNK_SIZE = 32768
 
-# Position of the anchor centres of every 'RegionProposal.anchor_centres' value, in strides from the top left corner of
-# their cell: "cell_corners" (column x stride, as torchvision AnchorGenerator and every run before 2026-11-12) or
-# "cell_centres" ((column + 0.5) x stride, where RoIAlign aligned=True and the convolutions place the cell, the offset
-# 0.5 Detectron2 recommends)
-ANCHOR_CENTRE_OFFSETS = {"cell_corners": 0.0, "cell_centres": 0.5}
-
 
 class Anchors(nn.Module):
     """
@@ -33,7 +26,7 @@ class Anchors(nn.Module):
     """
 
     def __init__(self, scales: List[float], aspect_ratios: List[float], input_image_size: int, feature_map_size: int,
-                 anchor_centres: str, dtype: torch.dtype, device: torch.device) -> None:
+                 dtype: torch.dtype, device: torch.device) -> None:
         """
         Initializes the Anchors module and pre-computes the anchor grid.
         
@@ -42,7 +35,6 @@ class Anchors(nn.Module):
             aspect_ratios (List[float]): A list of aspect ratios (height/width) for the anchors.
             input_image_size (int): The spatial resolution of the original input image.
             feature_map_size (int): The spatial resolution of the feature map at this level.
-            anchor_centres (str): Where the anchors of a cell are centred, one of ANCHOR_CENTRE_OFFSETS.
             dtype (torch.dtype): The tensor data type.
             device (torch.device): The device to allocate tensors on.
         """
@@ -58,13 +50,6 @@ class Anchors(nn.Module):
 
         self.input_image_size = input_image_size
         self.feature_map_size = feature_map_size
-
-        # Offset of the anchor centres from the top left corner of their cell, in strides
-        if anchor_centres not in ANCHOR_CENTRE_OFFSETS:
-            raise ValueError(f"Unknown anchor centres {anchor_centres!r}, expected one of "
-                             f"{list(ANCHOR_CENTRE_OFFSETS)}.")
-        self.anchor_centres = anchor_centres
-        self.centre_offset = ANCHOR_CENTRE_OFFSETS[anchor_centres]
 
         # Pre-generate the complete grid of anchors for this feature map level
         self.anchors = self.generate_anchors()
@@ -93,10 +78,8 @@ class Anchors(nn.Module):
         base_anchors = torch.stack(tensors=[-anchor_widths, -anchor_heights, anchor_widths, anchor_heights],
                                    dim=1) / 2.0
 
-        # Get the shifts along the height and width across the entire feature map grid, the anchor centres lying on the
-        # cell corners (offset 0, the same numbers as without offset) or on the cell centres (offset 0.5)
-        shifts = (torch.arange(start=0, end=self.feature_map_size, dtype=self.dtype, device=self.device) +
-                  self.centre_offset) * stride
+        # Get the shifts along the height and width across the entire feature map grid
+        shifts = torch.arange(start=0, end=self.feature_map_size, dtype=self.dtype, device=self.device) * stride
 
         # Generate a 2D meshgrid of spatial coordinates (x, y)
         shifts_y, shifts_x = torch.meshgrid(shifts, shifts, indexing="ij")
@@ -151,15 +134,13 @@ class Anchors(nn.Module):
         boxes = boxes.to(device="cpu", dtype=torch.float64)
         box_areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
 
-        # Nearest anchor centre of the grid on each axis, the grid of generate_anchors starting at the centre offset
-        # times the stride
+        # Nearest anchor centre of the grid on each axis, the grid of generate_anchors starting at 0 with the stride
         stride = self.input_image_size // self.feature_map_size
         nearest_centres = []
         for minimum_column, maximum_column in [(0, 2), (1, 3)]:
             box_centres = (boxes[:, minimum_column] + boxes[:, maximum_column]) / 2
-            nearest_columns = torch.clamp(input=torch.round(input=box_centres / stride - self.centre_offset), min=0,
-                                          max=self.feature_map_size - 1)
-            nearest_centres.append((nearest_columns + self.centre_offset) * stride)
+            nearest_centres.append(torch.clamp(input=torch.round(input=box_centres / stride), min=0,
+                                               max=self.feature_map_size - 1) * stride)
         nearest_centre_x, nearest_centre_y = nearest_centres
 
         # Overlap with the nearest anchor of every scale and aspect ratio, sized like in generate_anchors
