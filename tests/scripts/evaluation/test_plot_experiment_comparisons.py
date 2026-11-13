@@ -4,7 +4,8 @@ the launch curves read from a results file (mean rows left out, unlabelled weigh
 launches of a setting on the iterations they all evaluated, the gap to the reference setting, the trained weights of a
 setting without moving average standing in the averaged-weights column, and the figures written for the stages of a
 registry, with one column per kind of weights evaluated for every launch of the stage, whatever its number of launches,
-the rates of the classification and sequence labelling written as percentages with their gaps in points.
+the rates of the classification and sequence labelling written as percentages with their gaps in points, and the
+reference stage of the instance segmentation experiment drawn from its test mask mAP.
 """
 
 import csv
@@ -270,3 +271,34 @@ def test_verdict_lines_keep_every_number_with_its_unit() -> None:
     assert len(lines) > 3
     assert not any(line.rstrip().endswith(("89.69", "85.81", "3.6", "97.93", "97.91")) for line in lines)
     assert " ".join(lines).replace("\u00a0", " ") == verdict
+
+
+def test_plot_registry_draws_an_instance_segmentation_reference_of_one_setting(tmp_path: Path) -> None:
+    """
+    The reference stage of the instance segmentation experiment, one setting of two launches read from a results file
+    of the test mask mAP@[0.5:0.95] (mask_map_50_95 columns), gets its figure in the folder of the experiment.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    columns = ["launch", "evaluated_weights", "mask_map_50_95_1000", "mask_map_50_95_2000", "mask_map_50_95_mean",
+               "mask_map_50_95_last_4_mean", "finished", "learning_rate", "run_folder"]
+    rows = [{"launch": launch, "evaluated_weights": weights, "mask_map_50_95_1000": first_value,
+             "mask_map_50_95_2000": second_value, "learning_rate": "0.001"}
+            for launch, weights, first_value, second_value in [("run_1", "trained", "0.16", "0.37"),
+                                                               ("run_2", "trained", "0.15", "0.36"),
+                                                               ("run_1", "ema", "0.17", "0.42"),
+                                                               ("run_2", "ema", "0.16", "0.39")]]
+    write_results_file(results_path=tmp_path / "instance_segmentation_results.csv", rows=rows, columns=columns)
+    write_registry(registry_path=tmp_path / "experiment_comparisons.yaml", comparisons=[{
+        "experiment": "instance_segmentation", "results_file": "instance_segmentation_results.csv", "stage": "0",
+        "title": "Reference", "plan_lines": "1-2", "last_iteration": 2000, "compared_weights": "ema",
+        "arms": [{"label": "pool 14", "launches": ["run_1", "run_2"], "reference": True,
+                  "trained_as_averaged": False}],
+        "kept": "pool 14", "verdict": "Reference pair.", "notes": ""}])
+
+    figure_paths = plot_registry(registry_path=tmp_path / "experiment_comparisons.yaml",
+                                 output_folder=tmp_path / "figures")
+
+    assert figure_paths == [tmp_path / "figures" / "instance_segmentation" / "stage_0_reference.png"]
+    assert figure_paths[0].is_file()
