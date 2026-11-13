@@ -1,7 +1,8 @@
 """
 When run, serves on the local machine the temperature explorers of every classifier evaluated in the experiments folders
 of the repository, to choose the logit temperature of a checkpoint, save its thresholds and export it from the page.
-The index lists the evaluations (run, iteration, weights, saved temperature, exports); every page is built again with
+The index groups the evaluations by run folder, then by iteration, each iteration opening on the pages of its trained
+and averaged (EMA) weights with their saved temperature and exports; every page is built again with
 the current template, from the 'class_logits.npz' of the evaluation (any temperature can be typed in, and the images of
 every class are counted in the score ranges of the cut points typed on the page, at the temperature shown) or from the
 data of its written 'temperature_explorer.html' (the temperatures of its slider). The save button writes
@@ -58,10 +59,13 @@ EXPORT_MODULE = "vision_training.deployment.explorer_export"
 ITERATION_FOLDER_PATTERNS = [f"{run_depth}/{evaluation_folder_name}/Iteration_*" for run_depth in ["*", "*/*", "*/*/*"]
                              for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
 
-# Template of the index page, its rows replacing the placeholder
+# Template of the index page, its blocks of runs replacing the placeholder, and the header of the table of the
+# evaluations of an iteration
 INDEX_TEMPLATE_PATH = (REPOSITORY_ROOT / "vision_training" / "evaluation" / "classification" /
                        "temperature_explorer_index_template.html")
-INDEX_ROWS_PLACEHOLDER = "__INDEX_ROWS__"
+INDEX_RUNS_PLACEHOLDER = "__INDEX_RUNS__"
+ITERATION_TABLE_HEADER = ("<tr><th>Weights</th><th>Evaluation</th><th>Temperatures</th><th>Saved T</th>"
+                          "<th>Exports</th></tr>")
 
 # Last lines of the console output of an export shown on the page, and the escape sequences of the colours and links of
 # print_color and format_path_link, removed from it
@@ -239,35 +243,119 @@ def describe_export_availability(evaluation_folder: Path) -> Dict[str, Any]:
     return {"checkpoint": checkpoint, "unavailable": unavailable, "exports": exports}
 
 
-def build_index_rows(evaluations: Dict[str, Path]) -> str:
+def describe_index_entry(identifier: str, evaluation_folder: Path) -> Dict[str, Any]:
     """
-    Builds the table rows of the index page: for every served evaluation, its run, its evaluation folder (training or
-    checkpoint evaluation), iteration, weights, temperatures (any one from its logits, or those of its written page),
-    saved temperature and exports, with the link to its page.
+    Describes one served evaluation for the index page, which groups the evaluations by run folder and then by
+    iteration: the run it belongs to, its iteration, weights and evaluation folder (training or checkpoint evaluation),
+    and its table row, the link to its page with its temperatures (any one from its logits, or those of its written
+    page), saved temperature and exports.
+
+    Args:
+        identifier (str): The identifier of the evaluation, '<experiments folder name>/<relative path>'.
+        evaluation_folder (Path): The evaluation folder.
+
+    Returns:
+        Dict[str, Any]: The 'run_identifier' (the identifier of the run folder), 'run_name', 'iteration',
+            'use_averaged_weights', 'is_checkpoint_evaluation', 'saved_temperature' (None when nothing was saved),
+            'export_names' and the HTML 'row'.
+    """
+    checkpoint = describe_evaluation_folder(evaluation_folder=evaluation_folder)
+    saved_state = read_saved_temperature_state(evaluation_folder=evaluation_folder)
+    exports = list_checkpoint_exports(run_folder=checkpoint["run_folder"], iteration=checkpoint["iteration"],
+                                      use_averaged_weights=checkpoint["use_averaged_weights"])
+
+    # Identifier of the run: the identifier of the evaluation without its '<evaluation>/Iteration_<n>[/EMA]' parts
+    evaluation_parts = evaluation_folder.relative_to(checkpoint["run_folder"]).parts
+    run_identifier = "/".join(identifier.split("/")[:-len(evaluation_parts)])
+    is_checkpoint_evaluation = evaluation_parts[0] == CHECKPOINT_EVALUATION_FOLDER_NAME
+
+    # Row of the evaluation, its weights linking to its page
+    weights_label = "EMA" if checkpoint["use_averaged_weights"] else "Trained"
+    export_names = [export["folder"].name for export in exports]
+    cells = [f'<a href="/explorer?evaluation={quote(identifier)}">{weights_label}</a>',
+             "Checkpoint evaluation" if is_checkpoint_evaluation else "Training",
+             "Any" if (evaluation_folder / CLASS_LOGITS_FILE_NAME).is_file() else "Grid only",
+             "—" if saved_state is None else f"{saved_state['temperature']:g}",
+             ", ".join(html.escape(export_name) for export_name in export_names) or "—"]
+    return {"run_identifier": run_identifier, "run_name": checkpoint["run_folder"].name,
+            "iteration": checkpoint["iteration"], "use_averaged_weights": checkpoint["use_averaged_weights"],
+            "is_checkpoint_evaluation": is_checkpoint_evaluation,
+            "saved_temperature": None if saved_state is None else saved_state["temperature"],
+            "export_names": export_names, "row": "<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"}
+
+
+def build_iteration_group(iteration: int, entries: List[Dict[str, Any]], is_open: bool) -> str:
+    """
+    Builds the collapsible block of one evaluated iteration of a run on the index page: its title gives the iteration,
+    its weights and their saved temperatures, and it opens on the table of its evaluations, the trained weights before
+    the averaged ones, each linking to its page.
+
+    Args:
+        iteration (int): The evaluated iteration.
+        entries (List[Dict[str, Any]]): The evaluations of the iteration (describe_index_entry).
+        is_open (bool): True to show the iteration open when its run is opened (the newest iteration of the run).
+
+    Returns:
+        str: The HTML block.
+    """
+    # Trained weights before the averaged ones, the evaluation of the training before that of the evaluation script
+    ordered_entries = sorted(entries, key=lambda entry: (entry["use_averaged_weights"],
+                                                         entry["is_checkpoint_evaluation"]))
+
+    # Title: the iteration, its weights, and the temperatures saved for them
+    weights_labels = list(dict.fromkeys("EMA" if entry["use_averaged_weights"] else "Trained"
+                                        for entry in ordered_entries))
+    saved_texts = [f"{'EMA' if entry['use_averaged_weights'] else 'Trained'} T = {entry['saved_temperature']:g}"
+                   for entry in ordered_entries if entry["saved_temperature"] is not None]
+    title = " · ".join([f"Iteration {iteration}", ", ".join(weights_labels)] +
+                       ([f"saved {', '.join(saved_texts)}"] if saved_texts else []))
+    rows = "".join(entry["row"] for entry in ordered_entries)
+    return (f'<details class="iteration"{" open" if is_open else ""}><summary>{html.escape(title)}</summary>'
+            f'<div class="table-wrapper"><table>{ITERATION_TABLE_HEADER}{rows}</table></div></details>')
+
+
+def build_index_groups(evaluations: Dict[str, Path]) -> str:
+    """
+    Builds the body of the index page, readable with many trainings: one collapsible block per run folder, titled by
+    its run with its folder, its number of evaluated iterations, saved temperatures and exports, holding one
+    collapsible block per evaluated iteration, the newest first and open (build_iteration_group).
 
     Args:
         evaluations (Dict[str, Path]): The evaluation folders, keyed by identifier.
 
     Returns:
-        str: The HTML rows.
+        str: The HTML blocks, or a sentence saying that no evaluation was found.
     """
-    rows = []
+    if not evaluations:
+        return ("<p>No classification evaluation holding a temperature explorer was found in the experiments "
+                "folders.</p>")
+
+    # Evaluations grouped by run folder, then by iteration
+    runs: Dict[str, Dict[int, List[Dict[str, Any]]]] = {}
     for identifier, evaluation_folder in evaluations.items():
-        checkpoint = describe_evaluation_folder(evaluation_folder=evaluation_folder)
-        saved_state = read_saved_temperature_state(evaluation_folder=evaluation_folder)
-        exports = list_checkpoint_exports(run_folder=checkpoint["run_folder"], iteration=checkpoint["iteration"],
-                                          use_averaged_weights=checkpoint["use_averaged_weights"])
-        evaluation_name = (evaluation_folder.parent if checkpoint["use_averaged_weights"] else
-                           evaluation_folder).parent.name
-        cells = [f'<a href="/explorer?evaluation={quote(identifier)}">{html.escape(checkpoint["run_folder"].name)}</a>',
-                 "Checkpoint evaluation" if evaluation_name == CHECKPOINT_EVALUATION_FOLDER_NAME else "Training",
-                 str(checkpoint["iteration"]), "EMA" if checkpoint["use_averaged_weights"] else "Trained",
-                 "Any" if (evaluation_folder / CLASS_LOGITS_FILE_NAME).is_file() else "Grid only",
-                 "—" if saved_state is None else f"{saved_state['temperature']:g}",
-                 ", ".join(html.escape(export["folder"].name) for export in exports) or "—",
-                 html.escape(identifier.partition("/")[0])]
-        rows.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>")
-    return "\n".join(rows)
+        entry = describe_index_entry(identifier=identifier, evaluation_folder=evaluation_folder)
+        runs.setdefault(entry["run_identifier"], {}).setdefault(entry["iteration"], []).append(entry)
+
+    # Block of every run, in the order of the run identifiers, its iterations newest first
+    blocks = []
+    for run_identifier, iterations in sorted(runs.items()):
+        newest_first = sorted(iterations.items(), reverse=True)
+        run_entries = [entry for _, iteration_entries in newest_first for entry in iteration_entries]
+        number_saved = sum(entry["saved_temperature"] is not None for entry in run_entries)
+        # The evaluations of the training and of the evaluation script share the exports of their checkpoint
+        number_exports = len({(entry["iteration"], export_name) for entry in run_entries
+                              for export_name in entry["export_names"]})
+        details = [run_identifier.rpartition("/")[0],
+                   f"{len(newest_first)} iteration{'s' if len(newest_first) > 1 else ''} "
+                   f"(newest {newest_first[0][0]})",
+                   f"{number_saved} saved T", f"{number_exports} export{'s' if number_exports != 1 else ''}"]
+        iteration_blocks = "".join(build_iteration_group(iteration=iteration, entries=iteration_entries,
+                                                         is_open=iteration_index == 0)
+                                   for iteration_index, (iteration, iteration_entries) in enumerate(newest_first))
+        blocks.append(f'<details class="run"><summary><span class="run-name">{html.escape(run_entries[0]["run_name"])}'
+                      f'</span><span class="run-details">{html.escape(" · ".join(details))}</span></summary>'
+                      f'<div class="run-content">{iteration_blocks}</div></details>')
+    return "\n".join(blocks)
 
 
 class TemperatureExplorerHandler(BaseHTTPRequestHandler):
@@ -410,8 +498,8 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
         try:
             if route == "/":
                 evaluations = find_explorer_evaluations(experiments_roots=self.server.experiments_roots)
-                page = INDEX_TEMPLATE_PATH.read_text().replace(INDEX_ROWS_PLACEHOLDER,
-                                                               build_index_rows(evaluations=evaluations))
+                page = INDEX_TEMPLATE_PATH.read_text().replace(INDEX_RUNS_PLACEHOLDER,
+                                                               build_index_groups(evaluations=evaluations))
                 self.send_body(status=HTTPStatus.OK, body=page.encode(encoding="utf-8"),
                                content_type="text/html; charset=utf-8")
                 return
