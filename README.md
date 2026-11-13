@@ -303,7 +303,7 @@ Details: [reference](documentation/reference/tasks_reference.md#object-detection
 
 ### Instance Segmentation (INS)
 The detector of DET with a mask head on every detection level, as in Mask R-CNN: every detection also gets the mask of its object. Every object of the COCO `labels.json` has a `segmentation` (polygons or run length encoding), its box being the tight box of its mask.
-- **Configuration**: `instance_segmentation/configuration_example.yaml`, with the keys of DET, a `mask_head` in every level of `DetectionLevels`, the `MaskHead` section, the weight of the `mask_loss` and `evaluation.original_resolution`.
+- **Configuration**: `instance_segmentation/configuration_example.yaml`, with the keys of DET, a `mask_head` in every level of `DetectionLevels`, the `MaskHead` section, the weight of the `mask_loss`, `Data.instance_index_maps` (one map numbering the objects of an image instead of one mask per object, for masks that never overlap) and `evaluation.original_resolution`.
 - **Evaluation**: the mask mAP and the box mAP of the same detections, at the network or the original resolution, with the size, recall, confusion and error outputs of DET. `Mask mAP@0.5/area` compares the checkpoints.
 
 <p align="center">
