@@ -208,7 +208,7 @@ scenes:
              ClassificationHead.global_pooling, ClassificationHead.class_weighting]
       comments: false
     highlights:
-      - {match: "class_weighting", sentences: [2, 3]}
+      - {key: ClassificationHead.class_weighting, sentences: [2, 3]}
       - {key: ExperimentConfiguration.learning_rate, sentences: [3]}
       - {key: TemporalModel.type, sentences: [3]}
       - {key: TemporalModel.number_layers, sentences: [3, 4]}
@@ -222,14 +222,14 @@ scenes:
       - "The sequence labeling benchmark trained its experiment plan once, on the same changing shapes, one setting at a time, every score recorded in the plan."
       - "Its launches were compared on the test macro F1, which weighs every change as much as the frequent no change frames."
       - "Without class weights, as in the README run, one launch stayed at the score of a model predicting no change on every frame: the same failure, caught by the same metric."
-      - "Suppose you start on sequences of your own: the configuration example holds what the plan kept, balanced class weights, a learning rate of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ExperimentConfiguration.learning_rate}}, a bidirectional LSTM of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#TemporalModel.number_layers:words}} layers and flatten pooling."
-      - "The {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#TemporalModel.number_layers:words}} layers and the flatten pooling were kept with a pre-trained backbone, which the example leaves off: its experiment folder is null."
+      - "Suppose you start on sequences of your own: the configuration example holds what the plan kept, {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.class_weighting}} class weights, a learning rate of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ExperimentConfiguration.learning_rate}}, a bidirectional LSTM of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#TemporalModel.number_layers:words}} layers and {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.global_pooling}} pooling."
+      - "The {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#TemporalModel.number_layers:words}} layers and the {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.global_pooling}} pooling were kept with a pre-trained backbone: point the experiment folder of the backbone of the example at such a run to train them the same way."
 
   - kind: html
     page: diagram
     title: "Pitfalls"
     elements:
-      - {type: box, box: [40, 60, 1720, 220], text: "test_10000 holds a copy of the labels and a link to the frames of the full test split:\ngenerating the data set again makes its labels name other frames, without any error  (create_sequence_split_subset)", font: diagram_small, outline: red, highlight: [0]}
+      - {type: box, box: [40, 60, 1720, 220], text: "test_{{sequence_labelling.subset.sequence_count}} holds a copy of the labels and a link to the frames of the full test split:\ngenerating the data set again makes its labels name other frames, without any error  (create_sequence_split_subset)", font: diagram_small, outline: red, highlight: [0]}
       - {type: box, box: [40, 280, 1720, 440], text: "A causal module with Backbone.normalization.feature_map_normalization \"sequence\":\nthe statistics of every backbone layer come from the whole sequence, future frames included", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: box, box: [40, 500, 1720, 660], text: "A sequence without any labelled frame counts as an exact match,\nand a batch without any labelled frame gives a NaN loss", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
     narration:

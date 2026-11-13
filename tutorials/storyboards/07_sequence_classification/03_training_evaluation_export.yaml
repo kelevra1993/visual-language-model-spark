@@ -72,7 +72,7 @@ scenes:
     syntax: plain
     source:
       file: "figures:sequence_classification/listings/results_flatten_128.txt"
-      start: "^Iteration 500"
+      start: "^Iteration "
       count: 16
     highlights:
       - {match: "Accuracy  |Macro F1|Macro ROC AUC", sentences: [0]}

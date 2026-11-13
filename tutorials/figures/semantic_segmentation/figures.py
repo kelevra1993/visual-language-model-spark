@@ -2,8 +2,8 @@
 Figures and facts of the semantic segmentation series of the tutorial videos, made by make_figures.py (python -m
 tutorials.figures.make_figures --series semantic_segmentation) at every build, from the synthetic segmentation run of
 tutorials/tutorial_sources.yaml, its dataset and the code of the repository: the manifest and mask figures of the data
-scenes (dataset_figures.py), the shapes, parameters, shortcuts and level maps of the model scenes and the export
-specification of the segmenter (model_figures.py),
+scenes (dataset_figures.py), the shapes, parameters, shortcuts and level maps of the model scenes, the decoder
+shortcuts of the shipped synthetic configuration and the export specification of the segmenter (model_figures.py),
 the curves, pixel shares and throughput of the training scenes (training_figures.py), and the samples, confusion
 matrix, boundary metrics and headline metrics of the evaluation scenes (evaluation_figures.py). The forward pass of
 the trained segmenter on the CPU (segmentation_inference.py) is the only expensive step, reused between builds unless
@@ -20,7 +20,8 @@ from tutorials.figures.semantic_segmentation.evaluation_figures import (describe
                                                                         describe_headline_metrics,
                                                                         draw_boundary_figure, stack_sample_images,
                                                                         write_evaluation_listing)
-from tutorials.figures.semantic_segmentation.model_figures import (describe_export_specification, describe_model,
+from tutorials.figures.semantic_segmentation.model_figures import (count_configuration_decoder_shortcuts,
+                                                                   describe_export_specification, describe_model,
                                                                    draw_level_figure)
 from tutorials.figures.semantic_segmentation.segmentation_inference import run_segmentation_inference
 from tutorials.figures.semantic_segmentation.segmentation_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
@@ -81,6 +82,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         draw_mask_figure(output_folder=output_folder, sample_record=sample_record, label_dictionary=label_dictionary,
                          label_mode=configuration["Data"]["label_mapping"]["mode"]),
         describe_model(inference_facts=inference_facts, configuration=configuration),
+        count_configuration_decoder_shortcuts(),
         describe_export_specification(run_folder=run_folder),
         draw_level_figure(output_folder=output_folder, inference_facts=inference_facts, number_classes=number_classes),
         draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=False),

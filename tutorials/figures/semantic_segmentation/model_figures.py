@@ -3,7 +3,8 @@ Figures and facts of the model scenes of the semantic segmentation series of the
 tutorials/figures/semantic_segmentation/figures.py: the shapes of the skip connections of the encoder and of every level
 of the decoder recorded on the test image by the inference of segmentation_inference.py, the parameters of the
 components and the receptive field of the encoder (the labels of the U-Net diagram), the residual shortcuts every block
-adds once residual_nets is turned on (the caveat of the decoder), the figure of what every level computes, the mean
+adds once residual_nets is turned on (the caveat of the decoder), for the run and for the decoder of the synthetic
+configuration the decoder scene shows, the figure of what every level computes, the mean
 absolute activation of the skip connections and of the decoder levels next to the predicted class map, and the shapes
 and tolerances of the export of the segmenter given by the export specification of the deployment code.
 """
@@ -24,9 +25,12 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR,
                                                 register_fonts, round_fact, save_figure)
 from tutorials.figures.semantic_segmentation.segmentation_inference import INFERENCE_ARRAYS_NAME
-from tutorials.figures.semantic_segmentation.segmentation_sources import build_class_palette
+from tutorials.figures.semantic_segmentation.segmentation_sources import (SYNTHETIC_CONFIGURATION_PATH,
+                                                                         build_class_palette)
+from tutorial_builder.figure_context import find_repository_root
 from tutorial_builder.layout import NAMED_COLOURS
-from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import (load_configuration,
+                                                                           load_experiment_configuration)
 from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
@@ -84,6 +88,20 @@ def count_shortcuts_with_residuals(configuration: Dict[str, Any]) -> Dict[str, L
                                   device=torch.device("cpu"), dtype=torch.float32)
     return {"backbone": [block.count_residual_additions() for block in backbone.convolution_blocks],
             "decoder": [block.count_residual_additions() for block in decoder.convolution_blocks.values()]}
+
+
+def count_configuration_decoder_shortcuts() -> Dict[str, Any]:
+    """
+    Counts the residual shortcuts residual_nets would add to the decoder levels of the synthetic configuration shipped
+    with the repository, whose decoder section the decoder scene of chapter 1 shows, so that its sentence on the
+    shortcuts follows the levels on screen rather than those of the run trained earlier.
+
+    Returns:
+        Dict[str, Any]: The total shortcuts of the decoder levels of the configuration, configuration_decoder_shortcuts.
+    """
+    configuration = load_configuration(configuration_path=find_repository_root() / SYNTHETIC_CONFIGURATION_PATH)
+    shortcuts = count_shortcuts_with_residuals(configuration=configuration)
+    return {"configuration_decoder_shortcuts": sum(shortcuts["decoder"])}
 
 
 def read_upsampling_kernel_size(layer_text: str) -> int:
@@ -164,7 +182,9 @@ def describe_model(inference_facts: Dict[str, Any], configuration: Dict[str, Any
                   "model_parameters_decoder": parameters["Segmentation Decoder"],
                   "model_parameters_head": parameters["Segmentation Head"],
                   "model_parameters_total": parameters["Total Model"],
-                  "model_parameters_megabytes": round_fact(value=parameters["Total Model"] * 4 / 1024 ** 2),
+                  "model_parameters_megabytes": round_fact(
+                      value=parameters["Total Model"] * torch.empty(size=(), dtype=MODEL_DTYPE).element_size() /
+                      1024 ** 2),
                   "model_receptive_field": inference_facts["inference_receptive_field"],
                   "model_head": inference_facts["inference_head"],
                   "model_upsampling_level_5": inference_facts["inference_upsampling_layers"]["5"],
@@ -241,8 +261,11 @@ def draw_level_figure(output_folder: Path, inference_facts: Dict[str, Any], numb
     shapes = inference_facts["inference_shapes"]
     figure = pyplot.figure(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH,
                            facecolor=SURFACE_COLOUR)
-    rows = [[(f"skip_{block}", f"skip of block {block}") for block in range(1, 6)] + [("bottleneck", "bottleneck")],
-            [(f"level_{block}", f"decoder level {block}") for block in range(5, 0, -1)] + [("class_map", "class map")]]
+    # One decoder level per skip connection, keyed by its backbone block, as the inference recorded them
+    level_blocks = sorted(int(name.split("_")[1]) for name in shapes if name.startswith("level_"))
+    rows = [[(f"skip_{block}", f"skip of block {block}") for block in level_blocks] + [("bottleneck", "bottleneck")],
+            [(f"level_{block}", f"decoder level {block}") for block in reversed(level_blocks)] +
+            [("class_map", "class map")]]
     facts = {}
     for row_index, row in enumerate(rows):
         top = row_index * (LEVEL_TITLE_HEIGHT + LEVEL_PANEL_SIDE + LEVEL_ROW_GAP)

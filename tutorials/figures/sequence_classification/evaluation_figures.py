@@ -48,10 +48,33 @@ SAMPLE_SEQUENCE = "test_000000"
 # Bins of the histograms of the probability of the true class
 PROBABILITY_BINS = numpy.linspace(start=0.0, stop=1.0, num=41)
 
-# Probability of the true class above which a test sequence counts as confidently right, and the first evaluated
-# checkpoint of the flatten run, whose wrong predictions the report scene quotes
+# Probability of the true class above which a test sequence counts as confidently right
 CONFIDENT_PROBABILITY = 0.9
-FIRST_EVALUATION_ITERATION = 500
+
+# Folder of the evaluation of a checkpoint, named after its iteration
+EVALUATION_FOLDER_PATTERN = re.compile(pattern=r"^Iteration_(\d+)$")
+
+
+def find_first_evaluated_iteration(run_folder: Path) -> int:
+    """
+    Finds the first checkpoint evaluated by the training of a run, the earliest Evaluation/Iteration_<n> folder, whose
+    wrong predictions the report scene quotes, so that the facts follow the evaluations the run wrote rather than a
+    typed iteration.
+
+    Args:
+        run_folder (Path): The run folder.
+
+    Returns:
+        int: The iteration of the first evaluation.
+
+    Raises:
+        FileNotFoundError: If the run holds no evaluation folder.
+    """
+    iterations = [int(match.group(1)) for folder in (run_folder / "Evaluation").iterdir()
+                  if (match := EVALUATION_FOLDER_PATTERN.match(folder.name)) is not None and folder.is_dir()]
+    if not iterations:
+        raise FileNotFoundError(f"No Evaluation/Iteration_<n> folder in {run_folder}.")
+    return min(iterations)
 
 
 def read_test_metrics(run_folder: Path, run_name: str) -> Dict[str, Any]:
@@ -295,11 +318,13 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                       f"probabilities.{run_name}.sequences": len(predictions)})
     facts.update(draw_probability_figure(output_path=output_folder / "evaluation" / "true_class_probabilities.png",
                                          probability_sets=probability_sets))
-    first_predictions = read_predictions(run_folder=run_folders["flatten_128"], iteration=FIRST_EVALUATION_ITERATION)
+    # Wrong predictions of the first evaluated checkpoint of the flatten run
+    first_iteration = find_first_evaluated_iteration(run_folder=run_folders["flatten_128"])
+    first_predictions = read_predictions(run_folder=run_folders["flatten_128"], iteration=first_iteration)
     wrong_rows = [row for row in first_predictions if row["correct"] == "0"]
     facts.update({"probabilities.threshold": CONFIDENT_PROBABILITY,
-                  "evaluation.flatten_128.first_iteration": FIRST_EVALUATION_ITERATION})
-    facts["evaluation.flatten_128.wrong_at_500"] = [row["sequence"] for row in wrong_rows]
+                  "evaluation.flatten_128.first_iteration": first_iteration})
+    facts["evaluation.flatten_128.wrong_at_first_iteration"] = [row["sequence"] for row in wrong_rows]
     if wrong_rows:
         facts.update({"evaluation.flatten_128.first_wrong.sequence": wrong_rows[0]["sequence"],
                       "evaluation.flatten_128.first_wrong.true_class": wrong_rows[0]["true_class"],

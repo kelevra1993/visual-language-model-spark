@@ -82,7 +82,7 @@ scenes:
     highlights:
       - {match: "input_tensor\\[sequence_mask\\]", sentences: [0]}
       - {match: "if sequence_mask is None", sentences: [1]}
-      - {match: "new_zeros|frame_features\\[sequence_mask\\] = frame_vectors", sentences: [2]}
+      - {match: "^\\s+frame_features", sentences: [2]}
     narration:
       - "encode frames indexes the batch with the sequence mask, so that the padding frames never run through the backbone and never enter its batch normalization statistics."
       - "Without a mask, the path of the exported models, every frame is real and the frames run as one batch of fixed shape."
@@ -100,7 +100,7 @@ scenes:
       - {match: "number_directions", sentences: [2]}
     narration:
       - "The recurrent module packs the real frames of every sequence, so that the GRU never reads a padding frame, and pads its outputs back to the length of the batch."
-      - "Keeping the time axis, it returns its output at every frame; not bidirectional, as here, the vector of a frame depends on that frame and the frames before it, which is all a change needs."
+      - "Keeping the time axis, it returns its output at every frame; not bidirectional, as in the README run, the vector of a frame depends on that frame and the frames before it, which is all a change needs."
       - "A bidirectional GRU or LSTM doubles the vector to {{sequence_labelling.run.temporal_bidirectional_features}} values and also reads the frames after it, while the transformer and the temporal convolution use the causal flag to see only the past."
       - "The poolings of the sequence classification give one vector per sequence, so the checks at launch refuse them for this task."
 
@@ -114,13 +114,20 @@ scenes:
              ClassificationHead.dropout_rate, ClassificationHead.label_smoothing, ClassificationHead.class_weighting]
       comments: false
     highlights:
-      - {match: "type:|hidden_size|number_layers|bidirectional|causal", sentences: [0]}
-      - {match: "global_pooling", sentences: [1]}
-      - {match: "fully_connected|dropout_rate|label_smoothing|class_weighting", sentences: [2]}
+      - {key: TemporalModel.type, sentences: [0]}
+      - {key: TemporalModel.hidden_size, sentences: [0]}
+      - {key: TemporalModel.number_layers, sentences: [0]}
+      - {key: TemporalModel.bidirectional, sentences: [0]}
+      - {key: TemporalModel.causal, sentences: [0]}
+      - {key: ClassificationHead.global_pooling, sentences: [1]}
+      - {key: ClassificationHead.fully_connected, sentences: [2]}
+      - {key: ClassificationHead.dropout_rate, sentences: [2]}
+      - {key: ClassificationHead.label_smoothing, sentences: [2]}
+      - {key: ClassificationHead.class_weighting, sentences: [2]}
     narration:
       - "The temporal module has its own section: the type among GRU, LSTM, transformer and temporal convolution, the hidden size, the layers and the direction, bidirectional and causal together being refused."
-      - "The head keeps the keys of the classification: average pooling gives a frame vector of {{sequence_labelling.model.backbone_channels}} values at any image size, where flatten would give {{sequence_labelling.model.flatten_features:,}} at {{sequence_labelling.dataset.image_size}} pixels."
-      - "Then a hidden layer of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.fully_connected[0]}} units, a dropout rate of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.dropout_rate}}, and the settings of the loss, label smoothing and the class weights, both off here."
+      - "The head keeps the keys of the classification: average pooling gives a frame vector of {{sequence_labelling.model.backbone_channels}} values at any image size, where flatten gives {{sequence_labelling.model.flatten_features:,}} at {{sequence_labelling.dataset.image_size}} pixels."
+      - "Then a hidden layer of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.fully_connected[0]}} units, a dropout rate of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.dropout_rate}}, and the settings of the loss, a label smoothing of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.label_smoothing:.2g}} and a class weighting of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.class_weighting}}."
 
   - kind: code
     title: "The loss of the labelled frames"

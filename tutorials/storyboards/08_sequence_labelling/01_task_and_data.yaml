@@ -108,7 +108,7 @@ scenes:
         appear: 1
         source: {file: "figures:sequence_labelling/listings/label_mapping.txt"}
         highlights:
-          - {match: "\"1\": 0", sentences: [1]}
+          - {match: "\"{{sequence_labelling.listings.no_change_category}}\": {{sequence_labelling.listings.no_change_class_index}}", sentences: [1]}
       - {type: box, box: [1040, 400, 1720, 560], text: "category left out of the mapping\n→ label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: no loss, no metric,\nthe end of a segment", font: diagram_small, outline: red, appear: 2, highlight: [2]}
       - {type: box, box: [1040, 590, 1720, 700], text: "one category per frame: not checked", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
     narration:
@@ -152,17 +152,17 @@ scenes:
              Data.sequence_settings, Data.label_mapping]
       comments: false
     highlights:
-      - {match: "task:", sentences: [0]}
+      - {key: ExperimentConfiguration.task, sentences: [0]}
       - {key: ExperimentConfiguration.batch_size, sentences: [1]}
       - {key: Data.image_settings.size, sentences: [1]}
       - {key: Data.image_settings.keep_ratio, sentences: [1]}
-      - {match: "maximum_sequence_length", sentences: [2]}
-      - {match: "mode:", sentences: [3]}
+      - {key: Data.sequence_settings.maximum_sequence_length, sentences: [2]}
+      - {key: Data.label_mapping.mode, sentences: [3]}
     narration:
       - "In the synthetic configuration, the task key selects the sequence labeling trainer, its checks at launch and the M2M code of the run name."
-      - "A batch holds {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}} sequences of frames resized to {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#Data.image_settings.size}} pixels, their aspect ratio kept by padding."
-      - "The maximum sequence length is the only sequence setting: it gives the T50 token of the run name, and the number of learned frame positions of a transformer."
-      - "And the label mapping is multi class: one class per frame among the {{sequence_labelling.dataset.class_count}}."
+      - "A batch holds {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}} sequences of frames resized to {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#Data.image_settings.size}} pixels; keep ratio pads them to a square instead of stretching them, so that they keep their aspect ratio."
+      - "The maximum sequence length of the sequence settings gives the T token of the run name, and the number of learned frame positions of a transformer."
+      - "And the label mapping must be multi class: one class per frame among the {{sequence_labelling.dataset.class_count}}."
 
   - kind: terminal
     title: "Generate, train, evaluate"
@@ -173,7 +173,7 @@ scenes:
     lines:
       - {role: comment, text: "# Data: task = \"sequence_labelling\" in the main block, {{sequence_labelling.generator.train_sequences:,}} / {{sequence_labelling.generator.validation_sequences:,}} / {{sequence_labelling.generator.test_sequences:,}} sequences"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
-      - {role: comment, text: "# test_10000: {{sequence_labelling.subset.sequence_count:,}} test sequences drawn with the seed {{sequence_labelling.subset.seed}}, linked to the test frames"}
+      - {role: comment, text: "# test_{{sequence_labelling.subset.sequence_count}}: {{sequence_labelling.subset.sequence_count:,}} test sequences drawn with the seed {{sequence_labelling.subset.seed}}, linked to the test frames"}
       - {role: command, text: "uv run python -m scripts.data.create_sequence_split_subset"}
       - {role: comment, text: "# Training: its only argument is the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml\""}

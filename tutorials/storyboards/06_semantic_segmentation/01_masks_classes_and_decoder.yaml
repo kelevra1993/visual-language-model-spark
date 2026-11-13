@@ -103,10 +103,10 @@ scenes:
     highlights:
       - {match: "resized_image = preprocess_image", sentences: [0]}
       - {match: "resized_mask = preprocess_image|interpolation=cv2.INTER_NEAREST", sentences: [0, 1]}
-      - {match: "class_lookup_table\\[resized_mask\\]", sentences: [2]}
+      - {match: "mask_tensor = ", sentences: [2]}
     narration:
       - "The image is resized with a bilinear interpolation and the mask with the nearest one, under the same letterbox, the padding of the mask set to {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}}."
-      - "The nearest interpolation keeps every pixel a category, but the mask ends about half a pixel off its image, and a random crop adds another half pixel: below the boundary tolerance of {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.boundary_tolerance:words}} pixels at the network resolution, but not always at the original resolution of a large image."
+      - "The nearest interpolation keeps every pixel a category, but the mask ends about half a pixel off its image, and a random crop adds another half pixel: weigh that shift against the boundary tolerance, {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.boundary_tolerance:words}} pixels at the network resolution, knowing that it grows at the original resolution of a large image."
       - "The lookup table then turns the categories of the resized mask into class indices."
 
   - kind: yaml
@@ -119,10 +119,14 @@ scenes:
              Data.data_augmentation.types.random_jigsaw]
       comments: false
     highlights:
-      - {match: "random_crop|random_rotation", sentences: [0]}
-      - {match: "random_left_right_flip", sentences: [1]}
-      - {match: "random_perspective|random_jigsaw", sentences: [1]}
-      - {match: "tiling:|scale:|overlap:", sentences: [2]}
+      - {key: Data.data_augmentation.types.random_crop, sentences: [0]}
+      - {key: Data.data_augmentation.types.random_rotation, sentences: [0]}
+      - {key: Data.data_augmentation.types.random_left_right_flip, sentences: [1]}
+      - {key: Data.data_augmentation.types.random_perspective, sentences: [1]}
+      - {key: Data.data_augmentation.types.random_jigsaw, sentences: [1]}
+      - {key: Data.tiling, sentences: [2]}
+      - {key: Data.tiling.scale, sentences: [2]}
+      - {key: Data.tiling.overlap, sentences: [2]}
     narration:
       - "The geometric augmentations move the masks with their images, with the nearest interpolation, the pixels uncovered by a rotation becoming ignored; the photometric ones leave the masks alone."
       - "Flips are fine here, a class per pixel having no left nor right, but the perspective and the jigsaw move the image only and are refused."
@@ -166,7 +170,7 @@ scenes:
     narration:
       - "The backbone of the other tasks is the encoder: its {{semantic_segmentation.model_backbone_blocks:words}} blocks halve the resolution {{semantic_segmentation.model_resolution_halvings:words}} times, from {{semantic_segmentation.run_image_size}} to {{semantic_segmentation.model_bottleneck_resolution}} pixels, and the output of every block before its pooling is kept as a skip connection."
       - "The decoder has one level per skip, keyed by the block it reads: a {{semantic_segmentation.model_upsampling_kernel_size:words}} by {{semantic_segmentation.model_upsampling_kernel_size:words}} transposed convolution doubles the resolution, the skip is concatenated before the upsampled features, and a convolution block refines them."
-      - "The last level is back at {{semantic_segmentation.run_image_size}} pixels with {{semantic_segmentation.model_level_1_channels}} channels, and a one by one head behind a dropout at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationDecoder.dropout_rate:words}} gives the {{semantic_segmentation.run_number_classes:words}} class logits of every pixel."
+      - "The last level is back at {{semantic_segmentation.run_image_size}} pixels with {{semantic_segmentation.model_level_1_channels}} channels, and a one by one head behind a dropout at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationDecoder.dropout_rate:.2g}} gives the {{semantic_segmentation.run_number_classes:words}} class logits of every pixel."
       - "The model has {{semantic_segmentation.model_parameters_total:,}} parameters, {{semantic_segmentation.model_parameters_decoder:,}} of them in the decoder and {{semantic_segmentation.model_parameters_head}} in the head, and its encoder sees {{semantic_segmentation.model_receptive_field}} pixels."
 
   - kind: code
@@ -178,7 +182,7 @@ scenes:
     highlights:
       - {match: "current_tensor = upsampling_layer", sentences: [0]}
       - {match: "interpolate", sentences: [0]}
-      - {match: "torch.cat\\(tensors=\\[skip_tensor, current_tensor\\]", sentences: [0]}
+      - {match: "torch.cat\\(", sentences: [0]}
       - {match: "return_level_outputs", sentences: [1]}
     narration:
       - "The forward pass is that loop, from the deepest level to the finest; the configuration check keeps every map entering a pooling even, so the bilinear interpolation to the size of the skip only serves a decoder called directly."
@@ -193,16 +197,17 @@ scenes:
              SegmentationDecoder.dropout_rate, SegmentationDecoder.deep_supervision_weights]
       comments: false
     highlights:
-      - {match: "upsampling|convolutions|\"5\"|\"1\"", sentences: [0]}
-      - {match: "deep_supervision_weights", sentences: [1]}
-      - {match: "residual_nets", sentences: [2]}
+      - {key: SegmentationDecoder.upsampling, sentences: [0]}
+      - {key: SegmentationDecoder.convolutions, sentences: [0]}
+      - {key: SegmentationDecoder.deep_supervision_weights, sentences: [1]}
+      - {key: SegmentationDecoder.modules.residual_nets, sentences: [2]}
     # The third layer of a block changing its channel count, the first to close a residual pair (residual_parity of
     # vision_training/models/components/convolution_block.py, count_residual_additions)
     literal_numbers: [third]
     narration:
       - "The levels are keyed by the backbone block they read, as layers and channels, from the deepest; the upsampling is transposed, or bilinear followed by a one by one convolution."
       - "Deep supervision adds one by one heads on intermediate levels, trained with the same losses times their weight, and left out of the inference and the exports."
-      - "Residual nets would add no shortcut to these decoder levels: a level reads the skip plus the upsampled channels, never its own width, so its first shortcut would need a third layer; in the encoder, only blocks {{semantic_segmentation.model_backbone_blocks_with_shortcuts}} add one."
+      - "Residual nets close the first shortcut of a decoder level at its third layer, a level reading the skip plus the upsampled channels, never its own width: they would add {{semantic_segmentation.configuration_decoder_shortcuts:words}} to these levels, and in the encoder, only blocks {{semantic_segmentation.model_backbone_blocks_with_shortcuts}} add one."
 
   - kind: image
     title: "What every level computes"
@@ -223,10 +228,11 @@ scenes:
       - {text: "Masks resized and augmented with the nearest interpolation"}
       - {text: "Encoder = backbone, skips before pooling, decoder level per skip"}
       - {text: "1x1 head: one logit per class and pixel, background at {{semantic_segmentation.mask_background_class}}"}
-      - {text: "residual_nets adds no shortcut to these decoder levels"}
+      - {text: "residual_nets: a decoder level closes its first shortcut at its third layer"}
     # The background value 0 of the masks, which build_class_lookup_table keeps (lookup_table[0] = 0) without a
-    # constant, and the 1x1 kernel of the head
-    literal_numbers: ["0", "1x1"]
+    # constant, the 1x1 kernel of the head, and the third layer of a decoder level, the first to close a residual pair
+    # (residual_parity of vision_training/models/components/convolution_block.py)
+    literal_numbers: ["0", "1x1", third]
     narration:
       - "To recap: the masks hold categories, the lookup table turns them into classes, and the decoder brings the encoder back to one logit per class and pixel."
       - "The next chapter trains it: the cross entropy and Dice losses, the class weighting, the batch metrics and the curves of the run."
