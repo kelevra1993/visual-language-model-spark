@@ -70,8 +70,6 @@ def get_detection_model_configuration(mask_head: bool = False, neck_type: str = 
                          'normalization': {'feature_map_normalization': 'batch'},
                          # Proposals selected over all the levels at once, as in the behaviour baseline
                          'proposal_selection': 'joint',
-                         # Anchors centred on the cell corners, as in the behaviour baseline
-                         'anchor_centres': 'cell_corners',
                          'nms_iou_threshold': 0.7,
                          'training': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
                          'inference': {'pre_nms_proposals': 100, 'post_nms_proposals': 50},

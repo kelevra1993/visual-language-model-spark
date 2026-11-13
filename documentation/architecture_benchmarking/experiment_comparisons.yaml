@@ -529,3 +529,17 @@ comparisons:
     kept: "per_level"
     verdict: "per_level kept: 0.8183 against 0.8079 at 15,000 (+0.0104, beyond the launch gap 0.0065 of run_21 and run_22), its trained weights +0.0113, ahead on every object size (small +0.0174) and IoU threshold, a tie by the rule up to 8500 and a win at every evaluation from 9000 on; set in the object detection configurations and run-1.yaml, the instance segmentation and workflow run configurations keeping joint."
     notes: "run_9 and run_10 are the reference, reused without training. run_10b shares their setting columns, so the joint mean rows of the CSV average it in up to 8500, while the figure averages the launches of the arms. run_13 to run_16, trained before the setting existed, got proposal_selection 'joint' in their run folder configurations so that the results could be collected again. The object size, mAP@0.75, mAP@0.95, proposal and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
+
+  - experiment: object_detection
+    results_file: object_detection_results.csv
+    stage: "8"
+    title: Anchor Centres
+    plan_lines: "220-249"
+    last_iteration: 8500
+    compared_weights: ema
+    arms:
+      - {label: "cell_corners", launches: [run_21, run_22], reference: true, trained_as_averaged: false}
+      - {label: "cell_centres", launches: [run_23, run_24], reference: false, trained_as_averaged: false}
+    kept: "cell_corners"
+    verdict: "cell_corners kept (tie): cell_centres 0.7757 against 0.7765 at 8500 (-0.0008, within the launch gap 0.0160 of run_21 and run_22), the lead within 0.0016 of zero from 2500 on and negative from 4500 on; the user stopped the stage at 8500 and had RegionProposal.anchor_centres removed, the anchors staying on the cell corners."
+    notes: "run_21 and run_22, the proposal selection per level kept by stage 7, are the reference, reused without training. run_23 and run_24 were stopped by the user on 2026-11-13 at iterations 8832 and 8719 (evaluations up to 8500), so the stage is compared at 8500, where the figure marks it. The CSV keeps the anchor_centres column of the results collected before the setting was removed, run_23 and run_24 holding cell_centres. The mAP@0.5, mAP@0.75, mAP@0.95, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."

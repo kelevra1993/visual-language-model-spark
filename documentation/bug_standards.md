@@ -575,7 +575,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | M16. The DET and INS export comparison compares padding | medium | **open** | |
 | M17. The label mapping file is not part of the run | medium | fixed | on 2026-10-21: `label_dictionary.json` and checkpoint metadata |
 | M20. `Iteration_k` holds k-1 steps | medium | fixed | on 2026-10-21, with [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) |
-| L1. Anchors centred on the cell corners | low | **partly fixed** | on 2026-11-12, as a setting: `RegionProposal.anchor_centres`, `"cell_corners"` in every configuration until stage 8 of the detection benchmark decides |
+| L1. Anchors centred on the cell corners | low | dropped (user, 2026-11-13) | the cell centres tied with the corners in stage 8 of the detection benchmark (0.7757 against 0.7765 at 8500), the setting `RegionProposal.anchor_centres` removed |
 | L2. Export crashes for some valid configurations | low | fixed | top-k clamped to the anchors (`region_proposer.py:103`, `inference_detector.py:135`), `dtype` removed, 3 channels enforced (`common_checks.py:273-277`) |
 | L3. The threshold finder returns the lowest valid threshold | low | **open** | `threshold_finder.py:46-48`, which also sets the DET, INS, KPT and SEL class thresholds |
 | L4. Balanced weights do not balance positives in multi-label | low | **open** | `classification_losses.py:37-40`, not documented either |

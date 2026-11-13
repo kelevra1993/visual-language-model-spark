@@ -320,8 +320,8 @@
 What Mask R-CNN does for the items of the [repository audit](#repository-audit-for-instance-segmentation) that are still open:
 - **M10 (weight decay):** Mask R-CNN skips the BN scales and offsets but still decays the biases
   (`model.py:2179-2183`). It also divides each L2 term by the tensor size, an unusual scaling not to copy.
-- **L1 (anchor centres):** Mask R-CNN has the same corner offset (`utils.py:603-604`), so it is no argument against
-  the fix.
+- **L1 (anchor centres):** Mask R-CNN has the same corner offset (`utils.py:603-604`); the fix tied with it in stage
+  8 of the detection benchmark and was dropped.
 - **L5 (box loss normalisation):** Mask R-CNN averages the smooth L1 over the coordinates of the positives
   (`model.py:1070-1073, 1135-1139`). That is per coordinate, a quarter of a per-box sum, on targets scaled by 5 to
   10 as here.
@@ -350,7 +350,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | Input | Resize so the short side reaches 800 (up only) and the long side stays ≤ 1024, then pad to 1024 × 1024 centred. Modes `crop` (random crops, training) and `pad64` (native size, inference) (`utils.py:388-492`). RGB minus the mean pixel. | Fixed square input, letterboxed centred (`keep_ratio`) or stretched. BGR in [0, 255], then `input_normalization` / `per_sample_normalization`. |
 | Backbone | ResNet-50/101 bottleneck stages C2–C5, pretrained on ImageNet or COCO (`model.py:171-206`). | Stack of `ConvolutionBlock`s (residual, SE, inception options). The detection levels are the outputs of the blocks numbered by the keys of `DetectionLevels`, after their pooling. Pretrained from another run of any task. |
 | Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | `Neck` (items 1 and 37): none by default, the levels keeping the channels of their blocks, or a feature pyramid or path aggregation to `output_channels`, without P6. |
-| Anchors | One scale per level (32 on P2 to 512 on P6), ratios 0.5 / 1 / 2, corner-aligned (`utils.py:583-619`). | Several scales and ratios per level (`DetectionLevels.<level>.anchors`), corner-aligned unless `RegionProposal.anchor_centres` is `"cell_centres"` (audit L1, stage 8). |
+| Anchors | One scale per level (32 on P2 to 512 on P6), ratios 0.5 / 1 / 2, corner-aligned (`utils.py:583-619`). | Several scales and ratios per level (`DetectionLevels.<level>.anchors`), corner-aligned (audit L1). |
 | Region proposal head | One head shared by every level: 3 × 3 conv of 512, then 1 × 1 convs for a 2-class softmax and the offsets (`model.py:830-871`). | One head per level (`DetectionLevels.<level>.region_proposal`): `ConvolutionBlock`, 3 × 3 conv, then 1 × 1 convs for a sigmoid objectness and the offsets. |
 | Region proposal targets | Positive at IoU ≥ 0.7, plus the best anchor(s) of every ground truth. Negative below 0.3. Anchors touching a crowd are never negatives. 256 sampled, at most half positive (`model.py:1445-1553`). | Positive at IoU ≥ 0.5, plus the best anchor(s). Negative below 0.3, 0 included. 256 sampled, at most 128 positive. |
 | Proposal filter | One top-k (6000) and one NMS (0.7) over all levels, 2000 kept in training and 1000 at inference, padded with zeros (`model.py:255-329`). | One top-k (1000 / 500) and one NMS (0.7) over all levels (audit M3), 500 / 250 kept, padded with copies of random survivors in training and evaluation (masked slots in deployment), at most one per anchor. |
@@ -633,8 +633,9 @@ committed): every image can be taken again from them without training, except wh
 ## Suggested Order
 1. **The detection stages scheduled in `object_detection_experiment_plan.md`, in the user's order of 2026-11-07:** the
    FPN and the path aggregation (items 1 and 37), the CIoU box loss (item 36), the detector normalization, then the
-   audit fixes M3 (item 3) with L7, and L1. Stages 3 to 6 are done (the detector normalization keeping batch on
-   2026-11-11), the audit fixes M3 with L7 and L1 being stages 7 and 8.
+   audit fixes M3 (item 3) with L7, and L1. Stages 3 to 8 are done (the detector normalization keeping batch on
+   2026-11-11, the proposal selection per level of M3 kept on 2026-11-12, the anchor centres of L1 dropped after their
+   tie on 2026-11-13).
 2. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.
@@ -1062,15 +1063,16 @@ committed): every image can be taken again from them without training, except wh
 ### Low
 
 #### L1. Anchors are centred on the cell corners, while the backbone and RoIAlign use the cell centres *(changes DET numbers)*
-- **Status:** implemented on 2026-11-12 as `RegionProposal.anchor_centres` (`"cell_corners"` in every configuration,
-  `"cell_centres"` the fix, run name token `AC`), trained by stage 8 of the detection benchmark
-  (`object_detection_experiment_plan.md`).
-- **Where:** `models/detection/anchors.py:76`: `shifts = arange(F) * stride`. RoIAlign `aligned=True` and the
+- **Where:** `models/detection/anchors.py:82`: `shifts = arange(F) * stride`. RoIAlign `aligned=True` and the
   stride-1 convolutions with 2×2 pooling place cell j at `(j + 0.5) · stride`.
 - **Effect:**
   - A constant half-stride offset that the regressor has to learn.
   - The anchor grid stops one stride before the right and bottom borders.
 - **Fix:** `(arange(F) + 0.5) * stride`.
+- **Status (2026-11-13):** dropped. Stage 8 of the detection benchmark trained the fix as
+  `RegionProposal.anchor_centres` `"cell_centres"` (run_23 and run_24), which tied with the cell corners at every
+  evaluation (0.7757 against 0.7765 at 8500, as Detectron2 expects), so the user stopped the stage there and had the
+  setting removed, the anchors staying on the cell corners as in torchvision (`object_detection_experiment_plan.md`).
 
 #### L2. Export crashes for some valid configurations
 - **Too few anchors:** `inference_detector.py:151` calls `topk(k=post_nms_proposals)` over `min(pre_nms, anchors)`
@@ -1306,7 +1308,7 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
    (label dictionary stored in the run), C2 (smoothing with weights), M5 (exact nearest resizing).
 3. **Detection accuracy** *(changes DET numbers, baseline to regenerate with your confirmation)*: H1 (RPN background),
    H2 (ground truths in the proposals), M4 (NMS thresholds), M3 (per-level proposal selection), M14 (float32
-   objectness), L1 (anchor centres), H3 (no postprocessing during validation).
+   objectness), L1 (anchor centres, dropped after its tie), H3 (no postprocessing during validation).
 4. **Architecture of the shared blocks** *(changes every task)*: M1 (SE on the branch), M2 (shortcut before the
    ReLU). Compare them on the synthetic datasets before adopting them.
 5. **Evaluation and deployment:** M15 and M16 (export check), L3, L6

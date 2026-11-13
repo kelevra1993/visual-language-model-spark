@@ -26,10 +26,6 @@ BOX_LOSS_CODES = {"complete_iou": "CIOU"}
 # levels at once ("joint") so that the runs written before the setting keep their names
 PROPOSAL_SELECTION_CODES = {"per_level": "PL"}
 
-# Code of the anchors centred on the cell centres (AC), without token for the anchors centred on the cell corners
-# ("cell_corners") so that the runs written before the setting keep their names
-ANCHOR_CENTRE_CODES = {"cell_centres": "AC"}
-
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "instance_segmentation": "INS", "classification": "CLS",
               "sequence_classification": "M2O", "sequence_labelling": "M2M", "sequence_comparison": "CMP",
@@ -250,7 +246,7 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     by the neck N<FPN or PAN><output channels><normalization> (e.g. 'L4567-NFPN32BN', no token without neck, so that
     the runs written before the neck keep their names), the anchors A<anchors per position>.<smallest scale>-<largest
     scale>.<hash of every scale and aspect ratio of every level> (build_anchors_hash), so that other ratios or middle
-    scales start a new run, followed by AC when they are centred on the cell centres, the region proposal heads
+    scales start a new run, the region proposal heads
     (R<normalization>, R<layers>x<filters>, RPL with the selection of the proposals level by level, then RPT and RFRZ
     when they are transferred and frozen), the detector
     heads (modules DSE, DRES, DINC, D<normalization>,
@@ -287,12 +283,6 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     anchors_hash = build_anchors_hash(detection_levels=detection_levels, level_names=level_names)
     anchors_token = (f"A{join_level_tokens(level_tokens=anchor_counts)}.{min(anchor_scales)}-{max(anchor_scales)}."
                      f"{anchors_hash}")
-
-    # Anchors centred on the cell centres, no token for the cell corners
-    anchor_tokens = [anchors_token]
-    anchor_centres = region_proposal_configuration["anchor_centres"]
-    if anchor_centres != "cell_corners":
-        anchor_tokens.append(ANCHOR_CENTRE_CODES[anchor_centres])
 
     # Region proposal heads: normalization, then the layers and filters of the head of every level, then the selection
     # level by level
@@ -336,7 +326,7 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     else:
         classes_token = f"MC{len(set(data_configuration['label_dictionary'].values())) - 1}"
 
-    return [levels_tokens, anchor_tokens, region_proposal_tokens, detector_tokens, [classes_token]]
+    return [levels_tokens, [anchors_token], region_proposal_tokens, detector_tokens, [classes_token]]
 
 
 def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:

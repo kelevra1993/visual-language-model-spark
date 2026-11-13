@@ -38,7 +38,7 @@ Before stage 0 is launched, every detection setting is set at the value kept by 
 | `Detector.nms_criterion`, `nms_distance_exponent` | `distance_iou`, 0.6 (detection stage 5b, never measured on masks: stage 0b checks it) |
 | `Detector.normalization.feature_map_normalization` | batch (detection stage 6) |
 | `RegionProposal.proposal_selection` | `per_level` (detection stage 7) |
-| `RegionProposal.anchor_centres` | the value kept by detection stage 8 (`cell_corners` unless the centres win) |
+| Anchor centres | cell corners, the centring removed after the tie of detection stage 8 |
 | `DetectionLevels.<4, 5, 6, 7>.mask_head` | `roi_align_pool_size: 14`, `convolutions: [3, 32]` |
 | `MaskHead.mask_resolution` | 28 (one doubling of the pool of 14) |
 | `MaskHead.upsampling` | `transposed` |

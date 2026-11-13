@@ -138,16 +138,6 @@ def set_unknown_proposal_selection(configuration: Dict[str, Any]) -> None:
     configuration["RegionProposal"]["proposal_selection"] = "per_image"
 
 
-def set_unknown_anchor_centres(configuration: Dict[str, Any]) -> None:
-    """
-    Centres the anchors at a place the code does not build, on the cell edges instead of their corners or centres.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["RegionProposal"]["anchor_centres"] = "cell_edges"
-
-
 def set_infinite_nms_distance_exponent(configuration: Dict[str, Any]) -> None:
     """
     Turns DIoU-NMS on with an infinite exponent of its distance term, which would reduce it to the greedy NMS.
@@ -287,8 +277,6 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                           "inf."]),
     (set_unknown_proposal_selection, ["'RegionProposal.proposal_selection' must be one of ['joint', 'per_level'], "
                                       "got 'per_image'."]),
-    (set_unknown_anchor_centres, ["'RegionProposal.anchor_centres' must be one of ['cell_corners', 'cell_centres'], "
-                                  "got 'cell_edges'."]),
     (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
                                             "got [0, 64].",
                                             "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "
@@ -687,8 +675,8 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
     """
     Keeps the settings of the task heads removed from the configuration files for their fixed value, the batch
     normalization momentum of every head the configuration holds, and for the detection tasks the strict fallback
-    assignment, the localisation loss betas and the box loss of the region proposal network, next to an unknown
-    optimizer.
+    assignment, the localisation loss betas, the box loss of the region proposal network and the anchors centred on
+    the cell corners, next to an unknown optimizer.
 
     Args:
         configuration (Dict[str, Any]): The raw configuration of a task with heads, modified in place.
@@ -707,6 +695,7 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
         configuration["RegionProposal"]["localisation_loss_beta"] = "1/9"
         configuration["Detector"]["localisation_loss_beta"] = "1/9"
         configuration["RegionProposal"]["box_loss"] = "smooth_l1"
+        configuration["RegionProposal"]["anchor_centres"] = "cell_corners"
     configuration["Optimization"]["optimizer"] = "lion"
 
 
@@ -722,7 +711,8 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
      ["RegionProposal.normalization.batch_normalization_momentum",
       "Detector.normalization.batch_normalization_momentum", "MaskHead.normalization.batch_normalization_momentum",
       "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
-      "Detector.localisation_loss_beta", "RegionProposal.box_loss"], "'Optimization.optimizer' must be one of"),
+      "Detector.localisation_loss_beta", "RegionProposal.box_loss", "RegionProposal.anchor_centres"],
+     "'Optimization.optimizer' must be one of"),
     ("semantic_segmentation", keep_the_fixed_head_settings, ["SegmentationDecoder.batch_normalization_momentum"],
      "'Optimization.optimizer' must be one of"),
     ("self_supervised", keep_the_fixed_head_settings, ["ProjectionHead.batch_normalization_momentum"],
