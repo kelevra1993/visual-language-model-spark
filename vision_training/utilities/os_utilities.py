@@ -1,12 +1,14 @@
 """
 General helpers used across the framework, the scripts and the tests: JSON reading, coloured console output,
-dictionary printing, random colours, image path listing, folder linking and the CUDA allocator setting of the training
-launch.
+dictionary printing, random colours, image path listing, folder linking, the CUDA allocator setting of the training
+launch and the release of the freed heap memory once a dataset has packed its manifest and at the end of the launch.
 """
 
+import ctypes
 import json
 import os
 import re
+import sys
 from json import JSONDecodeError
 
 import torch
@@ -280,3 +282,23 @@ def enable_expandable_cuda_segments() -> None:
     allocator_settings = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
     if "expandable_segments" not in allocator_settings:
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = ",".join(filter(None, [allocator_settings, "expandable_segments:True"]))
+
+
+def release_freed_heap_memory() -> None:
+    """
+    Gives back to the system the memory freed in the heap of the C allocator (malloc_trim of the GNU C library), so that
+    the main process of a training does not keep resident, nor hand down to the loader workers it forks, the memory of
+    the manifests parsed at launch, which freed Python strings and lists otherwise keep: called by CocoDetectionDataset
+    once it has packed and freed its parsed manifest, and by the base trainer at the end of its launch, the record of
+    the data and the split descriptions having parsed every manifest again (0.26 GB left resident by the 50,000
+    validation images of the hard instance segmentation dataset). Nothing is done outside Linux, malloc_trim being a
+    function of the GNU C library.
+    """
+    # Only the GNU C library of Linux trims its heap, other systems returning freed memory their own way
+    if not sys.platform.startswith("linux"):
+        return None
+
+    # The C library already loaded by the interpreter, opened by its file name, gives back every freed page of its heap
+    c_library = ctypes.CDLL(name="libc.so.6")
+    c_library.malloc_trim(0)
+    return None

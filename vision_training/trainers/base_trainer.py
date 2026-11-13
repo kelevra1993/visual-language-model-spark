@@ -56,7 +56,7 @@ from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED
                                                          RUN_RECORD_FILE_NAME, TRAINED_WEIGHTS_METRIC_PREFIX,
                                                          DisabledTracker, create_experiment_tracker,
                                                          resolve_tracking_uri)
-from vision_training.utilities.os_utilities import format_path_link, print_color, read_json
+from vision_training.utilities.os_utilities import format_path_link, print_color, read_json, release_freed_heap_memory
 from vision_training.utilities.tensor_utilities import get_device
 
 # Evaluation files of a checkpoint sent to the MLflow run, small whatever the size of the test split: the confusion
@@ -326,6 +326,10 @@ class BaseTrainer(ABC):
         # Restoration of the last checkpoint of the run folder before starting any training or inference, the first
         # iteration for a new run
         self.start_iteration = self.restore_last_model()
+
+        # Heap memory freed during the launch given back before the loader workers are forked: a manifest parsed again
+        # by the data record leaves 0.26 GB resident per 50,000 images of the hard instance segmentation dataset
+        release_freed_heap_memory()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Task hooks: every task implements them

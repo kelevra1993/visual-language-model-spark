@@ -7,11 +7,15 @@ the masks without any 'bbox', the selection of the objects of an image maps the 
 annotations and leaves out the background, the test samples of the
 evaluation at the original resolution carry the masks and boxes of their objects at that resolution, every object with
 a pixel in the original image kept at both resolutions, the keypoint samples carry as ignored regions the masks of
-the objects of a category with keypoints left out for having no labelled keypoint, and the instance index maps
-('Data.instance_index_maps') give the objects, boxes and masks of the per-object masks, stacked by the collate function.
+the objects of a category with keypoints left out for having no labelled keypoint, the instance index maps
+('Data.instance_index_maps') give the objects, boxes and masks of the per-object masks, stacked by the collate function,
+the packed records of the manifest give every image with its own annotations in the order of the manifest or shuffled,
+without any Python object per image kept for the loader workers to copy, and images sharing an identifier are refused.
 """
 
+import gc
 import json
+import random
 import cv2
 import numpy as np
 import pytest
@@ -379,3 +383,86 @@ def test_instance_index_maps_give_the_objects_of_the_instance_masks(tmp_path: Pa
         CocoDetectionDataset(**arguments, load_instance_index_maps=True, load_original_instances=True)
     with pytest.raises(expected_exception=ValueError, match="needs load_instance_masks"):
         CocoDetectionDataset(**{**arguments, "load_instance_masks": False}, load_instance_index_maps=True)
+
+
+def test_image_records_keep_every_image_with_its_annotations(tmp_path: Path) -> None:
+    """
+    Verifies that the packed records of the dataset give every image entry with its own annotations, in the order of
+    the manifest, and an empty list for an image without any, in the order of the manifest without shuffling and in a
+    shuffled order otherwise, the categories of the manifest being kept.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    images = [{"id": 5, "file_name": "five.png", "width": 40, "height": 20},
+              {"id": 3, "file_name": "three.png", "width": 40, "height": 20},
+              {"id": 8, "file_name": "eight.png", "width": 40, "height": 20}]
+    annotations = [{"id": 1, "image_id": 3, "category_id": 1, "iscrowd": 0, "bbox": [1, 2, 3, 4]},
+                   {"id": 2, "image_id": 5, "category_id": 2, "iscrowd": 0, "bbox": [5, 6, 7, 8]},
+                   {"id": 3, "image_id": 3, "category_id": 2, "iscrowd": 1, "bbox": [9, 10, 11, 12]}]
+    categories = [{"id": 1, "name": "first"}, {"id": 2, "name": "second"}]
+    labels_file = tmp_path / "labels.json"
+    labels_file.write_text(data=json.dumps(obj={"images": images, "annotations": annotations,
+                                                "categories": categories}))
+    expected_annotations = {5: [annotations[1]], 3: [annotations[0], annotations[2]], 8: []}
+    arguments = {"data_directory": str(tmp_path / "data"), "labels_file": str(labels_file), "image_size": 80,
+                 "keep_ratio": True, "label_mode": "multi_class", "label_dictionary": {1: 1, 2: 2}}
+
+    # The order of the manifest without shuffling
+    dataset = CocoDetectionDataset(**arguments, shuffle=False)
+    assert len(dataset) == 3 and dataset.categories == categories
+    assert [dataset.get_image_record(image_index=image_index) for image_index in range(3)] == [
+        (image, expected_annotations[image["id"]]) for image in images]
+
+    # A shuffled order, every image keeping its own annotations
+    random.seed(a=3)
+    shuffled_dataset = CocoDetectionDataset(**arguments)
+    shuffled_records = [shuffled_dataset.get_image_record(image_index=image_index) for image_index in range(3)]
+    assert sorted(image["id"] for image, _ in shuffled_records) == [3, 5, 8]
+    assert all(image_annotations == expected_annotations[image["id"]] for image, image_annotations in shuffled_records)
+
+
+def test_dataset_keeps_no_python_object_per_image(tmp_path: Path) -> None:
+    """
+    Verifies that the dataset keeps its images and their annotations in its packed records, without any Python
+    dictionary or list per image, the objects a forked loader worker copies page by page by reading them
+    (copy-on-access): the objects followed by the garbage collector grow by a few objects only for 2000 images.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    number_images = 2000
+    labels_file = tmp_path / "labels.json"
+    labels_file.write_text(data=json.dumps(obj={
+        "images": [{"id": image_index, "file_name": f"{image_index}.png", "width": 40, "height": 20}
+                   for image_index in range(number_images)],
+        "annotations": [{"id": image_index, "image_id": image_index, "category_id": 1, "iscrowd": 0,
+                         "bbox": [1, 2, 3, 4]} for image_index in range(number_images)],
+        "categories": [{"id": 1, "name": "first"}]}))
+
+    # Objects followed by the garbage collector before and after the dataset is built, the dataset kept alive
+    gc.collect()
+    object_count_before = len(gc.get_objects())
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
+                                   keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1})
+    gc.collect()
+    assert len(dataset) == number_images
+    assert len(gc.get_objects()) - object_count_before < 100
+
+
+def test_images_sharing_an_identifier_are_refused(tmp_path: Path) -> None:
+    """
+    Verifies that a manifest whose two images share an identifier is refused, the identifier naming the annotations of
+    one image only.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    labels_file = tmp_path / "labels.json"
+    labels_file.write_text(data=json.dumps(obj={"images": [{"id": 1, "file_name": "a.png", "width": 40, "height": 20},
+                                                           {"id": 1, "file_name": "b.png", "width": 40, "height": 20}],
+                                                "annotations": [], "categories": [{"id": 1, "name": "first"}]}))
+
+    with pytest.raises(expected_exception=ValueError, match="The 2 images of .* have only 1 distinct identifiers"):
+        CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
+                             keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1})

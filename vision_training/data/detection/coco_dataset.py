@@ -4,8 +4,10 @@ a COCO 'labels.json' split with OpenCV on the CPU workers, the selection of the 
 (also used by the anchor recall of the detection trainer), and the collate function batching its images and per-image
 boxes, labels, instance masks (or one instance index map per image, 'Data.instance_index_maps') and keypoints, with the
 masks and boxes of the objects at the original image resolution for the evaluation of the instance segmentation at that
-resolution, and the regions of the objects without labelled keypoint that the keypoint heatmap loss leaves out. Used by
-get_detection_dataloader and get_keypoint_dataloaders of data/loaders.py.
+resolution, and the regions of the objects without labelled keypoint that the keypoint heatmap loss leaves out. The
+parsed manifest is packed into one NumPy buffer of per-image records (data/serialized_records.py), which the loader
+workers read without copying the memory of the main process. Used by get_detection_dataloader and
+get_keypoint_dataloaders of data/loaders.py.
 """
 
 import random
@@ -21,7 +23,8 @@ from vision_training.data.detection.coco_masks import (MAXIMUM_INDEX_MAP_OBJECTS
                                                        build_instance_mask, compute_mask_bounding_boxes,
                                                        compute_segmentation_bounding_box, find_index_map_objects)
 from vision_training.data.preprocessing import preprocess_boxes, preprocess_image_and_boxes, read_image
-from vision_training.utilities.os_utilities import format_path_link, print_color
+from vision_training.data.serialized_records import SerializedRecords
+from vision_training.utilities.os_utilities import format_path_link, print_color, release_freed_heap_memory
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -132,7 +135,9 @@ class CocoDetectionDataset(Dataset):
     A PyTorch Dataset implementation for reading the raw image format.
 
     This class reads images directly from the standard filesystem and scales them dynamically
-    on the CPU during each dataloader fetch iteration.
+    on the CPU during each dataloader fetch iteration. The image entries and annotations of the manifest are kept
+    as one record per image in a NumPy byte buffer (image_records, read by get_image_record), never as Python
+    objects shared with the loader workers.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
@@ -141,7 +146,9 @@ class CocoDetectionDataset(Dataset):
                  load_keypoints: bool = False, maximum_keypoints: int = 0, load_ignored_regions: bool = False,
                  shuffle: bool = True) -> None:
         """
-        Initializes the COCO detection dataset and parses the JSON file.
+        Initializes the COCO detection dataset: parses the JSON file, shuffles its images once and packs every image
+        entry with its annotations into one record of a NumPy byte buffer, the parsed manifest being then freed and
+        its memory given back to the system.
 
         Args:
             data_directory (str): The absolute path to the directory containing the physical image files.
@@ -173,8 +180,8 @@ class CocoDetectionDataset(Dataset):
 
         Raises:
             ValueError: If the original instances or the instance index maps are asked without the instance masks, the
-                instance index maps with the original instances, the keypoints without a positive maximum_keypoints, or
-                the ignored regions without the keypoints.
+                instance index maps with the original instances, the keypoints without a positive maximum_keypoints,
+                the ignored regions without the keypoints, or if two images of the manifest share an identifier.
         """
         if load_original_instances and not load_instance_masks:
             raise ValueError("The objects at the original resolution (load_original_instances) are those of the "
@@ -203,29 +210,37 @@ class CocoDetectionDataset(Dataset):
         self.maximum_keypoints = maximum_keypoints
         self.load_ignored_regions = load_ignored_regions
 
-        # Parse the JSON annotation file into memory for rapid preprocessing
+        # Parse the JSON annotation file, its images shuffled once and its categories kept as they are (a short list)
         with open(file=labels_file, mode='r') as file_handler:
-            self.data = json.load(fp=file_handler)
+            manifest = json.load(fp=file_handler)
+        images = manifest['images']
 
-        self.images = self.data['images']
+        # Every image identifier names the annotations of one image only, each image taking its own when packed
+        identifier_count = len({image_information['id'] for image_information in images})
+        if identifier_count != len(images):
+            raise ValueError(f"The {len(images)} images of {format_path_link(path=labels_file)} have only "
+                             f"{identifier_count} distinct identifiers: every image of a COCO manifest needs its own "
+                             f"'id', which names its annotations.")
         if shuffle:
-            random.shuffle(self.images)
+            random.shuffle(images)
+        self.categories = manifest['categories']
+
         # Unlabelled splits (e.g. the COCO 2017 test set) have no 'annotations' key, their images have no boxes
-        if 'annotations' in self.data:
-            self.annotations = self.data['annotations']
+        if 'annotations' in manifest:
+            annotations = manifest['annotations']
         else:
             print_color(color="yellow", output=f"No annotations found, every image is treated as unlabelled : "
                                                f"{format_path_link(path=labels_file)}")
-            self.annotations = []
+            annotations = []
 
         # Number of keypoints of every category, 0 for a category defining none, checked against every annotation
         self.keypoint_counts = {category['id']: len(category['keypoints']) if 'keypoints' in category else 0
-                                for category in self.data['categories']}
+                                for category in self.categories}
 
         # Categories of the manifest the label mapping does not name, whose objects are left out like the background
         # ones: announced, since a mapping keyed by other identifiers (e.g. names) would otherwise drop every object
         if label_mode == "multi_class":
-            unmapped_categories = [f"{category['name']} ({category['id']})" for category in self.data['categories']
+            unmapped_categories = [f"{category['name']} ({category['id']})" for category in self.categories
                                    if category['id'] not in label_dictionary and
                                    str(category['id']) not in label_dictionary]
             if unmapped_categories:
@@ -233,13 +248,20 @@ class CocoDetectionDataset(Dataset):
                             output=f"Categories Absent From The Label Mapping, Their Objects Left Out : "
                                    f"{', '.join(unmapped_categories)} ({format_path_link(path=labels_file)})")
 
-        # Map image identifiers to their respective bounding box and label collections for rapid retrieval
-        self.image_to_annotations = {}
-        for annotation in self.annotations:
-            image_identifier = annotation['image_id']
-            if image_identifier not in self.image_to_annotations:
-                self.image_to_annotations[image_identifier] = []
-            self.image_to_annotations[image_identifier].append(annotation)
+        # Annotations of every image, kept only by this mapping once the parsed manifest is freed, until packed
+        image_to_annotations = {}
+        for annotation in annotations:
+            image_to_annotations.setdefault(annotation['image_id'], []).append(annotation)
+        del manifest, annotations
+
+        # Every image entry and its annotations packed as one pickled record of a NumPy byte buffer, in the shuffled
+        # order: the loader workers never touch, hence never copy, Python objects of the main process (0.05 GB copied
+        # instead of 0.64 GB by a worker reading the 50,000 validation images of the hard instance segmentation dataset)
+        self.image_records = SerializedRecords(records=((image_information,
+                                                          image_to_annotations.pop(image_information['id'], []))
+                                                         for image_information in images))
+        del images, image_to_annotations
+        release_freed_heap_memory()
 
     def __len__(self) -> int:
         """
@@ -248,7 +270,22 @@ class CocoDetectionDataset(Dataset):
         Returns:
             int: The total count of available images.
         """
-        return len(self.images)
+        return len(self.image_records)
+
+    def get_image_record(self, image_index: int) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Gives the manifest entry of one image and its COCO annotations, unpacked from the records of the dataset as new
+        Python objects of the calling process: read by __getitem__ in the loader workers, and by the anchor recall of
+        the detection trainer (gather_object_boxes) and the tutorial figures in the main process.
+
+        Args:
+            image_index (int): The index of the image in the dataset, in its shuffled order.
+
+        Returns:
+            Tuple[Dict[str, Any], List[Dict[str, Any]]]: The image entry of labels.json ('id', 'file_name', 'width',
+                'height', ...) and its annotations, an empty list for an image without any.
+        """
+        return self.image_records[image_index]
 
     def __getitem__(self, _index: int) -> dict:
         """
@@ -269,17 +306,13 @@ class CocoDetectionDataset(Dataset):
         Raises:
             ValueError: If an annotation has no 'segmentation' while the instance masks are loaded.
         """
-        image_information = self.images[_index]
+        # Manifest entry of the image and its annotations, unpacked from the records of the dataset
+        image_information, image_annotations = self.get_image_record(image_index=_index)
         image_identifier = image_information['id']
         image_path = os.path.join(self.data_directory, image_information['file_name'])
 
         # Load the physical image directly from the filesystem into a dense matrix format
         image = read_image(image_path=image_path)
-
-        if image_identifier in self.image_to_annotations:
-            image_annotations = self.image_to_annotations[image_identifier]
-        else:
-            image_annotations = []
 
         # Objects of the image the network learns, with their [x1, y1, x2, y2] boxes in original pixels
         bounding_boxes, labels, kept_annotations = select_image_objects(

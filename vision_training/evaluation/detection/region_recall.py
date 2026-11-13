@@ -50,11 +50,11 @@ def gather_object_boxes(dataset: CocoDetectionDataset, progress_description: Opt
         torch.Tensor: The [N, 4] float32 [x1, y1, x2, y2] boxes of the N objects of the split.
     """
     object_boxes = []
-    for image_information in tqdm(iterable=dataset.images, desc=progress_description, unit="image",
-                                  disable=progress_description is None):
+    for image_index in tqdm(iterable=range(len(dataset)), desc=progress_description, unit="image",
+                            disable=progress_description is None):
         # Objects of the image the network learns, in original pixels, the instance segmentation boxes coming from
         # the segmentation of every object like in the dataset
-        image_annotations = dataset.image_to_annotations.get(image_information["id"], [])
+        image_information, image_annotations = dataset.get_image_record(image_index=image_index)
         bounding_boxes, _, _ = select_image_objects(annotations=image_annotations, label_mode=dataset.label_mode,
                                                     label_dictionary=dataset.label_dictionary,
                                                     boxes_from_segmentation=dataset.load_instance_masks)
