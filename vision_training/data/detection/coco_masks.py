@@ -112,39 +112,43 @@ def rasterize_polygons(polygons: List[List[float]], image_width: int, image_heig
     return mask
 
 
-def decode_compressed_counts(compressed_counts: str) -> List[int]:
+def decode_compressed_counts(compressed_counts: str) -> np.ndarray:
     """
-    Decodes the string of a compressed COCO run length encoding into its list of run lengths, so that
+    Decodes the string of a compressed COCO run length encoding into its run lengths, so that
     decode_run_length_encoding reads both encodings the same way: every run is written in groups of 5 bits (offset by
     48 into printable characters, the sixth bit flagging another group, the fifth bit of the last group the sign), and
-    from the third run on as a difference with the run two places before.
+    from the fourth run on as a difference with the run two places before. The groups are decoded with numpy at once,
+    since the training loader of the instance segmentation decodes every mask of every batch.
 
     Args:
         compressed_counts (str): The 'counts' string of the encoding.
 
     Returns:
-        List[int]: The run lengths, alternating background and object pixels, starting with background.
+        np.ndarray: The int64 run lengths, alternating background and object pixels, starting with background.
     """
-    counts = []
-    position = 0
+    # Groups of 5 bits, the sixth bit telling that another group of the same run follows
+    groups = np.frombuffer(buffer=compressed_counts.encode("ascii"), dtype=np.uint8).astype(np.int64) - 48
+    if groups.size == 0:
+        return np.zeros(shape=(0,), dtype=np.int64)
+    is_last_group = (groups & 0x20) == 0
+    run_indices = np.concatenate(([0], np.cumsum(a=is_last_group)[:-1]))
 
-    # Read one run per iteration, group by group
-    while position < len(compressed_counts):
-        value, shift, has_more_groups = 0, 0, True
-        while has_more_groups:
-            group = ord(compressed_counts[position]) - 48
-            value |= (group & 0x1F) << (5 * shift)
-            has_more_groups = bool(group & 0x20)
-            position, shift = position + 1, shift + 1
+    # Position of every group within its run, giving the shift of its 5 bits
+    run_starts = np.flatnonzero(np.concatenate(([True], is_last_group[:-1])))
+    group_positions = np.arange(groups.size) - run_starts[run_indices]
+    values = np.zeros(shape=(run_starts.size,), dtype=np.int64)
+    np.add.at(values, run_indices, (groups & 0x1F) << (5 * group_positions))
 
-            # Extend the sign bit of the last group into a negative value
-            if not has_more_groups and group & 0x10:
-                value |= -1 << (5 * shift)
+    # Extend the sign bit of the last group of every run into a negative value
+    run_lengths_in_groups = np.diff(np.concatenate((run_starts, [groups.size])))
+    is_negative = (groups[is_last_group] & 0x10) != 0
+    values[is_negative] |= -1 << (5 * run_lengths_in_groups[is_negative])
 
-        # From the third run on, the value is the difference with the run two places before
-        if len(counts) > 2:
-            value += counts[-2]
-        counts.append(value)
+    # From the fourth run on (index 3), the value is the difference with the run two places before: a cumulative
+    # sum within the odd runs from run 1 and within the even runs from run 2
+    counts = values.copy()
+    counts[1::2] = np.cumsum(a=values[1::2])
+    counts[2::2] = np.cumsum(a=values[2::2])
     return counts
 
 
@@ -169,13 +173,15 @@ def decode_run_length_encoding(segmentation: Dict[str, Any]) -> np.ndarray:
         counts = decode_compressed_counts(compressed_counts=counts)
 
     # The runs alternate between background (even positions) and object pixels (odd positions)
-    if sum(counts) != height * width:
-        raise ValueError(f"The run length encoding covers {sum(counts)} pixels instead of {height} x {width}.")
+    counts = np.asarray(a=counts, dtype=np.int64)
+    if int(counts.sum()) != height * width:
+        raise ValueError(f"The run length encoding covers {int(counts.sum())} pixels instead of {height} x {width}.")
     run_values = np.arange(len(counts), dtype=np.int64) % 2
     flat_mask = np.repeat(a=run_values.astype(np.uint8), repeats=np.array(object=counts, dtype=np.int64))
 
-    # The pixels are listed column by column (Fortran order)
-    return np.ascontiguousarray(flat_mask.reshape((height, width), order="F"))
+    # The pixels are listed column by column: rows of the [width, height] transpose, turned back by the OpenCV
+    # transpose, about ten times faster than the copy of a Fortran ordered numpy view
+    return cv2.transpose(src=flat_mask.reshape(width, height))
 
 
 def compress_counts(counts: List[int]) -> str:
