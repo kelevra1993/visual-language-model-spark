@@ -708,7 +708,7 @@ class ClassificationTrainer(BaseTrainer):
             images.update(curve_images)
 
         # Probabilities of the logits divided by every temperature of a grid, to choose the temperature of the export
-        # from their distributions, thresholds and calibration, with the per-class report of the classification
+        # from the score distribution of every class and its thresholds, with the per-class report of the classification
         if self.saves_temperature_explorer():
             weights_description = f" · {AVERAGED_WEIGHTS_LABEL}" if self.evaluating_averaged_weights else ""
             files["Temperature Explorer"] = save_temperature_explorer(
