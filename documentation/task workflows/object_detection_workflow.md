@@ -408,7 +408,7 @@ test_image_file_names: 20 entries, e.g. {1: 'test_000000.png', 2: 'test_000001.p
 ```
 
 ### Step 2.8 — `get_detection_dataloaders()` → `get_detection_dataloader()`
-For every split, `<folder>/data/` holds the images and `<folder>/labels.json` the COCO manifest. A `CocoDetectionDataset` (Step 2.9) decodes and resizes the images on the CPU loader workers and is wrapped in the PyTorch loader of `build_native_loader()` with `collate_function()`, which stacks the images and keeps the boxes and labels as lists, every image holding its own number of boxes. The test loader alone can also give the objects at the original resolution (`load_original_instances`), which only the instance segmentation evaluated with `evaluation.original_resolution` asks for.
+For every split, `<folder>/data/` holds the images and `<folder>/labels.json` the COCO manifest. A `CocoDetectionDataset` (Step 2.9) decodes and resizes the images on the CPU loader workers and is wrapped in the PyTorch loader of `build_native_loader()` with `collate_function()`, which stacks the images and keeps the boxes and labels as lists, every image holding its own number of boxes. The test loader alone can also give the objects at the original resolution (`load_original_instances`), which only the instance segmentation evaluated with `evaluation.original_resolution` asks for. In the same way, `load_instance_index_maps` gives the masks of every image as one instance index map, stacked by `collate_function()`, which only the instance segmentation asks for with `Data.instance_index_maps` (`instance_segmentation_workflow.md`); the object detection loads no mask, `DetectionTrainer.instance_index_maps` staying `False`.
 
 **Example: size of the three splits**
 ```text
