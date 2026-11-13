@@ -5,12 +5,11 @@ class names and colours and the file name of every test image read from the test
 split by its images and annotations, and the names and classes of the fixed test images drawn at every evaluation.
 """
 
-import json
-
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Tuple
 
 from vision_training.data.label_mapping import get_class_names
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.split_description import count_split_images_and_annotations
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.utilities.visualization import build_class_colours
@@ -29,8 +28,7 @@ class CocoSplitTrainer(BaseTrainer):
         every test image, which names the sample images.
         """
         test_labels_path = Path(self.experiment_configuration["test_data_folder"]) / "labels.json"
-        with open(file=test_labels_path, mode="r") as labels_file:
-            test_labels = json.load(fp=labels_file)
+        test_labels = read_manifest(labels_path=test_labels_path)
         self.class_names = get_class_names(categories=test_labels["categories"], label_dictionary=self.label_dictionary)
         self.class_colours = build_class_colours(number_classes=len(self.class_names))
         self.test_image_file_names = {image["id"]: image["file_name"] for image in test_labels["images"]}

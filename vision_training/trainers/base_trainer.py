@@ -327,8 +327,8 @@ class BaseTrainer(ABC):
         # iteration for a new run
         self.start_iteration = self.restore_last_model()
 
-        # Heap memory freed during the launch given back before the loader workers are forked: a manifest parsed again
-        # by the data record leaves 0.26 GB resident per 50,000 images of the hard instance segmentation dataset
+        # Heap memory freed during the launch given back before the loader workers are forked, the manifests shared
+        # by read_manifests_once (main.py) being given back when it ends, right after this construction
         release_freed_heap_memory()
 
     # ------------------------------------------------------------------------------------------------------------------

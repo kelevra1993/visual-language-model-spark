@@ -663,7 +663,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 > The examples below are real outputs from running the loader on `configurations/classification/configuration_example.yaml` when it read ImageNet-1k (1000 classes); it reads ImageNet-22k (21,841 classes) since 2026-11-11.
 
 ### Step 1.1 — `main()`
-This is the entry point of the whole project, the same for every task. It first turns on the expandable segments of the CUDA allocator (`enable_expandable_cuda_segments()` of `vision_training/utilities/os_utilities.py` adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF` before anything reaches the GPU). `parse_configuration_path()` then reads the path to the YAML file of the experiment from the command line (`--configuration_path`, absolute or relative to the current folder; `parser.error()` stops with "No configuration file at ..." when it is not a file), so any configuration, of this task or of another one, is trained without editing the code. It loads and validates that file (Step 1.2), asks the registry which trainer fits `experiment_configuration["task"]` (Step 1.6), builds that trainer with both dictionaries and the YAML path (Stage 2) and starts training (Stage 3). It returns nothing. Everything after this point happens inside the trainer.
+This is the entry point of the whole project, the same for every task. It first turns on the expandable segments of the CUDA allocator (`enable_expandable_cuda_segments()` of `vision_training/utilities/os_utilities.py` adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF` before anything reaches the GPU). `parse_configuration_path()` then reads the path to the YAML file of the experiment from the command line (`--configuration_path`, absolute or relative to the current folder; `parser.error()` stops with "No configuration file at ..." when it is not a file), so any configuration, of this task or of another one, is trained without editing the code. It loads and validates that file (Step 1.2), asks the registry which trainer fits `experiment_configuration["task"]` (Step 1.6), builds that trainer with both dictionaries and the YAML path (Stage 2) and starts training (Stage 3). The loading and the construction run inside `read_manifests_once()` (`vision_training/data/manifest_cache.py`): the datasets, the record of the data (`data.json`), the split descriptions and the task readers (the test manifest of the detection tasks, the keypoint definitions) read every `labels.json` through `read_manifest()`, which parses each file once and shares it, then frees the parsed manifests with their heap memory before the training starts and the first batch forks the loader workers. Each `labels.json` used to be parsed up to five times; on the 50,000 validation images of the hard instance segmentation dataset, the reads of the launch take 5.8 s instead of 15.5 s (2026-11-13). `scripts/evaluation/evaluate_checkpoint.py` builds its trainer the same way. It returns nothing. Everything after this point happens inside the trainer.
 
 ```bash
 python -m vision_training.main --configuration_path vision_training/configurations/classification/configuration_example.yaml
@@ -672,9 +672,10 @@ python -m vision_training.main --configuration_path vision_training/configuratio
 ```python
 enable_expandable_cuda_segments()                           # before the first CUDA call
 experiment_configuration_path = parse_configuration_path()  # absolute path of --configuration_path
-experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=...)
-trainer_class = get_trainer_class(task=experiment_configuration["task"])  # -> ClassificationTrainer
-trainer = trainer_class(experiment_configuration=..., model_configuration=..., configuration_path=...)
+with read_manifests_once():                                 # every labels.json parsed once, freed at the end
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=...)
+    trainer_class = get_trainer_class(task=experiment_configuration["task"])  # -> ClassificationTrainer
+    trainer = trainer_class(experiment_configuration=..., model_configuration=..., configuration_path=...)
 trainer.run_training_loop()
 ```
 
@@ -1109,7 +1110,7 @@ This prints the launch panel, so the settings of the run can be checked before a
 ```
 
 ### Step 2.23 — `describe_split()` → `count_split_samples()`
-`print_experiment_information()` calls this hook once per split. `count_split_samples()` reads the `labels.json` of the split and returns its number of samples and categories, counted before the label mapping. The hook turns them into the text between brackets. The size of the training split also gives the number of iterations per epoch.
+`print_experiment_information()` calls this hook once per split. `count_split_samples()` reads the `labels.json` of the split (`read_manifest()`, the manifest already parsed for the dataset during the launch, Step 1.1) and returns its number of samples and categories, counted before the label mapping. The hook turns them into the text between brackets. The size of the training split also gives the number of iterations per epoch.
 
 **Example output**
 ```text

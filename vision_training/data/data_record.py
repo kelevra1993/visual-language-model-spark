@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
 from vision_training.data.label_mapping import get_background_class_index
+from vision_training.data.manifest_cache import read_manifest
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
-from vision_training.utilities.os_utilities import read_json
 
 # Name of the record of the data in the run folder
 DATA_RECORD_FILE_NAME = "data.json"
@@ -103,7 +103,7 @@ def build_split_record(split_data_folder: str | Path) -> Dict[str, Any]:
     with open(file=labels_path, mode="rb") as labels_file:
         labels_sha256 = hashlib.file_digest(labels_file, "sha256").hexdigest()
 
-    images = list_manifest_images(labels=read_json(path=str(labels_path)))
+    images = list_manifest_images(labels=read_manifest(labels_path=labels_path))
     return {"data_folder": str(labels_path.parent), "labels_sha256": labels_sha256, "number_images": len(images),
             "images": images}
 
@@ -236,7 +236,7 @@ def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int]
         List[Dict[str, Any]]: The 'class_index', 'class_name', 'category_ids' and the count of every split by unit of
             every class.
     """
-    split_labels = {split_name: read_json(path=str(Path(split_data_folder) / "labels.json"))
+    split_labels = {split_name: read_manifest(labels_path=Path(split_data_folder) / "labels.json")
                     for split_name, split_data_folder in split_data_folders.items()}
 
     # Categories of every manifest by identifier, the first split naming a category giving its name

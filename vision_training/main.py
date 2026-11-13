@@ -12,6 +12,7 @@ import argparse
 from pathlib import Path
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
+from vision_training.data.manifest_cache import read_manifests_once
 from vision_training.utilities.os_utilities import enable_expandable_cuda_segments, format_path_link
 
 
@@ -54,15 +55,17 @@ def main() -> None:
     # Configuration file given on the command line
     experiment_configuration_path = parse_configuration_path()
 
-    # Load configuration
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=experiment_configuration_path)
+    # Load configuration and build the trainer of its task, every 'labels.json' parsed once for all its readers and
+    # freed before the training starts
+    with read_manifests_once():
+        experiment_configuration, model_configuration = load_experiment_configuration(
+            configuration_path=experiment_configuration_path)
 
-    # Initialize the trainer of the task of the configuration
-    trainer_class = get_trainer_class(task=experiment_configuration["task"])
-    trainer = trainer_class(experiment_configuration=experiment_configuration,
-                            model_configuration=model_configuration,
-                            configuration_path=experiment_configuration_path)
+        # Initialize the trainer of the task of the configuration
+        trainer_class = get_trainer_class(task=experiment_configuration["task"])
+        trainer = trainer_class(experiment_configuration=experiment_configuration,
+                                model_configuration=model_configuration,
+                                configuration_path=experiment_configuration_path)
 
     # trainer.run_benchmarking_loop(benchmarking_iterations=1000)
     trainer.run_training_loop()

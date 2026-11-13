@@ -288,11 +288,11 @@ def release_freed_heap_memory() -> None:
     """
     Gives back to the system the memory freed in the heap of the C allocator (malloc_trim of the GNU C library), so that
     the main process of a training does not keep resident, nor hand down to the loader workers it forks, the memory of
-    the manifests parsed at launch, which freed Python strings and lists otherwise keep: called by CocoDetectionDataset
-    once it has packed and freed its parsed manifest, and by the base trainer at the end of its launch, the record of
-    the data and the split descriptions having parsed every manifest again (0.26 GB left resident by the 50,000
-    validation images of the hard instance segmentation dataset). Nothing is done outside Linux, malloc_trim being a
-    function of the GNU C library.
+    the manifests parsed at launch, which freed Python strings and lists otherwise keep (0.26 GB left resident by a
+    parse of the manifest of the 50,000 validation images of the hard instance segmentation dataset): called by
+    CocoDetectionDataset once it has packed its manifest, by the base trainer at the end of its launch, and by
+    read_manifests_once of data/manifest_cache.py once the manifests shared during the launch are freed. Nothing is
+    done outside Linux, malloc_trim being a function of the GNU C library.
     """
     # Only the GNU C library of Linux trims its heap, other systems returning freed memory their own way
     if not sys.platform.startswith("linux"):

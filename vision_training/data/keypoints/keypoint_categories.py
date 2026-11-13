@@ -5,10 +5,10 @@ split: the names of the keypoints of every class and its skeleton. The configura
 name and draw the keypoints. The keypoints keep their names whatever the augmentation of their image.
 """
 
-import json
-
 from pathlib import Path
 from typing import Any, Dict
+
+from vision_training.data.manifest_cache import read_manifest
 
 
 def read_keypoint_categories(labels_file: str | Path, label_dictionary: Dict[Any, int]) -> Dict[int, Dict[str, Any]]:
@@ -29,8 +29,7 @@ def read_keypoint_categories(labels_file: str | Path, label_dictionary: Dict[Any
     Raises:
         ValueError: If a category has no keypoint names, or two categories of one class define different keypoints.
     """
-    with open(file=labels_file, mode="r") as file_handler:
-        categories = json.load(fp=file_handler)["categories"]
+    categories = read_manifest(labels_path=labels_file)["categories"]
 
     keypoint_categories = {}
     for category in categories:
