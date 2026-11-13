@@ -1,7 +1,8 @@
 <!doctype html>
 <!--
-Template of the index of scripts/evaluation/serve_temperature_explorer.py: one row per evaluation of a classifier
-holding a temperature explorer in the experiments folders, its rows written by the serve script in place of the
+Template of the index of scripts/evaluation/serve_temperature_explorer.py: the evaluations of the classifiers holding a
+temperature explorer in the experiments folders, grouped in one collapsible block per run folder holding one
+collapsible block per evaluated iteration, written by the serve script (build_index_groups) in place of the
 placeholder.
 -->
 <html lang="en">
@@ -39,29 +40,32 @@ placeholder.
   h1 { font-size: 22px; margin: 0 0 6px; }
   p { margin: 6px 0 14px; color: var(--text-secondary); max-width: 900px; }
   a { color: var(--link); }
-  .table-wrapper { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+  summary { cursor: pointer; }
+  details.run { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin: 0 0 8px; }
+  details.run > summary { padding: 8px 12px; }
+  .run-name { font-weight: 600; overflow-wrap: anywhere; }
+  .run-details { display: block; color: var(--text-secondary); font-size: 12px; margin: 2px 0 0 14px;
+                 overflow-wrap: anywhere; }
+  .run-content { padding: 0 12px 10px 28px; }
+  details.iteration > summary { padding: 4px 0; }
+  .table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; margin: 4px 0 8px; }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
   th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--grid); }
-  td:first-child { overflow-wrap: anywhere; min-width: 280px; }
+  td:last-child { overflow-wrap: anywhere; }
   th { color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
 </style>
 </head>
 <body>
 <main>
   <h1>Temperature Explorers</h1>
-  <p>The evaluations of the classifiers of the experiments folders that hold a temperature explorer. Open one to choose
-     its temperature, save its thresholds and export it to <code>&lt;run&gt;/Exports/</code>. Evaluation "Training":
-     <code>&lt;run&gt;/Evaluation/</code>, written by the training; "Checkpoint evaluation":
-     <code>&lt;run&gt;/Checkpoint_Evaluation/</code>, written by <code>evaluate_checkpoint.py</code>. Temperatures
-     "Any": the evaluation kept its logits, any temperature can be shown; "Grid only": the temperatures of its
-     slider.</p>
-  <div class="table-wrapper">
-    <table>
-      <tr><th>Run</th><th>Evaluation</th><th>Iteration</th><th>Weights</th><th>Temperatures</th><th>Saved T</th>
-          <th>Exports</th><th>Folder</th></tr>
-__INDEX_ROWS__
-    </table>
-  </div>
+  <p>The evaluations of the classifiers of the experiments folders that hold a temperature explorer, grouped by run
+     folder. Open a run, then one of its iterations (the newest is open), and follow <b>Trained</b> or <b>EMA</b> to
+     choose the temperature of those weights, save their thresholds and export them to
+     <code>&lt;run&gt;/Exports/</code>. Evaluation "Training": <code>&lt;run&gt;/Evaluation/</code>, written by the
+     training; "Checkpoint evaluation": <code>&lt;run&gt;/Checkpoint_Evaluation/</code>, written by
+     <code>evaluate_checkpoint.py</code>. Temperatures "Any": the evaluation kept its logits, any temperature can be
+     shown; "Grid only": the temperatures of its slider.</p>
+__INDEX_RUNS__
 </main>
 </body>
 </html>

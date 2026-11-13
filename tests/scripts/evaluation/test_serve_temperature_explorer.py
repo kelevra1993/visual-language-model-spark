@@ -1,6 +1,7 @@
 """
 Tests of scripts/evaluation/serve_temperature_explorer.py, the local server of the temperature explorers of the
-experiments folders: the index lists the evaluations holding a page, every page is served with the current template
+experiments folders: the index groups the evaluations holding a page by run folder, then by iteration (newest first,
+trained weights before averaged ones), every page is served with the current template
 and names its evaluation, a typed temperature is described from the class logits, the score ranges are counted from
 them (wrong requests refused), the thresholds saved from a page
 with logits are found by the server for every class whatever was posted, those of a page without logits are checked
@@ -9,6 +10,7 @@ saved thresholds or without its run is refused with the reason, nothing being wr
 """
 
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -19,14 +21,16 @@ from urllib.parse import quote
 
 import pytest
 
-from scripts.evaluation.serve_temperature_explorer import TemperatureExplorerServer
+from scripts.evaluation.serve_temperature_explorer import (TemperatureExplorerServer, build_index_groups,
+                                                           find_explorer_evaluations)
 from tests.evaluation.classification.test_temperature_explorer import (EXPLORER_CLASS_NAMES, list_file_thresholds,
                                                                        write_explorer_evaluation)
 from vision_training.evaluation.classification.temperature_explorer import (EXPLORER_DATA_PATTERN,
                                                                             SAVED_THRESHOLDS_FILE_NAME,
                                                                             compute_score_ranges,
                                                                             compute_temperature_thresholds,
-                                                                            describe_explorer_temperature)
+                                                                            describe_explorer_temperature,
+                                                                            write_saved_thresholds)
 
 # Evaluations of the tests: one with its class logits, evaluated by the training of its run, one without, evaluated by
 # evaluate_checkpoint.py for the averaged weights, in the Checkpoint_Evaluation folder of a run without configuration
@@ -90,9 +94,13 @@ def test_index_and_pages_are_served_with_their_evaluation(served_experiments: Tu
     _, address = served_experiments
     status, index = request_server(url=f"{address}/", content=None)
     assert status == 200
-    assert index.count(b"<tr><td>") == 2 and b"CLS_LIVE_MC3" in index and b"CLS_GRID_MC3" in index
+    assert index.count(b'<details class="run">') == 2 and index.count(b"<tr><td>") == 2
+    assert all(f'<span class="run-name">{run_name}</span>'.encode() in index for run_name in ["CLS_LIVE_MC3",
+                                                                                             "CLS_GRID_MC3"])
     assert b"<td>Any</td>" in index and b"<td>Grid only</td>" in index
     assert b"<td>Training</td>" in index and b"<td>Checkpoint evaluation</td>" in index
+    for identifier, weights_label in [(LIVE_EVALUATION, b"Trained"), (GRID_EVALUATION, b"EMA")]:
+        assert f'<a href="/explorer?evaluation={quote(identifier)}">'.encode() + weights_label + b"</a>" in index
 
     for identifier, live_temperatures in [(LIVE_EVALUATION, True), (GRID_EVALUATION, False)]:
         status, page = request_server(url=f"{address}/explorer?evaluation={quote(identifier)}", content=None)
@@ -100,6 +108,45 @@ def test_index_and_pages_are_served_with_their_evaluation(served_experiments: Tu
         assert status == 200 and b'id="deployment"' in page
         assert (page_data["evaluation"], page_data["live_temperatures"]) == (identifier, live_temperatures)
         assert page_data["export_defaults"]["formats"] == ["torchscript", "onnx"]
+
+
+def test_index_groups_the_evaluations_by_run_then_iteration(tmp_path: Path) -> None:
+    """
+    Verifies that the index gives one block per run folder, a run of a subfolder included, whose iterations are listed
+    newest first with only the newest open, and whose iteration blocks list the trained weights before the averaged
+    ones, the training evaluation before the checkpoint evaluation, with the temperature saved for the averaged weights
+    in the title of the iteration and the count of the run.
+    """
+    experiments_root = tmp_path / "experiments"
+    for relative_path, seed in [("CLS_A_MC3/Evaluation/Iteration_6/EMA", 1), ("CLS_A_MC3/Evaluation/Iteration_6", 2),
+                                ("CLS_A_MC3/Checkpoint_Evaluation/Iteration_6", 3),
+                                ("CLS_A_MC3/Evaluation/Iteration_12", 4), ("group/CLS_B_MC3/Evaluation/Iteration_3", 5)]:
+        class_logits_record = write_explorer_evaluation(evaluation_folder=experiments_root / relative_path, seed=seed,
+                                                        with_logits=True)
+        if relative_path.endswith("EMA"):
+            write_saved_thresholds(evaluation_folder=experiments_root / relative_path,
+                                   saved_thresholds=compute_temperature_thresholds(
+                                       class_logits_record=class_logits_record, logit_temperature=2.5))
+    index_body = build_index_groups(evaluations=find_explorer_evaluations(
+        experiments_roots={"experiments": experiments_root}))
+
+    # One block per run, in the order of their identifiers, the run of the subfolder naming its folder
+    run_blocks = index_body.split('<details class="run">')[1:]
+    assert [block.split("</span>")[0] for block in run_blocks] == ['<summary><span class="run-name">CLS_A_MC3',
+                                                                   '<summary><span class="run-name">CLS_B_MC3']
+    assert "experiments · 2 iterations (newest 12) · 1 saved T · 0 exports" in run_blocks[0]
+    assert "experiments/group · 1 iteration (newest 3)" in run_blocks[1]
+
+    # Iterations of the first run newest first, the newest open, then the evaluations of iteration 6 in their order
+    iteration_blocks = run_blocks[0].split('<details class="iteration"')[1:]
+    assert [block.split("</summary>")[0] for block in iteration_blocks] == [
+        " open><summary>Iteration 12 · Trained", "><summary>Iteration 6 · Trained, EMA · saved EMA T = 2.5"]
+    iteration_links = re.findall(pattern=r'evaluation=([^"]+)">(Trained|EMA)</a></td><td>([^<]+)</td>',
+                                 string=iteration_blocks[1])
+    assert iteration_links == [("experiments/CLS_A_MC3/Evaluation/Iteration_6", "Trained", "Training"),
+                               ("experiments/CLS_A_MC3/Checkpoint_Evaluation/Iteration_6", "Trained",
+                                "Checkpoint evaluation"),
+                               ("experiments/CLS_A_MC3/Evaluation/Iteration_6/EMA", "EMA", "Training")]
 
 
 @pytest.mark.parametrize(argnames=("query", "expected_status", "expected_message"), argvalues=[
