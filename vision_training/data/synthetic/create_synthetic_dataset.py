@@ -3180,10 +3180,11 @@ if __name__ == "__main__":
     # synthetic object detection and instance segmentation configurations
     hard_object_tasks = ["object_detection"]
     # Folder, image size, splits and most shapes per image of the hard instance segmentation dataset, those of the hard
-    # object detection dataset, the visible part of every shape being labelled by a compressed run length encoding
+    # object detection dataset with a test split of 10,000 images, the visible part of every shape being labelled by a
+    # compressed run length encoding
     hard_instance_segmentation_settings = {
         "output_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_hard_shapes",
-        "image_size": 1024, "split_sizes": {"train": 512000, "validation": 50000, "test": 50000}, "maximum_objects": 12}
+        "image_size": 1024, "split_sizes": {"train": 512000, "validation": 50000, "test": 10000}, "maximum_objects": 12}
     # Largest IoU between two objects of an image drawn by generate_image: 0.3 for every dataset, 0.6 for the occlusion
     # test split of stage 5b of the detection benchmark, in a folder of its own
     maximum_object_intersection_over_union = 0.3
