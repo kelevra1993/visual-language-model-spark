@@ -90,24 +90,29 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         """
         return experiment_configuration["evaluation"]["top_k"]
 
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
         Builds the loaders of the whole sequences of the three splits, takes the class names from the categories of
         the training manifest, and the unselected class from its category, which must be the same class in every
-        split.
+        split built (the validation split only when its loader is, builds_validation_loader).
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not
+                built) and test loaders.
 
         Raises:
             ValueError: If the unselected category gives another class in the validation or test manifest.
         """
         loaders = super().build_dataloaders()
-        unselected_class_indices = [loader.dataset.unselected_class_index for loader in loaders]
-        if len(set(unselected_class_indices)) != 1:
-            raise ValueError(f"The unselected category gives the classes {unselected_class_indices} in the training, "
-                             f"validation and test manifests, which must agree.")
-        self.unselected_class_index = unselected_class_indices[0]
+
+        # Unselected class of every built split, the validation one being left out without its loader
+        unselected_class_indices = {split_name: loader.dataset.unselected_class_index
+                                    for split_name, loader in zip(["training", "validation", "test"], loaders)
+                                    if loader is not None}
+        if len(set(unselected_class_indices.values())) != 1:
+            raise ValueError(f"The unselected category gives the classes {unselected_class_indices} in the manifests "
+                             f"of the splits, which must agree.")
+        self.unselected_class_index = unselected_class_indices["training"]
         self.wanted_class_indices = get_wanted_class_indices(number_classes=len(self.class_names),
                                                              unselected_class_index=self.unselected_class_index)
         return loaders

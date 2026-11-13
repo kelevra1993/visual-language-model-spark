@@ -93,17 +93,19 @@ class SegmentationTrainer(BaseTrainer):
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
         Builds the segmentation loaders of the three splits, and takes the class names from the categories of the
         training manifest with a colour per class for the mask overlays and the sample grids.
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not
+                built) and test loaders.
         """
         loaders = get_segmentation_dataloaders(experiment_configuration=self.experiment_configuration,
                                                model_configuration=self.model_configuration,
-                                               batch_size=self.batch_size)
+                                               batch_size=self.batch_size,
+                                               build_validation_loader=self.builds_validation_loader)
         training_dataset = loaders[0].dataset
         self.class_names = [training_dataset.class_names[class_index]
                             for class_index in range(training_dataset.number_classes)]

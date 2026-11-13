@@ -9,6 +9,7 @@ through 'Backbone.pretrained'.
 """
 
 import numpy as np
+import os
 import random
 import torch
 
@@ -40,7 +41,7 @@ from vision_training.losses.self_supervised_losses import compute_embedding_stan
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import print_color, read_json
 from vision_training.utilities.visualization import (add_caption_bar, build_batch_mosaic, convert_image_to_array,
                                                      show_viewer_windows, view_input_data)
 
@@ -200,23 +201,37 @@ class SelfSupervisedTrainer(BaseTrainer):
                 labels.append(reference_batch["labels"].detach().cpu())
         return torch.cat(tensors=representations, dim=0), torch.cat(tensors=labels, dim=0)
 
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
         Builds the loaders of the three splits from their classification manifests, every image being kept and the
         training and validation batches full, and names the classes of the k-nearest neighbour evaluation after the
-        categories of the three manifests, so that a class absent from the test manifest keeps its category name.
+        categories of the three manifests, so that a class absent from the test manifest keeps its category name. The
+        validation manifest is read for its categories alone when its loader is not built (builds_validation_loader),
+        so that the class names never depend on the validation of the run.
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not
+                built) and test loaders.
         """
         loaders = get_classification_dataloaders(experiment_configuration=self.experiment_configuration,
                                                  model_configuration=self.model_configuration,
-                                                 batch_size=self.batch_size, self_supervised=True)
+                                                 batch_size=self.batch_size, self_supervised=True,
+                                                 build_validation_loader=self.builds_validation_loader)
 
-        # Categories of the three manifests by identifier, the first split naming a category giving its name
-        merged_categories = {}
+        # Categories of the three manifests, the validation one read from its manifest without a validation loader
+        split_categories = []
         for loader in loaders:
-            for category in loader.dataset.categories:
+            if loader is None:
+                validation_labels_file = os.path.join(str(self.experiment_configuration["validation_data_folder"]),
+                                                      "labels.json")
+                split_categories.append(read_json(path=validation_labels_file)["categories"])
+            else:
+                split_categories.append(loader.dataset.categories)
+
+        # Categories by identifier, the first split naming a category giving its name
+        merged_categories = {}
+        for categories in split_categories:
+            for category in categories:
                 merged_categories.setdefault(category["id"], category)
         class_names = get_class_names(categories=list(merged_categories.values()),
                                       label_dictionary=self.model_configuration["Data"]["label_dictionary"])

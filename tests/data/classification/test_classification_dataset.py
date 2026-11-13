@@ -1,9 +1,10 @@
 """
 Tests of the classification data of vision_training/data/classification: ClassificationDataset loading multi-class and
 multi-label manifests, keeping the unlabelled samples for the self-supervised task, whose loaders keep full training
-and validation batches, as the training loader of a classifier needing batch statistics does, the console report of
-the samples without mapped category of the three splits, the label mapping without background class, and the
-manifests written by create_class_folder_manifests from class folders, of one dataset or of several merged ones.
+and validation batches, as the training loader of a classifier needing batch statistics does, the validation loader
+left out of a training without validation, the console report of the samples without mapped category of the three
+splits, the label mapping without background class, and the manifests written by create_class_folder_manifests from
+class folders, of one dataset or of several merged ones.
 """
 
 import json
@@ -157,6 +158,48 @@ def test_self_supervised_loaders_keep_full_batches(tmp_path: Path) -> None:
                                                             "than the batch size 4"):
         get_classification_dataloaders(experiment_configuration=experiment_configuration,
                                        model_configuration=model_configuration, batch_size=4, self_supervised=True)
+
+
+def test_validation_loader_is_left_out_without_validation(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the loaders of a training without validation (build_validation_loader False, given by
+    BaseTrainer.builds_validation_loader): None is given in place of the validation loader, whose split is neither
+    checked nor reported, while the training and test loaders are the ones built with validation. A validation split
+    too small for the full self-supervised batches, refused when its loader is built, no longer stops the launch.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed report of the unmapped samples.
+    """
+    # Splits of 5, 3 and 3 images, of which 1 training and 1 validation image are of the unmapped category 2
+    categories = [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}]
+    split_sizes = {"train": 5, "validation": 3, "test": 3}
+    for split_name, number_samples in split_sizes.items():
+        write_split(split_folder=tmp_path / split_name, categories=categories,
+                    samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png",
+                              "category_id": 2 if sample_identifier == 1 and split_name != "test" else 1}
+                             for sample_identifier in range(1, number_samples + 1)])
+    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+                                    "grouped_batches": {"activated": False, "block_key": "camera",
+                                                        "images_per_block": 2, "batch_key": None}}}
+
+    # Batches of 4 images, more than the 3 validation images, with and without the validation loader
+    with pytest.raises(expected_exception=ValueError, match="'validation_data_folder' split holds 3 images"):
+        get_classification_dataloaders(experiment_configuration=experiment_configuration,
+                                       model_configuration=model_configuration, batch_size=4, self_supervised=True)
+    capsys.readouterr()
+    training_loader, validation_loader, test_loader = get_classification_dataloaders(
+        experiment_configuration=experiment_configuration, model_configuration=model_configuration, batch_size=4,
+        self_supervised=True, build_validation_loader=False)
+    assert validation_loader is None
+    assert [len(loader.dataset) for loader in [training_loader, test_loader]] == [5, 3]
+    assert [batch["images"].shape[0] for batch in training_loader] == [4]
+
+    # The unmapped samples are reported for the built splits only
+    printed_output = INVISIBLE_SEQUENCE_PATTERN.sub(repl="", string=capsys.readouterr().out)
+    assert printed_output == ("Samples Without A Single Mapped Category, Kept Without Class :\n"
+                              "  - Train : 1 samples (labels.json)\n")
 
 
 def test_loaders_report_the_samples_without_mapped_category(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

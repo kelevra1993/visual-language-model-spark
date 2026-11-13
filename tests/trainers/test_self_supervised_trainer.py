@@ -3,9 +3,9 @@ Smoke tests of SelfSupervisedTrainer of vision_training/trainers/self_supervised
 Barlow Twins training saves, evaluates and resumes, with the tracked metrics of the method, the k-nearest neighbour
 report of the labelled test images, its per-class metrics file and the sample images of two views checked, a dataset
 mixing labelled and unlabelled images is trained on every image and evaluated on the labelled ones, the classes of
-the evaluation are named after the categories of the three manifests, the labelled test images are classified by the
-reference training images and not by each other, and the reference images are the same for every trainer of a run and
-bounded per class.
+the evaluation are named after the categories of the three manifests (the validation one read without its loader in
+a training without validation), the labelled test images are classified by the reference training images and not by
+each other, and the reference images are the same for every trainer of a run and bounded per class.
 """
 
 import csv
@@ -248,17 +248,23 @@ def test_dataset_mixing_labelled_and_unlabelled_images_is_trained_and_evaluated(
     assert "Critical Error" not in console_output
 
 
-def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> None:
+@pytest.mark.parametrize(argnames="builds_validation_loader", argvalues=[True, False])
+def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path, builds_validation_loader: bool) -> None:
     """
     Verifies that the classes of the k-nearest neighbour evaluation are named after the categories of the three
-    manifests, so that a class named in the training manifest only keeps its category name instead of its index.
+    manifests, so that a class named in the training or validation manifest only keeps its category name instead of
+    its index, the validation manifest being read for its categories when its loader is not built (a training without
+    validation), so that the class names never depend on the validation of the run.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        builds_validation_loader (bool): Whether the validation loader is built, as BaseTrainer decides it.
     """
-    # Training manifest naming both classes, validation and test manifests naming the first one only
+    # Training manifest naming the first two classes, validation manifest the first and third, test manifest the
+    # first one only
     split_categories = {"train": [{"id": 1, "name": "circle"}, {"id": 5, "name": "triangle"}],
-                        "validation": [{"id": 1, "name": "circle"}], "test": [{"id": 1, "name": "circle"}]}
+                        "validation": [{"id": 1, "name": "circle"}, {"id": 3, "name": "square"}],
+                        "test": [{"id": 1, "name": "circle"}]}
     for split_name, categories in split_categories.items():
         write_split(split_folder=tmp_path / split_name, categories=categories,
                     samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1}
@@ -269,11 +275,13 @@ def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> 
         experiment_configuration={f"{split_name}_data_folder": str(tmp_path / split_name)
                                   for split_name in split_categories},
         model_configuration={"Data": {"image_settings": {"size": 32, "keep_ratio": True},
-                                      "label_dictionary": {1: 0, 5: 1},
+                                      "label_dictionary": {1: 0, 5: 1, 3: 2},
                                       "grouped_batches": {"activated": False, "block_key": "camera",
-                                                          "images_per_block": 2, "batch_key": None}}}, batch_size=2)
-    SelfSupervisedTrainer.build_dataloaders(self=trainer)
-    assert trainer.class_names == ["circle", "triangle"]
+                                                          "images_per_block": 2, "batch_key": None}}}, batch_size=2,
+        builds_validation_loader=builds_validation_loader)
+    loaders = SelfSupervisedTrainer.build_dataloaders(self=trainer)
+    assert (loaders[1] is not None) == builds_validation_loader
+    assert trainer.class_names == ["circle", "triangle", "square"]
 
 
 def test_test_images_are_classified_by_the_reference_training_images(tmp_path: Path) -> None:

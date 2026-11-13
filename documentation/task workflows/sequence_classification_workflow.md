@@ -404,7 +404,7 @@ M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/
 ```
 
 ### Step 2.7 — `build_dataloaders()`
-This hook builds the loaders of the three splits with `label_type="sequence"` (Step 2.8), then keeps `class_names`, the names of the categories of the training manifest in class index order.
+This hook builds the loaders of the three splits with `label_type="sequence"` (Step 2.8), the validation one only when the run reads it (`validation_iteration_ratio > 0` or a diagnosis mode ending the program, `classification_workflow.md`, Step 2.7), then keeps `class_names`, the names of the categories of the training manifest in class index order.
 
 **Example output**
 ```text

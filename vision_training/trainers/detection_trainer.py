@@ -99,7 +99,7 @@ class DetectionTrainer(CocoSplitTrainer):
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
         Builds the COCO detection loaders of the three splits, names the classes after the categories of the test
         split for the per-class report, with a colour per class for the sample images, and keeps the file name of
@@ -108,7 +108,8 @@ class DetectionTrainer(CocoSplitTrainer):
         index map per image instead of its masks with 'Data.instance_index_maps' (instance segmentation only).
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not
+                built) and test loaders.
         """
         # Class names, class colours and test image names from the test manifest, then the loaders of the three splits
         self.read_test_manifest()
@@ -116,7 +117,8 @@ class DetectionTrainer(CocoSplitTrainer):
                                          model_configuration=self.model_configuration, batch_size=self.batch_size,
                                          load_instance_masks=self.LOAD_INSTANCE_MASKS,
                                          load_instance_index_maps=self.instance_index_maps,
-                                         load_original_instances=self.original_resolution)
+                                         load_original_instances=self.original_resolution,
+                                         build_validation_loader=self.builds_validation_loader)
 
     def analyse_training_data(self) -> Dict[str, Path]:
         """

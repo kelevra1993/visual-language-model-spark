@@ -5,7 +5,8 @@ really ran, a resumed run records and keeps the data it changed, the final check
 holds, and the moving average of the weights is saved, evaluated next to the trained weights and resumed. A resumed
 run keeps the classes saved in its folder, a fresh start moves the previous training of the same settings aside,
 unreadable images and failed evaluations never stop the training, a training whose data vanished ends with a final
-checkpoint, and a split without batch is refused.
+checkpoint, and a split without batch is refused. A training without validation builds no validation loader, which
+the input viewer still gets, and a task whose validation loader does not follow that setting is refused.
 """
 
 import copy
@@ -106,7 +107,8 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
                         allow_data_change_on_resume: bool = False, run_name: Optional[str] = None,
                         label_dictionary: Optional[Dict[Any, int]] = None,
                         training_dataset: Optional[Dataset] = None,
-                        evaluated_run_folder: Optional[Path] = None) -> DummyTrainer:
+                        evaluated_run_folder: Optional[Path] = None,
+                        validation_iteration_ratio: int = 2) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples, which must be evaluated only once.
@@ -130,6 +132,8 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         evaluated_run_folder (Optional[Path]): The run folder evaluated by a standalone evaluation, whose trainer is
             pointed to its Checkpoint_Evaluation folder as scripts/evaluation/evaluate_checkpoint.py does
             (point_to_checkpoint_evaluation), None for a training. Defaults to None.
+        validation_iteration_ratio (int): The number of training iterations per validation batch, 0 for a training
+            without validation, whose validation loader is not built. Defaults to 2.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -141,6 +145,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
     experiment_configuration["diagnosis_modes"]["view_input_images"] = view_input_images
     experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
     experiment_configuration["allow_data_change_on_resume"] = allow_data_change_on_resume
+    experiment_configuration["validation_iteration_ratio"] = validation_iteration_ratio
     experiment_configuration["run_name"] = run_name
     if evaluated_run_folder is not None:
         point_to_checkpoint_evaluation(experiment_configuration=experiment_configuration,
@@ -566,3 +571,83 @@ def test_split_without_batch_is_refused(tmp_path: Path) -> None:
                        match="The Validation loader gives no batch: 2 passes over its split ended without any."):
         trainer.get_next_batch(dataloader_iterator=iter(empty_loader), dataloader=empty_loader,
                                split_name="Validation")
+
+
+def test_training_without_validation_builds_no_validation_loader(tmp_path: Path,
+                                                                 capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies a training without validation ('validation_iteration_ratio' 0) on the dummy task: its validation loader is
+    not built (None, announced at the start, and left out of the loaders whose workers are stopped), the state of the
+    training loop holds no validation iterator nor trackers, and the 5 iterations still save their checkpoints and
+    evaluate the test split, without any Validation TensorBoard folder. No training step may fail silently.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0, validation_iteration_ratio=0)
+    assert trainer.builds_validation_loader is False and trainer.validation_dataloader is None
+    assert trainer.list_dataloaders() == [trainer.train_dataloader, trainer.test_dataloader]
+
+    # The state of the training loop holds no validation iterator, which would start the workers of the loader
+    _, validation_iterator, validation_enabled, _, validation_trackers, _ = trainer.initialize_training_loop_state()
+    assert (validation_iterator, validation_enabled, validation_trackers) == (None, False, None)
+
+    # Checkpoints at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run), as with validation
+    trainer.run_training_loop()
+    assert sorted(path.name for path in trainer.weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
+                                                                                         "Iteration_5"]
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Samples")]
+    assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train"]
+
+    # The missing loader is announced, and the training loop catches errors and keeps going, so none may have failed
+    console_output = capsys.readouterr().out
+    assert "Validation Loader Not Built : 'validation_iteration_ratio' Is 0, No Validation Batch Is Loaded" in (
+        console_output)
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
+
+
+def test_validation_loader_follows_the_validation_setting(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the general trainer refuses a task whose validation loader does not follow builds_validation_loader
+    (a loader built for a training without validation, or none for a training with validation), so that a task
+    forgetting to pass the setting to its loaders stops at its launch, and that the input viewer, a diagnosis mode
+    ending the program, still gets the validation loader of a training without validation and shows its samples.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    # One folder per trainer, each receiving its configuration and its run
+    for folder_name in ["without_validation", "with_validation", "input_viewer"]:
+        (tmp_path / folder_name).mkdir()
+
+    # A validation loader built for a training without validation is refused
+    trainer_without_validation = build_dummy_trainer(temporary_directory=tmp_path / "without_validation",
+                                                     number_iterations=1, view_input_images=False,
+                                                     number_sample_images=0, validation_iteration_ratio=0)
+    trainer_without_validation.validation_dataloader = DataLoader(
+        dataset=trainer_without_validation.datasets["validation"], batch_size=2)
+    with pytest.raises(expected_exception=ValueError,
+                       match="The validation loader of DummyTrainer.build_dataloaders is built while "
+                             "builds_validation_loader is False"):
+        trainer_without_validation.check_loaders_give_batches()
+
+    # A missing validation loader for a training with validation is refused
+    trainer_with_validation = build_dummy_trainer(temporary_directory=tmp_path / "with_validation",
+                                                  number_iterations=1, view_input_images=False,
+                                                  number_sample_images=0, validation_iteration_ratio=2)
+    trainer_with_validation.validation_dataloader = None
+    with pytest.raises(expected_exception=ValueError,
+                       match="The validation loader of DummyTrainer.build_dataloaders is not built while "
+                             "builds_validation_loader is True"):
+        trainer_with_validation.check_loaders_give_batches()
+
+    # The input viewer of a training without validation shows its validation samples, then ends the program
+    with pytest.raises(expected_exception=SystemExit):
+        build_dummy_trainer(temporary_directory=tmp_path / "input_viewer", number_iterations=1, view_input_images=True,
+                            number_sample_images=0, validation_iteration_ratio=0)
+    assert "View Of The Training And Validation Images That Are Fed To The Neural Network" in capsys.readouterr().out

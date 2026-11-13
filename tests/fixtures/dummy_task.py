@@ -156,14 +156,17 @@ class DummyTrainer(BaseTrainer):
         """
         return "dummy_run"
 
-    def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
+    def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """
-        Builds unshuffled loaders over the datasets of the three splits.
+        Builds unshuffled loaders over the datasets of the three splits, the validation one only when the general
+        trainer asks for it (builds_validation_loader), like the loaders of the tasks.
 
         Returns:
-            Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
+            Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not built) and
+                test loaders.
         """
         return tuple(DataLoader(dataset=self.datasets[split_name], batch_size=self.batch_size, shuffle=False)
+                     if split_name != "validation" or self.builds_validation_loader else None
                      for split_name in ["train", "validation", "test"])
 
     def build_model(self) -> DummyModel:

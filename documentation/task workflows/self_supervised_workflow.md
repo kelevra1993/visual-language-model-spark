@@ -464,7 +464,7 @@ training_configuration.yaml     28,255 bytes
 ```
 
 ### Step 2.7 — `build_dataloaders()`
-Calls `get_classification_dataloaders(..., self_supervised=True)` (Step 2.8), then merges the categories of the three manifests by identifier, so that a class absent from the test manifest keeps its name, and stores `class_names` in class index order.
+Calls `get_classification_dataloaders(..., self_supervised=True)` (Step 2.8), then merges the categories of the three manifests by identifier, so that a class absent from the test manifest keeps its name, and stores `class_names` in class index order. The validation loader is built only when the run reads it (`validation_iteration_ratio > 0` or a diagnosis mode ending the program, `classification_workflow.md`, Step 2.7); without it, the categories of the validation manifest are read from its `labels.json`, so that the class names never depend on the validation of the run.
 
 **Example output**
 ```text

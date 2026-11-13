@@ -54,7 +54,7 @@ scenes:
       - {type: text, position: [575, 565], text: "fixed in the code: NUMBER_LOADER_WORKERS = {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}}, PREFETCH_BATCHES = {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}}", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
     narration:
       - "A loader worker reads the images listed in the labels file and resizes them to the input size, decoding with a single OpenCV thread."
-      - "Every worker keeps {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches ready in advance, and the training, validation and test loaders each have workers of their own, alive for the whole run."
+      - "Every worker keeps {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches ready in advance, and each loader has workers of its own, alive for the whole run; a run without validation builds no validation loader."
       - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
       - "The number of workers and the batches each one keeps in advance are fixed in the code, the same for every task, so no configuration file sets them."
 
