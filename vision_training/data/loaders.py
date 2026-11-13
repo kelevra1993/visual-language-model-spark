@@ -79,14 +79,15 @@ def build_native_loader(dataset: Dataset, batch_size: int, collate_function: Opt
 
 def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
                              batch_size: int, load_instance_masks: bool = False,
-                             load_original_instances: bool = False, load_keypoints: bool = False,
-                             maximum_keypoints: int = 0, load_ignored_regions: bool = False) -> DataLoader:
+                             load_instance_index_maps: bool = False, load_original_instances: bool = False,
+                             load_keypoints: bool = False, maximum_keypoints: int = 0,
+                             load_ignored_regions: bool = False) -> DataLoader:
     """
     Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection, instance
     segmentation or keypoint detection trainer: the CocoDetectionDataset decodes the images with OpenCV and resizes
-    them on the CPU workers, with the instance masks rasterised there too for the instance segmentation, also at the
-    original image resolution for the test split evaluated at that resolution, and the keypoints moved with the image
-    for the keypoint detection.
+    them on the CPU workers, with the instance masks rasterised there too for the instance segmentation (or painted
+    into one instance index map per image with 'Data.instance_index_maps'), also at the original image resolution for
+    the test split evaluated at that resolution, and the keypoints moved with the image for the keypoint detection.
 
     Args:
         split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
@@ -96,6 +97,8 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
         batch_size (int): The number of samples to include in each batch.
         load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
             Defaults to False.
+        load_instance_index_maps (bool): Whether the masks of every sample come as one instance index map
+            ('Data.instance_index_maps'), with load_instance_masks. Defaults to False.
         load_original_instances (bool): Whether the samples also carry the masks and boxes of the objects at the
             original image resolution (test split of the instance segmentation evaluated at that resolution).
             Defaults to False.
@@ -121,6 +124,7 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
                                    label_mode=data_configuration["label_mode"],
                                    label_dictionary=data_configuration["label_dictionary"],
                                    load_instance_masks=load_instance_masks,
+                                   load_instance_index_maps=load_instance_index_maps,
                                    load_original_instances=load_original_instances,
                                    load_keypoints=load_keypoints, maximum_keypoints=maximum_keypoints,
                                    load_ignored_regions=load_ignored_regions)
@@ -129,12 +133,14 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
 
 def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                               batch_size: int, load_instance_masks: bool = False,
+                              load_instance_index_maps: bool = False,
                               load_original_instances: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the object detection and instance segmentation tasks,
     consumed by the detection trainer and its subclass: it resolves each split folder from the experiment configuration
     and builds the matching COCO loader for it, the test loader alone giving the objects at the original image
-    resolution when they are asked, since only the evaluation reads them.
+    resolution when they are asked, since only the evaluation reads them, with one mask per object instead of the
+    instance index maps.
 
     Args:
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
@@ -143,6 +149,9 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
         batch_size (int): The number of samples to include in each batch.
         load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
             Defaults to False.
+        load_instance_index_maps (bool): Whether the masks of every sample come as one instance index map
+            ('Data.instance_index_maps'), with load_instance_masks; the test samples at the original resolution keep
+            one mask per object. Defaults to False.
         load_original_instances (bool): Whether the test samples also carry the masks and boxes of the objects at
             the original image resolution (instance segmentation evaluated at that resolution). Defaults to False.
 
@@ -158,14 +167,20 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
     # Build the training, validation and test loaders, each with NUMBER_LOADER_WORKERS worker processes
     train_loader = get_detection_dataloader(split_name="Train", split_data_folder=split_folder_mapping["Train"],
                                             model_configuration=model_configuration, batch_size=batch_size,
-                                            load_instance_masks=load_instance_masks)
+                                            load_instance_masks=load_instance_masks,
+                                            load_instance_index_maps=load_instance_index_maps)
     validation_loader = get_detection_dataloader(split_name="Validation",
                                                  split_data_folder=split_folder_mapping["Validation"],
                                                  model_configuration=model_configuration, batch_size=batch_size,
-                                                 load_instance_masks=load_instance_masks)
+                                                 load_instance_masks=load_instance_masks,
+                                                 load_instance_index_maps=load_instance_index_maps)
+
+    # The test objects at the original resolution come with one mask per object at both resolutions, without maps
     test_loader = get_detection_dataloader(split_name="Test", split_data_folder=split_folder_mapping["Test"],
                                            model_configuration=model_configuration, batch_size=batch_size,
                                            load_instance_masks=load_instance_masks,
+                                           load_instance_index_maps=load_instance_index_maps and not
+                                           load_original_instances,
                                            load_original_instances=load_original_instances)
 
     return train_loader, validation_loader, test_loader

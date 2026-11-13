@@ -5,7 +5,8 @@ added to the detection files, the box loss added to their detector section, the 
 section removed (a CIoU one leaving the file as it is), the turned off gradient clipping norm removed (a clipping file
 left as it is), the final NMS settings added to their detector section, the proposal selection added to their region
 proposal section, the anchors centred on the cell corners removed (a file centring them on the cell centres left as
-it is), and the refusals of a conversion changing another setting or the backbone.
+it is), the instance index maps (one mask per object) added to the data section of the instance segmentation files,
+and the refusals of a conversion changing another setting or the backbone.
 """
 
 import pytest
@@ -100,6 +101,9 @@ def test_conversion_lists_the_changed_values_and_refuses_other_changes(tmp_path:
 # Detection sections written before the head settings were fixed, with a strict fallback assignment turned on
 DETECTION_CONFIGURATION_TEXT = """ExperimentConfiguration:
   task: object_detection
+Data:
+  image_settings:
+    size: 512
 RegionProposal:
   normalization:
     feature_map_normalization: "batch"
@@ -123,6 +127,9 @@ Detector:
 # The detection sections once converted
 CONVERTED_DETECTION_TEXT = """ExperimentConfiguration:
   task: object_detection
+Data:
+  image_settings:
+    size: 512
 RegionProposal:
   normalization:
     feature_map_normalization: "batch"
@@ -260,6 +267,34 @@ def add_proposal_selection_text(configuration_text: str) -> str:
 CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = add_proposal_selection_text(
     configuration_text=CONVERTED_DETECTION_TEXT_WITH_NMS)
 
+# Data section the detection texts start with, and the lines the conversion writes after its image settings in the
+# instance segmentation files, which loaded one mask per object
+DATA_START_TEXT = "Data:\n  image_settings:\n    size: 512\n"
+INSTANCE_INDEX_MAPS_TEXT = (
+    '  # One uint8 map numbering the objects of an image instead of one mask per object (faster loader, expanded on '
+    'the\n'
+    '  # GPU); needs run length encodings whose masks never overlap (synthetic datasets), False for COCO (polygons).\n'
+    '  instance_index_maps: False\n')
+
+
+def write_task_text(configuration_text: str, task: str) -> str:
+    """
+    Writes a detection text for a task: its task name, and for the instance segmentation the instance index maps after
+    the image settings, as the conversion writes them, for the instance segmentation texts converted after 2026-11-13.
+
+    Args:
+        configuration_text (str): The detection text, holding the data section of the texts above.
+        task (str): "object_detection" or "instance_segmentation".
+
+    Returns:
+        str: The text of the task.
+    """
+    task_text = configuration_text.replace("task: object_detection", f"task: {task}")
+    if task == "instance_segmentation":
+        task_text = task_text.replace(DATA_START_TEXT, f"{DATA_START_TEXT}{INSTANCE_INDEX_MAPS_TEXT}")
+    return task_text
+
+
 # The detection sections of the files converted between 2026-11-08 and 2026-11-10, holding the box loss of the region
 # proposal section as well
 DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
@@ -282,8 +317,8 @@ def test_conversion_adds_the_box_loss_to_the_detection_files(tmp_path: Path) -> 
         original_text = CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS.replace("task: object_detection", f"task: {task}")
         converted_text = add_required_settings(configuration_text=original_text, task=task,
                                                configuration_path=configuration_path)
-        assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
-                                                                                      f"task: {task}")
+        assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                                 task=task)
         assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
                                 configuration_path=configuration_path) == []
 
@@ -325,10 +360,10 @@ def test_conversion_removes_the_box_loss_of_the_region_proposal_section(tmp_path
     """
     configuration_path = tmp_path / "configuration.yaml"
     for task in ["object_detection", "instance_segmentation"]:
-        original_text = DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS.replace("task: object_detection", f"task: {task}")
+        original_text = write_task_text(configuration_text=DETECTION_TEXT_WITH_REGION_PROPOSAL_BOX_LOSS, task=task)
         converted_text = remove_fixed_settings(configuration_text=original_text, task=task)
-        assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
-                                                                                      f"task: {task}")
+        assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                                 task=task)
         assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
                                 configuration_path=configuration_path) == []
 
@@ -444,17 +479,18 @@ def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path:
         original_text = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS.replace("task: object_detection", f"task: {task}")
         converted_text = add_required_settings(configuration_text=original_text, task=task,
                                                configuration_path=configuration_path)
-        assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
-                                                                                      f"task: {task}")
+        assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                                 task=task)
         assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
                                 configuration_path=configuration_path) == []
 
     # Files of another task or already holding the settings are left as they are
     assert add_required_settings(configuration_text=CONVERTED_CLASSIFICATION_TEXT, task="classification",
                                  configuration_path=configuration_path) == CONVERTED_CLASSIFICATION_TEXT
-    assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
-                                 task="instance_segmentation", configuration_path=configuration_path) == \
-        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    instance_segmentation_text = write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                                 task="instance_segmentation")
+    assert add_required_settings(configuration_text=instance_segmentation_text, task="instance_segmentation",
+                                 configuration_path=configuration_path) == instance_segmentation_text
 
     # A detector section without IoU threshold, and conversions without the settings or with DIoU-NMS
     with pytest.raises(expected_exception=ValueError, match="has no 'Detector.nms_iou_threshold' setting"):
@@ -490,8 +526,8 @@ def test_conversion_adds_the_proposal_selection_to_the_detection_files(tmp_path:
         original_text = CONVERTED_DETECTION_TEXT_WITH_NMS.replace("task: object_detection", f"task: {task}")
         converted_text = add_required_settings(configuration_text=original_text, task=task,
                                                configuration_path=configuration_path)
-        assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
-                                                                                      f"task: {task}")
+        assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                                 task=task)
         assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
                                 configuration_path=configuration_path) == []
 
@@ -559,13 +595,13 @@ def test_conversion_removes_the_anchor_centres(tmp_path: Path, capsys: pytest.Ca
     configuration_path = tmp_path / "configuration.yaml"
     for task in ["object_detection", "instance_segmentation"]:
         for proposal_selection in ["joint", "per_level"]:
-            original_text = DETECTION_TEXT_WITH_ANCHOR_CENTRES.replace(
-                "task: object_detection", f"task: {task}").replace('proposal_selection: "joint"',
-                                                                   f'proposal_selection: "{proposal_selection}"')
+            original_text = write_task_text(configuration_text=DETECTION_TEXT_WITH_ANCHOR_CENTRES,
+                                            task=task).replace('proposal_selection: "joint"',
+                                                               f'proposal_selection: "{proposal_selection}"')
             converted_text = remove_fixed_settings(configuration_text=original_text, task=task)
-            assert converted_text == CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
-                "task: object_detection", f"task: {task}").replace('proposal_selection: "joint"',
-                                                                   f'proposal_selection: "{proposal_selection}"')
+            assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                                     task=task).replace('proposal_selection: "joint"',
+                                                                        f'proposal_selection: "{proposal_selection}"')
             assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
                                     configuration_path=configuration_path) == []
 
@@ -591,3 +627,56 @@ def test_conversion_removes_the_anchor_centres(tmp_path: Path, capsys: pytest.Ca
     printed_output = capsys.readouterr().out
     assert "Not converted, its runs staying as records" in printed_output
     assert "RegionProposal.anchor_centres 'cell_centres'" in printed_output
+
+
+def test_conversion_adds_the_instance_index_maps_to_the_instance_segmentation_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the one mask per object of the runs written before the instance index maps,
+    'instance_index_maps: False' with its comment lines, right after the image settings of the data section of the
+    instance segmentation files, and only there: an object detection file and an instance segmentation file holding
+    the maps are left as they are, a data section without image settings is refused, the check refuses a converted
+    file lacking the setting or turning the maps on, and convert_fixed_settings converts a launch file with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    original_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
+                                                                         "task: instance_segmentation")
+    converted_text = add_required_settings(configuration_text=original_text, task="instance_segmentation",
+                                           configuration_path=configuration_path)
+    expected_text = write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                    task="instance_segmentation")
+    assert converted_text == expected_text and INSTANCE_INDEX_MAPS_TEXT in converted_text
+    assert check_conversion(original_text=original_text, converted_text=converted_text, task="instance_segmentation",
+                            configuration_path=configuration_path) == []
+
+    # An object detection file, and an instance segmentation file holding the maps turned on, are left as they are
+    assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                 task="object_detection", configuration_path=configuration_path) == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    maps_text = expected_text.replace("instance_index_maps: False", "instance_index_maps: True")
+    assert add_required_settings(configuration_text=maps_text, task="instance_segmentation",
+                                 configuration_path=configuration_path) == maps_text
+
+    # A data section without image settings, and conversions without the setting or turning the maps on
+    with pytest.raises(expected_exception=ValueError, match="has no 'Data.image_settings' setting"):
+        add_required_settings(configuration_text=original_text.replace(DATA_START_TEXT, "Data:\n  other: 1\n"),
+                              task="instance_segmentation", configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Data\.instance_index_maps\.$"):
+        check_conversion(original_text=original_text, converted_text=original_text, task="instance_segmentation",
+                         configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Data\.instance_index_maps\.$"):
+        check_conversion(original_text=original_text, converted_text=maps_text, task="instance_segmentation",
+                         configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=original_text, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_instance_index_maps")
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
+    assert (configuration_folder / "previous_configurations" / "run-1_before_instance_index_maps.yaml").read_text(
+        encoding="utf-8") == original_text

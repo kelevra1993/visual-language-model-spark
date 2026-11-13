@@ -120,6 +120,9 @@ Data:
     size: 512
     # Keeps the original aspect ratio when resizing.
     keep_ratio: True
+  # One uint8 map numbering the objects of an image instead of one mask per object (faster loader, expanded on the
+  # GPU); needs run length encodings whose masks never overlap (synthetic datasets), False for COCO (polygons).
+  instance_index_maps: True
   label_mapping:
     # "binary" maps every foreground object to 1; "multi_class" uses the mapping file.
     mode: "multi_class"

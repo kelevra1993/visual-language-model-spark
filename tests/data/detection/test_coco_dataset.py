@@ -6,8 +6,9 @@ keeps the masks as a list, the object detection samples stay without masks, the 
 the masks without any 'bbox', the selection of the objects of an image maps the categories, keeps the crowd
 annotations and leaves out the background, the test samples of the
 evaluation at the original resolution carry the masks and boxes of their objects at that resolution, every object with
-a pixel in the original image kept at both resolutions, and the keypoint samples carry as ignored regions the masks of
-the objects of a category with keypoints left out for having no labelled keypoint.
+a pixel in the original image kept at both resolutions, the keypoint samples carry as ignored regions the masks of
+the objects of a category with keypoints left out for having no labelled keypoint, and the instance index maps
+('Data.instance_index_maps') give the objects, boxes and masks of the per-object masks, stacked by the collate function.
 """
 
 import json
@@ -21,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function, select_image_objects
 from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
-                                                       encode_run_length_encoding)
+                                                       encode_run_length_encoding, expand_instance_index_maps)
 
 IMAGE_WIDTH, IMAGE_HEIGHT = 40, 20
 
@@ -322,3 +323,59 @@ def test_ignored_regions_are_the_objects_without_labelled_keypoint(tmp_path: Pat
         CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
                              keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
                              load_ignored_regions=True)
+
+
+
+def test_instance_index_maps_give_the_objects_of_the_instance_masks(tmp_path: Path) -> None:
+    """
+    Verifies that the samples with instance index maps keep the objects, labels and boxes of the samples with one mask
+    per object, the 40 x 20 image being shrunk into 16 pixels: the one pixel object that vanishes is removed with its
+    box and label and the objects after it renumbered, the map expanding into the instance masks; that the collate
+    function stacks the maps without instance masks; and that the maps refuse a polygon, the original instances and
+    the absence of instance masks.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # A rectangle, a one pixel object vanishing at 16 pixels, a crowd band and a compressed object, all disjoint
+    object_masks = [np.zeros(shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8) for _ in range(4)]
+    object_masks[0][2:9, 3:15] = 1
+    object_masks[1][12, 22] = 1
+    object_masks[2][15:20, :] = 1
+    object_masks[3][4:12, 25:38] = 1
+    annotations = [{"id": index + 1, "image_id": 1, "category_id": 1 + index % 2, "iscrowd": int(index == 2),
+                    "segmentation": encode_run_length_encoding(mask=mask, compressed=index == 3)}
+                   for index, mask in enumerate(object_masks)]
+    labels_file = write_split(folder=tmp_path, annotations=annotations)
+    arguments = {"data_directory": str(tmp_path / "data"), "labels_file": str(labels_file), "image_size": 16,
+                 "keep_ratio": True, "label_mode": "multi_class", "label_dictionary": {1: 1, 2: 2},
+                 "load_instance_masks": True}
+
+    # Same objects, labels and boxes as the per-object masks, the map expanding into those masks
+    mask_sample = CocoDetectionDataset(**arguments)[0]
+    map_sample = CocoDetectionDataset(**arguments, load_instance_index_maps=True)[0]
+    assert mask_sample["labels"].tolist() == [1, 1, 2] and "instance_masks" not in map_sample
+    assert torch.equal(map_sample["labels"], mask_sample["labels"])
+    assert torch.equal(map_sample["bounding_boxes"], mask_sample["bounding_boxes"])
+    assert map_sample["instance_index_maps"].shape == (16, 16)
+    assert map_sample["instance_index_maps"].dtype == torch.uint8
+    assert sorted(torch.unique(map_sample["instance_index_maps"]).tolist()) == [0, 1, 2, 3]
+    expanded_masks = expand_instance_index_maps(index_maps=map_sample["instance_index_maps"][None],
+                                                object_counts=[map_sample["labels"].shape[0]])[0]
+    assert torch.equal(expanded_masks, mask_sample["instance_masks"])
+
+    # The collate function stacks the maps of the images, without instance masks
+    batch = collate_function(batch=[map_sample, map_sample])
+    assert batch["instance_index_maps"].shape == (2, 16, 16) and "instance_masks" not in batch
+
+    # A polygon cannot be painted into the map, and the maps go with the instance masks, without the original objects
+    polygon_file = write_split(folder=tmp_path / "polygons", annotations=[
+        {"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0,
+         "segmentation": [[2.0, 2.0, 6.0, 2.0, 6.0, 6.0, 2.0, 6.0]]}])
+    with pytest.raises(expected_exception=ValueError, match="polygon"):
+        CocoDetectionDataset(**{**arguments, "data_directory": str(tmp_path / "polygons" / "data"),
+                                "labels_file": str(polygon_file)}, load_instance_index_maps=True)[0]
+    with pytest.raises(expected_exception=ValueError, match="without instance index maps"):
+        CocoDetectionDataset(**arguments, load_instance_index_maps=True, load_original_instances=True)
+    with pytest.raises(expected_exception=ValueError, match="needs load_instance_masks"):
+        CocoDetectionDataset(**{**arguments, "load_instance_masks": False}, load_instance_index_maps=True)

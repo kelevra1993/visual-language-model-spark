@@ -5,8 +5,10 @@ the evaluation of the checkpoints with the box and mask average precisions and m
 sizing the objects by their mask areas), at the network resolution or, with 'evaluation.original_resolution', at the
 original resolution of the test images (the detections restored to them, scored against the objects of the original
 annotations), the proposal recall, the class thresholds, confusion matrix and error images of the detection trainer
-matched by the masks, the sample and error images painting the masks under the boxes at the network resolution.
-Registered for the instance segmentation task in the task registry.
+matched by the masks, the sample and error images painting the masks under the boxes at the network resolution. With
+'Data.instance_index_maps', the loaders give one instance index map per image, expanded into the masks on the device
+by prepare_batch (and on the CPU for the input viewer). Registered for the instance segmentation task in the task
+registry.
 """
 
 import numpy as np
@@ -16,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults, InstanceSegmentationBatch
+from vision_training.data.detection.coco_masks import expand_instance_index_maps
 from vision_training.data.preprocessing import restore_boxes_to_original_image
 from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
@@ -53,8 +56,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
-        Reads the mask threshold of the evaluation and the sample images and the resolution of the evaluation, then
-        prepares the run like the detection trainer.
+        Reads the mask threshold of the evaluation and the sample images, the resolution of the evaluation and whether
+        the loaders give instance index maps, then prepares the run like the detection trainer.
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
@@ -65,8 +68,10 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         # Probability from which a pixel of a pasted mask belongs to its object, for the mask overlaps and the images
         self.mask_threshold = model_configuration["MaskHead"]["inference"]["mask_threshold"]
 
-        # Boxes and masks scored at the original resolution of the test images, read before the loaders are built
+        # Boxes and masks scored at the original resolution of the test images, and the masks of every image loaded
+        # as one instance index map, read before the loaders are built
         self.original_resolution = experiment_configuration["evaluation"]["original_resolution"]
+        self.instance_index_maps = model_configuration["Data"]["instance_index_maps"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
@@ -90,7 +95,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
     def prepare_batch(self, batch: Dict[str, Any]) -> InstanceSegmentationBatch:
         """
-        Moves a batch to the device like the detection trainer, with the uint8 instance masks of every image. The
+        Moves a batch to the device like the detection trainer, with the uint8 instance masks of every image: the
+        instance index maps of the loaders ('Data.instance_index_maps') are moved to the device and expanded there
+        into the masks, so that the rest of the training and the evaluation read the same masks either way. The
         masks and boxes of the objects at the original resolution, given by the test loader with
         'evaluation.original_resolution', stay on the CPU and are moved one image at a time by the evaluation, the
         original masks of a whole batch being possibly too large for the device.
@@ -101,8 +108,14 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Returns:
             InstanceSegmentationBatch: The batch ready for the instance segmenter.
         """
-        prepared_batch = {**super().prepare_batch(batch=batch),
-                          "instance_masks": [masks.to(device=self.device) for masks in batch["instance_masks"]]}
+        # Masks expanded on the device from the instance index maps, or the masks of the loader moved to it
+        if "instance_index_maps" in batch:
+            instance_masks = expand_instance_index_maps(
+                index_maps=batch["instance_index_maps"].to(device=self.device),
+                object_counts=[image_labels.shape[0] for image_labels in batch["labels"]])
+        else:
+            instance_masks = [masks.to(device=self.device) for masks in batch["instance_masks"]]
+        prepared_batch = {**super().prepare_batch(batch=batch), "instance_masks": instance_masks}
 
         # Objects at the original resolution of the test images, only in the test batches of that evaluation
         if "original_instance_masks" in batch:
@@ -114,7 +127,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         """
         Randomly augments the training images, moving the instance masks with the geometric augmentations, the boxes
         becoming the tight boxes of the moved masks and the objects leaving the image being removed with their label
-        and mask.
+        and mask. The batch of the input viewer comes from the loader without prepare_batch: its instance index maps
+        are expanded into the masks here, on the CPU, and left out of the augmented batch, which they no longer
+        match.
 
         Args:
             batch (Dict[str, Any]): The training batch.
@@ -123,6 +138,12 @@ class InstanceSegmentationTrainer(DetectionTrainer):
             Dict[str, Any]: The batch with its augmented images, boxes, labels and instance masks, and the
                 'augmentation_reports' of its samples for the input viewer.
         """
+        # Masks of the input viewer batch expanded from its maps, the prepared batches holding their masks already
+        if "instance_index_maps" in batch:
+            batch = {**{key: value for key, value in batch.items() if key != "instance_index_maps"},
+                     "instance_masks": expand_instance_index_maps(
+                         index_maps=batch["instance_index_maps"],
+                         object_counts=[image_labels.shape[0] for image_labels in batch["labels"]])}
         images, bounding_boxes, labels, _, instance_masks, _, augmentation_reports = self.data_augmenter.augment_batch(
             images=batch["images"], bounding_boxes=batch["bounding_boxes"], labels=batch["labels"],
             instance_masks=batch["instance_masks"])
@@ -365,7 +386,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
     def get_input_sample_image(self, batch: Dict[str, Any], sample_index: int) -> torch.Tensor:
         """
         Gives the image of a batch shown by the input viewer with the masks of its objects painted in the colour of
-        their class, so that the user checks the masks and their augmentations along with the boxes.
+        their class, so that the user checks the masks and their augmentations along with the boxes. The validation
+        batch comes from the loader as it is: with 'Data.instance_index_maps', the map of the image is expanded into
+        its masks here.
 
         Args:
             batch (Dict[str, Any]): The training or validation batch, on the CPU.
@@ -375,8 +398,15 @@ class InstanceSegmentationTrainer(DetectionTrainer):
             torch.Tensor: The [3, H, W] image in [0, 255] with its masks.
         """
         image = convert_image_to_array(image=batch["images"][sample_index])
-        painted_image = overlay_instance_masks(image=image,
-                                               instance_masks=batch["instance_masks"][sample_index].cpu().numpy(),
+
+        # Masks of the image, expanded from its instance index map when the batch holds maps
+        if "instance_index_maps" in batch:
+            instance_masks = expand_instance_index_maps(
+                index_maps=batch["instance_index_maps"][sample_index:sample_index + 1],
+                object_counts=[batch["labels"][sample_index].shape[0]])[0]
+        else:
+            instance_masks = batch["instance_masks"][sample_index]
+        painted_image = overlay_instance_masks(image=image, instance_masks=instance_masks.cpu().numpy(),
                                                labels=batch["labels"][sample_index].cpu().numpy(),
                                                class_colours=self.class_colours)
         return torch.from_numpy(painted_image).permute(2, 0, 1).float()

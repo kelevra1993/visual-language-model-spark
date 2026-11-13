@@ -259,7 +259,9 @@
      box and resized (`minimize_mask`, `utils.py:517-534`), and the mask target of a RoI is cropped from that small
      mask, after expressing the RoI in the coordinates of the ground truth box (`model.py:584-600`).
    - **Here:** one `[N, S, S]` uint8 mask per object goes through the loader workers to the GPU. Audit L19 estimates
-     about 4.7 GiB in flight at 1024 pixels, batch 40, 8 workers and prefetch 2.
+     about 4.7 GiB in flight at 1024 pixels, batch 40, 8 workers and prefetch 2. Since 2026-11-13,
+     `Data.instance_index_maps` sends one `[S, S]` map per image instead when the masks never overlap (the synthetic
+     datasets), expanded on the GPU; the mini masks remain the option for overlapping masks (COCO).
    - **Change:** an option to load the masks as `[N, m, m]` crops with their boxes (`m` configurable, 56 in Mask
      R-CNN, 112 for large objects). `build_mask_targets` would crop with RoIAlign in the coordinates of the crop (box
      offset and scale). The flips, the crop and the zoom-out act exactly on a box-relative crop; the ±5° rotation
@@ -364,7 +366,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5, fixed top 100, boxes clamped to the whole input, padding included (item 9). |
 | Masks at inference | Mask head on the final boxes. Each 28 × 28 mask is resized to its integer box in the original image, then thresholded at 0.5 (`model.py:2417-2480`, `utils.py:560-576`). | Mask head on the final boxes. `paste_instance_masks` samples at pixel centres with sub-pixel boxes. The INS evaluation pastes them at the original resolution with `evaluation.original_resolution` (at the network resolution otherwise), and the clients paste at the original resolution. |
 | Ground truth boxes | Always the tight box of the mask, the dataset boxes being ignored (`model.py:1269`). | The same: the tight box of the mask at the network resolution, the INS annotations needing no `bbox`. |
-| Ground truth masks in memory | Optional 56 × 56 crops in the box (`config.py:103-104`, `utils.py:517-552`). | One `[N, S, S]` uint8 mask per object at the network resolution (item 8, audit L19). |
+| Ground truth masks in memory | Optional 56 × 56 crops in the box (`config.py:103-104`, `utils.py:517-552`). | One `[N, S, S]` uint8 mask per object at the network resolution (item 8, audit L19), or one `[S, S]` uint8 map of object numbers per image with `Data.instance_index_maps`, expanded on the GPU. |
 | Crowds | Kept with a negative class id, kept out of the negatives, ignored by pycocotools (audit M12). | Ordinary objects, learnt and scored like the others. |
 | Objects lost by the resizing | Skipped at original resolution when under 1 pixel (`coco.py:248-250`). Masks emptied by the resize are dropped from the training targets (`model.py:1263-1265`). The evaluation keeps them, since it runs on the original images. | INS masks emptied by the resize are dropped from the training and validation targets, and from the test ground truth unless `evaluation.original_resolution` keeps them, so that they count as missed. |
 | Augmentation | imgaug pipeline with a list of mask-safe augmenters (flips, crop-and-pad, Affine, PiecewiseAffine; `model.py:1232-1259`). COCO uses horizontal flips only, nucleus flips, 90° rotations, brightness and blur. | `DataAugmenter` on the GPU: crop, aspect crop, zoom-out, flips, ±5° and 90° rotations, twelve photometric types, masks moved and boxes recomputed, fragments of objects removed. |
@@ -1202,11 +1204,14 @@ committed): every image can be taken again from them without training, except wh
 - **16-bit images:** a 16-bit PNG holding 12-bit data becomes 0..15 under `IMREAD_COLOR`. Training and deployment
   agree, but the signal is lost silently. Fix: warn on a non-8-bit source.
 
-#### L19. INS sends full-resolution object masks through shared memory — PLAUSIBLE
+#### L19. INS sends full-resolution object masks through shared memory — PLAUSIBLE, FIXED FOR DISJOINT MASKS (2026-11-13)
 - **Where:** `coco_dataset.py:214-222`: one uint8 `[N, S, S]` array per image.
 - **Effect:** at S = 1024, batch 40, 8 workers and prefetch 2, about 4.7 GiB of masks are in flight. On the unified
   memory of the GB10 this competes with the GPU, and a small `/dev/shm` kills workers.
 - **Fix:** send polygons, RLE or box-cropped masks from the workers and rasterise on the device, or pack the bits.
+- **Done for disjoint masks:** `Data.instance_index_maps` sends one uint8 map of object numbers per image, expanded on
+  the device by `prepare_batch` (a ninth of the bytes on the hard synthetic dataset). Overlapping masks (COCO) still
+  go one per object.
 
 #### L20. GPU memory peaks in the original-resolution SEG evaluation — PLAUSIBLE
 - **Where:** `segmentation_trainer.py:352-362`: a float32 `[K, H, W]` probability map per image at the original

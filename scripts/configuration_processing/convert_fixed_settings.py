@@ -7,7 +7,8 @@ of the region proposal network of the detection tasks, then the gradient clippin
 detection tasks), and adds the sections and the settings a task now requires with the values reproducing the runs
 written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss' of
 their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section,
-the greedy NMS, and the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once), so that
+the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, and the
+'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object), so that
 the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
@@ -117,6 +118,13 @@ REGION_PROPOSAL_SELECTION_LINES = [
     '# over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per level.',
     'proposal_selection: "joint"']
 
+# Lines of the instance index maps added to the 'Data' section of the instance segmentation runs written before them,
+# which loaded one mask per object: the comment lines, then the setting
+DATA_INSTANCE_INDEX_MAPS_LINES = [
+    '# One uint8 map numbering the objects of an image instead of one mask per object (faster loader, expanded on the',
+    '# GPU); needs run length encodings whose masks never overlap (synthetic datasets), False for COCO (polygons).',
+    'instance_index_maps: False']
+
 # Settings a task now requires inside sections its files hold, added to the files of its runs written before them: the
 # tasks holding the setting, the setting it is written after (at its indentation), and its lines, whose value
 # reproduces those runs. They are added in this order, so that a setting can follow one added before it
@@ -130,7 +138,9 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                                                      "lines": DETECTOR_NMS_DISTANCE_EXPONENT_LINES},
                   "RegionProposal.proposal_selection": {"tasks": ["object_detection", "instance_segmentation"],
                                                         "after": "RegionProposal.normalization",
-                                                        "lines": REGION_PROPOSAL_SELECTION_LINES}}
+                                                        "lines": REGION_PROPOSAL_SELECTION_LINES},
+                  "Data.instance_index_maps": {"tasks": ["instance_segmentation"], "after": "Data.image_settings",
+                                               "lines": DATA_INSTANCE_INDEX_MAPS_LINES}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -609,9 +619,10 @@ if __name__ == "__main__":
     # '_before_region_proposal_box_loss' for the 'RegionProposal.box_loss' removed on 2026-11-10,
     # '_before_gradient_clipping_norm' for the 'Optimization.gradient_clipping_norm' removed on 2026-11-11,
     # '_before_proposal_selection' for the 'RegionProposal.proposal_selection' added on 2026-11-11,
-    # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12, then
-    # '_before_anchor_centres_removal' for its removal on 2026-11-13
-    backup_suffix = "_before_anchor_centres_removal"
+    # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12,
+    # '_before_anchor_centres_removal' for its removal on 2026-11-13, then '_before_instance_index_maps' for the
+    # 'Data.instance_index_maps' added on 2026-11-13
+    backup_suffix = "_before_instance_index_maps"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

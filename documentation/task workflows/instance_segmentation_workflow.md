@@ -24,10 +24,12 @@ Shapes of the synthetic configuration (512 pixels, batch size 64, 20 classes and
 
 ```text
 <dataset>/{train,validation,test}/data/*.png + labels.json (COCO segmentation: RLE or polygons) + label_mapping.json
-   │ CocoDetectionDataset(load_instance_masks=True): build_instance_mask at 512, box of every object from its mask
+   │ CocoDetectionDataset(load_instance_masks=True, load_instance_index_maps=True): one instance index map at 512
+   │ per image (build_instance_index_map), box of every object from its pixels in the map
    ▼
-sample  images [3, 512, 512] uint8 BGR · instance_masks [N, 512, 512] uint8 · bounding_boxes [N, 4] · labels [N]
-batch   images [64, 3, 512, 512] · masks, boxes, labels: lists of 64 · DataAugmenter moves the masks with the image
+sample  images [3, 512, 512] uint8 BGR · instance_index_maps [512, 512] uint8 · bounding_boxes [N, 4] · labels [N]
+batch   images [64, 3, 512, 512] · instance_index_maps [64, 512, 512] · boxes, labels: lists of 64
+   ▼ prepare_batch: maps expanded on the device into instance_masks [N, 512, 512] per image · DataAugmenter moves them
    ▼
 Backbone ─► block 5 [64, 32, 16, 16] · block 6 [64, 32, 8, 8] · block 7 [64, 32, 8, 8]      the detector of DET
    ▼ RegionProposal per level: 2304 anchors, RPN losses; joint selection: 500 proposals per image (250 in evaluation)
@@ -50,7 +52,7 @@ evaluate_detections on the masks, then on the boxes ─► mAP@0.5 / 0.75 / 0.95
 | Role | File | Main functions or classes |
 |---|---|---|
 | Trainer | `vision_training/trainers/instance_segmentation_trainer.py` (bases `detection_trainer.py`, `coco_split_trainer.py`, `base_trainer.py`) | `InstanceSegmentationTrainer`: `prepare_batch`, `augment_batch`, `forward_pass`, `gather_image_detections`, `compute_mask_overlaps`, `compute_evaluation_results`, `get_sample_masks` |
-| Dataset and masks | `vision_training/data/detection/coco_dataset.py`, `coco_masks.py` | `CocoDetectionDataset` (`load_instance_masks`, `load_original_instances`, `add_instance_masks`), `build_instance_mask`, `decode_run_length_encoding`, `rasterize_polygons`, `compute_mask_bounding_boxes` |
+| Dataset and masks | `vision_training/data/detection/coco_dataset.py`, `coco_masks.py` | `CocoDetectionDataset` (`load_instance_masks`, `load_instance_index_maps`, `load_original_instances`, `add_instance_masks`, `add_instance_index_map`), `build_instance_mask`, `build_instance_index_map`, `find_index_map_objects`, `expand_instance_index_maps`, `decode_run_length_encoding`, `rasterize_polygons`, `compute_mask_bounding_boxes` |
 | Model | `vision_training/models/instance_segmentation/instance_segmenter.py` (base `models/detection/two_stage_detector.py`) | `InstanceSegmenter`: `forward`, `compute_proposal_mask_loss`, `predict_detection_masks`, `print_mask_summary` |
 | Mask head | `vision_training/models/instance_segmentation/mask_head.py` | `MaskHead`, `count_mask_upsamplings` |
 | Mask targets, pasting and IoU | `vision_training/models/instance_segmentation/mask_operations.py` | `build_mask_targets`, `paste_instance_masks`, `build_interpolation_weights`, `compute_mask_intersection_over_union` |
@@ -101,7 +103,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 - The sizes of the mask tables are measured on the mask areas and those of the box tables on the box areas, so their rows hold different objects: 911 small test objects by mask area against 184 by box area, 18,144 large against 35,919 (`Results.txt`, iteration 5000).
 - The exported model returns the 28 x 28 probabilities of every detection inside its box (`detection_masks`), not image masks: the client pastes them with `paste_instance_masks()` and keeps the pixels from `MaskHead.inference.mask_threshold`, which the export does not apply. The boxes are best restored to the original image unclipped (`restore_boxes_to_original_image(..., clip=False)`, as `restore_detection_boxes()` does for the evaluation), a box clipped at the border squeezing its mask (audit L22); the instance segmentation recipe of the Export section of `documentation/reference/tools_reference.md` does not say so. The client letterboxes its images as the evaluation did by following the input contract that the export writes next to the model (`preprocessing.json`) and into the metadata of `model.onnx`: BGR, `keep_ratio` to 512 pixels, bilinear resize, padding of 0 centred, NCHW, values from 0 to 255.
 - Every level has its own mask head, trained on the positive proposals of its level only, and the export runs every head on all the detections (`suggestions.md`, item 7): at iteration 5000, 183.8 of the 250 proposals per image come from block 5 (`proposal_recall.csv`).
-- An object whose mask vanishes at the network resolution is removed with its box from the training targets and from the evaluation at that resolution (`CocoDetectionDataset.add_instance_masks()`), but kept with `evaluation.original_resolution: True`; the loaders carry one full-size uint8 mask per object (audit L19).
+- An object whose mask vanishes at the network resolution is removed with its box from the training targets and from the evaluation at that resolution (`CocoDetectionDataset.add_instance_masks()`), but kept with `evaluation.original_resolution: True`; the loaders carry one full-size uint8 mask per object (audit L19), or with `Data.instance_index_maps: True` one uint8 map per image numbering its objects, expanded into the masks on the device. The maps need run length encodings whose masks never overlap: a polygon, two masks sharing a pixel or more than 255 objects in an image stop the loading with a message naming the setting (COCO keeps it off). The test loader of `evaluation.original_resolution` keeps one mask per object.
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -158,9 +160,11 @@ main()
 │           │       (classification_workflow.md, Step 2.6)
 │           ├── build_dataloaders()
 │           │   ├── read_test_manifest()                             class_names, class_colours, test image names
-│           │   └── get_detection_dataloaders(load_instance_masks=True, load_original_instances=original_resolution)
-│           │       └── get_detection_dataloader() for every split
-│           │           └── CocoDetectionDataset(load_instance_masks=True) + build_native_loader(collate_function)
+│           │   └── get_detection_dataloaders(load_instance_masks=True, load_instance_index_maps=instance_index_maps,
+│           │       │                         load_original_instances=original_resolution)
+│           │       └── get_detection_dataloader() for every split (the test loader of original_resolution without maps)
+│           │           └── CocoDetectionDataset(load_instance_masks=True, load_instance_index_maps=...) +
+│           │               build_native_loader(collate_function)
 │           ├── check_loaders_give_batches()                         refuses a split whose loader gives no batch
 │           ├── save_data_record()                                   data.json
 │           ├── get_test_sample_classes() + choose_sample_identifiers()
@@ -191,14 +195,19 @@ main()
         │   ├── get_next_batch() -> CocoDetectionDataset.__getitem__() + collate_function()
         │   │   │   read_image(); a batch failing to load is dropped and the next one taken
         │   │   ├── select_image_objects(boxes_from_segmentation=True) -> compute_segmentation_bounding_box()
-        │   │   └── add_instance_masks()
+        │   │   ├── add_instance_index_map()                                      with Data.instance_index_maps
+        │   │   │   ├── build_instance_index_map()      RLE runs painted with their object number (one cumulative
+        │   │   │   │                                   sum), overlaps refused, one resize INTER_NEAREST_EXACT
+        │   │   │   └── find_index_map_objects()        vanished objects removed, the others renumbered, boxes
+        │   │   └── add_instance_masks()                                          without Data.instance_index_maps
         │   │       ├── build_instance_masks() -> build_instance_mask() for every object
         │   │       │   ├── rasterize_polygons() -> fill_polygon_part()               polygons, at the network size
         │   │       │   └── decode_run_length_encoding() (-> decode_compressed_counts()) + resize INTER_NEAREST_EXACT
         │   │       ├── objects whose mask is empty once resized removed
         │   │       └── compute_mask_bounding_boxes()                                 boxes = tight boxes of the masks
         │   ├── run_model_iteration()
-        │   │   ├── prepare_batch()                                                   instance_masks moved to the device
+        │   │   ├── prepare_batch()                  instance_index_maps moved to the device and expanded there
+        │   │   │                                    (expand_instance_index_maps), or instance_masks moved to it
         │   │   ├── augment_batch() -> DataAugmenter.augment_batch(instance_masks=...)
         │   │   │       masks moved with the image, boxes recomputed from the masks, fragments < 25 % removed
         │   │   ├── forward_pass() -> InstanceSegmenter.forward(..., ground_truth_masks=...)
@@ -398,7 +407,8 @@ class_names: {0: 'background', 1: 'square', 2: 'circle', 3: 'triangle', 4: 'rect
 test_image_file_names: 20 entries, [(1, 'test_000000.png'), (2, 'test_000001.png'), (3, 'test_000002.png'), ...]
 ```
 
-### Step 2.8 — `get_detection_dataloaders(load_instance_masks=True)`
+### Step 2.8 — `get_detection_dataloaders(load_instance_masks=True, load_instance_index_maps=...)`
+`load_instance_index_maps` is `Data.instance_index_maps`, read by `InstanceSegmentationTrainer.__init__()`. The test loader of `evaluation.original_resolution` is built without maps, its samples carrying one mask per object at both resolutions.
 **Example: the three loaders** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
 ```text
 train_dataloader        100 images   3 batches   collate_function   num_workers 8   prefetch 2   pin True   persistent True
@@ -410,6 +420,8 @@ test_dataloader          20 images   1 batch     collate_function   num_workers 
 The manifests are COCO `labels.json` files, every annotation holding a `segmentation`: a list of polygons or a run length encoding (`size` [height, width] and `counts`, the lengths of the alternating background and object runs, column by column, as a list when uncompressed or a string when compressed). With the instance masks, the box of every object is not read from its `bbox` but from its segmentation (`compute_segmentation_bounding_box()`: the extent of the polygon vertices, or of the object runs of the RLE, x2 and y2 one past the last pixel), so that the boxes and the masks agree and an annotation needs no `bbox`. Only the boxes are read here, without decoding a mask.
 
 `__getitem__()` reads the image with `read_image()` (OpenCV, BGR, `uint8`, a `ValueError` naming a file that cannot be read), then calls `add_instance_masks()`: `build_instance_mask()` builds the mask of every object at the network resolution (polygons rasterised in the network input by `rasterize_polygons()`; an RLE decoded at the original resolution by `decode_run_length_encoding()`, then resized like the image with `cv2.INTER_NEAREST_EXACT` and padded with 0), the objects whose mask is empty once resized are removed with their box and label, and `compute_mask_bounding_boxes()` replaces every box by the tight box of its resized mask.
+
+With `Data.instance_index_maps: True` (the synthetic configuration), `add_instance_index_map()` replaces `add_instance_masks()`: `build_instance_index_map()` paints the run length encodings of the image into one map at the original resolution, every object run adding the number of its object where it starts and removing it where it ends in a difference array, one cumulative sum giving the map, which is resized once like the masks (`cv2.INTER_NEAREST_EXACT`, padding 0). A pixel covered by two masks would hold the sum of their numbers, so the map refuses the image when its covered pixels are fewer than its object pixels; polygons and more than `MAXIMUM_INDEX_MAP_OBJECTS` (255) objects are refused too. `find_index_map_objects()` (`scipy.ndimage.find_objects`) gives the objects still covering a pixel and their tight boxes; the vanished ones are removed with their label and the others renumbered from 1 in their order. Expanded, the map gives exactly the masks of `add_instance_masks()`, with the same labels and boxes, a third of the bytes here and about a ninth on the hard dataset (1024 pixels, about 8 objects an image). With one worker and pinned memory, a 64-image batch of the hard dataset reaches the GPU in 1.20 s instead of 2.22 s, its expansion taking 23 ms, and the maps of 1,000 test images give the masks, labels and boxes of `add_instance_masks()` exactly (measured on 2026-11-13).
 
 **Example: the manifest of the training split**
 ```text
@@ -434,10 +446,22 @@ dataset[0]:
   instance_masks      (6, 512, 512) torch.uint8, values {0, 1}
   mask pixels         [2380, 15705, 3566, 2507, 10929, 2157]
 ```
-The images are already 512 pixels, so the masks are not resized and their boxes are the boxes of the segmentations.
+The images are already 512 pixels, so the masks are not resized and their boxes are the boxes of the segmentations. The sample above was recorded with one mask per object (before `Data.instance_index_maps`).
+
+**Example: the first two training images of `synthetic_shapes` with the maps** (`train_000000.png`, `train_000001.png`, recorded on 2026-11-13)
+```text
+dataset[0]:
+  images              (3, 512, 512) torch.uint8
+  bounding_boxes      (1, 4) torch.float32
+  labels              (1,) torch.int64
+  instance_index_maps (512, 512) torch.uint8, values {0, 1}
+collate_function:     instance_index_maps (2, 512, 512) uint8 (524,288 bytes), labels [9] and [19, 1, 14, 3, 9]
+expanded masks:       (1, 512, 512) and (5, 512, 512) uint8 (1,572,864 bytes), mask pixels [18685] [2401, 16641, 4022, 866, 7001]
+                      identical to the masks, boxes and labels of add_instance_masks()
+```
 
 ### Step 2.10 — `build_native_loader()`
-The loader of every task (see `classification_workflow.md`, Step 2.10). `collate_function()` stacks the images and keeps the boxes, labels and instance masks as lists, one tensor per image, the number of objects changing from one image to the next (Step 3.6).
+The loader of every task (see `classification_workflow.md`, Step 2.10). `collate_function()` stacks the images and the instance index maps, and keeps the boxes, labels and instance masks as lists, one tensor per image, the number of objects changing from one image to the next (Step 3.6).
 
 ### Step 2.11 — `get_test_sample_classes()` + `choose_sample_identifiers()`
 The same 8 test images every evaluation, spread over the test split (see `object_detection_workflow.md`, Step 2.11).
@@ -623,7 +647,7 @@ The panels of the detection (backbone, region proposal, detection, receptive fie
 ```
 
 ### Step 2.17 — `view_input_batches()` → `get_input_sample_image()` → `overlay_instance_masks()`
-With `diagnosis_modes.view_input_images` on, the input viewer of the detection (`show_input_samples()`, see `object_detection_workflow.md`, Step 2.20) draws the boxes over the masks of the objects, every mask filled with the colour of its class by `overlay_instance_masks()` (`view_input_data()` of `vision_training/utilities/visualization.py` showing the windows). The configuration turns it off.
+With `diagnosis_modes.view_input_images` on, the input viewer of the detection (`show_input_samples()`, see `object_detection_workflow.md`, Step 2.20) draws the boxes over the masks of the objects, every mask filled with the colour of its class by `overlay_instance_masks()` (`view_input_data()` of `vision_training/utilities/visualization.py` showing the windows). Its batches come from the loaders without `prepare_batch()`: `augment_batch()` expands the maps of the training batch, and `get_input_sample_image()` the map of the validation image. The configuration turns it off.
 
 ### Step 2.18 — `analyse_training_data()` → anchor recall
 The anchor recall of the detection (see `object_detection_workflow.md`, Step 2.21), on the boxes of the segmentations, the boxes the detector learns: `gather_object_boxes()` reads them with `select_image_objects(boxes_from_segmentation=True)`, since the dataset loads the instance masks. It reads the manifest only, so the 358 objects are measured without decoding any mask.
@@ -722,9 +746,9 @@ exponential_moving_average_state: {'model_state', 'number_updates'}, number_upda
 At every multiple of 500, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), once for the trained weights and once for the moving average of the weights, see Stage 4.
 
 ### Step 3.6 — `get_next_batch()` → `CocoDetectionDataset.__getitem__()` + `collate_function()`
-A batch whose loading fails (an image that `read_image()` cannot read, Step 2.9) is dropped and the next one taken (see `classification_workflow.md`, Step 3.8). Every sample goes through `add_instance_masks()` (Step 2.9). The images are stacked; the boxes, labels and instance masks stay lists, one tensor per image.
+A batch whose loading fails (an image that `read_image()` cannot read, Step 2.9) is dropped and the next one taken (see `classification_workflow.md`, Step 3.8). Every sample goes through `add_instance_index_map()`, or `add_instance_masks()` without `Data.instance_index_maps` (Step 2.9). The images and the maps are stacked; the boxes, labels and instance masks stay lists, one tensor per image.
 
-**Example: the first batch of the CPU run**
+**Example: the first batch of the CPU run** (recorded with one mask per object, before `Data.instance_index_maps`; with the maps the batch holds `instance_index_maps (2, 512, 512) uint8` instead of `instance_masks`)
 ```text
 images               (2, 3, 512, 512) torch.uint8
 bounding_boxes       list of 2: (4, 4) float32, (3, 4) float32
@@ -735,7 +759,7 @@ mask pixels          [9155, 2352, 5597, 4341]   [7163, 6094, 2600]
 ```
 
 ### Step 3.7 — `run_model_iteration()` → `prepare_batch()`
-The detection preparation (images cast to float32 and moved to the device, boxes and labels moved), plus the instance masks, moved to the device and kept in uint8.
+The detection preparation (images cast to float32 and moved to the device, boxes and labels moved), plus the instance masks in uint8: the instance index maps are moved to the device and expanded there by `expand_instance_index_maps()`, one mask per object number in the order of the labels (`map == k`), or the masks of the loader are moved as they are. The prepared batch holds `instance_masks` either way, and no maps.
 
 **Example: after the preparation**
 ```text

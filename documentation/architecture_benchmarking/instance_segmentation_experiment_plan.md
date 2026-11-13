@@ -23,7 +23,8 @@ To compare the instance segmentation with the detection benchmark, the settings 
 - the region proposal counts and thresholds, 128 positives of 256 sampled anchors, 64 positive proposals of 128 for the detection heads, the ground truth boxes written into the proposals;
 - Adam without weight decay, a constant learning rate without warm-up, a moving average of the weights with a decay of 0.9998, MLflow tracking;
 - the augmentation of the user's `detection-run-configuration-defaults.yaml` (probability 0.25, the zoom-out, the left-right flip at 0.5 and the photometric types), the masks moving with the geometric ones;
-- one loader worker per loader, the loss weights 1 for the five losses (`mask_loss` included).
+- one loader worker per loader, the loss weights 1 for the five losses (`mask_loss` included);
+- `Data.instance_index_maps: True`: the masks of an image travel as one uint8 map numbering its objects, expanded on the GPU, the same masks, labels and boxes as one mask per object on 1,000 test images. The first reference launch, with one mask per object, was loader-bound (3.16 s per iteration, the GPU at 3 to 7 %), and the user stopped it on 2026-11-13 ("I really want something that's fast"); with the faster decoding of the run lengths and the maps, a batch of 64 reaches the GPU in 1.20 s instead of 2.22 s with one worker.
 
 ## Starting Values
 
@@ -126,6 +127,6 @@ Suppose a detection with a sure class has a poor mask: the score of a mask is th
 Should the time allow more stages later, these were considered and set aside:
 
 - A boundary refinement in the style of PointRend (https://arxiv.org/abs/1912.08193), whose abstract reports crisp borders and significant gains on COCO, the largest code of all, kept for after stages 2 and 7.
-- Ground truth masks cropped to their boxes (`suggestions.md` item 8), worth it only if the loader memory or throughput limits the launches, which stage 0 measures.
+- Ground truth masks cropped to their boxes (`suggestions.md` item 8): the instance index maps already cut the masks through the loader to a ninth on this dataset.
 - Detections clipped to the image window (`suggestions.md` item 9): the images of the dataset are square, so it changes nothing here.
 - The normalization of the mask heads: detection stage 6 kept batch normalization for its stability.

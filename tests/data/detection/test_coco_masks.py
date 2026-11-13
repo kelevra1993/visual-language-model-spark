@@ -3,17 +3,21 @@ Tests of vision_training/data/detection/coco_masks.py, the decoding of the COCO 
 of the instance segmentation task: exact pixels of the rasterised polygons with and without letterbox padding, union of
 overlapping polygon parts, uncompressed and compressed run length encodings, polygons and encodings of the same
 object giving the same mask and boxes at the network resolution, also once shrunk, and at the original resolution of a
-non-square image (the mask evaluation at that resolution), and the boxes read from the segmentations without decoding.
+non-square image (the mask evaluation at that resolution), the boxes read from the segmentations without decoding, and
+the instance index maps ('Data.instance_index_maps') giving the masks, objects and boxes of the per-object masks, with
+their refusals.
 """
 
 import numpy as np
 import pytest
 import torch
 
-from vision_training.data.detection.coco_masks import (build_instance_mask, compress_counts,
+from vision_training.data.detection.coco_masks import (MAXIMUM_INDEX_MAP_OBJECTS, build_instance_index_map,
+                                                        build_instance_mask, compress_counts,
                                                         compute_mask_bounding_boxes, compute_segmentation_bounding_box,
-                                                        decode_compressed_counts, decode_run_length_encoding, encode_run_length_encoding,
-                                                        rasterize_polygons)
+                                                        decode_compressed_counts, decode_run_length_encoding,
+                                                        encode_run_length_encoding, expand_instance_index_maps,
+                                                        find_index_map_objects, rasterize_polygons)
 
 
 def build_square_mask(size: int, first_pixel: int, end_pixel: int) -> np.ndarray:
@@ -294,3 +298,116 @@ def test_segmentation_boxes_match_the_decoded_masks(compressed: bool) -> None:
     polygons = [[2.0, 3.0, 6.0, 3.0, 6.0, 8.0], [10.0, 1.0, 12.0, 1.0, 11.0, 4.0], [0.0, 0.0, 50.0, 50.0]]
     assert compute_segmentation_bounding_box(segmentation=polygons) == [2.0, 1.0, 12.0, 8.0]
     assert compute_segmentation_bounding_box(segmentation=[[1.0, 1.0, 2.0, 2.0]]) == [0.0, 0.0, 0.0, 0.0]
+
+
+
+def build_disjoint_object_masks(image_height: int, image_width: int, seed: int) -> list:
+    """
+    Builds the visible masks of synthetic objects of a non-square image, as the synthetic instance segmentation
+    generator writes them: random rectangles and blobs painted one over the other, every object keeping the pixels no
+    later object covers, so that the masks never overlap; one object is a single pixel, which can vanish once the
+    image shrinks, and the last one has no visible pixel, leaving an empty mask.
+
+    Args:
+        image_height (int): The height of the image.
+        image_width (int): The width of the image.
+        seed (int): The seed of the random shapes.
+
+    Returns:
+        list: The [image_height, image_width] uint8 masks of the objects, in their order.
+    """
+    random_generator = np.random.default_rng(seed=seed)
+    owner = np.zeros(shape=(image_height, image_width), dtype=np.int64)
+    number_objects = 9
+
+    # Rectangles and random blobs painted in order, a later object hiding the earlier ones
+    for object_number in range(1, number_objects - 1):
+        top = random_generator.integers(low=0, high=image_height)
+        left = random_generator.integers(low=0, high=image_width)
+        height = random_generator.integers(low=1, high=image_height // 2)
+        width = random_generator.integers(low=1, high=image_width // 2)
+        if object_number % 3 == 0:
+            blob = random_generator.random(size=(image_height, image_width)) > 0.8
+            owner[blob] = object_number
+        else:
+            owner[top: top + height, left: left + width] = object_number
+
+    # A single pixel object in the last corner, and the last object leaving no visible pixel (its square repainted by
+    # the first object, as when a later object covers it whole)
+    owner[image_height - 1, image_width - 1] = number_objects - 1
+    owner[0:2, 0:2] = 1
+    return [(owner == object_number).astype(np.uint8) for object_number in range(1, number_objects + 1)]
+
+
+@pytest.mark.parametrize(argnames="keep_ratio", argvalues=[True, False])
+@pytest.mark.parametrize(argnames="image_size", argvalues=[24, 64, 160])
+def test_index_map_gives_the_per_object_masks_and_boxes(keep_ratio: bool, image_size: int) -> None:
+    """
+    Verifies that the instance index map of a non-square image, painted from compressed and uncompressed run length
+    encodings, expands into exactly the masks build_instance_mask gives object by object, at a shrinking, a slightly
+    enlarging and an enlarging network size, letterboxed or stretched, and that find_index_map_objects gives the
+    objects still covering a pixel (an object fully hidden by the others never does) and the boxes
+    compute_mask_bounding_boxes gives from their masks.
+
+    Args:
+        keep_ratio (bool): Whether the image is letterboxed or stretched.
+        image_size (int): The size of the network input.
+    """
+    image_height, image_width = 37, 61
+    object_masks = build_disjoint_object_masks(image_height=image_height, image_width=image_width, seed=image_size)
+    segmentations = [encode_run_length_encoding(mask=mask, compressed=object_index % 2 == 0)
+                     for object_index, mask in enumerate(object_masks)]
+
+    # Map at the network resolution, against the masks of every object resized one by one
+    index_map = build_instance_index_map(segmentations=segmentations, image_width=image_width,
+                                         image_height=image_height, image_size=image_size, keep_ratio=keep_ratio)
+    expected_masks = torch.from_numpy(np.stack(arrays=[
+        build_instance_mask(segmentation=segmentation, image_width=image_width, image_height=image_height,
+                            image_size=image_size, keep_ratio=keep_ratio) for segmentation in segmentations]))
+    assert index_map.shape == (image_size, image_size) and index_map.dtype == np.uint8
+    expanded_masks = expand_instance_index_maps(index_maps=torch.from_numpy(index_map)[None],
+                                                object_counts=[len(segmentations)])[0]
+    assert expanded_masks.dtype == torch.uint8 and torch.equal(expanded_masks, expected_masks)
+
+    # Objects covering a pixel and their boxes, as the per-object masks give them
+    is_present, boxes = find_index_map_objects(index_map=index_map, number_objects=len(segmentations))
+    expected_present = (expected_masks.flatten(start_dim=1) > 0).any(dim=1).numpy()
+    assert np.array_equal(is_present, expected_present) and not is_present[-1]
+    assert np.array_equal(boxes, compute_mask_bounding_boxes(instance_masks=expected_masks[expected_present]).numpy())
+
+
+def test_index_map_refuses_what_one_map_cannot_hold() -> None:
+    """
+    Verifies the refusals of the instance index maps, each naming the setting to turn off: two masks sharing a pixel, a
+    polygon, an encoding of another size than its image or not covering it, and more objects than a uint8 map numbers,
+    while an image without objects gives an empty map and expands into [0, S, S] masks.
+    """
+    first_mask = np.zeros(shape=(6, 8), dtype=np.uint8)
+    first_mask[1:4, 1:4] = 1
+    second_mask = np.zeros(shape=(6, 8), dtype=np.uint8)
+    second_mask[3:5, 3:6] = 1
+    arguments = {"image_width": 8, "image_height": 6, "image_size": 16, "keep_ratio": True}
+
+    # Overlapping masks, a polygon, another size and an encoding missing pixels
+    with pytest.raises(expected_exception=ValueError, match="share pixels"):
+        build_instance_index_map(segmentations=[encode_run_length_encoding(mask=first_mask),
+                                                encode_run_length_encoding(mask=second_mask)], **arguments)
+    with pytest.raises(expected_exception=ValueError, match="polygon"):
+        build_instance_index_map(segmentations=[[[1.0, 1.0, 4.0, 1.0, 4.0, 4.0]]], **arguments)
+    with pytest.raises(expected_exception=ValueError, match=r"size \[8, 6\]"):
+        build_instance_index_map(segmentations=[encode_run_length_encoding(mask=first_mask.T)], **arguments)
+    with pytest.raises(expected_exception=ValueError, match="covers 47 pixels"):
+        build_instance_index_map(segmentations=[{"size": [6, 8], "counts": [40, 7]}], **arguments)
+
+    # More objects than a uint8 map holds
+    empty_encoding = encode_run_length_encoding(mask=np.zeros(shape=(6, 8), dtype=np.uint8))
+    with pytest.raises(expected_exception=ValueError, match="instance_index_maps"):
+        build_instance_index_map(segmentations=[empty_encoding] * (MAXIMUM_INDEX_MAP_OBJECTS + 1), **arguments)
+
+    # An image without objects
+    empty_map = build_instance_index_map(segmentations=[], **arguments)
+    assert empty_map.shape == (16, 16) and not empty_map.any()
+    assert expand_instance_index_maps(index_maps=torch.from_numpy(empty_map)[None], object_counts=[0])[0].shape == \
+        (0, 16, 16)
+    is_present, boxes = find_index_map_objects(index_map=empty_map, number_objects=0)
+    assert is_present.shape == (0,) and boxes.shape == (0, 4)
