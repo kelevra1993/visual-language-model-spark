@@ -609,14 +609,14 @@ committed): every image can be taken again from them without training, except wh
 
 ### High
 
-#### H5. A failed save or evaluation (e.g. disk full) is swallowed: no checkpoint, no evaluation, orphan `.tmp` files
+#### H5. A failed save or evaluation (e.g. disk full) is swallowed: no checkpoint, no evaluation
 - **Where:**
   - `base_trainer.py:1002-1009`: the save and evaluation sit inside the per-iteration `try`.
   - `base_trainer.py:1072-1089`: `except Exception ... continue`.
-  - `checkpointing.py:133-142` never removes the `.tmp` file of a failed save.
+  - Since 2026-11-14 a failed save removes its temporary weight or registry file (`checkpointing.py`).
 - **Effect (reproduced):** `ENOSPC` from iteration 4 of a 30-iteration run.
-  - 13 orphan `model_*.pt.tmp` files, and only 17 optimizer steps out of 30 (each failed save skipped its step, the
-    save coming before the step until M20 was fixed).
+  - Only 17 optimizer steps out of 30 (each failed save skipped its step, the save coming before the step until M20
+    was fixed), and 13 orphan `model_*.pt.tmp` files, no longer left.
   - No evaluation at all, yet the run ends FINISHED, because the consecutive-error counter resets after every good
     iteration.
   - Runs keep every checkpoint (3.5–6.7 GB per run already), so once the disk is full the run "trains" with no
@@ -624,7 +624,6 @@ committed): every image can be taken again from them without training, except wh
 - **Fix:**
   - Move the save and evaluation out of the swallowing `try`, so that an `OSError` there ends the run with status
     FAILED and a traceback.
-  - Delete the `.tmp` file in an `except` of `save_checkpoint`.
   - Add a setting keeping only the last N intermediate checkpoints.
 
 #### H6. An unreadable image drops its batch without limit, and makes every test evaluation fail

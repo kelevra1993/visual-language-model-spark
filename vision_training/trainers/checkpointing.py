@@ -188,8 +188,14 @@ def update_checkpoint_registry(weights_directory: Path, iteration: int) -> None:
                        for recorded_iteration in registry_iterations[1:] + [iteration]]
     registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
     temporary_registry_path = registry_path.with_name(registry_path.name + ".tmp")
-    temporary_registry_path.write_text(data="".join(registry_lines))
-    replace_durably(temporary_file_path=temporary_registry_path, file_path=registry_path)
+
+    # A failed write (e.g. a full disk) removes its partial temporary file before raising, leaving the registry as it was
+    try:
+        temporary_registry_path.write_text(data="".join(registry_lines))
+        replace_durably(temporary_file_path=temporary_registry_path, file_path=registry_path)
+    except Exception:
+        temporary_registry_path.unlink(missing_ok=True)
+        raise
 
 
 def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, optimizer: torch.optim.Optimizer,
@@ -202,7 +208,8 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
     copying every GPU tensor to the CPU can take a few seconds and a second Ctrl+C during that time would otherwise
     leave a corrupted checkpoint. The weights and then the registry are first written to temporary files, flushed to
     the disk and renamed (replace_durably), so a checkpoint on disk is always either complete or absent, even after a
-    SIGKILL, the out-of-memory killer or a power cut.
+    SIGKILL, the out-of-memory killer or a power cut. A write that fails (e.g. on a full disk) removes its temporary
+    file and raises its error.
 
     Args:
         weights_directory (Path): The 'Weights' folder of the run.
@@ -231,9 +238,14 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
         if exponential_moving_average_state is not None:
             checkpoint[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY] = exponential_moving_average_state
 
-        # Write to a temporary file, then move it to its final name once it is on the disk
-        torch.save(obj=checkpoint, f=temporary_checkpoint_path)
-        replace_durably(temporary_file_path=temporary_checkpoint_path, file_path=checkpoint_path)
+        # Write to a temporary file, then move it to its final name once it is on the disk; a failed write (e.g. a full
+        # disk) removes its partial temporary file before raising, so that no orphan file is left in the folder
+        try:
+            torch.save(obj=checkpoint, f=temporary_checkpoint_path)
+            replace_durably(temporary_file_path=temporary_checkpoint_path, file_path=checkpoint_path)
+        except Exception:
+            temporary_checkpoint_path.unlink(missing_ok=True)
+            raise
 
         # Update the registry only once the weight file is complete
         update_checkpoint_registry(weights_directory=weights_directory, iteration=iteration)
