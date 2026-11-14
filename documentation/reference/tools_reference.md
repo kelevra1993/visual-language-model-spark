@@ -14,6 +14,7 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
   - [Group Pattern](#group-pattern)
 - [Deployment](#deployment)
   - [Export](#export)
+  - [Input Contract](#input-contract)
   - [Throughput Measurement](#throughput-measurement)
 
 ## Evaluating Checkpoints
@@ -140,9 +141,9 @@ Every folder of kept images lists them in `kept_images.csv`. The kept images of 
 ## Deployment
 
 ### Export
-`vision_training/deployment/export_model.py` writes every model with its `config.pbtxt` and checks it against the PyTorch model. `use_averaged_weights` exports the moving average of the weights, raising an error for a checkpoint without it. For a classifier, `use_saved_temperature` builds the temperature of the `saved_temperature_thresholds.json` of the exported iteration and weights ([Logit Temperature](#logit-temperature)) into the model, a constant `logit_temperature` of the TorchScript and ONNX graphs dividing the logits before the softmax, and copies the file to `<model>/<version>/class_thresholds.json`. The file is looked for in `<run>/Evaluation/Iteration_<n>/[EMA/]` of the training and in `<run>/Checkpoint_Evaluation/Iteration_<n>/[EMA/]` of the evaluation script: the export stops when it is in neither or in both, or when it does not match the `class_thresholds.json` next to it or the number of classes of the model. `saved_thresholds_path` gives the file instead (the export button of the page gives the file of its evaluation), accepted only in one of these two folders of the exported run, iteration and weights. Without it, a classifier is exported with a temperature of 1, and the copy of an earlier export is removed. It is refused for the other tasks. Every model also gets the input contract of the run, in the `metadata_props` of `model.onnx` and as `<model>/<version>/preprocessing.json` for both formats, the export stopping before writing any file when the contract cannot describe the input of the run ([README](../../README.md#input-contract)). The inputs and outputs of every model are listed in the [README](../../README.md#export).
+`vision_training/deployment/export_model.py` writes every model with its `config.pbtxt` and checks it against the PyTorch model. `use_averaged_weights` exports the moving average of the weights, raising an error for a checkpoint without it. For a classifier, `use_saved_temperature` builds the temperature of the `saved_temperature_thresholds.json` of the exported iteration and weights ([Logit Temperature](#logit-temperature)) into the model, a constant `logit_temperature` of the TorchScript and ONNX graphs dividing the logits before the softmax, and copies the file to `<model>/<version>/class_thresholds.json`. The file is looked for in `<run>/Evaluation/Iteration_<n>/[EMA/]` of the training and in `<run>/Checkpoint_Evaluation/Iteration_<n>/[EMA/]` of the evaluation script: the export stops when it is in neither or in both, or when it does not match the `class_thresholds.json` next to it or the number of classes of the model. `saved_thresholds_path` gives the file instead (the export button of the page gives the file of its evaluation), accepted only in one of these two folders of the exported run, iteration and weights. Without it, a classifier is exported with a temperature of 1, and the copy of an earlier export is removed. It is refused for the other tasks. Every model also gets the input contract of the run, in the `metadata_props` of `model.onnx` and as `<model>/<version>/preprocessing.json` for both formats, the export stopping before writing any file when the contract cannot describe the input of the run ([Input Contract](#input-contract)). The inputs and outputs of every model are listed in the [README](../../README.md#export).
 
-**Semantic segmentation (SEG).** The outputs are at the network resolution: `restore_prediction_to_original_image` (`vision_training/data/preprocessing.py`) brings them back to the original image. A run trained on tiles takes one tile: the client scales the image by `Data.tiling.scale` and segments it with `segment_image_by_tiles` (`vision_training/models/segmentation/sliding_window.py`), given a function sending a batch of tiles to Triton; the scale, overlap, interpolation and padding of the tiles are in the input contract of the model (`input_resize` `tiles`, [README](../../README.md#input-contract)).
+**Semantic segmentation (SEG).** The outputs are at the network resolution: `restore_prediction_to_original_image` (`vision_training/data/preprocessing.py`) brings them back to the original image. A run trained on tiles takes one tile: the client scales the image by `Data.tiling.scale` and segments it with `segment_image_by_tiles` (`vision_training/models/segmentation/sliding_window.py`), given a function sending a batch of tiles to Triton; the scale, overlap, interpolation and padding of the tiles are in the input contract of the model (`input_resize` `tiles`, [Input Contract](#input-contract)).
 
 **Instance segmentation (INS).** Every mask holds the probabilities of the detected class inside its box. The client brings the boxes back to the original image with `restore_boxes_to_original_image` (`vision_training/data/preprocessing.py`), pastes the masks with `paste_instance_masks` (`vision_training/models/instance_segmentation/mask_operations.py`), and keeps the pixels above `MaskHead.inference.mask_threshold`.
 
@@ -163,6 +164,35 @@ Every folder of kept images lists them in `kept_images.csv`. The kept images of 
 | `candidate_probabilities` | FP32 | [B, W, k] | their probabilities |
 
 W is the number of wanted classes, N `Selection.frames_per_class` and k `ExperimentConfiguration.evaluation.top_k`.
+
+### Input Contract
+Should a server need to build the input of an exported model from a photo, it reads the input contract written with the model instead of assuming a resize or a channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to the model of both formats (`<model name>_<format>/<version>/`), with the keys and values defined in `vision_training/deployment/input_contract.py`:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `input_contract_version` | `2` | Version of the keys and values; a server refuses a version it does not know. |
+| `input_color_order` | `BGR` | Channel order of the photo decoded as `cv2.imread` (`read_image`) decodes it: 3 channels of 8 bits, rotated by its EXIF orientation. |
+| `input_resize` | `stretch`, `keep_ratio`, `tiles` | `stretch` (`Data.image_settings.keep_ratio` False): both sides resized to the input size. `keep_ratio` (True): the longest side resized to the input size and the other one to `round(side * size / longest side)` (Python `round`, half to even), then padded to the square. `tiles` (SEG with `Data.tiling.activated`): the photo scaled by `input_tile_scale`, padded to at least a tile, then cut into overlapping tiles of the input size, one input per tile. |
+| `input_size` | a positive integer | Side of the square input in pixels, the side of a tile for `tiles`, `Data.image_settings.size`. |
+| `input_interpolation` | `linear`, `area`, `none` | OpenCV resize of the uint8 photo: `cv2.INTER_LINEAR` (`stretch` and `keep_ratio`, `tiles` enlarged), `cv2.INTER_AREA` (`tiles` shrunk), or no resize (`tiles` at the scale 1). The bilinear resize of Pillow gives other pixels (58 % of them, by up to 49 levels, for a 600 x 400 photo resized to 384 x 256). |
+| `input_padding_value` | `0` | Value of every channel of the padding pixels (`keep_ratio` and `tiles`). |
+| `input_padding_placement` | `centred`, `bottom_right` | `centred` (`keep_ratio`): resized photo at the row `(size - resized height) // 2` and the column `(size - resized width) // 2`, an odd padding pixel going to the bottom or the right. `bottom_right` (`tiles`): the scaled photo padded on its bottom and right sides to at least a tile. |
+| `input_tile_scale` | a positive number, `none` | `Data.tiling.scale`: every side of the photo scaled to `max(1, round(side * scale))`, half to even (`tiles` only). |
+| `input_tile_overlap` | a non-negative integer, `none` | `Data.tiling.overlap`, the pixels shared by two neighbouring tiles: along a padded side of length L, the tiles start at 0, size - overlap, 2 (size - overlap)... below L - size, then at L - size, cut row by row (`tiles` only). |
+| `input_layout` | `NCHW`, `NTCHW` | Batch, channels, height and width, the frames coming after the batch for the sequence tasks (M2O, M2M, CMP, SEL); the tiles of a photo form the batch. |
+| `input_value_range` | `0-255` | The uint8 pixels cast to float32 without scaling. |
+
+Every value is read from the configuration of the run or from the preprocessing code of the data loaders (`SegmentationDataset.cut_tile` and `segment_image_by_tiles` for the tiles), never written by hand. In case a run uses an input the contract cannot describe, the export stops before writing any file and names the setting: a change to `vision_training/data/preprocessing.py` (another default interpolation or padding value of `preprocess_image`, photos read as RGB by `read_image`, another placement in `compute_letterbox_region`), or to the scaling or padding of the tiles. The probabilities of the tiles are put back together by the client, averaged where tiles overlap ([Export](#export)).
+
+To read the contract of an ONNX model, ONNX Runtime gives its entries as the custom metadata of the model, and `check_input_contract` refuses a missing key, an unknown key or a value the version does not allow:
+
+```python
+session = onnxruntime.InferenceSession("model.onnx", providers=["CPUExecutionProvider"])
+input_contract = session.get_modelmeta().custom_metadata_map
+check_input_contract(input_contract=input_contract)
+```
+
+If you are looking for a server-side implementation, `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds the inputs of a photo from the contract alone, and the tests check them pixel for pixel against `preprocess_image` on a landscape and a portrait photo for both resizes, and against the tiles of the evaluation of a segmenter trained on tiles.
 
 ### Throughput Measurement
 `vision_training/deployment/run_inference.py` times the images of `vision_training/deployment/inference_data/`. The image tasks send one request per image. The sequence tasks send the whole folder as one sequence, of 2 to `maximum_sequence_length` images, CMP splitting it into a before and an after half. SEL decodes every sequence locally, and queries Triton through its ensembles.
