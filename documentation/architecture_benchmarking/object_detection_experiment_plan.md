@@ -4,6 +4,22 @@
 - **Dataset:** synthetic hard shapes (`create_synthetic_dataset(task="object_detection", hard_objects=True)`), `/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes`: 512,000 train / 50,000 validation / 50,000 test images of 1024 pixels, 5 to 12 shapes of the 35 shape classes per image (8.5 on average), from 16 pixels to 80% of the image side with log-uniform sizes (as many objects per scale octave), drawn from the largest to the smallest so that small shapes lie over large ones, up to 30% of a shape outside the image (box clipped, 19% of the boxes touching the border), on a flat background (20% of its shapes in a colour 20 to 40 levels from the background) or, for half of the images, a textured one (gradient, smooth noise or clutter lines changing the background by up to 40 levels). Below about 64 pixels the round polygons (heptagon, octagon, nonagon) are hard to tell from each other and from the circle
 - **Launch folders:** `hyperparameter_experiments/object_detection/run_<n>` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch. The learning rate stage is archived in `hyperparameter_experiments/object_detection/learning_rate_stage/` (its launches, state, results and a copy of its driver), the stages from 2026-11-05 numbering their launches from run_1 again
 
+## Table Of Content
+- [Strategy](#strategy)
+- [Fixed Settings](#fixed-settings)
+- [Starting Values](#starting-values)
+- [Stages](#stages)
+- [Launches](#launches)
+  - [Stage 1: Learning Rate (6 launches, done)](#stage-1-learning-rate-6-launches-done)
+  - [Stage 2: Background IoU Minimum (6 launches, done)](#stage-2-background-iou-minimum-6-launches-done)
+  - [Stage 2b: Easy Negatives Mixed With The Hard Ones (2 launches, done, reverted)](#stage-2b-easy-negatives-mixed-with-the-hard-ones-2-launches-done-reverted)
+  - [Stages 3 And 4: Neck (4 launches, done)](#stages-3-and-4-neck-4-launches-done)
+  - [Stage 5: Box Loss (6 launches, done)](#stage-5-box-loss-6-launches-done)
+  - [Stage 5b: DIoU-NMS (24 evaluations, done)](#stage-5b-diou-nms-24-evaluations-done)
+  - [Stage 6: Detector Normalization (4 launches, done)](#stage-6-detector-normalization-4-launches-done)
+  - [Stage 7: Proposal Selection (2 launches, done)](#stage-7-proposal-selection-2-launches-done)
+  - [Stage 8: Anchor Centres (2 launches, done)](#stage-8-anchor-centres-2-launches-done)
+
 ## Strategy
 
 One parameter changes at a time. The best value of a stage is kept for all the following stages, and its launches serve as the reference of the next stage, reused when an earlier stage trained launches with the same settings for as many iterations (or more, under the constant learning rate schedule).

@@ -4,6 +4,25 @@
 - **Dataset:** synthetic hard shapes for instance segmentation (`create_synthetic_dataset(task="instance_segmentation", hard_objects=True)`, generated on 2026-11-04 with the settings of the detection dataset), `/home/robert_kelevra/Data/instance_segmentation_data/synthetic_hard_shapes`: 512,000 train / 50,000 validation / 10,000 test images of 1024 pixels, 5 to 12 of the 35 shape classes per image (8.5 on average), the boxes being those of the visible part of every shape, 11.8 % of the visible parts in several pieces. The masks are compressed COCO RLE strings (a train `labels.json` of 3.8 GB, 10.9 GB at the peak of its loading). The test split was generated with 50,000 images and cut on 2026-11-13 to its first 10,000 (84,922 objects), the 40,000 others deleted, so that the dataset keeps one train, one validation and one test split (the user: "I just want one 10k dataset and that's it")
 - **Launch folders:** `hyperparameter_experiments/instance_segmentation/run_<n>` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch
 
+## Table Of Content
+- [Strategy](#strategy)
+- [Fixed Settings](#fixed-settings)
+- [Starting Values](#starting-values)
+- [Stages](#stages)
+- [The Stages](#the-stages)
+  - [Stage 0: Reference And Preflight](#stage-0-reference-and-preflight)
+    - [Box Detection On The Same Images](#box-detection-on-the-same-images)
+  - [Stage 0b: Mask Threshold And Final NMS (evaluation only)](#stage-0b-mask-threshold-and-final-nms-evaluation-only)
+  - [Stage 1: Mask RoIAlign Pool Size](#stage-1-mask-roialign-pool-size)
+  - [Stage 2: Mask Resolution](#stage-2-mask-resolution)
+  - [Stage 3: Mask Head Size](#stage-3-mask-head-size)
+  - [Stage 4: Upsampling](#stage-4-upsampling)
+  - [Stage 5: One Mask Head Shared By The Levels](#stage-5-one-mask-head-shared-by-the-levels)
+  - [Stage 6: Mask Level Chosen By The Box Size](#stage-6-mask-level-chosen-by-the-box-size)
+  - [Stage 7: A Finer Map For The Masks](#stage-7-a-finer-map-for-the-masks)
+  - [Stage 8: Mask Scoring](#stage-8-mask-scoring)
+  - [Not Planned](#not-planned)
+
 ## Strategy
 
 So that the stages can be read like those of the detection benchmark (`object_detection_experiment_plan.md`), the method is the same, the user's choice of 2026-11-12 ("we will proceed in the same manner but the defaults will be our best one for the object detection"):
