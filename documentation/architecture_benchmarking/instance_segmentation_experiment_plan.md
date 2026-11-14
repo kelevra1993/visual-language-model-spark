@@ -54,8 +54,8 @@ So that the order and the cost of the benchmark are seen at once, the table list
 | Stage | Parameter | Values | Code | Status |
 |---|---|---|---|---|
 | 0 | Reference and preflight | the starting values | none | done, Test_EMA mask mAP 0.7884 at 15,000 (launch gap 0.0005) |
-| 0b | Mask threshold and final NMS, evaluation only | `mask_threshold` 0.4, 0.5, 0.6; greedy NMS against DIoU-NMS 0.6 | none | planned |
-| 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, 18, with `mask_resolution` twice the pool (28, 44, 36) | none | planned |
+| 0b | Mask threshold and final NMS, evaluation only | `mask_threshold` 0.4, 0.5, 0.6; greedy NMS against DIoU-NMS 0.6 | none | done, 0.5 and DIoU-NMS 0.6 kept (0.4 -0.0095, 0.6 -0.0170, greedy NMS +0.0001, a tie) |
+| 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, 18, with `mask_resolution` twice the pool (28, 44, 36) | none | running, pool 22 (run_3) launched 2026-11-14 03:02 |
 | 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | planned |
 | 3 | Mask head size | `convolutions` `[3, 32]`, `[4, 64]` | none | planned |
 | 4 | Upsampling | `transposed`, `bilinear` | none | planned |
@@ -112,6 +112,17 @@ Since `MaskHead.inference.mask_threshold` and the final NMS act in evaluation on
 
 - `mask_threshold` 0.4 and 0.6 against 0.5, the probability from which a pixel of a pasted mask belongs to its object;
 - the greedy NMS against DIoU-NMS 0.6, which the detection benchmark kept on boxes (+0.0034 on its occlusion split) but never measured on masks.
+
+After the pair had ended, `hyperparameter_experiments/instance_segmentation/run_stage_0b_evaluations.py` evaluated both launches side by side on 2026-11-14 from 02:13 to 03:02 (16 minutes per setting and launch, trained and averaged weights), each setting in its own folder of the run (`Checkpoint_Evaluation_mask_threshold_0.4`, `Checkpoint_Evaluation_mask_threshold_0.6`, `Checkpoint_Evaluation_nms_iou`), the values gathered by `compare_stage_0b.py` in `instance_segmentation_stage_0b_results.csv` next to this plan:
+
+| Setting | Test_EMA mask mAP@[0.5:0.95] at 15,000 | Gap | Mask mAP@0.75 / @0.95 |
+|---|---|---|---|
+| `mask_threshold` 0.5, DIoU-NMS 0.6 (the reference) | 0.7884 (0.7881, 0.7886) | | 0.9027 / 0.1500 |
+| `mask_threshold` 0.4 | 0.7789 (0.7784, 0.7793) | -0.0095 | 0.9007 / 0.1215 |
+| `mask_threshold` 0.6 | 0.7714 (0.7714, 0.7713) | -0.0170 | 0.8919 / 0.1169 |
+| greedy NMS | 0.7885 (0.7882, 0.7887) | +0.0001 | 0.9028 / 0.1500 |
+
+The mask threshold of 0.5 is kept: 0.4 and 0.6 lose on both launches, beyond the launch gaps (0.0005 for the reference, 0.0009 and 0.0001 for 0.4 and 0.6), on every object size, most at the strict thresholds (mask mAP@0.95 -0.0285 and -0.0331). The greedy NMS ties with DIoU-NMS 0.6 (+0.0001, within the launch gap 0.0006, the box mAP unchanged at 0.8371), so DIoU-NMS 0.6 stays, the strategy keeping the earlier value of a tie. As on the detection test split (stage 5b), the objects of this test split are drawn with a box IoU of 0.3 at most, so the greedy NMS at 0.5 can hardly merge two of them: the stage shows that DIoU-NMS does no harm to the masks, its gain on occluded objects having been measured on the occlusion split of the detection. `run-1.yaml` is unchanged for stage 1.
 
 ### Stage 1: Mask RoIAlign Pool Size
 
