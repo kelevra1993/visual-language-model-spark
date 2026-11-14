@@ -1,8 +1,9 @@
 """
 Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the whole sequences with one class per
 sequence or one class per frame, the sequences longer than the maximum sequence length left out with red warnings, the
-whole sequences of the frame selection with their unselected frames, the batches padded to their longest sequence by
-collate_padded_sequences, and the sequence counts of vision_training/data/split_description.py.
+whole sequences of the frame selection with their unselected frames, the frame labels of another length than the
+frames refused, the batches padded to their longest sequence by collate_padded_sequences, and the sequence counts of
+vision_training/data/split_description.py.
 """
 
 import json
@@ -198,3 +199,31 @@ def test_selection_sequences_are_whole_with_unselected_frames(tmp_path: Path) ->
     assert dataset.get_sample_class_indices() == {0: [0], 1: [0]}
     assert count_split_sequences(split_data_folder=tmp_path,
                                  sequence_settings={"maximum_sequence_length": 6}) == (2, 7, 2)
+
+
+@pytest.mark.parametrize(argnames="label_type", argvalues=["frame", "selection"])
+def test_frame_labels_of_another_length_than_the_frames_are_refused(tmp_path: Path, label_type: str) -> None:
+    """
+    Verifies that the sequences whose 'frame_category_ids' do not give one category per frame, one list too short and
+    one too long, are refused when the dataset of the sequence labelling or of the frame selection is built, both
+    named with their counts and the manifest, instead of failing later in the collate of the loader without naming
+    them.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        label_type (str): "frame" (sequence labelling) or "selection" (frame selection).
+    """
+    write_sequence_split(split_folder=tmp_path, sequences=[
+        {"id": 1, "name": "matching", "number_frames": 3, "frame_category_ids": [1, 3, 3]},
+        {"id": 2, "name": "short_labels", "number_frames": 3, "frame_category_ids": [1, 3]},
+        {"id": 3, "name": "long_labels", "number_frames": 2, "frame_category_ids": [1, 3, 3]}])
+    selection_settings = {"unselected_category": "still", "frames_per_class": 1} if label_type == "selection" else None
+
+    with pytest.raises(expected_exception=ValueError, match="2 sequences do not have one category per frame") as error:
+        SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                        image_size=16, keep_ratio=False, label_dictionary={1: 0, 3: 1},
+                        sequence_settings={"maximum_sequence_length": 8}, label_type=label_type,
+                        split_name="Training", selection_settings=selection_settings, shuffle=False)
+    assert " - short_labels : 2 categories for 3 frames" in str(error.value)
+    assert " - long_labels : 3 categories for 2 frames" in str(error.value)
+    assert "matching" not in str(error.value) and "labels.json" in str(error.value)
