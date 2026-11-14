@@ -13,7 +13,8 @@
 > `scripts/` and `tests/`, then by reading every hit.
 >
 > The items of the [Repository Audit For Instance Segmentation](suggestions.md#repository-audit-for-instance-segmentation)
-> (2026-10-10, commit `84ac325`) are not repeated here. That section keeps its items after they are fixed, so
+> (2026-10-10, commit `84ac325`) are not repeated here. That section kept its items after they were fixed until
+> 2026-11-13, when the fixed and dropped ones were removed from it, so
 > [Items Of suggestions.md Still Open](#items-of-suggestionsmd-still-open) gives the status of each one at this commit,
 > with what this audit adds to it.
 >
@@ -359,8 +360,8 @@
   `run_model_iteration` discards.
 - **Failure scenario:** a batch of 16 on CUDA: 16 extra host synchronisations per training step and an unused batched
   NMS per validation batch.
-- **Fix:** skip the rearrangement and the postprocessing when ground truth is given (also the fix of item H3 of
-  suggestions.md), or rearrange with one argsort and gather.
+- **Fix:** skip the rearrangement and the postprocessing when ground truth is given (the fix the audit of 2026-10-10
+  proposed for its item H3, fixed since by padding the candidates), or rearrange with one argsort and gather.
 
 #### B44. Evaluated checkpoints are overwritten, or left unevaluated, at stop and resume boundaries
 - **Area:** training loop · **Severity:** low · **Status:** fixed on 2026-10-21 (found confirmed, reproduced by the
@@ -544,8 +545,9 @@
 ## Items Of suggestions.md Still Open
 
 The status at `165339b` of every item of the
-[Repository Audit For Instance Segmentation](suggestions.md#repository-audit-for-instance-segmentation). Their
-descriptions and fixes stay in that file.
+[Repository Audit For Instance Segmentation](suggestions.md#repository-audit-for-instance-segmentation), updated on
+2026-11-13 for the items whose status changed since. The open items keep their descriptions and fixes in that file;
+the fixed and dropped ones were removed from it on 2026-11-13 and are recorded here.
 - **Open:** the defect described is still in the code.
 - **Partly fixed:** only the part given in the note remains.
 - **Fixed:** as listed at the top of `suggestions.md`. The items dropped by the user are deleted from the table.
@@ -560,12 +562,12 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | H2. Ground truth boxes never added to the proposals | high | fixed (`a10bb7a`) | `add_ground_truth_proposals`, `two_stage_detector.py:456-461` |
 | H3. Validation crashes when samples x classes < maximum_detections | high | fixed (`a10bb7a`) | candidates padded before `topk` (`postprocessing.py:92-100`); validation still runs the unused postprocessing ([B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image)) |
 | H4. `residual_nets` does nothing in channel-changing blocks | high | dropped (user, 2026-11-05) | the projection shortcuts will not be added |
-| H6. An unreadable image silently drops its batch | high | fixed | on 2026-10-21: unreadable images named, their batches dropped, counted and reported without stopping the training |
+| H6. An unreadable image silently drops its batch | high | **partly fixed** | on 2026-10-21: unreadable images named, their batches dropped, counted and reported without stopping the training; nothing stops it above a dropped-batch ratio, and an unreadable test image fails every evaluation |
 | M1. Squeeze-and-excitation gates the residual sum | medium | fixed (`f66c7a3`) | |
 | M2. The shortcut is added after the ReLU | medium | fixed (`57eae97`) | |
-| M3. Proposals selected jointly over the levels | medium | **open** | `region_proposer.py:88-103`, shared by `InferenceDetector` |
+| M3. Proposals selected jointly over the levels | medium | fixed | on 2026-11-12: `RegionProposal.proposal_selection: "per_level"`, kept by stage 7 of the detection benchmark (+0.0104) and set in the object detection configurations, the instance segmentation ones keeping `"joint"` |
 | M4. The two NMS thresholds look swapped | medium | fixed | 0.7 and 0.5 in the four DET and INS files |
-| M5. Masks resized with plain nearest are shifted | medium | **partly fixed** | see below; also `preprocessing.py:200-202` restores class maps with `mode="nearest"` |
+| M5. Masks resized with plain nearest are shifted | medium | **partly fixed** | the RLE masks use `INTER_NEAREST_EXACT`; the SEG masks, the masks of the crops and the zoom-out and the class maps restored by `preprocessing.py` still use plain nearest |
 | M6. `number_iterations` counts from the resume point | medium | fixed | on 2026-10-21: `number_iterations` is the total of the run |
 | M7. `resume_training: false` reuses the run folder | medium | fixed | on 2026-10-21: the previous training is moved to `v<n>_<run name>`; since 2026-10-29 `resume_training` no longer exists, a run always resuming from its folder |
 | M8. An empty split loops forever | medium | fixed | on 2026-10-21: refused at launch, two empty passes raise |
@@ -579,8 +581,8 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | L2. Export crashes for some valid configurations | low | fixed | top-k clamped to the anchors (`region_proposer.py:103`, `inference_detector.py:135`), `dtype` removed, 3 channels enforced (`common_checks.py:273-277`) |
 | L3. The threshold finder returns the lowest valid threshold | low | **open** | `threshold_finder.py:46-48`, which also sets the DET, INS, KPT and SEL class thresholds |
 | L4. Balanced weights do not balance positives in multi-label | low | **open** | `classification_losses.py:37-40`, not documented either |
-| L5. The box-loss normalisation contradicts its comment | low | **open** | see below |
-| L7. Zero-area proposals and detections never removed | low | **open** | see below |
+| L5. The box-loss normalisation contradicts its comment | low | fixed | the comments of `detection_losses.py` describe the division by the positives, which is kept |
+| L7. Zero-area proposals and detections never removed | low | **partly fixed** | on 2026-11-12: `"per_level"` leaves out the empty proposals; `"joint"` (instance segmentation) keeps them, and the final detections get no filter |
 | L8. DET boxes only cleaned on augmented samples | low | **open** | DET and KPT (`coco_dataset.py:118-121`); INS takes its boxes from the masks |
 | L9. Multi-label keeps all-unmapped samples as negatives | low | **open** | `classification_dataset.py:80-85`; the class docstring still says they are left out |
 | L10. Nothing checks one label per frame | low | **open** | a count mismatch now raises in `collate_padded_sequences` (`sequence_dataset.py:138`), and `get_next_batch` drops that batch silently (read, not reproduced) |
@@ -594,7 +596,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | Every YAML with `residual_nets`: "Shortcuts are added every two convolution layers" | **open** | see H4 |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | **open** | still read only by the checker |
 | `RegionProposal.strict_fallback_assignment` (YAML) | **fixed** | the setting and its strict rule were removed (2026-11-05) |
-| `detection_losses.py:65-76` "standard RPN normalization" | **open** | see L5 |
+| `detection_losses.py:65-76` "standard RPN normalization" | fixed | see L5 |
 | `mean_average_precision.py:16` "COCO" | **partly fixed** | still "COCO-style mAP@[0.5:0.95]" at line 22 and "(COCO)" in `average_precision_report.py:53` |
 | `region_proposer.py:34` aspect ratio = width / height | **open** | now line 126; `anchors.py` uses height / width |
 | `backbone.py:42` "Missing keys default to disabled modules" | fixed | |
