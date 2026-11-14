@@ -74,7 +74,7 @@ So that the order and the cost of the benchmark are seen at once, the table list
 |---|---|---|---|---|
 | 0 | Reference and preflight | the starting values | none | done, Test_EMA mask mAP 0.7884 at 15,000 (launch gap 0.0005) |
 | 0b | Mask threshold and final NMS, evaluation only | `mask_threshold` 0.4, 0.5, 0.6; greedy NMS against DIoU-NMS 0.6 | none | done, 0.5 and DIoU-NMS 0.6 kept (0.4 -0.0095, 0.6 -0.0170, greedy NMS +0.0001, a tie) |
-| 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, 18, with `mask_resolution` twice the pool (28, 44, 36) | none | running, pool 22 (run_3) launched 2026-11-14 03:02 |
+| 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, with `mask_resolution` twice the pool (28, 44); the pool of 18 dropped by the user on 2026-11-14 | none | running, pool 22 (run_3) launched 2026-11-14 03:02 |
 | 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | planned |
 | 3 | Mask head size | `convolutions` `[3, 32]`, `[4, 64]` | none | planned |
 | 4 | Upsampling | `transposed`, `bilinear` | none | planned |
@@ -83,7 +83,7 @@ So that the order and the cost of the benchmark are seen at once, the table list
 | 7 | A finer map for the masks (`suggestions.md` item 5) | the levels of the detection, a level 3 of the feature pyramid (stride 8) for the masks | neck level | planned |
 | 8 | Mask scoring (Mask Scoring R-CNN) | class score, class score times the predicted mask IoU | mask IoU head | planned |
 
-Stages 0 to 4 change settings only; stages 5 to 8 need code, merged right before their pair. Every training pair is expected to take at least the 14 hours of a detection pair, the mask heads and targets adding a share that stage 0 measures. On 2026-11-12 the user kept every stage of the table (stage 4 trains both upsamplings, the transposed convolution as the reference), the pools of 18 and 22 for stage 1, and the launch of stage 0 as soon as stage 8 of the detection benchmark ends.
+Stages 0 to 4 change settings only; stages 5 to 8 need code, merged right before their pair. Every training pair is expected to take at least the 14 hours of a detection pair, the mask heads and targets adding a share that stage 0 measures. On 2026-11-12 the user kept every stage of the table (stage 4 trains both upsamplings, the transposed convolution as the reference), the pools of 18 and 22 for stage 1 (on 2026-11-14, with the pool of 22 behind the reference by 0.0155 at iteration 9000, the user dropped the pool of 18 to save its 15 hours), and the launch of stage 0 as soon as stage 8 of the detection benchmark ends.
 
 ## The Stages
 
@@ -149,7 +149,7 @@ At the user's request ("increasing the size of the 11x11 feature map for segment
 
 The pool size is tied to `MaskHead.mask_resolution` by `count_mask_upsamplings` (`mask_head.py`): the pooled features are doubled only while twice their side fits in the mask resolution. At a resolution of 28, a pool of 18 or 22 would get no doubling, its 18 x 18 or 22 x 22 logits being resized bilinearly to 28 and the learned transposed convolution lost. Every pool therefore trains with a mask resolution of twice its side (36 for 18, 44 for 22, the user's choice), keeping its one learned doubling, the mask targets following the resolution (`build_mask_targets`), the run name its `M<pool>` and `MR<resolution>` tokens.
 
-Both pools are trained, 22 first, the larger change, then 18, and the best by the rule of the strategy is kept. The cost grows with the square of the side: the mask head convolutions, and the logits of the 35 classes of up to 4096 positive proposals per batch (64 images, 64 positives each), 0.45 GB in float32 at 28 x 28, 0.74 GB at 36 x 36 and 1.11 GB at 44 x 44, before their gradients.
+The pool of 22 is trained first, the larger change. The pool of 18 was planned next, but on 2026-11-14 the user dropped it ("drop pool 18"), the pool of 22 trailing the reference by 0.0155 in Test_EMA mask mAP@[0.5:0.95] at iteration 9000, so stage 1 keeps 14 or 22 by the rule of the strategy and stage 2 follows it. The cost grows with the square of the side: the mask head convolutions, and the logits of the 35 classes of up to 4096 positive proposals per batch (64 images, 64 positives each), 0.45 GB in float32 at 28 x 28, 0.74 GB at 36 x 36 and 1.11 GB at 44 x 44, before their gradients.
 
 A larger grid may bring little: RoIAlign samples the feature map of the level of the proposal, and the square anchors span one to four strides on levels 4 to 6 (16 to 256 pixels at strides 16 to 64) and six to twelve on level 7, so the box of an object covers a few cells of its map, rarely as many as the 14 of the grid that already samples it. Mask R-CNN assigns a box of 224 pixels to its stride 16 level (the level rule of the feature pyramid paper), where it covers 14 cells, the side of its grid. Stages 6 and 7 act on that limit.
 
