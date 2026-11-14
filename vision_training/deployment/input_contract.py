@@ -46,8 +46,9 @@ INPUT_CONTRACT_KEYS = {
     "input_color_order": {"allowed_values": ["BGR"], "allowed_number": None,
                           "source": "the channel order of read_image"},
     # Photo stretched to the square input whatever its aspect ratio, resized with its aspect ratio kept (the longest
-    # side to the input size, the other one to round(side * size / longest side), half to even) and padded to the
-    # square, or scaled by the tile scale and cut into overlapping square tiles of the input size, one input per tile
+    # side to the input size, the other one to max(1, round(side * size / longest side)), half to even) and padded
+    # to the square, or scaled by the tile scale and cut into overlapping square tiles of the input size, one input per
+    # tile
     "input_resize": {"allowed_values": ["stretch", "keep_ratio", "tiles"], "allowed_number": None,
                      "source": "Data.image_settings.keep_ratio and Data.tiling.activated"},
     # Side of the square network input in pixels, the side of a tile for the tiles
@@ -141,8 +142,9 @@ def find_padding_placement(image_size: int) -> str:
     """
     Checks the region where compute_letterbox_region places the resized photo of the keep_ratio preprocessing against
     the keep_ratio resize and the centred placement of the contract, on probe photo sizes: one pixel short of the input
-    on either axis, an odd padding telling a centre rounded down from one rounded up, and the landscape and portrait
-    camera frames of 1920 x 1080 pixels, resized.
+    on either axis, an odd padding telling a centre rounded down from one rounded up, the landscape and portrait
+    camera frames of 1920 x 1080 pixels, resized, and a photo one pixel high and four inputs wide, whose short side
+    stays one pixel instead of rounding to none.
 
     Args:
         image_size (int): The side of the square network input.
@@ -150,14 +152,17 @@ def find_padding_placement(image_size: int) -> str:
     Returns:
         str: 'centred', or the description of the first region placed otherwise.
     """
-    probe_shapes = [(image_size - 1, image_size), (image_size, image_size - 1), (1080, 1920), (1920, 1080)]
+    probe_shapes = [(image_size - 1, image_size), (image_size, image_size - 1), (1080, 1920), (1920, 1080),
+                    (1, 4 * image_size)]
     for image_height, image_width in probe_shapes:
         letterbox_region = compute_letterbox_region(image_height=image_height, image_width=image_width,
                                                     image_size=image_size)
 
-        # Region of the contract: one scale for both sides, then the resized photo centred, rounded down
+        # Region of the contract: one scale for both sides, each side kept to one pixel at least, then the resized photo
+        # centred, rounded down
         scale = image_size / max(image_height, image_width)
-        resized_height, resized_width = int(round(image_height * scale)), int(round(image_width * scale))
+        resized_height = max(1, int(round(image_height * scale)))
+        resized_width = max(1, int(round(image_width * scale)))
         centred_region = ((image_size - resized_height) // 2, (image_size - resized_width) // 2, resized_height,
                           resized_width)
         if tuple(letterbox_region) != centred_region:

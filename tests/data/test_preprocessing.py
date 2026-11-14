@@ -1,18 +1,77 @@
 """
-Tests of vision_training/data/preprocessing.py: restore_boxes_to_original_image inverts preprocess_boxes, bringing the
-detected boxes back to the original image coordinates, clipped to the image or kept whole for the pasting of the
-instance masks, preprocess_boxes moves polygons like boxes, and
+Tests of vision_training/data/preprocessing.py: read_image reads the files of more than 8 bits per channel as before
+with one warning, restore_boxes_to_original_image inverts preprocess_boxes, bringing the detected boxes back to the
+original image coordinates, clipped to the image or kept whole for the pasting of the instance masks, a very elongated
+image keeps a short side of one pixel in the letterbox, preprocess_boxes moves polygons like boxes, and
 restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images.
 """
+
+from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 import torch
 
+from vision_training.data import preprocessing
 from vision_training.data.preprocessing import (compute_letterbox_region, preprocess_boxes, preprocess_image,
-                                                restore_boxes_to_original_image,
+                                                read_image, restore_boxes_to_original_image,
                                                 restore_prediction_to_original_image)
+
+
+def test_images_of_more_than_8_bits_are_read_as_before_with_one_warning(tmp_path: Path,
+                                                                        capsys: pytest.CaptureFixture,
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that read_image gives the 8 bit pixels cv2.imread gave for a 16 bit PNG, the values divided by 256, and
+    warns once for every file of that pixel type, since a 12 bit source stored in 16 bits keeps only 4 bits, while an
+    8 bit file is read without any warning.
+
+    Args:
+        tmp_path (Path): The pytest fixture folder holding the written images.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture emptying the pixel types already reported.
+    """
+    monkeypatch.setattr(target=preprocessing, name="REPORTED_IMAGE_DEPTHS", value=set())
+
+    # A 12 bit source stored in a 16 bit PNG, and the same scene in an 8 bit PNG
+    deep_pixels = np.random.default_rng(seed=0).integers(low=0, high=4096, size=(6, 8, 3), dtype=np.uint16)
+    deep_image_path, shallow_image_path = tmp_path / "deep.png", tmp_path / "shallow.png"
+    cv2.imwrite(filename=str(deep_image_path), img=deep_pixels)
+    cv2.imwrite(filename=str(shallow_image_path), img=(deep_pixels // 16).astype(np.uint8))
+
+    # The 8 bit file gives its pixels without any warning
+    assert np.array_equal(read_image(image_path=shallow_image_path), (deep_pixels // 16).astype(np.uint8))
+    assert "Read With 8 Bits Per Channel" not in capsys.readouterr().out
+
+    # The 16 bit file read twice gives the pixels of cv2.imread both times, with a single warning naming it
+    first_image, second_image = read_image(image_path=deep_image_path), read_image(image_path=deep_image_path)
+    console_output = capsys.readouterr().out
+    assert first_image.dtype == np.uint8 and np.array_equal(first_image, cv2.imread(filename=str(deep_image_path)))
+    assert np.array_equal(second_image, first_image)
+    assert console_output.count("Image Of uint16 Pixels Read With 8 Bits Per Channel") == 1
+    assert "deep.png" in console_output
+
+
+def test_very_elongated_image_keeps_a_short_side_of_one_pixel() -> None:
+    """
+    Verifies that an image one pixel high and 2000 wide letterboxed into 512 pixels keeps a resized height of one
+    pixel instead of rounding to none, which failed in the OpenCV resize, and that its boxes come back to the image.
+    """
+    # A 1 x 2000 image scaled by 0.256 rounds its height to 0.256 pixels, kept to one row in the middle of the input
+    assert compute_letterbox_region(image_height=1, image_width=2000, image_size=512) == (255, 0, 1, 512)
+    processed_image = preprocess_image(image=np.full(shape=(1, 2000, 3), fill_value=200, dtype=np.uint8),
+                                       image_size=512, keep_ratio=True)
+    assert processed_image.shape == (512, 512, 3) and np.all(processed_image[255] == 200)
+    assert processed_image[:255].max() == 0 and processed_image[256:].max() == 0
+
+    # A box of the image comes back to its original coordinates through the network input
+    boxes = [[100.0, 0.0, 1000.0, 1.0]]
+    network_boxes = preprocess_boxes(bounding_boxes=boxes, image_width=2000, image_height=1, image_size=512,
+                                     keep_ratio=True)
+    restored_boxes = restore_boxes_to_original_image(bounding_boxes=np.array(network_boxes), image_width=2000,
+                                                     image_height=1, image_size=512, keep_ratio=True)
+    assert np.allclose(restored_boxes, boxes)
 
 
 @pytest.mark.parametrize(argnames=("image_width", "image_height"), argvalues=[(640, 480)])

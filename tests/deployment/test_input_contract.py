@@ -160,10 +160,11 @@ def build_input_from_contract(photo_path: Path, input_contract: Dict[str, str]) 
         network_photos = cv2.resize(src=photo, dsize=(input_size, input_size),
                                     interpolation=CONTRACT_INTERPOLATIONS[input_contract["input_interpolation"]])[None]
 
-    # Keep ratio: one scale for both sides, rounded half to even, then the photo centred on the padding
+    # Keep ratio: one scale for both sides, rounded half to even and kept to one pixel at least, then the photo centred
+    # on the padding
     elif input_contract["input_resize"] == "keep_ratio":
         scale = input_size / max(photo_height, photo_width)
-        resized_height, resized_width = round(photo_height * scale), round(photo_width * scale)
+        resized_height, resized_width = max(1, round(photo_height * scale)), max(1, round(photo_width * scale))
         top, left = (input_size - resized_height) // 2, (input_size - resized_width) // 2
         network_photos = np.full(shape=(1, input_size, input_size, 3), fill_value=padding_value, dtype=np.uint8)
         network_photos[0, top:top + resized_height, left:left + resized_width] = cv2.resize(
