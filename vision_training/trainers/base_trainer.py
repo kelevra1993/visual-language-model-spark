@@ -199,8 +199,8 @@ class BaseTrainer(ABC):
         # Number of fixed test samples drawn with their targets and predictions at every evaluation, 0 for none
         self.number_sample_images = self.experiment_configuration["evaluation"]["number_sample_images"]
 
-        # MLflow tracking of the run, opened at the start of the training loop: until then, and for the input viewer,
-        # the benchmarking loop and the trainer of a standalone evaluation, the tracker does nothing
+        # MLflow tracking of the run, opened at the start of the training loop: until then, and for the input viewer and
+        # the trainer of a standalone evaluation, the tracker does nothing
         self.tracking_configuration = self.experiment_configuration["tracking"]
         self.experiment_tracker = DisabledTracker()
 
@@ -1328,7 +1328,7 @@ class BaseTrainer(ABC):
     def get_next_batch(self, dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader, split_name: str,
                        maximum_consecutive_errors: int = 10) -> Tuple[Dict[str, Any], _BaseDataLoaderIter]:
         """
-        Retrieves the next training or validation batch for the training and benchmarking loops, restarting the loader
+        Retrieves the next training or validation batch for the training loop, restarting the loader
         at the end of every pass over its split, which reshuffles it. A batch whose loading fails (e.g. an unreadable
         image, named by its dataset) is dropped and the next one taken, so that a few bad files never stop a training:
         every distinct error is printed the first time it occurs, and the dropped batches of every split are counted
@@ -1425,57 +1425,6 @@ class BaseTrainer(ABC):
         print_color(color="yellow", output=f"- Dropped Batches Since The Last Summary : {dropped_batches} (their "
                                            f"loading failed, see the errors printed above)")
         self.dropped_batch_counts.clear()
-
-    def run_benchmarking_loop(self, benchmarking_iterations: int = 1e5) -> None:
-        """
-        Executes a performance benchmarking loop to assess model throughput and training speed.
-
-        This function iterates through the dataset for a specified number of iterations without
-        running a full training epoch. It is primarily used to isolate and measure the raw
-        performance of the forward/backward passes and data loading bottleneck within the training pipeline.
-
-        Args:
-            benchmarking_iterations (int): The total number of iterations to run the benchmark. Defaults to 100,000.
-        """
-        # Determine whether validation is enabled based on the configured ratio
-        validation_enabled = self.validation_iteration_ratio > 0
-
-        # Get dataloader, the validation iterator only with validation, so that its worker process never starts
-        # otherwise
-        training_dataloader_iterator = iter(self.train_dataloader)
-        validation_dataloader_iterator = iter(self.validation_dataloader) if validation_enabled else None
-
-        for training_iteration in tqdm(range(int(benchmarking_iterations)), desc="Benchmarking Loop"):
-            # Get next training elements
-            training_batch, training_dataloader_iterator = self.get_next_batch(
-                dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader,
-                split_name="Training")
-
-            self.set_training_mode()
-            self.zero_gradients()
-
-            # Forward pass For Training
-            training_loss, _ = self.run_model_iteration(batch=training_batch, writer=self.training_writer,
-                                                        apply_augmentation=True, iteration=training_iteration,
-                                                        tracker_dictionary=None)
-
-            # Backward and Step
-            training_loss.backward()
-            self.step_optimizer(iteration=training_iteration)
-
-            # Validation phase gated by validation_iteration_ratio
-            if validation_enabled and training_iteration % self.validation_iteration_ratio == 0:
-                # Get next validation elements
-                validation_batch, validation_dataloader_iterator = self.get_next_batch(
-                    dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader,
-                    split_name="Validation")
-
-                self.set_evaluation_mode()
-                with torch.no_grad():
-                    # Forward pass For Validation
-                    _, _ = self.run_model_iteration(batch=validation_batch, writer=self.validation_writer,
-                                                    apply_augmentation=False, iteration=training_iteration,
-                                                    tracker_dictionary=None)
 
     def initialize_training_loop_state(self) -> Tuple[
             Iterator, Optional[Iterator], bool, Dict[str, float], Optional[Dict[str, float]], int]:
@@ -1918,7 +1867,7 @@ class BaseTrainer(ABC):
             writer (Optional[SummaryWriter]): TensorBoard writer for logging. If None, logging is skipped.
             iteration (int): The current training iteration step.
             tracker_dictionary (Optional[Dict[str, Any]]): The trackers of the interval, summing the metrics and
-                counting the batches, or None to track nothing (benchmarking).
+                counting the batches, or None to track nothing.
             apply_augmentation (bool): Whether to augment the batch, True for training batches only (validation and
                 test batches must be evaluated on the original images). Augmentation also requires
                 'Data.data_augmentation.activated'.

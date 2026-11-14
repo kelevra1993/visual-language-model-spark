@@ -143,7 +143,6 @@ main()
 │   line (--configuration_path), so any configuration of any task is trained without editing the code. It first turns
 │   on the expandable segments of the CUDA allocator (enable_expandable_cuda_segments), then does four things in
 │   order: load and validate the YAML, look up the trainer of the task, build that trainer, start the training loop.
-│   (A commented-out run_benchmarking_loop() is the alternative to training, for speed measurements.)
 │
 ├── parse_configuration_path()
 │       argparse reader of --configuration_path (absolute or relative to the current folder), which stops with

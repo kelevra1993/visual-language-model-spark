@@ -29,9 +29,6 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # Placeholder of a column expanded to one column per class of the run, in class index order
 CLASS_PLACEHOLDER = "{class}"
 
-# Columns naming the run and its best evaluation, the best iteration ending with ' (EMA)' when the averaged weights win
-RUN_COLUMNS = ["experiment", "run", "best_iteration"]
-
 # Prefix of a column giving a setting of training_configuration.yaml, followed by its keys joined by dots
 CONFIGURATION_COLUMN_PREFIX = "configuration:"
 

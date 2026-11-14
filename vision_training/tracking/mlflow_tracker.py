@@ -361,18 +361,6 @@ class MlflowTracker(ExperimentTracker):
         except Exception as error:
             self.report_queue_error(error=error)
 
-    def set_tags(self, tags: Dict[str, str]) -> None:
-        """
-        Queues tags of the run.
-
-        Args:
-            tags (Dict[str, str]): The value of every tag.
-        """
-        try:
-            self.put_event(event={"type": "tags", "values": {key: str(value) for key, value in tags.items()}})
-        except Exception as error:
-            self.report_queue_error(error=error)
-
     def get_run_id(self) -> Optional[str]:
         """
         Gives the identifier of the MLflow run, known once the worker has opened it.

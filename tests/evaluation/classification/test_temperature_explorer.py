@@ -5,8 +5,7 @@ from the page are written next to it, those of other classes than its class_thre
 class logits written next to the page give it back with any other temperature and the thresholds of every class at
 it; the score ranges of the served page count the images of every
 class by their own class score, a score equal to a cut point counting in the range above, and wrong cut points are
-refused; read_explorer_data reads the data of a written page, and write_explorer_evaluation writes the evaluation
-folder of the serve script tests. The percentages written by the script of the page are those of the report helpers
+refused; write_explorer_evaluation writes the evaluation folder of the serve script tests. The percentages written by the script of the page are those of the report helpers
 (run with Node.js when it is installed).
 """
 
@@ -66,21 +65,6 @@ def build_overconfident_logits(number_samples: int, number_classes: int, overcon
     labels = torch.multinomial(input=torch.softmax(input=calibrated_logits, dim=1), num_samples=1,
                                generator=generator).flatten()
     return calibrated_logits * overconfidence, labels
-
-
-def read_explorer_data(explorer_path: Path) -> Dict[str, Any]:
-    """
-    Reads the data written into a temperature explorer page, as the script of the page parses it.
-
-    Args:
-        explorer_path (Path): The written page.
-
-    Returns:
-        Dict[str, Any]: The data of the page.
-    """
-    match = re.search(pattern=r'<script id="explorer-data" type="application/json">(.*?)</script>',
-                      string=explorer_path.read_text(), flags=re.DOTALL)
-    return json.loads(s=match.group(1))
 
 
 def build_saved_thresholds(logit_temperature: Any, first_threshold: Any) -> Dict[str, Any]:

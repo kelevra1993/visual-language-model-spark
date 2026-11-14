@@ -82,6 +82,8 @@
 >   benchmark (0.7757 against 0.7765 at 8500) and removed on 2026-11-13;
 > - the float32 against bfloat16 comparison of the COCO keypoint training (item 15), no longer possible since
 >   `Optimization.mixed_precision` was removed, every task training under the bfloat16 autocast.
+> - the fix of `run_benchmarking_loop` (audit L14), the loop being removed on 2026-11-14: only a commented line of
+>   `main.py` called it, and it crashed at its first step with every shipped configuration.
 >
 > Tested and reverted:
 > - the region proposal negatives mixing a share of easy anchors below `background_iou_threshold.min` with the hard
@@ -219,11 +221,11 @@
       ground truths and detections.
     - **Here:** `view_input_images` shows the augmented inputs with their boxes and masks. The sample grids show the
       ground truth next to the detections, without the IoU of each detection. The detection debugging scripts were
-      removed in `6225b4a`; `visualise_anchors` remains.
+      removed in `6225b4a`, and `visualise_anchors` on 2026-11-14 (it had no caller).
     - **Change:** (a) a `diagnosis_modes.view_training_targets` flag, shown like `view_input_images` on a training
       batch, drawing the positive anchors and a sample of the negatives, the top proposals after the filter, the
       sampled RoIs (the added ground truth boxes included) with their matched ground truth, and for a few positive
-      RoIs the mask target next to the predicted mask, generalising `view_input_data` and reusing `visualise_anchors`.
+      RoIs the mask target next to the predicted mask, generalising `view_input_data`.
       This makes failures such as proposals on plain background or shifted mask targets visible at a glance. (b) In
       `build_detection_sample_grid`, add to the caption of every detection (its class and score) its IoU to the
       matched ground truth.
@@ -550,7 +552,7 @@ committed): every image can be taken again from them without training, except wh
 
 | Task | Findings |
 |---|---|
-| All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, M15, L14–L17 |
+| All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, M15, L15–L17 |
 | DET | M13, M16, M21, L7, L8 |
 | INS | Everything DET has, plus M5 (augmented masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
@@ -778,14 +780,6 @@ committed): every image can be taken again from them without training, except wh
   - Sequences without labels count as exact matches.
 - **Fix:** sum the losses and divide by `clamp(number of labelled frames, 1)`. Drop these sequences from training and
   from the exact match.
-
-#### L14. `run_benchmarking_loop` crashes at its first step with every shipped configuration
-- **Where:** `base_trainer.py:878` and `893` start at iteration 0; `learning_rate_schedule.py:30-31` divides by
-  `warmup_iterations`, which is 0 everywhere.
-- **Effect (reproduced):** `ZeroDivisionError`. With a warm-up, the first step runs at learning rate 0. The loop also
-  trains the live model, which the commented line in `main.py:31` would then hand to the training.
-- **Fix:** iterate from 1, guard the warm-up with `warmup_iterations > 0`, and restore the model and optimizer state
-  afterwards.
 
 #### L15. Loader workers are forked from a multi-threaded process — PLAUSIBLE deadlock
 - **Where:** `base_trainer.py:984-986`.

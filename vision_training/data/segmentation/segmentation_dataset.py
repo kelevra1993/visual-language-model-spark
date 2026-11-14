@@ -31,11 +31,6 @@ IGNORED_MASK_VALUE = 255
 # Number of values of a uint8 mask, the size of the lookup table converting the categories to class indices
 NUMBER_MASK_VALUES = 256
 
-# Ways a split cuts its samples out of the scaled images with 'Data.tiling': a random tile at every read (training),
-# a tile fixed per image so that the passes stay comparable (validation), or the whole image, segmented tile by tile
-# by the trainer (test)
-VALID_TILE_SAMPLINGS = ["random", "fixed", "whole"]
-
 
 def build_class_lookup_table(label_mode: str, label_dictionary: Dict[Any, int]) -> np.ndarray:
     """
@@ -97,7 +92,9 @@ class SegmentationDataset(Dataset):
             label_mode (str): "binary" (every category is the foreground) or "multi_class".
             label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
             tiling_configuration (Dict[str, Any]): The 'Data.tiling' section: 'activated', 'scale' and 'overlap'.
-            tile_sampling (str): How the split cuts its tiles with tiling, one of VALID_TILE_SAMPLINGS.
+            tile_sampling (str): How the split cuts its tiles with tiling: "random" (a random tile at every read,
+                training), "fixed" (a tile fixed per image, so that the passes stay comparable, validation) or
+                "whole" (the whole image, segmented tile by tile by the trainer, test).
             shuffle (bool): Whether to shuffle the samples once at creation. Defaults to True.
         """
         self.data_directory = data_directory
