@@ -659,15 +659,13 @@ committed): every image can be taken again from them without training, except wh
 - **Fix:** use `cv2.INTER_NEAREST_EXACT` in the SEG dataset, `InterpolationMode.NEAREST_EXACT` for the masks of the
   crops and the zoom-out, and `mode="nearest-exact"` for the restored class maps.
 
-#### M9. Training-step errors are swallowed as long as they are not consecutive, without a traceback
+#### M9. Training-step errors are swallowed as long as they are not consecutive
 - **Where:** `base_trainer.py`, the `except Exception` of the training loop: the counter of consecutive errors resets
-  after every good iteration, and only `Exception: {error}` is printed. The final save after the error limit now names
-  the last iteration that stepped.
-- **Effect (reproduced):** an error on every other forward pass gives a FINISHED run with half the optimizer steps and
-  no traceback, e.g. an OOM on large detection batches, or a bug that only some inputs trigger.
-- **Fix:**
-  - Print `traceback.format_exc()`.
-  - Abort on an error rate over a rolling window, and report the skipped iterations in the summary.
+  after every good iteration. The traceback of every distinct error is printed once (`report_iteration_error`), and
+  the final save after the error limit names the last iteration that stepped.
+- **Effect (reproduced):** an error on every other forward pass gives a FINISHED run with half the optimizer steps,
+  e.g. an OOM on large detection batches, or a bug that only some inputs trigger.
+- **Fix:** abort on an error rate over a rolling window, and report the skipped iterations in the summary.
 
 #### M10. Weight decay applies to every parameter, biases and normalization scales included (latent)
 - **Where:** `base_trainer.py:431-440`: one `weight_decay` for every group.

@@ -10,6 +10,7 @@ its abstract hooks, and vision_training/main.py builds them through the task reg
 import json
 import math
 import sys
+import traceback
 import cv2
 import numpy as np
 import torch
@@ -238,6 +239,10 @@ class BaseTrainer(ABC):
         # already printed, every distinct one being printed once in the run (get_next_batch)
         self.dropped_batch_counts = Counter()
         self.reported_fetch_errors = set()
+
+        # Errors of failed training iterations whose traceback was already printed, every distinct one being printed
+        # whole once in the run (report_iteration_error)
+        self.reported_iteration_errors = set()
 
         # Setting up dataloaders
         print_color(color="blue",
@@ -1390,6 +1395,23 @@ class BaseTrainer(ABC):
         self.reported_fetch_errors.add(error_line)
         print_color(color="yellow", output=f"{split_name} Batch Dropped : {error_line}")
 
+    def report_iteration_error(self, error: Exception) -> None:
+        """
+        Prints the error of a failed training iteration that the training loop (run_training_iterations) goes on
+        after: its whole traceback the first time this error occurs in the run, so that the line raising it is known,
+        then one line at every later occurrence, so that an error coming back every few iterations (e.g. an out of
+        memory error on the largest batches) does not flood the console.
+
+        Args:
+            error (Exception): The error raised inside the training iteration.
+        """
+        error_text = f"{type(error).__name__}: {error}"
+        if error_text in self.reported_iteration_errors:
+            print(f"Exception: {error}")
+            return
+        self.reported_iteration_errors.add(error_text)
+        print("".join(traceback.format_exception(error)), end="")
+
     def report_dropped_batches(self) -> None:
         """
         Prints the number of batches of every split dropped since the previous console summary because their loading
@@ -1685,7 +1707,8 @@ class BaseTrainer(ABC):
                     print_color(color="red",
                                 output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors "
                                        f"encountered during training iterations. Exiting.", add_separators=True)
-                    print(f"Last exception: {error}")
+                    # The whole traceback of the error ending the training, to find the line raising it
+                    print("Last exception:\n" + "".join(traceback.format_exception(error)), end="")
                     stopped_status = FAILED_STATUS
                     break
                 else:
@@ -1693,7 +1716,7 @@ class BaseTrainer(ABC):
                                                        f" Continuing... (Consecutive Errors: "
                                                        f"{consecutive_errors}/{maximum_consecutive_errors})",
                                 add_separators=True)
-                    print(f"Exception: {error}")
+                    self.report_iteration_error(error=error)
                     continue
 
         # Final checkpoint of the steps taken since the last save, whatever ended the loop (its last iteration, a stop

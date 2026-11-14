@@ -502,7 +502,8 @@ def test_failed_evaluation_keeps_its_checkpoint_and_the_training_going(tmp_path:
     Verifies that a test evaluation failing at a weight saving iteration (e.g. an unreadable test image) is counted as
     an error of its iteration without stopping the training: the checkpoint of the iteration, saved right after its
     step and before the evaluation, holds its 4 steps, the next iterations train and save as usual, and the last
-    checkpoint, whose evaluation failed too, is announced as not evaluated instead of being saved again.
+    checkpoint, whose evaluation failed too, is announced as not evaluated instead of being saved again. The error is
+    printed with its traceback the first time, then alone.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -516,6 +517,9 @@ def test_failed_evaluation_keeps_its_checkpoint_and_the_training_going(tmp_path:
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration 4." in console_output
     assert "Error encountered during iteration 8." in console_output
+    assert console_output.count("Traceback (most recent call last)") == 1
+    assert "ValueError: The image cannot be read : test.png" in console_output
+    assert console_output.count("Exception: The image cannot be read : test.png") == 1
     assert "The Checkpoint Of Iteration 8 Was Not Evaluated" in console_output
     assert sorted(path.name for path in trainer.weights_directory.glob(pattern="Iteration_*")) == [
         "Iteration_2", "Iteration_4", "Iteration_6", "Iteration_8"]
@@ -530,8 +534,8 @@ def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path,
                                                                 capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that a training whose data disappears (every sample read failing after the third batch) stops after its
-    consecutive errors instead of leaving the process, and saves a final checkpoint of the steps taken since its last
-    one: the third step, after the intermediate checkpoint of iteration 2.
+    consecutive errors instead of leaving the process, printing the traceback of the last error, and saves a final
+    checkpoint of the steps taken since its last one: the third step, after the intermediate checkpoint of iteration 2.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -546,6 +550,7 @@ def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path,
     assert "10 fetches of a Training batch failed in a row, the last one with: The data folder is not mounted" in (
         console_output)
     assert "Critical Error" in console_output
+    assert "Last exception:\nTraceback (most recent call last)" in console_output
     assert "Last Checkpoint Saved At Iteration 3. Exiting Training." in console_output
     checkpoint = torch.load(f=trainer.weights_directory / "Iteration_3" / "model_000003.pt", map_location="cpu",
                             weights_only=True)
