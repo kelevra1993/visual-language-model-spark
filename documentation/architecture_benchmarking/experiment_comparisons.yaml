@@ -549,7 +549,7 @@ comparisons:
     results_file: instance_segmentation_results.csv
     stage: "0"
     title: Reference
-    plan_lines: "72-106"
+    plan_lines: "92-126"
     last_iteration: 15000
     compared_weights: ema
     arms:
@@ -557,3 +557,17 @@ comparisons:
     kept: "pool 14, resolution 28"
     verdict: "Reference pair: Test_EMA mask mAP@[0.5:0.95] 0.7884 at 15,000 (0.7881, 0.7886, launch gap 0.0005), still rising (+0.0045 since 14,000); trained weights 0.7414, box mAP@[0.5:0.95] 0.8371."
     notes: "One setting, the starting values of the plan; the pair trained from 2026-11-13 10:16 to 2026-11-14 01:12, the 10,000 test images evaluated every 1000 iterations. The earlier reference launches of 2026-11-13, stopped by the user (the last pair at 500 and 474 for its slow evaluation), were deleted, so they are not in the CSV. The mask mAP@0.75, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
+
+  - experiment: instance_segmentation
+    results_file: instance_segmentation_results.csv
+    stage: "1"
+    title: Mask RoIAlign pool size
+    plan_lines: "146-165"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "pool 14, resolution 28", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
+      - {label: "pool 22, resolution 44", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
+    kept: "pool 14, resolution 28"
+    verdict: "Pool 14 kept: the pool of 22 reads 0.7761 (0.7785, 0.7738) against 0.7884 at 15,000 (-0.0122, beyond the launch gaps 0.0005 and 0.0047), behind from 2000 on, most on the large objects (-0.0202) and at mask mAP@0.95 (-0.0134)."
+    notes: "run_1 and run_2, the reference of stage 0, are reused without training. The pool of 18 (planned as run_5 and run_6) was dropped by the user on 2026-11-14, so the stage has two arms. The mask mAP@0.75, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
