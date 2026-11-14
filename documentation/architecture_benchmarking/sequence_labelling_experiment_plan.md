@@ -6,6 +6,27 @@
 
 Should you set a value of these tables beside a figure, keep in mind that the two use different scales. The tables and text of this plan, like `sequence_labelling_results.csv` from which the figures are drawn, give the Macro F1 between 0 and 1, while the verdicts of `experiment_comparisons.yaml` and the figures of `figures/sequence_labelling/` write it as a percentage with two decimals (0.7584 as 75.84 %) and the gap between two settings in points (0.0019 as +0.19 points).
 
+## Table Of Content
+- [Strategy](#strategy)
+- [Fixed Settings](#fixed-settings)
+- [Starting Values](#starting-values)
+- [Stages](#stages)
+- [Launches](#launches)
+  - [Stage 1: Learning Rate (8 launches, 2000 iterations)](#stage-1-learning-rate-8-launches-2000-iterations)
+  - [Stage 2: Class Weighting (4 launches, 6000 iterations)](#stage-2-class-weighting-4-launches-6000-iterations)
+  - [Stage 3: Direction (2 new launches, 6000 iterations)](#stage-3-direction-2-new-launches-6000-iterations)
+  - [Stage 4: Temporal Module (6 new launches, 6000 iterations)](#stage-4-temporal-module-6-new-launches-6000-iterations)
+  - [Stage 5: Temporal Layers (2 new launches, 6000 iterations)](#stage-5-temporal-layers-2-new-launches-6000-iterations)
+  - [Stage 6: Frame Pooling (4 new launches, 6000 iterations)](#stage-6-frame-pooling-4-new-launches-6000-iterations)
+  - [Stage 7: Feature Map Normalization (2 new launches, 6000 iterations)](#stage-7-feature-map-normalization-2-new-launches-6000-iterations)
+  - [Stage 8: Pretraining (4 new launches, 6000 iterations)](#stage-8-pretraining-4-new-launches-6000-iterations)
+  - [Stage 9: Learning Rate, Pretrained (6 new launches, 4000 iterations)](#stage-9-learning-rate-pretrained-6-new-launches-4000-iterations)
+  - [Stage 10: Class Weighting, Pretrained (2 new launches, 6000 iterations)](#stage-10-class-weighting-pretrained-2-new-launches-6000-iterations)
+  - [Stage 11: Temporal Module, Pretrained (4 new launches, 6000 iterations)](#stage-11-temporal-module-pretrained-4-new-launches-6000-iterations)
+  - [Stage 12: Temporal Layers, Pretrained (2 new launches, 6000 iterations)](#stage-12-temporal-layers-pretrained-2-new-launches-6000-iterations)
+  - [Stage 13: Frame Pooling, Pretrained (2 new launches, 6000 iterations)](#stage-13-frame-pooling-pretrained-2-new-launches-6000-iterations)
+- [Outcome of the Pretrained Rerun](#outcome-of-the-pretrained-rerun)
+
 ## Strategy
 
 One parameter changes at a time. The best value of a stage is kept for all the following stages, and its launches serve as the reference of the next stage, so they are not trained again when that stage trains as many iterations. A stage training another number of iterations trains its reference again from scratch (two new launches, never a resumed one), so that every compared launch starts from a new initialisation. The short learning rate stage (2000 iterations) chooses the learning rate, and the following stages train 6000 iterations: the class weighting stage trains both of its values, and the later stages reuse its kept launches.

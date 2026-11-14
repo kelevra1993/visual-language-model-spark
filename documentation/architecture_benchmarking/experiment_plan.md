@@ -6,6 +6,31 @@
 
 If one compares a value of these tables with a figure, the scale differs. The tables and text of this plan, like `results.csv` from which the figures are drawn, give the accuracies between 0 and 1, while the verdicts of `experiment_comparisons.yaml` and the figures of `figures/classification/` write them as percentages with two decimals (0.8581 as 85.81 %) and the gap between two settings in points (0.0095 as +0.95 points).
 
+## Table Of Content
+- [Strategy](#strategy)
+- [Fixed Settings](#fixed-settings)
+- [Starting Values](#starting-values)
+- [Launches](#launches)
+  - [Stage 1: Learning Rate (10 launches)](#stage-1-learning-rate-10-launches)
+  - [Stage 2: Fully Connected Normalization (4 launches)](#stage-2-fully-connected-normalization-4-launches)
+  - [Stage 3: Backbone Batch Normalization Momentum (2 launches)](#stage-3-backbone-batch-normalization-momentum-2-launches)
+  - [Stage 4: Feature Map Normalization (2 launches)](#stage-4-feature-map-normalization-2-launches)
+  - [Stage 5: Global Pooling (2 launches)](#stage-5-global-pooling-2-launches)
+  - [Stage 6: Residual Connections (2 launches)](#stage-6-residual-connections-2-launches)
+  - [Stage 7: Squeeze And Excitation (2 launches)](#stage-7-squeeze-and-excitation-2-launches)
+  - [Stage 8: Data Type (2 launches)](#stage-8-data-type-2-launches)
+  - [Stage 9: Class Weighting (2 launches)](#stage-9-class-weighting-2-launches)
+  - [Stage 10: Dropout (2 launches)](#stage-10-dropout-2-launches)
+  - [Repeat Launches: Squeeze And Excitation (8 launches)](#repeat-launches-squeeze-and-excitation-8-launches)
+- [New Settings Stages](#new-settings-stages)
+  - [Stage 11: Pre-Activation Residual Shortcuts (2 launches)](#stage-11-pre-activation-residual-shortcuts-2-launches)
+  - [Stage 12: Weight Initialisation (2 launches)](#stage-12-weight-initialisation-2-launches)
+  - [Stage 13: Moving Average Of The Weights (2 launches)](#stage-13-moving-average-of-the-weights-2-launches)
+- [Class Extension Stage](#class-extension-stage)
+  - [Stage 14: Adding Classes (6 launches)](#stage-14-adding-classes-6-launches)
+- [Total](#total)
+- [Notes](#notes)
+
 ## Strategy
 
 One parameter changes at a time. The best value of a stage is kept for all the following stages, and its launches serve as the reference of the next stage, so they are not trained again.
