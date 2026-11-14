@@ -172,8 +172,8 @@ main()
 │       │       label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   └── get_sequence_dataloaders(label_type="pair")
-│       │       │   One SequencePairDataset per split, and the collate collate_padded_sequences
-│       │       │   (members_per_sample=2).
+│       │       │   One SequencePairDataset per split (None for the validation split when the training reads
+│       │       │   no validation batch), and the collate collate_padded_sequences (members_per_sample=2).
 │       │       │
 │       │       ├── SequencePairDataset.__init__()
 │       │       │       Every member is kept whole. The pairs with a member longer than maximum_sequence_length are
@@ -368,7 +368,7 @@ class_names = ['loss_of_object', 'same_number_of_objects']
 ```
 
 ### Step 2.8 — `get_sequence_dataloaders()`
-With `label_type="pair"` every split gets a `SequencePairDataset` (Step 2.9), and the collate is `collate_padded_sequences()` with `members_per_sample=2`, which pads both members of every pair to the longest member of the batch.
+With `label_type="pair"` every split gets a `SequencePairDataset` (Step 2.9), and the collate is `collate_padded_sequences()` with `members_per_sample=2`, which pads both members of every pair to the longest member of the batch. The validation split gets one only when the training reads it (`BaseTrainer.builds_validation_loader`: `validation_iteration_ratio` above 0, as the 25 of this configuration, or a diagnosis mode ending the program); otherwise `None` takes the place of its loader, and no validation pair is read.
 
 **Example: size of the three splits**
 ```text
@@ -955,7 +955,7 @@ The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 pe
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 pairs of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-10, before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `target_precisions` replaces the precision of the class thresholds (a list such as `[0.99, 0.95]` is accepted, its first precision the main one), and the evaluation is written in the `Checkpoint_Evaluation/` folder of the run. A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `save_predictions` (True, False, or None to keep the `evaluation.save_predictions` of the run) writes or skips the `predictions.csv` of every evaluated checkpoint, `target_precisions` replaces the precision of the class thresholds (a list such as `[0.99, 0.95]` is accepted, its first precision the main one), and the evaluation is written in the `Checkpoint_Evaluation/` folder of the run. A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file, the name of the run folder kept as its `run_name` and the transfer of the pretrained components turned off (`disable_pretrained_settings()`, `classification_workflow.md`, Step 5.2).

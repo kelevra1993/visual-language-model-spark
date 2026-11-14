@@ -100,7 +100,7 @@ scenes:
       - {match: "NO_FRAME|class_threshold is None|low_confidence\\[wanted_index\\]", sentences: [0]}
     narration:
       - "flag low confidence applies them in the deployed decoder: a missing frame, a frame below the threshold of its class, or any frame of a class without threshold."
-      - "The selections file of every evaluation gives the same flags, one row per sequence and class, with the true frames, their probabilities and ranks, and the picks of both decodings."
+      - "With save predictions on, the selections file of every evaluation gives the same flags, one row per sequence and class, with the true frames, their probabilities and ranks, and the picks of both decodings."
 
   - kind: html
     page: diagram
@@ -121,7 +121,7 @@ scenes:
       - {type: box, box: [1380, 200, 1740, 640], text: "selected_frames [B, {{frame_selection.dataset.wanted_class_count}}, {{frame_selection.run.frames_per_class}}]\nselected_probabilities\nlow_confidence\n\ncandidate_frames [B, {{frame_selection.dataset.wanted_class_count}}, {{frame_selection.evaluation.top_k}}]\ncandidate_probabilities", font: diagram_small, outline: aqua, appear: 4, highlight: [4]}
       - {type: text, position: [160, 520], text: "one T for all\nthe sequences\nof a request", font: diagram_small, colour: dim, anchor: ma, appear: 6}
     narration:
-      - "The export writes three kinds of Triton models for a frame selection run."
+      - "The export writes three kinds of Triton models for a frame selection run, the networks checked against the model they were exported from before they replace the served ones."
       - "frame selector Torch Script or ONNX is the network alone: images of B by T by {{frame_selection.run.input_channels:words}} by {{frame_selection.dataset.image_size}} by {{frame_selection.dataset.image_size}} in, class probabilities of B by T by {{frame_selection.dataset.class_count:words}} out, without sequence mask and without decoding."
       - "Like every export, it also writes the input settings of the run, its resize, colour order and layout with the frames after the batch dimension, in a preprocessing file next to it and in the ONNX metadata."
       - "frame selector decoder is a Python backend model run on the CPU: its folder holds a copy of the decoding file of the evaluation, and a decoding settings json file with the decoding, the frames per class, the unselected class, the thresholds and the class names."
@@ -144,7 +144,7 @@ scenes:
       - {match: "^    else:|wanted_class_indices", sentences: [2]}
     narration:
       - "The decoding settings read the class thresholds file of the evaluation of the exported iteration, written by the training or by the evaluation script."
-      - "Should both folders hold one, the export stops rather than pick one of them."
+      - "Should both folders hold one, the export stops before writing the decoder rather than pick one of them."
       - "Take a checkpoint that was never evaluated: once exported, every threshold is zero, no chosen frame is ever flagged, and the wanted classes are named by their indices, so evaluate before exporting."
       - "Say you export the moving average of the weights: it still reads the thresholds of the trained weights, a known limit left as it is."
 

@@ -81,7 +81,9 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # 4. Export (CUDA only): set experiment_folder, iteration and formats in the main block of
 #    vision_training/deployment/export_model.py; every model gets the input contract of the run in
-#    <model>/<version>/preprocessing.json and, for ONNX, in the metadata of model.onnx (README, Input Contract)
+#    <model>/<version>/preprocessing.json and, for ONNX, in the metadata of model.onnx (README, Input Contract);
+#    the served models are replaced only once every format matches the eager model, a failed check leaving them as
+#    they were
 uv run python -m vision_training.deployment.export_model
 ```
 
@@ -184,8 +186,9 @@ main()
 │       │       A resumed run keeps the classes of its label_dictionary.json, then the run folder is created with
 │       │       the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
-│       │   │   Builds the three loaders, keeps class_names (background first) and class_colours (one BGR colour per
-│       │   │   class, for the overlays and the sample images).
+│       │   │   Builds the loaders of the three splits (the validation one only when the training reads it), keeps
+│       │   │   class_names (background first) and class_colours (one BGR colour per class, for the overlays and the
+│       │   │   sample images).
 │       │   │
 │       │   └── get_segmentation_dataloaders()
 │       │       │   One SegmentationDataset per split from <folder>/labels.json, <folder>/data/ and <folder>/masks/.
@@ -193,11 +196,13 @@ main()
 │       │       │   split keeps whole scaled images, one per batch.
 │       │       │
 │       │       ├── SegmentationDataset.__init__() -> build_class_lookup_table()
-│       │       │       Reads the manifest (every sample has a file_name and a mask_file_name), shuffles it once, and
-│       │       │       builds the [256] table turning every mask value into a class index (0 background, 255 ignored).
+│       │       │       Reads the manifest (every sample has a file_name and a mask_file_name), shuffles once and
+│       │       │       packs the samples (SerializedRecords), and builds the [256] table turning every mask value
+│       │       │       into a class index (0 background, 255 ignored).
 │       │       └── build_native_loader()
 │       │               Same torch DataLoader as the classification.
-│       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch
+│       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch, and a validation
+│       │                                         loader built against the validation setting
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       Counting the classes of every test mask would be slow, so every test image gets an empty class list,
 │       │       and the sample images are evenly spread over the test split.
@@ -767,7 +772,7 @@ model_state: 175 tensors, the first 'class_weights', then 'backbone.convolution_
 At iterations 6 and 12, last in the iteration, after its checkpoint, and at iteration 12 after its summary too, the summaries coming every 4 iterations (see `classification_workflow.md`, Step 3.7), see Stage 4.
 
 ### Step 3.7 — `get_next_batch()` → `SegmentationDataset.__getitem__()`
-`get_next_batch()` drops a batch whose loading fails and takes the next one (see `classification_workflow.md`, Step 3.8). `__getitem__()` reads the image with `read_image()` (BGR, `uint8`, a `ValueError` naming a file that cannot be read) and its mask, and checks that they have the same size. Without tiling, `preprocess_image()` resizes the image with the bilinear interpolation and the mask with the nearest interpolation (so that every pixel keeps a category), with the same letterbox: the padding of the image is black and the padding of the mask is 255, the unlabelled value. With tiling, `cut_tile()` scales both and cuts the tile of the split. The lookup table of Step 2.9 then turns the mask values into class indices.
+`get_next_batch()` drops a batch whose loading fails and takes the next one (see `classification_workflow.md`, Step 3.8). `__getitem__()` reads the image with `read_image()` (BGR, `uint8`, a `ValueError` naming a file that cannot be read, a file of more than 8 bits per channel read with 8 bits after a yellow warning) and its mask (a mask that is not a single-channel `uint8` image is refused with a `ValueError`), and checks that they have the same size. Without tiling, `preprocess_image()` resizes the image with the bilinear interpolation and the mask with the nearest interpolation (so that every pixel keeps a category), with the same letterbox: the padding of the image is black and the padding of the mask is 255, the unlabelled value. With tiling, `cut_tile()` scales both and cuts the tile of the split. The lookup table of Step 2.9 then turns the mask values into class indices.
 
 **Example: the first batch of the run**
 ```text
@@ -1118,7 +1123,7 @@ The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accura
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked). They were also captured before the per-class recall intervals (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed. The segmentation configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the segmentation evaluation saves no error image. `target_precisions`, `nms_criterion` and `nms_distance_exponent`, None in the main block, would be skipped the same way when set, the task having no class thresholds (`evaluation.target_precision`) and no `Detector` section. The evaluation is written in the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed. The segmentation configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the segmentation evaluation saves no error image. `save_predictions`, `target_precisions`, `nms_criterion` and `nms_distance_exponent`, None in the main block, would be skipped the same way when set, the task having no predictions file (`evaluation.save_predictions`), no class thresholds (`evaluation.target_precision`) and no `Detector` section. The evaluation is written in the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training.
 
 ### Step 5.2 — trainer construction
 The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the `Checkpoint_Evaluation/` folder of the run, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the `Checkpoint_Evaluation/` folder, since the counts are cached in the folder of the trainer.

@@ -115,7 +115,7 @@ scenes:
       - "A sequence of the labels file lists its frames in order and, in frame category ids, the category of every frame: here no change twice, then disappearing trapezoid."
       - "The label mapping file maps every category to a class index, category {{sequence_labelling.listings.no_change_category:words}}, no change, becoming class {{sequence_labelling.listings.no_change_class_index:words}}."
       - "A frame whose category the mapping leaves out gets the label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: the loss and the metrics ignore it, and it ends a segment."
-      - "Imagine a list one category too long or too short: the data set refuses it when it is built, naming every such sequence and the labels file."
+      - "Imagine a list one category too long or too short: the data set refuses it when it is built, naming the labels file and the first {{constant:vision_training/data/sequence/sequence_dataset.py#MAXIMUM_LISTED_INVALID_SEQUENCES:words}} such sequences."
 
   - kind: image
     title: "The class balance and the position prior"

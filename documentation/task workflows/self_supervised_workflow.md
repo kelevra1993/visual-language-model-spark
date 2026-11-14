@@ -49,7 +49,7 @@ Should you need to change one part of the task, this table gives the file holdin
 |---|---|---|
 | Trainer | `vision_training/trainers/self_supervised_trainer.py` | `SelfSupervisedTrainer`: `build_dataloaders`, `build_reference_dataloader`, `forward_pass`, `predict_batch`, `compute_batch_metrics`, `encode_reference_images`, `compute_nearest_neighbour_results`, `compute_evaluation_results`, `build_sample_image`, `show_input_samples`, `show_input_batch` |
 | Shared training loop | `vision_training/trainers/base_trainer.py` | `BaseTrainer`: `run_training_iterations`, `run_model_iteration`, `save_model`, `run_test_evaluation`, `evaluate_test_split` |
-| Dataset and loaders | `vision_training/data/classification/classification_dataset.py`, `vision_training/data/loaders.py`, `vision_training/data/grouped_batch_sampler.py` | `ClassificationDataset(keep_unlabelled_samples=True)`, `ClassificationDataset.select_samples`, `get_classification_dataloaders(self_supervised=True)`, `GroupedBatchSampler`, `build_grouped_batch_sampler` |
+| Dataset and loaders | `vision_training/data/classification/classification_dataset.py`, `vision_training/data/serialized_records.py`, `vision_training/data/loaders.py`, `vision_training/data/grouped_batch_sampler.py` | `ClassificationDataset(keep_unlabelled_samples=True)`, `ClassificationDataset.select_samples`, `SerializedRecords` (`find_record`), `get_classification_dataloaders(self_supervised=True)`, `GroupedBatchSampler`, `build_grouped_batch_sampler` |
 | Views | `vision_training/data/augmentations.py` | `DataAugmenter.create_views`, `describe_report`, `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`, `SECOND_VIEW_ONLY_TYPES` |
 | Model | `vision_training/models/self_supervised/self_supervised_model.py`, `vision_training/models/backbones/backbone.py`, `vision_training/models/classification/classification_head.py` | `SelfSupervisedModel` (`represent`, `encode`, `compute_method_loss`, `forward`), `build_backbone`, `build_global_pooling`, `compute_pooled_features` |
 | Head | `vision_training/models/self_supervised/projection_head.py`, `vision_training/models/components/fully_connected_block.py` | `ProjectionHead`, `print_projection_head_summary`, `build_fully_connected_block` |
@@ -78,9 +78,10 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 
 # 3. Evaluation of checkpoints: in the main block of scripts/evaluation/evaluate_checkpoint.py set run_name,
 #    experiment_folder (the run folder), iteration (None, an integer or "all"), test_data_folder, batch_size and
-#    track_evaluation; maximum_error_images_per_class_pair (and target_precisions, nms_criterion and
-#    nms_distance_exponent when set) is skipped with a yellow warning, the task saving no error image, no class
-#    threshold and having no detector (Step 5.1); the evaluation is written in <run>/Checkpoint_Evaluation/
+#    track_evaluation; maximum_error_images_per_class_pair (and save_predictions, target_precisions, nms_criterion
+#    and nms_distance_exponent when set) is skipped with a yellow warning, the task saving no error image, no
+#    prediction file, no class threshold and having no detector (Step 5.1); the evaluation is written in
+#    <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
@@ -200,7 +201,8 @@ main()
 │       │       a split changed since its data.json, then the run folder is created with the configuration and
 │       │       label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
-│       │   │   Builds the three loaders and names the classes after the categories of the three manifests.
+│       │   │   Builds the loaders (the validation one only when the run reads it, builds_validation_loader) and
+│       │   │   names the classes after the categories of the three manifests.
 │       │   │
 │       │   └── get_classification_dataloaders(self_supervised=True)
 │       │       ├── ClassificationDataset.__init__(output_mode="multi_class", keep_unlabelled_samples=True)
@@ -212,7 +214,8 @@ main()
 │       │       └── build_native_loader()
 │       │               drop_last for the training and validation loaders, so that every batch has batch_size images,
 │       │               or the GroupedBatchSampler in place of the batch size, the shuffling and drop_last.
-│       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch
+│       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch, and a validation
+│       │                                         loader not following builds_validation_loader
 │       ├── save_data_record()                    data.json: the classes, counted on the labelled images of every
 │       │                                         split, and the images of every split (classification_workflow.md,
 │       │                                         Step 2.7)
@@ -292,8 +295,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   (uv run python -m scripts.evaluation.evaluate_checkpoint)
 └── same as every task, maximum_error_images_per_class_pair skipped with a warning (the configuration has no
-    error_dumps section): loads training_configuration.yaml, builds the SelfSupervisedTrainer writing in
-    <run>/Checkpoint_Evaluation/, then
+    error_dumps section), as save_predictions when set: loads training_configuration.yaml, builds the
+    SelfSupervisedTrainer writing in <run>/Checkpoint_Evaluation/ (inside read_manifests_once()), then
     evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations() -> run_test_evaluation()
 ```
 
@@ -304,7 +307,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   (uv run python -m scripts
 > The examples below are real outputs from running the loader on `configurations/self_supervised/configuration_synthetic_shapes.yaml`.
 
 ### Step 1.1 — `main()`
-The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): `parse_configuration_path()` reads the path of the YAML file from the command line (`--configuration_path`, absolute or relative to the current folder, `parser.error()` stopping with "No configuration file at ..." when it is not a file), then `main()` loads it, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the self-supervised task.
+The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): `parse_configuration_path()` reads the path of the YAML file from the command line (`--configuration_path`, absolute or relative to the current folder, `parser.error()` stopping with "No configuration file at ..." when it is not a file), then `main()` loads it, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. The loading and the construction of the trainer run inside `read_manifests_once()` (`vision_training/data/manifest_cache.py`), so that every `labels.json` is parsed once per launch and shared by its readers (`read_manifest()`: the datasets, `data.json`, the split descriptions, the validation categories of Step 2.7). Nothing in it is specific to the self-supervised task.
 
 ```bash
 python -m vision_training.main --configuration_path vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml
@@ -493,7 +496,7 @@ Grouped Batches :
 ```
 
 ### Step 2.9 — `ClassificationDataset.__init__()`
-The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -100 (`IGNORED_LABEL_INDEX` of `vision_training/core/contracts.py`) instead of being dropped, and counted in `number_unlabelled_samples`, which the loaders print for the three splits (Step 2.8, Step 5.6). Every record also keeps the optional `groups` of its sample, an empty dictionary without them, read by the grouped batches (Step 2.8). It shuffles the manifest once, so the first kept sample is not the first of the file.
+The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -100 (`IGNORED_LABEL_INDEX` of `vision_training/core/contracts.py`) instead of being dropped, and counted in `number_unlabelled_samples`, which the loaders print for the three splits (Step 2.8, Step 5.6). Every record also keeps the optional `groups` of its sample, an empty dictionary without them, read by the grouped batches (Step 2.8). It reads the manifest with `read_manifest()` (Step 1.1) and shuffles the kept samples once, so the first kept sample is not the first of the file, then packs them in that order into `SerializedRecords` (`vision_training/data/serialized_records.py`, `classification_workflow.md`, Step 2.9): `samples[index]` gives one record, a pass over `samples` reads them all (`select_reference_samples()` of Step 2.1), and `samples.find_record()` finds a record by its identifier (the groups of a batch in the input viewer, Step 2.21).
 
 **Example: the manifest, the first kept sample and `dataset[0]`**
 ```text
@@ -1197,10 +1200,10 @@ With the moving average of the weights on (`Optimization.exponential_moving_aver
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`). They were captured before the per-class recall intervals were added (2026-11-01), whose `Per Class k-NN Recall` table now follows `Per Class k-NN Metrics` in the labelled blocks, and when the script wrote into `evaluations/<run name>/` next to the run: the link of Step 5.5 and the evaluation folder below are written for the current `<run>/Checkpoint_Evaluation/` folder.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5), configured by the variables of its main block and run with `uv run python -m scripts.evaluation.evaluate_checkpoint`: set `run_name` to the self-supervised run and `experiment_folder` to its run folder, `iteration` to `None` (the last checkpoint), an integer or `"all"`, and `test_data_folder` to another split if needed. The self-supervised configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the self-supervised evaluation saves no error image. `target_precisions`, `nms_criterion` and `nms_distance_exponent`, when set, are skipped the same way, the task having neither class thresholds nor a detector. A run saved before the k-NN took reference training images lacks `evaluation.number_reference_images_per_class` in its `training_configuration.yaml`, which the checks refuse (`Missing configuration key 'ExperimentConfiguration.evaluation.number_reference_images_per_class'`): add the key to it before evaluating it again. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).
+The same script for every task (see `classification_workflow.md`, Stage 5), configured by the variables of its main block and run with `uv run python -m scripts.evaluation.evaluate_checkpoint`: set `run_name` to the self-supervised run and `experiment_folder` to its run folder, `iteration` to `None` (the last checkpoint), an integer or `"all"`, and `test_data_folder` to another split if needed. The self-supervised configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the self-supervised evaluation saves no error image. `save_predictions`, `target_precisions`, `nms_criterion` and `nms_distance_exponent`, when set, are skipped the same way, the task having no `evaluation.save_predictions` setting (no `predictions.csv`), neither class thresholds nor a detector. A run saved before the k-NN took reference training images lacks `evaluation.number_reference_images_per_class` in its `training_configuration.yaml`, which the checks refuse (`Missing configuration key 'ExperimentConfiguration.evaluation.number_reference_images_per_class'`): add the key to it before evaluating it again. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()` (`experiment_folder` set to the folder holding the run, `run_name` to the name of the run folder and `standalone_evaluation_folder` to `Checkpoint_Evaluation`, so that the files go to `<run name>/Checkpoint_Evaluation/`), the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer`.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()` (`experiment_folder` set to the folder holding the run, `run_name` to the name of the run folder and `standalone_evaluation_folder` to `Checkpoint_Evaluation`, so that the files go to `<run name>/Checkpoint_Evaluation/`), the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer` inside `read_manifests_once()`, as `main()` does (Step 1.1).
 
 **Example output** (shortened)
 ```text

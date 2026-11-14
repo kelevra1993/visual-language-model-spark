@@ -209,7 +209,7 @@ scenes:
           - "{{instance_segmentation.samples.iterations[0]}} iterations: samples empty"
           - "per-level mask heads: own positives only"
           - "block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals"
-          - "overlapping masks: one full-size mask each"
+          - "polygons, overlaps: one full-size mask each"
       - heading: "Evaluation and export"
         lines:
           - "{{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} x {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} masks lose thin parts"
@@ -217,7 +217,7 @@ scenes:
           - "client pastes, thresholds itself"
           - "restore boxes unclipped"
     narration:
-      - "The pitfalls of the masks: short runs leave the samples empty; each level's mask head trains on the positives of its level only, while block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals; and overlapping masks, as in COCO, still travel through the loaders as one full-size mask each."
+      - "The pitfalls of the masks: short runs leave the samples empty; each level's mask head trains on the positives of its level only, while block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals; and polygons or overlapping masks, as in COCO, still travel through the loaders as one full-size mask each."
       - "Masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels lose thin parts at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."
 
   - kind: summary

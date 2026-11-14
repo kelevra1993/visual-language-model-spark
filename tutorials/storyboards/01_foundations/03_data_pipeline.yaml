@@ -37,25 +37,28 @@ scenes:
     code_reference: "vision_training/data/loaders.py · build_native_loader"
     elements:
       - {type: box, box: [30, 290, 290, 450], text: "images\n+ labels.json\nof the split", font: diagram_small}
+      - {type: text, position: [160, 185], text: "parsed once\nper launch,\nrecords packed", font: diagram_small, colour: dim, anchor: ma, align: center, appear: 1, highlight: [1]}
       - {type: arrow, points: [[300, 370], [380, 370]], appear: 0}
       - {type: box, box: [390, 180, 760, 500], outline: blue, appear: 0, highlight: [0]}
       - {type: text, position: [575, 215], text: "worker processes: {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}}", font: diagram_small, colour: dim, anchor: mm, appear: 0}
       - {type: box, box: [410, 340, 740, 400], text: "worker · read, resize", font: diagram_small, appear: 0}
-      - {type: arrow, points: [[770, 370], [860, 370]], appear: 1}
-      - {type: box, box: [870, 290, 1130, 450], text: "{{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}} batches\nper worker\nready in advance", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[1140, 370], [1220, 370]], appear: 2, flow: true, highlight: [2]}
-      - {type: box, box: [1230, 100, 1740, 640], outline: aqua, appear: 2, highlight: [2]}
-      - {type: text, position: [1485, 140], text: "GPU", font: diagram_bold, anchor: mm, appear: 2}
-      - {type: box, box: [1270, 190, 1700, 290], text: "augmentation\ntraining batches only", font: diagram_small, outline: yellow, appear: 2}
-      - {type: arrow, points: [[1485, 295], [1485, 335]], appear: 2}
-      - {type: box, box: [1270, 340, 1700, 440], text: "input normalization\nfirst layer of the model", font: diagram_small, outline: violet, appear: 2}
-      - {type: arrow, points: [[1485, 445], [1485, 485]], appear: 2}
-      - {type: box, box: [1270, 490, 1700, 590], text: "backbone\nand head of the task", font: diagram_small, outline: blue, appear: 2}
-      - {type: text, position: [575, 565], text: "fixed in the code: NUMBER_LOADER_WORKERS = {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}}, PREFETCH_BATCHES = {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}}", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[770, 370], [860, 370]], appear: 2}
+      - {type: box, box: [870, 290, 1130, 450], text: "{{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}} batches\nper worker\nready in advance", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1140, 370], [1220, 370]], appear: 3, flow: true, highlight: [3]}
+      - {type: text, position: [1000, 470], text: "pinned only for\na discrete GPU", font: diagram_small, colour: dim, anchor: ma, align: center, appear: 3, highlight: [3]}
+      - {type: box, box: [1230, 100, 1740, 640], outline: aqua, appear: 3, highlight: [3]}
+      - {type: text, position: [1485, 140], text: "GPU", font: diagram_bold, anchor: mm, appear: 3}
+      - {type: box, box: [1270, 190, 1700, 290], text: "augmentation\ntraining batches only", font: diagram_small, outline: yellow, appear: 3}
+      - {type: arrow, points: [[1485, 295], [1485, 335]], appear: 3}
+      - {type: box, box: [1270, 340, 1700, 440], text: "input normalization\nfirst layer of the model", font: diagram_small, outline: violet, appear: 3}
+      - {type: arrow, points: [[1485, 445], [1485, 485]], appear: 3}
+      - {type: box, box: [1270, 490, 1700, 590], text: "backbone\nand head of the task", font: diagram_small, outline: blue, appear: 3}
+      - {type: text, position: [575, 565], text: "fixed in the code: NUMBER_LOADER_WORKERS = {{constant:vision_training/data/loaders.py#NUMBER_LOADER_WORKERS}}, PREFETCH_BATCHES = {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES}}", font: diagram_small, colour: dim, anchor: md, appear: 4, highlight: [4]}
     narration:
       - "A loader worker reads the images listed in the labels file and resizes them to the input size, decoding with a single OpenCV thread."
+      - "Every labels file is parsed once per launch, then each dataset packs its records into one read-only buffer, which the forked workers read without copying it."
       - "Every worker keeps {{constant:vision_training/data/loaders.py#PREFETCH_BATCHES:words}} batches ready in advance, and each loader has workers of its own, alive for the whole run; a run without validation builds no validation loader."
-      - "On the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
+      - "The batches go through pinned memory only for a discrete GPU; on the GPU, a training batch is augmented, then normalized by the first layer of the model, and only then reaches the backbone."
       - "The number of workers and the batches each one keeps in advance are fixed in the code, the same for every task, so no configuration file sets them."
 
   - kind: yaml
@@ -251,7 +254,7 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Loader workers read and resize the images, every split with its own"}
+      - {text: "Loader workers read and resize the images, each loader with its own"}
       - {text: "Square input: keep_ratio pads with black bands, otherwise stretches"}
       - {text: "Pixels mapped to {{foundations.data.normalized_pixel_minimum}} to {{foundations.data.normalized_pixel_maximum}} by the first layer of the model"}
       - {text: "Augmentation: one draw per image, then one per activated type"}

@@ -177,7 +177,8 @@ main()
 │       │       changed since its data.json, then the run folder is created with the configuration and
 │       │       label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
-│       │   │   Builds the three loaders and keeps class_names, taken from the categories of the training manifest.
+│       │   │   Builds the loaders of the three splits (the validation one only when the run reads it) and keeps
+│       │   │   class_names, taken from the categories of the training manifest.
 │       │   │
 │       │   └── get_sequence_dataloaders(label_type="sequence")
 │       │       │   One SequenceDataset per split from <folder>/labels.json and the frames of <folder>/data/, and
@@ -190,7 +191,8 @@ main()
 │       │       └── build_native_loader()
 │       │               The training loader leaves out its last incomplete batch with a batch normalized
 │       │               classification head (fully_connected_normalization "batch").
-│       ├── check_loaders_give_batches()        refuses a split whose loader gives no batch
+│       ├── check_loaders_give_batches()        refuses a split whose loader gives no batch, and a validation
+│       │                                       loader built when the run reads none or missing when it reads one
 │       ├── save_data_record()                  data.json: the sequences of every class, the frames of every split
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The class of every test sequence, so that the sample sequences are spread over the classes.
@@ -423,7 +425,7 @@ collate     functools.partial(<function collate_padded_sequences>, members_per_s
 ```
 
 ### Step 2.9 — `SequenceDataset.__init__()`
-It reads the manifest of the split: its `categories` and its `sequences`, each giving its `id`, its `name`, its ordered `frames` (paths relative to `data/`) and its `category_id`. Every sequence is one sample, fed whole to the model. The sequences of an unmapped category or without frames are left out first, counted in one yellow note printed once the split is read; then every other sequence longer than `maximum_sequence_length` is left out with a red warning naming it, followed by a red total for the split, before that note. Every kept sequence keeps its identifier, its name, its frames and the class of each frame (the class of the sequence), and the sequences are shuffled once and packed like the classification samples (`SerializedRecords`, Step 2.9 of `classification_workflow.md`), so that the loader workers never copy them, every sequence being found by its identifier (`sequences.find_record()`) for the evaluation outputs. No frame is read here.
+It reads the manifest of the split: its `categories` and its `sequences`, each giving its `id`, its `name`, its ordered `frames` (paths relative to `data/`) and its `category_id`. Every sequence is one sample, fed whole to the model. The sequences of an unmapped category or without frames are left out first, counted in one yellow note printed once the split is read; then every other sequence longer than `maximum_sequence_length` is left out with a red warning naming it, followed by a red total for the split, before that note. The check that `frame_category_ids` gives one category per frame, which raises an error listing the sequences that do not, is for the tasks labelled per frame (M2M and SEL) and is skipped here. Every kept sequence keeps its identifier, its name, its frames and the class of each frame (the class of the sequence), and the sequences are shuffled once and packed like the classification samples (`SerializedRecords`, Step 2.9 of `classification_workflow.md`), so that the loader workers never copy them, every sequence being found by its identifier (`sequences.find_record()`) for the evaluation outputs. No frame is read here.
 
 **Example: a manifest sequence, and the lengths of the training sequences**
 ```text
