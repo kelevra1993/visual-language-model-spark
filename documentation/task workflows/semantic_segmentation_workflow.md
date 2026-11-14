@@ -471,7 +471,7 @@ dataset[0]:   images [3, 512, 512] torch.uint8, masks [512, 512] torch.int64 hol
 ### Step 2.10 — `build_native_loader()`
 The same PyTorch `DataLoader` as for the classification (see `classification_workflow.md`, Step 2.10).
 
-**Example output** (the training loader; the validation and test loaders have the same settings, 13 batches each)
+**Example output** (the training loader; the validation and test loaders have the same settings, 13 batches each; recorded with pinned memory, which the loaders now use only on a discrete GPU)
 ```text
 len(loader) = 125   batch_size = 16   num_workers = 1   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
