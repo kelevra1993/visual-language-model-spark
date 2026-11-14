@@ -1,7 +1,8 @@
 """
 SequenceDataset, the Native (OpenCV, CPU) dataset of the sequence classification, sequence labelling and frame
-selection tasks, giving every sequence of a 'labels.json' split whole with its sequence or frame labels (the sequences
-of the frame selection being checked to hold every wanted class), the sequences longer than
+selection tasks, giving every sequence of a 'labels.json' split whole with its sequence or frame labels (the frame
+labels being checked to give one category per frame, and the sequences of the frame selection to hold every wanted
+class), the sequences longer than
 'Data.sequence_settings.maximum_sequence_length' being left out with a warning. Also holds the frame reading and the
 warnings shared with the sequence pair dataset, and the collate function padding the batches of both datasets to their
 longest sequence. The kept sequences are packed into SerializedRecords (data/serialized_records.py), which the forked
@@ -28,7 +29,8 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # per frame of a whole sequence for the frame selection, the frames of unmapped categories being unselected
 VALID_LABEL_TYPES = ["sequence", "frame", "selection"]
 
-# Largest number of invalid sequences listed in the error of the frame selection data check, the others being counted
+# Largest number of invalid sequences listed in the errors of the manifest checks (frame labels, frame selection), the
+# others being counted
 MAXIMUM_LISTED_INVALID_SEQUENCES = 20
 
 # Keys of a sample whose tensors have one entry per frame along their first axis, padded to the longest sequence of the
@@ -196,6 +198,24 @@ def describe_selection_problem(frame_labels: List[int], wanted_class_indices: Li
     return ", ".join(wrong_counts) if wrong_counts else None
 
 
+def list_invalid_sequences(invalid_sequences: List[str]) -> str:
+    """
+    Formats the sequences refused by a check of the manifest of a sequence split (frame labels of another length than
+    the frames, or a frame selection without every wanted class), one line each, for the error SequenceDataset raises
+    before the training starts: the first MAXIMUM_LISTED_INVALID_SEQUENCES are listed and the others counted.
+
+    Args:
+        invalid_sequences (List[str]): The name of every refused sequence with its problem.
+
+    Returns:
+        str: The listed sequences, one ' - ' line each.
+    """
+    listed_sequences = invalid_sequences[:MAXIMUM_LISTED_INVALID_SEQUENCES]
+    if len(invalid_sequences) > MAXIMUM_LISTED_INVALID_SEQUENCES:
+        listed_sequences.append(f"... and {len(invalid_sequences) - MAXIMUM_LISTED_INVALID_SEQUENCES} more")
+    return "\n".join(f" - {listed_sequence}" for listed_sequence in listed_sequences)
+
+
 class SequenceDataset(Dataset):
     """
     Dataset of the sequence tasks, read with OpenCV on the CPU (Native loader).
@@ -207,8 +227,9 @@ class SequenceDataset(Dataset):
     warning. The frames are resized and padded like the images of the other tasks, and the collate of the loader pads
     the sequences of a batch to its longest one with black frames, marked as padding by the sequence mask.
 
-    For the frame selection, the frames of unmapped categories are unselected frames, and every sequence must hold
-    every wanted class exactly 'frames_per_class' times.
+    With one class per frame, 'frame_category_ids' must hold one category per frame. For the frame selection, the frames
+    of unmapped categories are unselected frames, and every sequence must hold every wanted class exactly
+    'frames_per_class' times.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
@@ -234,8 +255,10 @@ class SequenceDataset(Dataset):
             shuffle (bool): Whether to shuffle the sequences once at creation. Defaults to True.
 
         Raises:
-            ValueError: For the "selection" label type, if the unselected category is missing or unmapped, or if
-                kept sequences do not hold every wanted class 'frames_per_class' times, all of them being listed.
+            ValueError: For the "frame" and "selection" label types, if sequences do not have one category per frame
+                in 'frame_category_ids', all of them being listed. For the "selection" label type, if the unselected
+                category is missing or unmapped, or if kept sequences do not hold every wanted class
+                'frames_per_class' times, all of them being listed.
         """
         self.data_directory = data_directory
         self.image_size = image_size
@@ -267,11 +290,19 @@ class SequenceDataset(Dataset):
         sequences = []
         number_left_out_sequences = 0
         number_long_sequences = 0
+        mismatched_sequences = []
         invalid_sequences = []
         for sequence in manifest["sequences"]:
             frames = sequence["frames"]
             if len(frames) == 0 or (label_type == "sequence" and sequence["category_id"] not in label_dictionary):
                 number_left_out_sequences += 1
+                continue
+
+            # One category per frame: a list of another length would only fail in the collate of the loader, without
+            # naming the sequence, so every such sequence is listed in the error raised after the loop
+            if label_type != "sequence" and len(sequence["frame_category_ids"]) != len(frames):
+                mismatched_sequences.append(f"{sequence['name']} : {len(sequence['frame_category_ids'])} categories "
+                                            f"for {len(frames)} frames")
                 continue
 
             # Sequences longer than the maximum sequence length are left out with a warning, the training going on
@@ -298,15 +329,18 @@ class SequenceDataset(Dataset):
         warn_long_sequence_total(sample_kind="Sequence", number_long_samples=number_long_sequences,
                                  split_name=split_name, maximum_sequence_length=self.maximum_sequence_length)
 
+        # Every sequence labelled per frame must have one category per frame, all the others being listed at once
+        if mismatched_sequences:
+            raise ValueError(f"{len(mismatched_sequences)} sequences do not have one category per frame in "
+                             f"'frame_category_ids' : {format_path_link(path=labels_file)}\n" +
+                             list_invalid_sequences(invalid_sequences=mismatched_sequences))
+
         # Every sequence of the frame selection must be valid, all the invalid ones being listed at once
         if invalid_sequences:
-            listed_sequences = invalid_sequences[:MAXIMUM_LISTED_INVALID_SEQUENCES]
-            if len(invalid_sequences) > MAXIMUM_LISTED_INVALID_SEQUENCES:
-                listed_sequences.append(f"... and {len(invalid_sequences) - MAXIMUM_LISTED_INVALID_SEQUENCES} more")
             raise ValueError(f"{len(invalid_sequences)} sequences cannot be used for the frame selection, which needs "
                              f"every wanted class exactly {selection_settings['frames_per_class']} times "
                              f"('Selection.frames_per_class') : {format_path_link(path=labels_file)}\n" +
-                             "\n".join(f" - {listed_sequence}" for listed_sequence in listed_sequences))
+                             list_invalid_sequences(invalid_sequences=invalid_sequences))
         if number_left_out_sequences > 0:
             print_color(color="yellow", output=f"{number_left_out_sequences} sequences of unmapped categories or "
                                                f"without frames left out : {format_path_link(path=labels_file)}")

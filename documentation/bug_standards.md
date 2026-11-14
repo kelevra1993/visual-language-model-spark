@@ -585,7 +585,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | L7. Zero-area proposals and detections never removed | low | **partly fixed** | on 2026-11-12: `"per_level"` leaves out the empty proposals; `"joint"` (instance segmentation) keeps them, and the final detections get no filter |
 | L8. DET boxes only cleaned on augmented samples | low | **open** | DET and KPT (`coco_dataset.py:118-121`); INS takes its boxes from the masks |
 | L9. Multi-label keeps all-unmapped samples as negatives | low | **open** | `classification_dataset.py:80-85`; the class docstring still says they are left out |
-| L10. Nothing checks one label per frame | low | **open** | a count mismatch now raises in `collate_padded_sequences` (`sequence_dataset.py:138`), and `get_next_batch` drops that batch silently (read, not reproduced) |
+| L10. Nothing checks one label per frame | low | fixed | on 2026-11-14: `SequenceDataset` refuses the sequences whose `frame_category_ids` hold another number of categories than frames, listing them all |
 | L11. M2M batches without labelled frame | low | **open** | see below |
 | L13. The checkpoint registry is rewritten in place | low | fixed | on 2026-10-21: written to a temporary file, synced and replaced |
 | L17. Ragged last batch and averages over batches | low | **open** | see below |

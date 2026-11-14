@@ -63,8 +63,8 @@
 > - the region proposals selected per level (`RegionProposal.proposal_selection: "per_level"`, item 3 and audit M3),
 >   the proposals clamped to an empty box left out (audit L7), kept by stage 7 (+0.0104) and set in the object
 >   detection configurations on 2026-11-12, the instance segmentation ones keeping `"joint"`;
-> - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M17, M20, L2, L5 and L13, fixed since 2026-10-10 (M7
->   gone with `resume_training`), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17, L19 and L22
+> - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M17, M20, L2, L5, L10 and L13, fixed since 2026-10-10
+>   (M7 gone with `resume_training`), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17, L19 and L22
 >   keep only their open part below.
 >
 > Dropped without being implemented:
@@ -555,7 +555,7 @@ committed): every image can be taken again from them without training, except wh
 | INS | Everything DET has, plus M5 (augmented masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
 | SEG | C2, M5, M13, L20 |
-| M2O, M2M, CMP, SEL | C2, M18 (CMP), L10, L11 (M2M) |
+| M2O, M2M, CMP, SEL | C2, M18 (CMP), L11 (M2M) |
 
 ---
 
@@ -768,16 +768,6 @@ committed): every image can be taken again from them without training, except wh
     message, contradicting the class docstring.
   - Merged categories are counted twice in `get_class_counts`, which skews the balanced weights.
 - **Fix:** drop the samples with no mapped class (or make it an option), and de-duplicate their class indices.
-
-#### L10. Nothing checks that `frame_category_ids` has one label per frame
-- **Where:** `sequence_dataset.py:282-284` (frame labels built without a length check), `346` (label tensor) and
-  `128-137` (`collate_padded_sequences`).
-- **Effect (reproduced on 2026-11-03 with `collate_padded_sequences`):**
-  - A sequence with more or fewer labels than frames stops the loader on the first batch holding it, with a
-    `RuntimeError` of `unflatten` ("Provided sizes [1, 3] don't multiply up to the size of dim 0 (5)") that names
-    neither the sequence nor the labels file.
-  - The SEL check of the dataset counts the labels and reports them as "frames".
-- **Fix:** raise a `ValueError` listing the sequences whose label count differs from their frame count.
 
 #### L11. M2M sequences or batches with no labelled frame give a NaN loss and inflate the exact match
 - **Where:** `sequence_losses.py:29-31` (mean reduction with every target ignored), `sequence_metrics.py`

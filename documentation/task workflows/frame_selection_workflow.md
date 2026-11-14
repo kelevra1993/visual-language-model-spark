@@ -402,7 +402,7 @@ ValueError: 500 sequences cannot be used for the frame selection, which needs ev
  - train_000019 : circle 1 frames, triangle 1 frames, star 1 frames
  - ... and 480 more
 ```
-The warnings name every left-out sequence, in red; the run goes on with the 280 sequences of at most 8 frames. The error lists the first 20 invalid sequences and stops the training.
+The warnings name every left-out sequence, in red; the run goes on with the 280 sequences of at most 8 frames. The error lists the first 20 invalid sequences and stops the training. A sequence whose `frame_category_ids` holds another number of categories than frames is refused before this check, by an error of the same form (`<n> sequences do not have one category per frame in 'frame_category_ids'`, every such sequence with its two counts).
 
 ### Step 2.9 — `build_native_loader()`
 **Example output** (recorded with 8 workers, when the number of workers was a setting, and pinned memory; every loader now has 1 worker and pins its batches only on a discrete GPU)

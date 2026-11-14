@@ -110,12 +110,12 @@ scenes:
         highlights:
           - {match: "\"{{sequence_labelling.listings.no_change_category}}\": {{sequence_labelling.listings.no_change_class_index}}", sentences: [1]}
       - {type: box, box: [1040, 400, 1720, 560], text: "category left out of the mapping\n→ label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: no loss, no metric,\nthe end of a segment", font: diagram_small, outline: red, appear: 2, highlight: [2]}
-      - {type: box, box: [1040, 590, 1720, 700], text: "one category per frame: not checked", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+      - {type: box, box: [1040, 590, 1720, 700], text: "one category per frame: checked,\nevery other count refused", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
     narration:
       - "A sequence of the labels file lists its frames in order and, in frame category ids, the category of every frame: here no change twice, then disappearing trapezoid."
       - "The label mapping file maps every category to a class index, category {{sequence_labelling.listings.no_change_category:words}}, no change, becoming class {{sequence_labelling.listings.no_change_class_index:words}}."
       - "A frame whose category the mapping leaves out gets the label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: the loss and the metrics ignore it, and it ends a segment."
-      - "Imagine a list one category too long or too short: nothing checks it, so the collate of the loader fails on the first batch holding that sequence, an open item of the suggestions file."
+      - "Imagine a list one category too long or too short: the data set refuses it when it is built, naming every such sequence and the labels file."
 
   - kind: image
     title: "The class balance and the position prior"
