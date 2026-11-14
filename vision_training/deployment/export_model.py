@@ -1,16 +1,18 @@
 """
 Exports a trained experiment of any task to the Triton model repository as TorchScript and ONNX (optionally run with
-TensorRT), writes the Triton configurations and checks every export against the eager inference model, adding for the
-frame selection the decoder and the ensembles returning the chosen frames, and for the classification the logit
-temperature and the class thresholds saved from the temperature explorer of the exported checkpoint. Every exported
-model carries the input contract of the run (deployment/input_contract.py), in the metadata of the ONNX file and in
-'preprocessing.json' next to it, so that a server builds the input from a photo as the training did. Run as a script
-with the experiment, iteration and formats set in its main block.
+TensorRT), writes the Triton configurations and checks every export against the eager inference model, in a staging
+folder moved into the repository only when every format matches, adding for the frame selection the decoder and the
+ensembles returning the chosen frames, and for the classification the logit temperature and the class thresholds
+saved from the temperature explorer of the exported checkpoint. Every exported model carries the input contract of the
+run (deployment/input_contract.py), in the metadata of the ONNX file and in 'preprocessing.json' next to it, so that a
+server builds the input from a photo as the training did. Run as a script with the experiment, iteration and formats
+set in its main block.
 """
 
 import json
 import logging
 import shutil
+import tempfile
 import warnings
 import onnx
 import onnxruntime
@@ -38,6 +40,13 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Default Triton model repository, mounted by deployment/triton/docker-compose.yml
 DEFAULT_REPOSITORY = Path(__file__).absolute().parent / "triton" / "served_models"
+
+# Staging folder of an export, created next to the model repository, where every format is exported and checked
+# before install_staged_models moves the models into the repository, and its folders of the exported models and of
+# the version folders they replace, removed with it
+STAGING_FOLDER_PREFIX = ".export_staging_"
+STAGED_MODELS_FOLDER_NAME = "models"
+REPLACED_VERSIONS_FOLDER_NAME = "replaced_versions"
 
 
 def hide_known_export_warnings() -> None:
@@ -284,6 +293,43 @@ def read_saved_temperature(saved_thresholds_path: Path, number_classes: int) -> 
     return float(saved_thresholds["logit_temperature"])
 
 
+def install_staged_models(staging_folder: Path, repository: Path, model_version: int) -> None:
+    """
+    Moves the models export_experiment exported and checked in its staging folder into the Triton model repository,
+    once every format matched the eager model, so that a failed check leaves the models served before untouched
+    (Triton would otherwise load the mismatching model at its next start, or one format would be updated and the other
+    not). The version folder of every model replaces the one of an earlier export of that version whole, files of the
+    earlier export included, its other versions being kept, and its config.pbtxt replaces the earlier one.
+
+    Args:
+        staging_folder (Path): The staging folder of the export, holding one checked model folder per format in its
+            STAGED_MODELS_FOLDER_NAME folder.
+        repository (Path): The Triton model repository.
+        model_version (int): The Triton version of the exported models, the name of their version folder.
+    """
+    replaced_versions_folder = staging_folder / REPLACED_VERSIONS_FOLDER_NAME
+    replaced_versions_folder.mkdir()
+    for staged_model_directory in sorted((staging_folder / STAGED_MODELS_FOLDER_NAME).iterdir()):
+        model_directory = repository / staged_model_directory.name
+        version_directory = model_directory / str(model_version)
+        model_directory.mkdir(exist_ok=True)
+
+        # The version folder of an earlier export moves into the staging folder, removed with it, its class
+        # thresholds being reported when the new export deploys none (a classifier exported at a temperature of 1)
+        if version_directory.exists():
+            replaced_version_directory = replaced_versions_folder / staged_model_directory.name
+            shutil.move(src=version_directory, dst=replaced_version_directory)
+            if ((replaced_version_directory / "class_thresholds.json").exists() and
+                    not (staged_model_directory / str(model_version) / "class_thresholds.json").exists()):
+                print_color(color="yellow", output=f"Class thresholds of an earlier export removed : "
+                                                   f"{format_path_link(path=version_directory)}", indent=1)
+
+        # The checked version folder and its configuration take their place in the repository
+        shutil.move(src=staged_model_directory / str(model_version), dst=version_directory)
+        shutil.move(src=staged_model_directory / "config.pbtxt", dst=model_directory / "config.pbtxt")
+        print_color(color="green", output=f"Installed : {format_path_link(path=model_directory)}", indent=1)
+
+
 def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
                       formats: List[str], repository: Path, model_version: int, maximum_batch_size: int,
                       tensorrt_precision: Optional[str], use_saved_temperature: bool,
@@ -301,7 +347,9 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     without it, by 1, without thresholds. Every exported model carries the input contract of the run
     (build_input_contract), written into the 'metadata_props' of the ONNX file and as 'preprocessing.json' next to the
     model of every format, the export stopping before any file is written when the contract cannot describe the input
-    of the run.
+    of the run. Every format is exported and checked in a staging folder next to the repository, and the models
+    replace those of the repository (install_staged_models) only once all of them match the eager model, so that a
+    failed check leaves the served models as they were.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -321,7 +369,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
             None to look for them in its evaluation folders (find_saved_thresholds_path).
 
     Raises:
-        RuntimeError: If an exported model does not reproduce the eager outputs.
+        RuntimeError: If an exported model does not reproduce the eager outputs, the repository being left unchanged.
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
         ValueError: If use_saved_temperature is set for another task than the classification, or the saved
             thresholds are ambiguous or do not belong to the exported checkpoint, or saved_thresholds_path is given
@@ -397,52 +445,59 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         with torch.no_grad():
             reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
 
-        for export_format in formats:
-            model_name = f"{specification['model_name']}_{export_format}"
-            model_directory = repository / model_name
+        # Every format is exported and checked in a staging folder next to the repository (outside the folder Triton
+        # reads), its models moved into the repository only once all of them match the eager model
+        repository.mkdir(parents=True, exist_ok=True)
+        staging_folder = Path(tempfile.mkdtemp(prefix=STAGING_FOLDER_PREFIX, dir=repository.parent))
+        try:
+            (staging_folder / STAGED_MODELS_FOLDER_NAME).mkdir()
+            for export_format in formats:
+                model_name = f"{specification['model_name']}_{export_format}"
+                model_directory = staging_folder / STAGED_MODELS_FOLDER_NAME / model_name
 
-            # Export the model, then run the exported file on the check batch
-            if export_format == "torchscript":
-                model_path = model_directory / str(model_version) / "model.pt"
-                export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
-                                   output_path=model_path)
-                with torch.no_grad():
-                    exported_outputs = convert_outputs_to_numpy(
-                        outputs=torch.jit.load(str(model_path), map_location=device)(**check_inputs))
-            else:
-                model_path = model_directory / str(model_version) / "model.onnx"
-                export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=model_path,
-                            specification=specification, maximum_batch_size=maximum_batch_size)
-                write_onnx_input_contract(model_path=model_path, input_contract=input_contract)
-                session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-                exported_outputs = session.run(None, {input_name: input_batch.cpu().numpy()
-                                                      for input_name, input_batch in check_inputs.items()})
+                # Export the model, then run the exported file on the check batch
+                if export_format == "torchscript":
+                    model_path = model_directory / str(model_version) / "model.pt"
+                    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                                       output_path=model_path)
+                    with torch.no_grad():
+                        exported_outputs = convert_outputs_to_numpy(
+                            outputs=torch.jit.load(str(model_path), map_location=device)(**check_inputs))
+                else:
+                    model_path = model_directory / str(model_version) / "model.onnx"
+                    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=model_path,
+                                specification=specification, maximum_batch_size=maximum_batch_size)
+                    write_onnx_input_contract(model_path=model_path, input_contract=input_contract)
+                    session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+                    exported_outputs = session.run(None, {input_name: input_batch.cpu().numpy()
+                                                          for input_name, input_batch in check_inputs.items()})
 
-            write_triton_configuration(model_directory=model_directory, model_name=model_name,
-                                       model_version=model_version, export_format=export_format,
-                                       specification=specification, maximum_batch_size=maximum_batch_size,
-                                       tensorrt_precision=tensorrt_precision)
+                write_triton_configuration(model_directory=model_directory, model_name=model_name,
+                                           model_version=model_version, export_format=export_format,
+                                           specification=specification, maximum_batch_size=maximum_batch_size,
+                                           tensorrt_precision=tensorrt_precision)
 
-            # Input contract next to the model of every format, with the values of the metadata of the ONNX file
-            write_preprocessing_file(model_folder=model_path.parent, input_contract=input_contract)
+                # Input contract next to the model of every format, with the values of the metadata of the ONNX file
+                write_preprocessing_file(model_folder=model_path.parent, input_contract=input_contract)
 
-            # Class thresholds of the classifier next to the model, found at the temperature built into it, the copy of
-            # an earlier export being removed without them, so that no thresholds of another temperature stay there
-            thresholds_copy_path = model_path.parent / "class_thresholds.json"
-            if deployed_thresholds_path is not None:
-                shutil.copyfile(src=deployed_thresholds_path, dst=thresholds_copy_path)
-            elif thresholds_copy_path.exists():
-                thresholds_copy_path.unlink()
-                print_color(color="yellow", output=f"Class thresholds of an earlier export removed : "
-                                                   f"{format_path_link(path=thresholds_copy_path)}", indent=1)
+                # Class thresholds of the classifier next to the model, found at the temperature built into it; without
+                # them the installed version folder holds none, so that no thresholds of another temperature stay there
+                if deployed_thresholds_path is not None:
+                    shutil.copyfile(src=deployed_thresholds_path, dst=model_path.parent / "class_thresholds.json")
 
-            mismatches = specification["compare_outputs"](reference=reference_outputs, candidate=exported_outputs,
-                                                          **specification["comparison_tolerances"])
-            if mismatches:
-                raise RuntimeError(f"The {export_format} Export Does Not Match The Eager Model:\n" +
-                                   "\n".join(mismatches))
-            print_color(color="green", output=f"{export_format} Export Matches The Eager Model : ", indent=1)
-            print_color(color="green", output=f"{format_path_link(path=model_directory)}", indent=2)
+                mismatches = specification["compare_outputs"](reference=reference_outputs, candidate=exported_outputs,
+                                                              **specification["comparison_tolerances"])
+                if mismatches:
+                    raise RuntimeError(f"The {export_format} Export Does Not Match The Eager Model, The Served Models "
+                                       f"Left Unchanged:\n" + "\n".join(mismatches))
+                print_color(color="green", output=f"{export_format} Export Matches The Eager Model", indent=1)
+
+            # Every format matched: the checked models replace the version folders and configurations served before
+            install_staged_models(staging_folder=staging_folder, repository=repository, model_version=model_version)
+
+        # The staging folder is removed whether the export succeeded or raised, with the version folders replaced
+        finally:
+            shutil.rmtree(path=staging_folder)
 
         # Frame selector: the decoder of the selection and the ensembles the clients query
         if experiment_configuration["task"] == "frame_selection":

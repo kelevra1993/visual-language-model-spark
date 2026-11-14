@@ -41,5 +41,6 @@ mlruns/
 inspiration_projects/
 previous_classifiers/
 *experiments*/
-# Exported models served by Triton
+# Exported models served by Triton, and the staging folders of exports stopped before removing them
 vision_training/deployment/triton/served_models/
+.export_staging_*/

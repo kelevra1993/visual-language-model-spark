@@ -567,7 +567,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | M8. An empty split loops forever | medium | fixed | on 2026-10-21: refused at launch, two empty passes raise |
 | M13. Decoded image size never compared with the annotations | medium | **partly fixed** | see below; `coco_dataset.py:249` still never compares the decoded shape with the JSON size |
 | M14. Objectness ranked in bfloat16 | medium | fixed | on 2026-10-29, when mixed precision became always on (DET and INS included): `select_best_proposals` computes the probabilities in the precision of the boxes, float32 under mixed precision |
-| M15. A failed export check leaves the new model served | medium | **open** | |
+| M15. A failed export check leaves the new model served | medium | fixed | on 2026-11-14: `export_experiment` exports and checks every format in a staging folder next to the repository, and `install_staged_models` moves the models into it only once all of them match the eager model, a failed check leaving the served models unchanged |
 | M16. The DET and INS export comparison compares padding | medium | **open** | |
 | M17. The label mapping file is not part of the run | medium | fixed | on 2026-10-21: `label_dictionary.json` and checkpoint metadata |
 | M20. `Iteration_k` holds k-1 steps | medium | fixed | on 2026-10-21, with [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) |

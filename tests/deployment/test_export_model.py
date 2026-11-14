@@ -5,22 +5,79 @@ the temperature explorer of the exported checkpoint are found in its evaluation 
 folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the averaged weights), the export stopping
 when the Evaluation folder of the training holds them too, thresholds given by the export button of the page are
 accepted only from an evaluation of the exported checkpoint and weights in the run folder, and their temperature is
-read after checking them against the classes of the exported model.
+read after checking them against the classes of the exported model. An export failing its check against the eager
+model leaves the served models of the repository unchanged, a checked one replacing them.
 """
 
 import json
+import re
 import pytest
+import torch
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-from vision_training.deployment.export_model import (check_saved_thresholds_location, find_saved_thresholds_path,
-                                                     read_saved_temperature)
+from tests.deployment import test_input_contract
+from vision_training.deployment import export_model
+from vision_training.deployment.export_model import (STAGING_FOLDER_PREFIX, check_saved_thresholds_location,
+                                                     find_saved_thresholds_path, read_saved_temperature)
 from vision_training.evaluation.classification.temperature_explorer import SAVED_THRESHOLDS_FILE_NAME
+from vision_training.trainers.checkpointing import get_checkpoint_file
 
 # Exported run and checkpoint of the tests
 RUN_NAME = "CLS_TEST_MC3"
 EXPORTED_ITERATION = 6
+
+# Mismatch reported by the comparison of get_mismatching_specification whatever the outputs, and the specification
+# of the task it stands in for
+FORCED_MISMATCH = "class_probabilities differ by 1.0 (forced by the test)"
+ORIGINAL_GET_EXPORT_SPECIFICATION = export_model.get_export_specification
+
+
+def report_forced_mismatch(reference: Any, candidate: Any, **comparison_tolerances: Any) -> List[str]:
+    """
+    Stand-in for the comparison of an export specification, reporting a mismatch whatever the outputs, as the check of
+    a wrong export does.
+
+    Args:
+        reference (Any): The eager outputs, ignored.
+        candidate (Any): The outputs of the exported model, ignored.
+        **comparison_tolerances (Any): The tolerances of the specification, ignored.
+
+    Returns:
+        List[str]: The forced mismatch.
+    """
+    return [FORCED_MISMATCH]
+
+
+def get_mismatching_specification(task: str, inference_model: torch.nn.Module) -> Dict[str, Any]:
+    """
+    Stand-in for get_export_specification giving the export specification of the task with report_forced_mismatch as
+    its comparison, so that every exported format fails its check.
+
+    Args:
+        task (str): The task of the exported run.
+        inference_model (torch.nn.Module): The inference model of the run.
+
+    Returns:
+        Dict[str, Any]: The specification of the task, its comparison failing.
+    """
+    return (ORIGINAL_GET_EXPORT_SPECIFICATION(task=task, inference_model=inference_model) |
+            {"compare_outputs": report_forced_mismatch})
+
+
+def read_repository_files(repository: Path) -> Dict[str, bytes]:
+    """
+    Reads every file of a model repository, so that a test tells which files an export changed.
+
+    Args:
+        repository (Path): The model repository.
+
+    Returns:
+        Dict[str, bytes]: The content of every file, keyed by its path relative to the repository.
+    """
+    return {path.relative_to(repository).as_posix(): path.read_bytes() for path in sorted(repository.rglob(pattern="*"))
+            if path.is_file()}
 
 
 def build_thresholds(logit_temperature: float, number_classes: int) -> Dict[str, Any]:
@@ -153,3 +210,55 @@ def test_given_saved_thresholds_must_be_those_of_the_exported_checkpoint(tmp_pat
     else:
         with pytest.raises(expected_exception=ValueError, match="for the exported checkpoint"):
             check_saved_thresholds_location(**location_settings)
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The export runs the model on the GPU.")
+def test_failed_export_check_leaves_the_served_models_unchanged(tmp_path: Path,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that an export of new weights failing its check against the eager model raises and leaves every file of
+    the served models unchanged, both formats included, without any staging folder left, and that the checked export
+    of the same weights then replaces the version folders of both formats while keeping another version.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture making the comparison of the export fail.
+    """
+    experiment_folder, repository = tmp_path / "CLS_TEST_MC3", tmp_path / "served_models"
+    test_input_contract.write_trained_model(experiment_folder=experiment_folder, task="classification",
+                                            keep_ratio=True, tiling_configuration=None)
+    test_input_contract.export_test_run(experiment_folder=experiment_folder, repository=repository,
+                                        formats=["torchscript", "onnx"])
+
+    # Another version of the served classifier, which an export of version 1 must keep
+    other_version_path = repository / "image_classifier_torchscript" / "2" / "model.pt"
+    other_version_path.parent.mkdir()
+    other_version_path.write_bytes(data=b"version 2")
+    served_files = read_repository_files(repository=repository)
+
+    # New weights for the run, so that its next export writes other model files
+    checkpoint_path = get_checkpoint_file(weights_directory=experiment_folder / "Weights",
+                                          iteration=test_input_contract.EXPORTED_ITERATION)
+    checkpoint = torch.load(f=checkpoint_path, weights_only=True)
+    checkpoint["model_state"] = {name: tensor + 0.5 if tensor.is_floating_point() else tensor
+                                 for name, tensor in checkpoint["model_state"].items()}
+    torch.save(obj=checkpoint, f=checkpoint_path)
+
+    # An export failing its check raises, the served files staying as they were
+    monkeypatch.setattr(target=export_model, name="get_export_specification", value=get_mismatching_specification)
+    with pytest.raises(expected_exception=RuntimeError, match=re.escape(pattern=FORCED_MISMATCH)):
+        test_input_contract.export_test_run(experiment_folder=experiment_folder, repository=repository,
+                                            formats=["torchscript", "onnx"])
+    assert read_repository_files(repository=repository) == served_files
+    assert not list(tmp_path.glob(pattern=f"{STAGING_FOLDER_PREFIX}*"))
+
+    # The checked export replaces version 1 of both formats and keeps version 2
+    monkeypatch.undo()
+    test_input_contract.export_test_run(experiment_folder=experiment_folder, repository=repository,
+                                        formats=["torchscript", "onnx"])
+    exported_files = read_repository_files(repository=repository)
+    assert exported_files.keys() == served_files.keys()
+    for model_file in ["image_classifier_torchscript/1/model.pt", "image_classifier_onnx/1/model.onnx"]:
+        assert exported_files[model_file] != served_files[model_file]
+    assert exported_files["image_classifier_torchscript/2/model.pt"] == b"version 2"
+    assert not list(tmp_path.glob(pattern=f"{STAGING_FOLDER_PREFIX}*"))
