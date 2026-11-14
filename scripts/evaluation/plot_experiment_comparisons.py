@@ -502,8 +502,8 @@ if __name__ == "__main__":
     registry_path = BENCHMARKING_FOLDER / "experiment_comparisons.yaml"
     # Folder of the figures, one subfolder per experiment, the experiment plans linking every figure
     output_folder = BENCHMARKING_FOLDER / "figures"
-    # Experiment ("classification", "sequence_labelling" or "object_detection") and stage (such as "3" or "2b") to draw
-    # alone after a new stage, None drawing every stage of every experiment
+    # Experiment ("classification", "sequence_labelling", "object_detection" or "instance_segmentation") and stage (such
+    # as "3" or "2b") to draw alone after a new stage, None drawing every stage of every experiment
     experiment = None
     stage = None
 
