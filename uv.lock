@@ -4340,8 +4340,6 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "onnxscript" },
     { name = "opencv-python" },
-    { name = "pyarrow" },
-    { name = "pytest" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "scikit-learn" },
@@ -4351,6 +4349,11 @@ dependencies = [
     { name = "torchvision" },
     { name = "tqdm" },
     { name = "tritonclient", extra = ["grpc"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -4365,8 +4368,6 @@ requires-dist = [
     { name = "onnxruntime", specifier = ">=1.30.0" },
     { name = "onnxscript", specifier = ">=0.7.2" },
     { name = "opencv-python", specifier = ">=5.0.0.93" },
-    { name = "pyarrow", specifier = ">=25.0.1" },
-    { name = "pytest", specifier = ">=9.1.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
@@ -4379,7 +4380,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = []
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "voxel51-eta"
