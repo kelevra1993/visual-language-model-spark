@@ -63,9 +63,9 @@
 > - the region proposals selected per level (`RegionProposal.proposal_selection: "per_level"`, item 3 and audit M3),
 >   the proposals clamped to an empty box left out (audit L7), kept by stage 7 (+0.0104) and set in the object
 >   detection configurations on 2026-11-12, the instance segmentation ones keeping `"joint"`;
-> - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M17, M20, L2, L5, L10, L13 and L18, fixed since 2026-10-10
->   (M7 gone with `resume_training`), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17, L19 and L22
->   keep only their open part below.
+> - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M15, M17, M20, L2, L5, L10, L13 and L18, fixed since
+>   2026-10-10 (M7 gone with `resume_training`), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17,
+>   L19 and L22 keep only their open part below.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -550,7 +550,7 @@ committed): every image can be taken again from them without training, except wh
 
 | Task | Findings |
 |---|---|
-| All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, M15, L14–L17 |
+| All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, L14–L17 |
 | DET | M13, M16, M21, L7, L8 |
 | INS | Everything DET has, plus M5 (augmented masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
@@ -687,13 +687,6 @@ committed): every image can be taken again from them without training, except wh
 - **Fix:** compare `image.shape[:2]` with the JSON size (and the RLE `size`) and raise on a mismatch. Choose one EXIF
   policy for the images (`read_image`, shared by the training and the deployment) and the SEG masks.
 
-#### M15. A failed export check still leaves the new model in the served repository
-- **Where:** `deployment/export_model.py:231-256`: `model.pt` / `model.onnx` and `config.pbtxt` are written into
-  `served_models/<name>/<version>/` before `compare_outputs`.
-- **Effect:** a mismatch raises, but the previous good export is already overwritten, and Triton serves the broken one
-  at its next start. With several formats, one can be updated while the other stays broken.
-- **Fix:** export into a temporary folder, compare, then move the folder into the repository.
-
 #### M16. The DET and INS export comparison probably compares only padding — PLAUSIBLE
 - **Where:** `export_specifications.py:278-302` and `333-355`: random-noise inputs, with the deployment
   `score_threshold` (0.5) applied.
@@ -714,7 +707,7 @@ committed): every image can be taken again from them without training, except wh
 
 #### M21. TensorRT FP16 is never validated, and the engine cache may serve old weights — PLAUSIBLE
 - **Where:**
-  - `export_model.py:243` checks the export only with ONNX Runtime on the CPU in FP32.
+  - `export_experiment` (`export_model.py`) checks the export only with ONNX Runtime on the CPU in FP32.
   - `triton_configuration.py:87-94` enables `trt_engine_cache_enable` with the fixed path `/tmp/tensorrt_engine_cache`.
 - **Effect:**
   - FP16 overflow or precision loss is never detected.
@@ -910,5 +903,4 @@ misspelled keys are silently ignored, only the removed settings and the augmenta
    (error handling). These protect long runs and change no model.
 2. **Correctness of the targets:** C2 (smoothing with weights), M5 (exact nearest resizing), M13 (image sizes against
    the annotations), L8 (boxes of the samples without augmentation), L7 (empty proposals of the joint selection of INS).
-3. **Evaluation and deployment:** M15 and M16 (export check), M21 (TensorRT), L3, L22 and the statements of the last
-   table.
+3. **Evaluation and deployment:** M16 (export check), M21 (TensorRT), L3, L22 and the statements of the last table.
