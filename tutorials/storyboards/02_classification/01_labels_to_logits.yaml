@@ -1,7 +1,7 @@
 # Image classification, chapter 1: what is specific to the classifier, from its labels to its logits: when to choose
 # the task, the labels and label mapping files, the commands, the head section and its run name tokens, the pooling or
 # flattening, the layers of the head, the logits and probabilities of a test star, the loss and its class weights, the
-# decorrelation of the hidden features, and the learning rate variants of the README. Coordinates of the html scenes
+# decorrelation of the hidden features, and the learning rate variants of the run. Coordinates of the html scenes
 # are in pixels of the content area (1760 x 740, origin at its top left corner); the figures and facts named
 # classification.* are made by tutorials/figures/classification from the synthetic shapes run of tutorial_sources.yaml.
 series: classification
@@ -291,7 +291,7 @@ scenes:
                   classification.benchmark.high_learning_rates.smallest_learning_rate]
     narration:
       - "The accuracy of every training and validation batch is the share of images whose highest logit is the true class, taken from the logits of the forward pass, for monitoring only."
-      - "The README compares {{classification.learning_rates.run_count:words}} learning rates of this configuration, told apart by their run name suffix: over the first {{classification.learning_rates.compared_iterations}} iterations, the smallest, {{classification.learning_rates.lr_0_0001.learning_rate}}, lags at {{classification.learning_rates.lr_0_0001.validation_last_mean:percent}} validation accuracy over the last {{classification.learning_rates.averaged_last_iterations}}."
+      - "This configuration was launched at {{classification.learning_rates.run_count:words}} learning rates, told apart by their run name suffix: over the first {{classification.learning_rates.compared_iterations}} iterations, the smallest, {{classification.learning_rates.lr_0_0001.learning_rate}}, lags at {{classification.learning_rates.lr_0_0001.validation_last_mean:percent}} validation accuracy over the last {{classification.learning_rates.averaged_last_iterations}}."
       - "The others reach about {{classification.learning_rates.lr_0_0002.validation_last_mean:percent}}, but the test evaluation gives {{classification.learning_rates.lr_0_0005.test_accuracy:percent}} at {{classification.learning_rates.lr_0_0005.learning_rate}} and only {{classification.learning_rates.lr_0_001.test_accuracy:percent}} at {{classification.learning_rates.lr_0_001.learning_rate}}: one evaluation of a short run does not rank them."
       - "In the benchmark, at {{classification.benchmark.image_size}} pixels with a deeper backbone and no head normalization, every launch from {{classification.benchmark.high_learning_rates.smallest_learning_rate}} upwards stayed near one in {{classification.benchmark.class_count:words}} at iteration {{classification.benchmark.high_learning_rates.iteration}}, at most {{classification.benchmark.high_learning_rates.largest_accuracy_500:percent}}, and this run keeps {{classification.learning_rates.lr_0_0002.learning_rate}}."
 

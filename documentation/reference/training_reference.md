@@ -17,7 +17,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 
 ## Launching A Run
 - A `--configuration_path` leading to no file, or a configuration with problems, stops the program before anything starts, with the list of every problem. A setting removed from the configuration files is refused with a message naming what replaced it ([Fixed Settings](configuration_reference.md#fixed-settings)).
-- The training, validation and test loaders each read their batches with 1 worker process, preparing 2 batches in advance, the validation loader being built only when `validation_iteration_ratio` is above 0 (or for the diagnosis modes ending the program), and the training and validation forward passes always run in bfloat16 (mixed precision), the weights and the test evaluation staying in float32.
+- The training, validation and test loaders each read their batches with 1 worker process, preparing 2 batches in advance, the validation loader being built only when `validation_iteration_ratio` is above 0 (or for the diagnosis modes ending the program); the batches are copied to pinned memory only with a discrete CUDA GPU (`uses_pinned_memory` of `vision_training/data/loaders.py`), an integrated GPU such as that of the DGX Spark sharing one memory with the processor, and the training and validation forward passes always run in bfloat16 (mixed precision), the weights and the test evaluation staying in float32.
 - The launch adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF`, keeping its other settings. Without it, the changing shapes of the sequence batches make the allocator reserve more and more GPU memory.
 
 ## Run Folder
@@ -211,17 +211,21 @@ The `pretrained` block of a section initialises its component from a trained run
 | `RegionProposal` | region proposal heads of every detection level | DET, INS |
 | `Detector` | detection heads of every detection level | DET, INS |
 | `MaskHead` | mask heads of every detection level | INS |
+| `HRNet` | high resolution network | KPT |
+| `KeypointHead` | heatmap and tag head, with its higher resolution branch | KPT |
 
 The settings defining the layers must match, which is checked at launch. The image size may differ, and so may the `batch_normalization_momentum` of a source run written before the momentum was fixed.
 
 | Component | Settings that must match |
 |---|---|
-| Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling` |
+| Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling`; a backbone whose `convolutions` are the first blocks of the source ones (the stem of a keypoint detector) loads those blocks, its `last_max_pooling` free |
 | Classification head | `fully_connected`, `fully_connected_normalization`, and the image size after a `flatten` pooling |
 | Transformer with positional embedding | `maximum_sequence_length` |
 | Region proposal heads | detection levels, `region_proposal` and anchors per position of every level, normalization, `Neck.type` `none` in both runs |
 | Detection heads | detection levels, `detector` of every level, normalization, modules, `Neck.type` `none` in both runs |
 | Mask heads | detection levels, `mask_head` of every level, `mask_resolution`, `upsampling`, normalization, modules, `Neck.type` `none` in both runs |
+| High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, and the channels of the last stem block |
+| Keypoint head | `KeypointHead.higher_resolution` and `hidden_width`, the `HRNet.base_width`, and with the higher resolution branch its `blocks_per_branch`, `modules` and `normalization` (the normalization also with a hidden width above 0) |
 
 - An object detection run can thus initialise an instance segmentation run, whose mask heads train alone with the other components frozen.
 - A resumed run does not load the pretrained component again.

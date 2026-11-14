@@ -1,5 +1,5 @@
 # Run of documentation/task workflows/instance_segmentation_workflow.md (trained 2026-10-24, 5000 iterations), a copy of
-# instance_segmentation/configuration_synthetic_shapes.yaml (20 shape classes) in experiments/workflow_runs.
+# configuration_synthetic_shapes.yaml (20 classes) in experiments/workflow_runs, loading one mask per object.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "instance_segmentation" trains the Mask R-CNN-like segmenter;
   # needs RegionProposal, DetectionLevels, Detector, MaskHead and COCO 'segmentation' labels (crowds as objects).
@@ -120,6 +120,8 @@ Data:
     size: 512
     # Keeps the original aspect ratio when resizing.
     keep_ratio: True
+  # One mask per object in the loaders, as this run was trained (before the instance index maps of 2026-11-13).
+  instance_index_maps: False
   label_mapping:
     # "binary" maps every foreground object to 1; "multi_class" uses the mapping file.
     mode: "multi_class"

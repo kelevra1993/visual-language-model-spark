@@ -2,8 +2,8 @@
 Learning rate figure of the classification tutorials (the chapter from labels to logits), made at every build by
 tutorials/figures/classification/figures.py from the TensorBoard logs of the classification run and of its three
 learning rate variants (classification and classification_learning_rates of tutorials/tutorial_sources.yaml, the
-launches the README compares in MLflow): the validation accuracy of every iteration of the first 600 iterations of the
-four runs, smoothed like TensorBoard, and their mean validation accuracy over the last 50 of these iterations next to
+same configuration at four learning rates told apart by their run name suffix): the validation accuracy of every
+iteration of the first 600 iterations of the four runs, smoothed like TensorBoard, and their mean validation accuracy over the last 50 of these iterations next to
 the test accuracy of their first evaluation (600 for the variants, 500 for the run). The facts give these numbers with
 the learning rate of every run, read from its saved configuration. The accuracies are written as the percentages of
 the reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.

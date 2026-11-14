@@ -58,10 +58,12 @@ scenes:
       - {type: box, box: [1220, 410, 1740, 510], text: "metric tracker\nTensorBoard every iteration,\nconsole averages per interval", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
       - {type: arrow, points: [[1170, 140], [1260, 405]], colour: violet, appear: 3}
       - {type: arrow, points: [[1175, 460], [1215, 460]], colour: violet, appear: 3}
+    # The validation ratio that turns the validation off (BaseTrainer.builds_validation_loader, base_trainer.py)
+    literal_numbers: [zero]
     narration:
       - "Every iteration takes one batch prefetched by the worker of the training loader, augments it on the GPU, and runs the forward pass in {{foundations.optimization.mixed_precision_dtype}}, the mixed precision of every run."
       - "The task trainer returns its losses and batch metrics, the backward pass follows, then one optimizer step: the learning rate of the schedule, and the moving average of the weights when it is on."
-      - "Every validation ratio iterations, one validation batch goes through the model without augmentation and without any update, for the validation curves."
+      - "Every validation ratio iterations, one validation batch goes through the model without augmentation and without any update, for the validation curves; a ratio of zero builds no validation loader at all."
       - "Every value goes to the metric tracker, which writes it to TensorBoard at every iteration and averages it over the interval for the console."
 
   - kind: html
@@ -158,18 +160,21 @@ scenes:
   - kind: terminal
     title: "Stopping and resuming"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.restore_last_model"
-    # The iterations of the made-up stopped and resumed run of the third sentence
-    literal_numbers: [five thousand, eight thousand, three thousand]
+    # The iterations of the made-up stopped and resumed run of the third sentence, and the failed iterations in a row
+    # the loop goes on after (maximum_consecutive_errors of BaseTrainer.run_training_loop, base_trainer.py)
+    literal_numbers: [five thousand, eight thousand, three thousand, five]
     lines:
       - {role: comment, text: "# Ctrl+C saves a checkpoint of the last step taken, and may print:"}
       - {role: comment, text: "#   The Checkpoint Of Iteration <n> Was Not Evaluated"}
       - {role: comment, text: "# The same configuration launched again: it always resumes"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "#   - Changed Settings        : None Since Iteration <n>"}
+      - {role: comment, text: "# A failed iteration is skipped, the traceback of its error printed once"}
     narration:
       - "Control C saves a checkpoint of the last step; an evaluation checkpoint left unevaluated by the stop is announced, to be evaluated apart."
       - "Launched again, the run always restarts from its last checkpoint with its optimizer state, and prints every setting changed since the previous start."
       - "Let's consider a run stopped at five thousand and resumed with eight thousand iterations: the number of iterations being the total of the run, it trains the last three thousand."
+      - "A failed iteration is skipped with a yellow message, the traceback of its error printed the first time that error occurs, and more than five failures in a row stop the training, which still saves a last checkpoint."
 
   - kind: html
     page: diagram

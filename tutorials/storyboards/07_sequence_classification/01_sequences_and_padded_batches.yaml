@@ -138,11 +138,12 @@ scenes:
       end: "number_long_sequences"
     highlights:
       - {match: "for sequence in manifest", sentences: [0]}
-      - {match: "number_left_out_sequences|category_id", sentences: [1]}
+      - {match: "number_left_out_sequences|\\[\"category_id\"\\]", sentences: [1]}
+      - {match: "label_type != \"sequence\"", sentences: [1]}
       - {match: "self.maximum_sequence_length|warn_long_sequence|number_long_sequences", sentences: [2]}
     narration:
       - "The data set reads the labels file of the split, and every sequence becomes one sample, read in full, with no window and no subsampling."
-      - "A sequence of an unmapped category, or without frames, is counted in one yellow note."
+      - "A sequence of an unmapped category, or without frames, is counted in one yellow note; the check of one category per frame is for the tasks labelled frame by frame."
       - "Say you set the maximum length too low: every longer sequence is left out with a red line naming it, then a red total for the split, and every split shrinks, the test split included."
 
   - kind: image

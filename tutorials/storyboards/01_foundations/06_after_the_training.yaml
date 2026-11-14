@@ -1,8 +1,8 @@
 # Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, comparing
-# launches and runs, clustering the image embeddings of a trained run, exporting a model to Triton with its input
-# contract and serving it, the tests and the map of the repository. The settings shown are the live main blocks of the
-# scripts; the spread between launches is the one of benchmark.py and the counts of the repository those of listings.py
-# of tutorials/figures/foundations.
+# launches and runs, clustering the image embeddings of a trained run, exporting a model to Triton through a staging
+# folder with its input contract and serving it, the tests and the map of the repository. The settings shown are the
+# live main blocks of the scripts; the spread between launches is the one of benchmark.py and the counts of the
+# repository those of listings.py of tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
 chapter: 6
@@ -149,10 +149,11 @@ scenes:
       start: "^if __name__ == \"__main__\":"
       end: "^    tensorrt_precision = "
     highlights:
-      - {match: "^    formats = |^    repository = ", sentences: [0]}
-      - {match: "^    run_name = |^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [1]}
+      - {match: "^    formats = |^    repository = ", sentences: [0, 1]}
+      - {match: "^    run_name = |^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [2]}
     narration:
-      - "The export model script writes a trained run to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model, and checks every export against the PyTorch model."
+      - "The export model script writes a trained run to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model."
+      - "Every format is first exported and checked against the PyTorch model in a staging folder, and the served models are replaced only once all of them match, so a failed check leaves them as they were."
       - "Set the run folder, the iteration, the averaged or the trained weights, the largest batch size and the TensorRT precision of the ONNX model, then run it as a module."
 
   - kind: code

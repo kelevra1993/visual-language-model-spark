@@ -47,7 +47,7 @@ export  frame_selector_<format>: images [B, T, 3, 256, 256] ─> class_probabili
 | Metrics and images | `vision_training/evaluation/sequence/frame_selection_metrics.py`, `vision_training/utilities/visualization.py` | `compute_selection_metrics`, `compute_ranking_metrics`, `find_selection_thresholds`, `build_frame_selection_image`; `compute_bootstrap_recall_intervals` and `build_recall_interval_table` of `vision_training/evaluation/recall_intervals.py` |
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_frame_selection_configuration`, `check_selection_configuration` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_selection_sequence`, `SELECTION_CATEGORIES` |
-| Export and deployment | `vision_training/deployment/export_model.py`, `frame_selection_deployment.py`, `frame_selection_decoder_backend.py`, `deployment_utilities.py`, `input_contract.py` | `build_decoding_settings`, `find_class_thresholds_path`, `export_frame_selection_decoding`, `TritonPythonModel` of the decoder, `build_input_contract`, `write_preprocessing_file` |
+| Export and deployment | `vision_training/deployment/export_model.py`, `frame_selection_deployment.py`, `frame_selection_decoder_backend.py`, `deployment_utilities.py`, `input_contract.py` | `export_experiment`, `install_staged_models`, `build_decoding_settings`, `find_class_thresholds_path`, `export_frame_selection_decoding`, `TritonPythonModel` of the decoder, `build_input_contract`, `write_preprocessing_file` |
 
 ### Run It
 ```bash
@@ -65,8 +65,9 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 # task) in its main block; it writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
-# Export with the decoder and the ensembles: set experiment_folder, iteration, use_averaged_weights, formats,
-# maximum_batch_size and tensorrt_precision in its main block, use_saved_temperature staying False (classification only)
+# Export with the decoder and the ensembles: set run_name, experiment_folder, iteration, use_averaged_weights, formats,
+# repository, model_version, maximum_batch_size and tensorrt_precision in its main block, use_saved_temperature
+# staying False (classification only); the networks are checked in a staging folder before they replace the served ones
 uv run python -m vision_training.deployment.export_model
 ```
 
@@ -95,9 +96,9 @@ uv run python -m vision_training.deployment.export_model
 - Every sequence must hold exactly `frames_per_class` frames of every wanted class, otherwise the training stops at startup with the list of the first 20 such sequences (Step 2.8, `describe_selection_problem()`); a wanted class left out of the label mapping turns its frames into unselected ones (`SequenceDataset`).
 - The Hungarian decoding maximises the probability of the whole labelling, not the number of right frames: on the 20 sequences of Stage 5, the checkpoint of iteration 3 gets 3 true triangle frames with the greedy decoding and 1 with the Hungarian one (Step 5.6). The best checkpoint, the thresholds and the deployment follow `Selection.decoding` only.
 - Tied probabilities give every tied frame the best rank, so a model giving the same probabilities to every frame scores a Top-k Selection Accuracy and a Mean True Frame Rank of 1.0 (`compute_frame_ranks()`, kept as it is).
-- A class never reaching `target_precision` gets a `null` threshold, every frame chosen for it being flagged low confidence (Step 4.14). The export reads the `class_thresholds.json` of the exported iteration in `Evaluation/Iteration_<n>/` (training) or `Checkpoint_Evaluation/Iteration_<n>/` (`evaluate_checkpoint.py`), and stops when both hold one (`build_decoding_settings()`, `find_class_thresholds_path()`). A checkpoint exported without any evaluation gets thresholds of 0, so no chosen frame is flagged, and `decoding_settings.json` names its wanted classes by their indices: evaluate an intermediate checkpoint with `evaluate_checkpoint.py` before exporting it. An export of the averaged weights reads the thresholds of the trained weights (`Iteration_<n>/class_thresholds.json`, not those of its `EMA` subfolder), a limit kept as it is.
+- A class never reaching `target_precision` gets a `null` threshold, every frame chosen for it being flagged low confidence (Step 4.14). The export reads the `class_thresholds.json` of the exported iteration in `Evaluation/Iteration_<n>/` (training) or `Checkpoint_Evaluation/Iteration_<n>/` (`evaluate_checkpoint.py`), and stops when both hold one (`build_decoding_settings()`, `find_class_thresholds_path()`). It reads them only after the networks: `export_experiment()` exports and checks every format in a staging folder and installs them once all match the eager model (`install_staged_models()`), then writes the decoder and the ensembles straight into the repository, so this stop leaves the new networks installed next to the decoder of an earlier export, if any. A checkpoint exported without any evaluation gets thresholds of 0, so no chosen frame is flagged, and `decoding_settings.json` names its wanted classes by their indices: evaluate an intermediate checkpoint with `evaluate_checkpoint.py` before exporting it. An export of the averaged weights reads the thresholds of the trained weights (`Iteration_<n>/class_thresholds.json`, not those of its `EMA` subfolder), a limit kept as it is.
 - The synthetic configuration is solved quickly: the README screenshot run reaches a Hungarian selection accuracy of 0.9950 at iteration 1000 and 1.0000 at iteration 2000, so its sample images show no wrong choice (`suggestions.md` K34). Its 3 wrong choices of iteration 1000 are triangles (`selections.csv`: `test_000004`, `test_000134`, `test_000052`), the last one chosen at 0.4446, above the triangle threshold of 0.1830, so not flagged.
-- The exported network has no sequence mask: the sequences of one request must have the same number of frames, from 1 to `maximum_sequence_length` (`InferenceSequenceModel`, README Deployment), and the decoding runs in the Python backend on the CPU, after the network.
+- The exported network has no sequence mask: the sequences of one request must have the same number of frames, from 1 to `maximum_sequence_length` (`InferenceSequenceModel`, every frame of its `images` [B, T, 3, S, S] input being real), and the decoding runs in the Python backend on the CPU, after the network.
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -402,7 +403,7 @@ ValueError: 500 sequences cannot be used for the frame selection, which needs ev
  - train_000019 : circle 1 frames, triangle 1 frames, star 1 frames
  - ... and 480 more
 ```
-The warnings name every left-out sequence, in red; the run goes on with the 280 sequences of at most 8 frames. The error lists the first 20 invalid sequences and stops the training. A sequence whose `frame_category_ids` holds another number of categories than frames is refused before this check, by an error of the same form (`<n> sequences do not have one category per frame in 'frame_category_ids'`, every such sequence with its two counts).
+The warnings name every left-out sequence, in red; the run goes on with the 280 sequences of at most 8 frames. The error lists the first 20 invalid sequences and stops the training. A sequence whose `frame_category_ids` holds another number of categories than frames is refused before this check, by an error of the same form (`<n> sequences do not have one category per frame in 'frame_category_ids'`, the first 20 such sequences listed with their two counts).
 
 ### Step 2.9 — `build_native_loader()`
 **Example output** (recorded with 8 workers, when the number of workers was a setting, and pinned memory; every loader now has 1 worker and pins its batches only on a discrete GPU)
