@@ -9,6 +9,7 @@ dataset, batch or worker process.
 
 import os
 import cv2
+import torch
 
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -28,6 +29,23 @@ NUMBER_LOADER_WORKERS = 1
 PREFETCH_BATCHES = 2
 
 
+def uses_pinned_memory() -> bool:
+    """
+    Tells whether the loaders of the trainings copy their batches to pinned memory, the page-locked host memory from
+    which a discrete GPU copies a batch faster, so that build_native_loader pins them only where it helps. An
+    integrated GPU, such as the GB10 of the DGX Spark, shares one memory with the processor: a pinned copy only adds a
+    second copy of every batch and a cache of pinned blocks that grows with the batch sizes (2.54 GB per launch of the
+    instance segmentation benchmark at iteration 9000), without a faster training (on its hard dataset, 39.85 images
+    per second without against 40.17 with, the two launches with it 0.88 apart). Without a CUDA GPU nothing is pinned.
+
+    Returns:
+        bool: True with a discrete CUDA GPU, False with an integrated one or without any.
+    """
+    if not torch.cuda.is_available():
+        return False
+    return not torch.cuda.get_device_properties(device=torch.cuda.current_device()).is_integrated
+
+
 def build_native_loader(dataset: Dataset, batch_size: int, collate_function: Optional[Callable] = None,
                         drop_last: bool = False, shuffle: bool = True,
                         batch_sampler: Optional[Sampler[List[int]]] = None,
@@ -38,9 +56,9 @@ def build_native_loader(dataset: Dataset, batch_size: int, collate_function: Opt
     rows), or the batches of a batch sampler (the grouped batches of the self-supervised task), NUMBER_LOADER_WORKERS
     worker processes each preparing PREFETCH_BATCHES batches in advance and kept alive between epochs and evaluations
     (no restart at every pass) until the end of the training (BaseTrainer.shutdown_loader_workers), each decoding with
-    a single OpenCV thread, and batches copied to pinned memory for faster transfers to the GPU. With 0 workers, the
-    samples are loaded in the main process, for debugging. The single OpenCV thread is set in this process, which then
-    also runs OpenCV on one thread.
+    a single OpenCV thread, and batches copied to pinned memory for faster transfers to a discrete GPU only
+    (uses_pinned_memory). With 0 workers, the samples are loaded in the main process, for debugging. The single OpenCV
+    thread is set in this process, which then also runs OpenCV on one thread.
 
     Args:
         dataset (Dataset): The Native dataset of the split.
@@ -73,8 +91,10 @@ def build_native_loader(dataset: Dataset, batch_size: int, collate_function: Opt
     # the DataLoader refuses next to it
     batching_arguments = {"batch_sampler": batch_sampler} if batch_sampler is not None else {
         "batch_size": batch_size, "shuffle": shuffle, "drop_last": drop_last}
-    return DataLoader(dataset=dataset, num_workers=number_workers, collate_fn=collate_function, pin_memory=True,
-                      persistent_workers=use_workers,
+
+    # Batches pinned for a discrete GPU only, an integrated one sharing the host memory
+    return DataLoader(dataset=dataset, num_workers=number_workers, collate_fn=collate_function,
+                      pin_memory=uses_pinned_memory(), persistent_workers=use_workers,
                       prefetch_factor=PREFETCH_BATCHES if use_workers else None,
                       **batching_arguments)
 

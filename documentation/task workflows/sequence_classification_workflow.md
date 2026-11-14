@@ -455,7 +455,7 @@ get_class_counts()     = [522, 484, 516, 478]           (sequences of every clas
 ### Step 2.10 — `build_native_loader()`
 The same PyTorch `DataLoader` as for the classification (see `classification_workflow.md`, Step 2.10), with the collate of Step 2.8.
 
-**Example output** (recorded with 8 workers, when the number of workers was a setting; every loader now has 1)
+**Example output** (recorded with 8 workers, when the number of workers was a setting, and pinned memory; every loader now has 1 worker and pins its batches only on a discrete GPU)
 ```text
 len(loader) = 125   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```

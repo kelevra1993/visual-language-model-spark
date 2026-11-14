@@ -381,7 +381,7 @@ def build_instance_index_map(segmentations: List[Dict[str, Any]], image_width: i
     removed where it ends, then one cumulative sum), and the map is resized once like the per-object masks of
     build_instance_mask (pixel centres, padding 0), so that every object number gives exactly the mask that
     build_instance_mask gives. The loader worker then resizes one map instead of N masks, and one [S, S] map instead of
-    [N, S, S] masks goes through the shared memory, the pinned memory and the copy to the GPU, where
+    [N, S, S] masks goes through the shared memory, the pinned memory of a discrete GPU and the copy to the GPU, where
     expand_instance_index_maps turns it back into the masks.
 
     Args:

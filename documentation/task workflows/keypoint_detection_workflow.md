@@ -1250,7 +1250,7 @@ Iteration 60 · 30 Test Images · 2026-10-18 00:25 ─────────�
 Test Evaluation Iteration 60 (EMA Weights): 100%|██████████| 2/2 [00:17<00:00,  8.60s/it]
 Iteration 60 · 30 Test Images · EMA Weights · 2026-10-18 00:25 ─────────────────────────────────────────────────────────
 ```
-The reports are those of Step 4.10: at iteration 60 the trained weights match one hollow trapezoid out of the 90 objects with keypoints, and the seven other evaluations match none. The batch size changes nothing, the metrics being computed on the whole split. On CPU PyTorch warns that `pin_memory` is set without an accelerator (UserWarning); the evaluation is not affected.
+The reports are those of Step 4.10: at iteration 60 the trained weights match one hollow trapezoid out of the 90 objects with keypoints, and the seven other evaluations match none. The batch size changes nothing, the metrics being computed on the whole split. On CPU no batch is pinned (`uses_pinned_memory()` of `vision_training/data/loaders.py`), so PyTorch no longer warns that `pin_memory` is set without an accelerator.
 
 ---
 

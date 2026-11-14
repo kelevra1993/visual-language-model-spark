@@ -466,7 +466,7 @@ class CocoDetectionDataset(Dataset):
         vanishes once resized being removed with their box and label and the others renumbered from 1 in their
         order, every box being the tight box of its object in the map. The trainer expands the map into the masks of
         add_instance_masks on the GPU (expand_instance_index_maps), so that only the [S, S] map goes through the
-        loader worker, the shared and pinned memory and the copy to the device.
+        loader worker, the shared memory, the pinned memory of a discrete GPU and the copy to the device.
 
         Args:
             sample (Dict[str, Any]): The sample built by __getitem__, whose boxes and labels follow the annotations.
