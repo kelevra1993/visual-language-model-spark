@@ -546,7 +546,7 @@
 
 The status at `165339b` of every item of the
 [Repository Audit For Instance Segmentation](suggestions.md#repository-audit-for-instance-segmentation), updated on
-2026-11-13 for the items whose status changed since. The open items keep their descriptions and fixes in that file;
+2026-11-14 for the items whose status changed since. The open items keep their descriptions and fixes in that file;
 the fixed and dropped ones were removed from it on 2026-11-13 and are recorded here.
 - **Open:** the defect described is still in the code.
 - **Partly fixed:** only the part given in the note remains.
@@ -589,6 +589,7 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | L11. M2M batches without labelled frame | low | **open** | see below |
 | L13. The checkpoint registry is rewritten in place | low | fixed | on 2026-10-21: written to a temporary file, synced and replaced |
 | L17. Ragged last batch and averages over batches | low | **open** | see below |
+| L18. Extreme inputs | low | fixed | on 2026-11-14: `compute_letterbox_region` keeps a resized side of one pixel at least (a 1 x 2000 image at 512 no longer fails in `cv2.resize`), and `read_image` warns once per pixel type about a file of more than 8 bits per channel, read with 8 bits as before |
 
 | Statement contradicting the code | Status | Note |
 |---|---|---|

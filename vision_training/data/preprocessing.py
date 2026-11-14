@@ -14,7 +14,11 @@ import torch
 from pathlib import Path
 from typing import Tuple
 
-from vision_training.utilities.os_utilities import format_path_link
+from vision_training.utilities.os_utilities import format_path_link, print_color
+
+# Pixel types of the image files of more than 8 bits per channel already reported by read_image, each one being reported
+# once per process (the main process and every loader worker)
+REPORTED_IMAGE_DEPTHS = set()
 
 
 def read_image(image_path: str | Path) -> np.ndarray:
@@ -23,7 +27,9 @@ def read_image(image_path: str | Path) -> np.ndarray:
     the inference clients: OpenCV gives None for a missing, unreadable or corrupted file, which would otherwise fail
     later with an unrelated error, so the file is named in the error. The training loop then drops the batch holding
     it and prints the error once (BaseTrainer.get_next_batch), and a test evaluation stopped by it counts as an error
-    of its iteration, the training going on.
+    of its iteration, the training going on. A file of more than 8 bits per channel (e.g. a 16 bit PNG holding 12 bit
+    data) is read with 8 bits like before, its values divided by 256, with a yellow warning the first time a file of
+    its pixel type is read, since a source using fewer bits than its type loses most of its signal.
 
     Args:
         image_path (str | Path): The image file.
@@ -34,9 +40,21 @@ def read_image(image_path: str | Path) -> np.ndarray:
     Raises:
         ValueError: If the file cannot be read as an image.
     """
-    image = cv2.imread(filename=str(image_path))
+    # Decoded at the depth of the file, which gives the pixels of IMREAD_COLOR for a file of 8 bits per channel
+    image = cv2.imread(filename=str(image_path), flags=cv2.IMREAD_COLOR | cv2.IMREAD_ANYDEPTH)
     if image is None:
         raise ValueError(f"The image cannot be read : {format_path_link(path=Path(image_path))}")
+
+    # A file of more bits per channel is reported, then decoded again exactly as before, with 8 bits per channel
+    if image.dtype != np.uint8:
+        if image.dtype.name not in REPORTED_IMAGE_DEPTHS:
+            REPORTED_IMAGE_DEPTHS.add(image.dtype.name)
+            print_color(color="yellow", output=f"Image Of {image.dtype.name} Pixels Read With 8 Bits Per Channel, Its "
+                                               f"Values Scaled Down (A 12 Bit Source In 16 Bits Keeps 4 Bits) : "
+                                               f"{format_path_link(path=Path(image_path))}")
+        image = cv2.imread(filename=str(image_path))
+        if image is None:
+            raise ValueError(f"The image cannot be read : {format_path_link(path=Path(image_path))}")
     return image
 
 
@@ -55,9 +73,10 @@ def compute_letterbox_region(image_height: int, image_width: int, image_size: in
         Tuple[int, int, int, int]: The top row and left column of the resized image in the network input, and its
             height and width.
     """
-    # Single scaling factor of the longest side, the resized sides rounded to the nearest pixel
+    # Single scaling factor of the longest side, the resized sides rounded to the nearest pixel but never below one, so
+    # that a very elongated image (e.g. 1 x 2000 pixels at 512) keeps its short side
     scale = image_size / max(image_height, image_width)
-    resized_width, resized_height = int(round(image_width * scale)), int(round(image_height * scale))
+    resized_width, resized_height = max(1, int(round(image_width * scale))), max(1, int(round(image_height * scale)))
 
     # Symmetric padding around the resized image
     return (image_size - resized_height) // 2, (image_size - resized_width) // 2, resized_height, resized_width
@@ -168,10 +187,10 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
     restored_boxes = np.array(bounding_boxes, dtype=np.float64).reshape(-1, 4)
 
     if keep_ratio:
-        # Remove the centred padding offset, then undo the single scaling factor
+        # Remove the centred padding offset placed by compute_letterbox_region, then undo the single scaling factor
         scale = image_size / max(image_height, image_width)
-        start_x = (image_size - int(round(image_width * scale))) // 2
-        start_y = (image_size - int(round(image_height * scale))) // 2
+        start_y, start_x, _, _ = compute_letterbox_region(image_height=image_height, image_width=image_width,
+                                                          image_size=image_size)
         restored_boxes[:, 0::2] = (restored_boxes[:, 0::2] - start_x) / scale
         restored_boxes[:, 1::2] = (restored_boxes[:, 1::2] - start_y) / scale
     else:

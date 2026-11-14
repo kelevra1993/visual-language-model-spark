@@ -63,7 +63,7 @@
 > - the region proposals selected per level (`RegionProposal.proposal_selection: "per_level"`, item 3 and audit M3),
 >   the proposals clamped to an empty box left out (audit L7), kept by stage 7 (+0.0104) and set in the object
 >   detection configurations on 2026-11-12, the instance segmentation ones keeping `"joint"`;
-> - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M17, M20, L2, L5, L10 and L13, fixed since 2026-10-10
+> - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M17, M20, L2, L5, L10, L13 and L18, fixed since 2026-10-10
 >   (M7 gone with `resume_training`), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17, L19 and L22
 >   keep only their open part below.
 >
@@ -550,7 +550,7 @@ committed): every image can be taken again from them without training, except wh
 
 | Task | Findings |
 |---|---|
-| All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, M15, L14–L18 |
+| All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, M15, L14–L17 |
 | DET | M13, M16, M21, L7, L8 |
 | INS | Everything DET has, plus M5 (augmented masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
@@ -807,12 +807,6 @@ committed): every image can be taken again from them without training, except wh
   - A short last batch weighs as much as a full one in the interval means.
   - A 1-sample batch reaching 1×1 feature maps makes batch norm raise, and that step is skipped silently (M9).
 - **Fix:** `drop_last=True` for every training loader, and weight the means by the sample count.
-
-#### L18. Extreme inputs
-- **Extreme aspect ratio:** a 1×2000 image at S = 512 rounds a side to 0 and `cv2.resize` fails
-  (`preprocessing.py:33`). Fix: `max(1, round(...))`.
-- **16-bit images:** a 16-bit PNG holding 12-bit data becomes 0..15 under `IMREAD_COLOR`. Training and deployment
-  agree, but the signal is lost silently. Fix: warn on a non-8-bit source.
 
 #### L19. INS sends full-resolution object masks through shared memory — PLAUSIBLE, FIXED FOR DISJOINT MASKS (2026-11-13)
 - **Where:** `coco_dataset.py:214-222`: one uint8 `[N, S, S]` array per image.
