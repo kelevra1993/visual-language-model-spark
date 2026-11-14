@@ -64,6 +64,7 @@ If you are looking for the code of a step, these are the files of the task and t
 | Real dataset converters | `vision_training/data/classification/class_folder_manifests.py`, `imagenet_download.py` | one folder of images per class (`create_class_folder_manifests`), ImageNet-22k with one held-out image per class as both validation and test (`download_imagenet_22k`) |
 | Export | `vision_training/models/classification/inference_classifier.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceClassifier` (model name `image_classifier`), `export_experiment`, `build_input_contract`, `write_preprocessing_file` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
+| Figures of a research report | `scripts/evaluation/draw_report_figures.py` | `draw_report_figures`, `read_report_thresholds`, `draw_precision_recall_figure`, `compare_seen_and_never_seen_groups` |
 
 ### Run It
 
@@ -78,13 +79,19 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and target_precisions in
-#    the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
+#    test_data_folder, batch_size, track_evaluation, save_predictions, maximum_error_images_per_class_pair and
+#    target_precisions in the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in
+#    <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
 # 4. Temperature and export: serve the temperature explorers of the experiments folders, open http://127.0.0.1:8091/,
 #    save the thresholds of a temperature on the page of a checkpoint, then export it from that page
 uv run python -m scripts.evaluation.serve_temperature_explorer
+
+# 5. Figures of a research report: set the run, the iteration and the weights of the kept checkpoint in the main
+#    block of scripts/evaluation/draw_report_figures.py, which writes in
+#    <run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/
+uv run python -m scripts.evaluation.draw_report_figures
 ```
 
 ### Configuration Keys To Know First
@@ -625,14 +632,14 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 │   of a trained run without training. Its settings are variables at the top of its main block (no command line): the
 │   run name and its folder, the iteration ("all" for every checkpoint from the last one, None for the last one, or an
 │   integer), an optional other labelled test folder, the evaluation batch size, whether the evaluation is tracked in
-│   MLflow, the maximum number of error images per pair of classes, the target precisions of the class thresholds
-│   (a probability or a list such as [0.99, 0.95, 0.90]) and the final NMS of the detection tasks (skipped with a
-│   warning for a classifier). It writes in <run>/Checkpoint_Evaluation/.
+│   MLflow, whether predictions.csv is saved, the maximum number of error images per pair of classes, the target
+│   precisions of the class thresholds (a probability or a list such as [0.99, 0.95, 0.90]) and the final NMS of the
+│   detection tasks (skipped with a warning for a classifier). It writes in <run>/Checkpoint_Evaluation/.
 │
 ├── load_experiment_configuration() + get_trainer_class() + trainer construction   (same as Stages 1-2)
 │       Loads training_configuration.yaml from the trained run (its classes from the label_dictionary.json next to
-│       it), sets test_data_folder, batch_size, tracking.activated, evaluation.error_dumps (turned on with the given
-│       limit) and evaluation.target_precision to the given values, points the trainer to
+│       it), sets test_data_folder, batch_size, tracking.activated, evaluation.save_predictions, evaluation.error_dumps
+│       (turned on with the given limit) and evaluation.target_precision to the given values, points the trainer to
 │       <run>/Checkpoint_Evaluation/ (point_to_checkpoint_evaluation(), the run name kept), turns off the transfer
 │       of pretrained components, then builds the same trainer as for a training. It writes its iteration folders
 │       directly in Checkpoint_Evaluation/ and saves no weights.

@@ -3,14 +3,15 @@ Tests of scripts/evaluation/evaluate_checkpoint.py, the standalone evaluation of
 target precisions of the class thresholds replace the experiment's one (a list for the classification), and a list
 given to a task keeping a single precision (the frame selection) is refused. The final non-maximum suppression of a
 detection run is replaced by the evaluated one, whose evaluations get an output subfolder of their own when it differs
-from the one of the run, invalid settings being refused and the tasks without detector skipped.
+from the one of the run, invalid settings being refused and the tasks without detector skipped. The predictions file
+of every evaluated sample is turned on or off for the tasks writing one, the others being skipped.
 """
 
 import pytest
 
 from typing import Any, Dict, Optional, Tuple
 
-from scripts.evaluation.evaluate_checkpoint import apply_nms_criterion, apply_target_precisions
+from scripts.evaluation.evaluate_checkpoint import apply_nms_criterion, apply_save_predictions, apply_target_precisions
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
 # Detection configuration of the run whose final NMS is replaced, set to the greedy NMS ("iou", exponent 1.0) of the
@@ -122,3 +123,25 @@ def test_invalid_or_skipped_nms_criterion(capsys: pytest.CaptureFixture) -> None
                                nms_criterion="distance_iou", nms_distance_exponent=1.0) == ""
     assert "Detector" not in classification_configuration
     assert "nms_criterion and nms_distance_exponent are skipped" in capsys.readouterr().out
+
+
+def test_save_predictions_replaces_the_experiment_one_or_is_skipped(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that save_predictions replaces the 'evaluation.save_predictions' of a classification run, None leaving it
+    untouched, and that a task without the setting (the detection) is evaluated without it, a warning telling it.
+
+    Args:
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warning.
+    """
+    experiment_configuration, _ = load_experiment_configuration(
+        configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml")
+    apply_save_predictions(experiment_configuration=experiment_configuration, save_predictions=None)
+    assert experiment_configuration["evaluation"]["save_predictions"] is True
+    apply_save_predictions(experiment_configuration=experiment_configuration, save_predictions=False)
+    assert experiment_configuration["evaluation"]["save_predictions"] is False
+
+    # The detection writes no predictions file
+    detection_configuration, _ = load_experiment_configuration(configuration_path=DETECTION_CONFIGURATION_PATH)
+    apply_save_predictions(experiment_configuration=detection_configuration, save_predictions=True)
+    assert "save_predictions" not in detection_configuration["evaluation"]
+    assert "save_predictions is skipped" in capsys.readouterr().out
