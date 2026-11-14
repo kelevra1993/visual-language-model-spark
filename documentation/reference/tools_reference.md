@@ -5,6 +5,7 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
 ## Table Of Content
 - [Evaluating Checkpoints](#evaluating-checkpoints)
   - [Logit Temperature](#logit-temperature)
+  - [Drawing The Figures Of A Research Report](#drawing-the-figures-of-a-research-report)
 - [Comparing Launches](#comparing-launches)
   - [Comparing The Best Evaluations Of Runs](#comparing-the-best-evaluations-of-runs)
   - [Drawing The Comparison Of Every Stage](#drawing-the-comparison-of-every-stage)
@@ -27,6 +28,7 @@ Whenever the checkpoints of a trained run must be judged again, on another split
 | `test_data_folder` | another labelled split, `None` for the test split of the run |
 | `batch_size` | the evaluation batch size, `None` keeping the run's |
 | `track_evaluation` | sends the evaluation to MLflow, in a run named `<run name>-evaluation`, `None` keeping the `tracking.activated` of the run |
+| `save_predictions` | writes `predictions.csv` (CLS, M2O, M2M, CMP) or `selections.csv` (SEL) in every evaluated iteration folder when `True`, `None` keeping the `evaluation.save_predictions` of the run; skipped with a warning for the tasks without the setting |
 | `maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `None` keeping the `evaluation.error_dumps` of the run |
 | `target_precisions` | the precision, or list of precisions such as `[0.99, 0.95, 0.90]` (CLS, M2O, M2M, CMP), targeted by the class thresholds, `None` keeping the `evaluation.target_precision` of the run; skipped with a warning for the tasks without class thresholds |
 | `nms_criterion`, `nms_distance_exponent` | the final NMS of a DET or INS run replaced, `"iou"` (greedy) or `"distance_iou"` (DIoU-NMS) with the exponent of its distance term, `None` keeping the run's; an NMS other than the run's is written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` (e.g. `Checkpoint_Evaluation_nms_distance_iou_0.6`), and the setting is skipped with a warning for the tasks without detector |
@@ -41,6 +43,29 @@ A classifier trained with the cross entropy is often overconfident: its probabil
 3. Choose the temperature and press **Save Thresholds At This Temperature**: `saved_temperature_thresholds.json` is written next to the page, in the format of `class_thresholds.json`, with the temperature as `logit_temperature` and the threshold and recall of every class at every target precision, found by the server from the logits (the thresholds the page shows), or, without logits, those posted by the page after a check against the `class_thresholds.json` of the folder. A save replaces the earlier one, and is refused while the checkpoint is being exported. Opened as a plain file, the page downloads the file instead; the button needs every class on the page (at most 100 classes).
 4. Choose the formats, version, maximum batch size and TensorRT precision of the **Export** panel (those of the main block of `export_model.py` first) and press **Export At T = …**: `vision_training/deployment/explorer_export.py` exports the checkpoint and weights of the page at the saved temperature, in a separate process, one export at a time, into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/` (written as `<folder>.partial` until it succeeds), a Triton model repository holding `image_classifier_<format>/<version>/` with its `class_thresholds.json`, `export_record.json` (run, iteration, weights, temperature, settings, date) and `export_log.txt`, the console output the page shows while it runs. Another temperature gets its own folder, the same temperature replaces its folder, and a failed export leaves its `.partial` folder with its console output until the next export of that temperature. The run folder and checkpoint of the evaluation must still be on disk.
 5. Without the page, export the checkpoint with `use_saved_temperature` ([Export](#export)).
+
+### Drawing The Figures Of A Research Report
+Should a research report need its figures again, after a new evaluation of its kept checkpoint or a new saved temperature, `scripts/evaluation/draw_report_figures.py` draws them from the run folder into `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/`. It reads every input and checks it before the first figure is drawn, so that a wrong input stops the run without writing anything.
+
+| Setting | Meaning |
+|---|---|
+| `run_name`, `experiment_folder` | the run of the kept classifier, `<experiments>/<run name>` |
+| `iteration`, `weights` | the kept checkpoint, its weights `"trained"` or `"ema"` |
+| `evaluation_folder_name` | `Checkpoint_Evaluation` (`evaluate_checkpoint.py`, where the temperature explorer saves the temperature) or `Evaluation` (the training) |
+| `class_display_names` | the name shown for every class, in the order of the curves or panels, `None` for the class names in class index order |
+| `sample_kind`, `split_name` | written in the titles, e.g. "on the 1,942 validation images" |
+| `minimum_recall` | the left end of the recall axis, 0, or close to 1 when every threshold keeps nearly every sample (0.98 for the compactor) |
+| `group_manifest_path` | a JSON Lines manifest giving the group of every training and evaluated sample (the `frames_manifest.jsonl` of a dataset built from truck images), `None` to skip the groups chart |
+| `file_name_key`, `group_key`, `group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`"file_name"`, `"truck"`, `"trucks"`) |
+| `training_labels_path` | the `labels.json` of the training split, `None` for the one of the `train_data_folder` of the run |
+| `predictions_path` | the predictions of the evaluation, `None` for its `predictions.csv` (`save_predictions = True` in `evaluate_checkpoint.py`) |
+
+It writes, drawn in the Inter font of the reports when it is installed in `/usr/share/fonts/opentype/inter`:
+- `confusion_matrix.png`: the trainer's drawing, its title giving the accuracy and the balanced accuracy in percent.
+- `precision_recall_curves.png`: the curve of every class with the point of its threshold at every target precision, the threshold rounded down to the fewest decimals (four at least) selecting the same samples, at the temperature of `saved_temperature_thresholds.json` (the scores of the exported model). The saved thresholds must be exactly those found again from `class_logits.npz` at that temperature; without saved file, the curves are drawn at a temperature of 1 with a warning. Two classes share one plot (the first one in red), more classes get one panel each, three per row.
+- `training_curves.png`: the balanced accuracy of the trained and averaged weights at every checkpoint evaluated during the training (`Tensorboard/Test`, `Tensorboard/Test_EMA`), the kept checkpoint ringed with its value.
+- `seen_and_never_seen_groups.png`, with a manifest: the balanced accuracy on the samples of the groups having at least one training sample and on those of the groups never seen, with their numbers of groups and samples. The predictions must give the confusion matrix of the evaluation exactly, and every training and evaluated sample needs its group.
+- `report_values.json`: the numbers shown, to fill the tables of the report: accuracy, balanced accuracy and recall of every class, the temperature, the written and exact threshold, recall and precision of every class at every target precision, the balanced accuracy of the kept checkpoint during the training, and the groups, classes, samples and recall of the seen, never seen and all samples.
 
 ## Comparing Launches
 To decide which setting of a stage of a hyperparameter experiment to keep, `scripts/evaluation/collect_experiment_results.py` gathers every launch of the experiment into one CSV file. Every launch trains in its own `run_<n>` folder, a repeat launch in `run_<n><letters>` (`run_23b`).

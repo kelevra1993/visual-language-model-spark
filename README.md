@@ -135,7 +135,8 @@ Whenever a training starts, it writes to `<experiment_folder>/<run name>/`, the 
 ├── Tensorboard/                       # Train, Validation, Test and Test_EMA curves
 ├── Results.txt                        # Report of every evaluated checkpoint
 ├── Evaluation/Iteration_<n>/          # Evaluation files of iteration n, EMA/ for the averaged weights
-├── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py
+├── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py, with the
+│                                      # Report_Figures/ of scripts/evaluation/draw_report_figures.py
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
@@ -239,7 +240,13 @@ Each time the checkpoints of a trained run must be scored again (another labelle
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-It writes `Results.txt`, `Tensorboard/Test`, `evaluation_summary.csv` and one `Iteration_<n>/` folder per checkpoint into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` for another NMS), leaving the files of the training untouched; with `"all"`, the summary compares every checkpoint and the best one is printed. A classifier evaluation also keeps `class_logits.npz` for its temperature explorer ([Export](#export)). Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+It writes `Results.txt`, `Tensorboard/Test`, `evaluation_summary.csv` and one `Iteration_<n>/` folder per checkpoint into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` for another NMS), leaving the files of the training untouched; with `"all"`, the summary compares every checkpoint and the best one is printed. A classifier evaluation also keeps `class_logits.npz` for its temperature explorer ([Export](#export)), and `save_predictions = True` writes the `predictions.csv` of every evaluated sample. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+
+Should a research report need the figures of its kept classifier again, set the run, iteration and weights of the main block of `scripts/evaluation/draw_report_figures.py`, then run the command below. It writes into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` the confusion matrix, the precision-recall curves at the temperature saved from the temperature explorer with the threshold of every target precision, the training curves with the kept checkpoint and, given a manifest of the truck of every image and the `predictions.csv` of the evaluation, the balanced accuracy on the trucks seen and never seen in training, with `report_values.json`, the numbers they show. Details: [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report).
+
+```bash
+uv run python -m scripts.evaluation.draw_report_figures
+```
 
 ## Comparing Launches
 After the launches of a hyperparameter stage have trained, three scripts of `scripts/evaluation/` compare them:

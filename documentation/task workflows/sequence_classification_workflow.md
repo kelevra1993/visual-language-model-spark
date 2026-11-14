@@ -78,9 +78,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder (the run folder), iteration (None, an integer or
-#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and target_precisions
-#    in the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
-#    (its NMS settings are for the detection tasks only)
+#    "all"), test_data_folder, batch_size, track_evaluation, save_predictions, maximum_error_images_per_class_pair
+#    and target_precisions in the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in
+#    <run>/Checkpoint_Evaluation/ (its NMS settings are for the detection tasks only)
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 

@@ -6,7 +6,9 @@ being built from the copied configuration, the results written inside the run fo
 in an MLflow run of their own. The precisions targeted by the class thresholds can be replaced, e.g. by
 [0.99, 0.95, 0.90] to read the thresholds of a research report without training again; with the per-class report, a
 classifier gets its 'temperature_explorer.html' and 'class_logits.npz', served by
-scripts/evaluation/serve_temperature_explorer.py to choose, save and export the temperature of the checkpoint. The
+scripts/evaluation/serve_temperature_explorer.py to choose, save and export the temperature of the checkpoint, and the
+predictions of every evaluated sample can be saved, read by the groups chart of
+scripts/evaluation/draw_report_figures.py, which draws the figures of a research report from this folder. The
 final non-maximum suppression of a detection run can be replaced, e.g. by DIoU-NMS for stage 5b of the detection
 benchmark, its evaluations going to a folder of their own, '<run>/Checkpoint_Evaluation_nms_<name>/'.
 """
@@ -56,6 +58,32 @@ def apply_error_image_limit(experiment_configuration: Dict[str, Any],
         return
     error_dumps_configuration["activated"] = True
     error_dumps_configuration["maximum_per_class_pair"] = maximum_error_images_per_class_pair
+
+
+def apply_save_predictions(experiment_configuration: Dict[str, Any], save_predictions: Optional[bool]) -> None:
+    """
+    Turns on or off the file of the predictions of every evaluated sample, written in every evaluated iteration folder
+    ('predictions.csv' for CLS, M2O, M2M and CMP, 'selections.csv' for SEL), e.g. on for a kept classifier, whose
+    predictions.csv gives the chart of the groups seen and never seen in training of
+    scripts/evaluation/draw_report_figures.py. The tasks without the setting (detection, segmentation, keypoint
+    detection, self-supervised learning) are evaluated without it, a warning telling that it was skipped.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The loaded experiment configuration of the evaluated run, changed in
+            place.
+        save_predictions (Optional[bool]): Whether the predictions are saved, None to keep the experiment's
+            'evaluation.save_predictions'.
+    """
+    if save_predictions is None:
+        return
+
+    # The tasks without a predictions file have no 'evaluation.save_predictions' setting to replace
+    evaluation_configuration = experiment_configuration.get("evaluation", {})
+    if "save_predictions" not in evaluation_configuration:
+        print_color(color="yellow", output=f"save_predictions is skipped: the {experiment_configuration['task']} task "
+                                           f"writes no predictions file (no 'evaluation.save_predictions' setting).")
+        return
+    evaluation_configuration["save_predictions"] = save_predictions
 
 
 def apply_target_precisions(experiment_configuration: Dict[str, Any],
@@ -214,6 +242,12 @@ if __name__ == "__main__":
     # experiment and tagged with its training run ('evaluation_of'), True or False, None to keep the experiment's
     # 'tracking.activated'. The MLflow run of the training is never modified
     track_evaluation = None
+    # Saves the predictions of every evaluated sample in 'Checkpoint_Evaluation/Iteration_<n>[/EMA]/predictions.csv'
+    # (the sample, its true and predicted classes and the probability of every class; 'selections.csv' for the frame
+    # selection), read by the chart of the groups seen and never seen in training of
+    # scripts/evaluation/draw_report_figures.py, True or False, None to keep the experiment's
+    # 'evaluation.save_predictions'. Skipped with a warning for the tasks without the setting
+    save_predictions = None
     # Largest number of error images saved for every pair of true and predicted classes, the first ones met, in
     # 'Checkpoint_Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/', the error images being turned on. A number
     # above the number of test samples saves every error. None keeps the experiment's 'evaluation.error_dumps'
@@ -243,6 +277,8 @@ if __name__ == "__main__":
         experiment_configuration["batch_size"] = batch_size
     if track_evaluation is not None:
         experiment_configuration["tracking"]["activated"] = track_evaluation
+    # Predictions file of every evaluated sample turned on or off, for the tasks writing one
+    apply_save_predictions(experiment_configuration=experiment_configuration, save_predictions=save_predictions)
     # Error images turned on with their own limit per pair of classes, for the tasks saving their errors as images
     apply_error_image_limit(experiment_configuration=experiment_configuration,
                             maximum_error_images_per_class_pair=maximum_error_images_per_class_pair)
