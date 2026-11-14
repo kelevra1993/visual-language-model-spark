@@ -99,15 +99,6 @@ class ExperimentTracker(ABC):
         """
 
     @abstractmethod
-    def set_tags(self, tags: Dict[str, str]) -> None:
-        """
-        Sets tags of the run, replacing the previous values of the same keys.
-
-        Args:
-            tags (Dict[str, str]): The value of every tag.
-        """
-
-    @abstractmethod
     def get_run_id(self) -> Optional[str]:
         """
         Gives the identifier of the tracked run, stored in the checkpoint metadata.
@@ -172,14 +163,6 @@ class DisabledTracker(ExperimentTracker):
             file_path (Path): Ignored.
             artifact_folder (Optional[str]): Ignored.
             artifact_name (Optional[str]): Ignored.
-        """
-
-    def set_tags(self, tags: Dict[str, str]) -> None:
-        """
-        Does nothing.
-
-        Args:
-            tags (Dict[str, str]): Ignored.
         """
 
     def get_run_id(self) -> Optional[str]:

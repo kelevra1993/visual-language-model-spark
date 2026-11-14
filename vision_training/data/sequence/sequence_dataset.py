@@ -24,10 +24,6 @@ from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.data.serialized_records import SerializedRecords
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
-# Labels read from the manifest: one class per sequence (many to one), one class per frame (many to many), or one class
-# per frame of a whole sequence for the frame selection, the frames of unmapped categories being unselected
-VALID_LABEL_TYPES = ["sequence", "frame", "selection"]
-
 # Largest number of invalid sequences listed in the error of the frame selection data check, the others being counted
 MAXIMUM_LISTED_INVALID_SEQUENCES = 20
 

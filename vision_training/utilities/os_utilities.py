@@ -15,7 +15,7 @@ import torch
 import numpy as np
 
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Optional
 import inspect
 
 
@@ -144,33 +144,6 @@ def print_color(color: str, output: str, add_separators: bool = False, indent: i
         print(indentation_string + separator)
     else:
         print(color_text(color=color, text=indented_output))
-
-
-def print_dictionary(dictionary: Dict[str, Any], indent: int = 4) -> None:
-    """
-    Prints a dictionary to the console in a formatted JSON-like style.
-
-    This utility is used to display configuration parameters, experiment
-    summaries, or manifest data in a readable format during execution.
-
-    Args:
-        dictionary (Dict[str, Any]): The dictionary to be printed.
-        indent (int): The number of spaces to use for indentation.
-    """
-    print(json.dumps(dictionary, indent=indent))
-
-
-def get_random_color() -> Tuple[int, int, int]:
-    """
-    Generates a random colour tuple for the OpenCV drawings of the visualization utilities, so that the boxes or
-    classes drawn without a colour of their own can be told apart.
-
-    Returns:
-        Tuple[int, int, int]: A tuple containing random (B, G, R) values from 0 to 255.
-    """
-    return (int(np.random.randint(low=0, high=256)),
-            int(np.random.randint(low=0, high=256)),
-            int(np.random.randint(low=0, high=256)))
 
 
 def get_variable_name(target_variable: Any, namespace: Optional[Dict[str, Any]] = None) -> str:

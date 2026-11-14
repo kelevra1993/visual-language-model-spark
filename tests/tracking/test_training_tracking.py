@@ -35,7 +35,6 @@ class RecordingTracker(ExperimentTracker):
         self.logged_metrics: List[Tuple[int, Dict[str, float]]] = []
         self.best_metrics: List[Tuple[str, float, int, str]] = []
         self.artifacts: List[Tuple[Path, Optional[str], Optional[str]]] = []
-        self.tags: Dict[str, str] = {}
         self.close_statuses: List[str] = []
 
     def start(self, parameters: Dict[str, Any], tags: Dict[str, str], resumed_iteration: Optional[int]) -> None:
@@ -82,15 +81,6 @@ class RecordingTracker(ExperimentTracker):
             artifact_name (Optional[str]): The name of the artifact.
         """
         self.artifacts.append((Path(file_path), artifact_folder, artifact_name))
-
-    def set_tags(self, tags: Dict[str, str]) -> None:
-        """
-        Records tags.
-
-        Args:
-            tags (Dict[str, str]): The value of every tag.
-        """
-        self.tags.update(tags)
 
     def get_run_id(self) -> Optional[str]:
         """

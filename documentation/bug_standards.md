@@ -4,7 +4,8 @@
 > standards S1 to S10 and the bugs B7, B20, B34, B47 and B50 were fixed on 2026-10-20 (not committed yet). On
 > 2026-10-21, C3, C4 (the anchors and `last_max_pooling`), H6, M6, M7, M8, M17, M20, L13, B9, B11, B30 and B44
 > were fixed, with the host waits of `random_black_out`. On 2026-10-25, B45, B51, B53 and B56 were fixed, and on
-> 2026-11-04 B48. The items dropped by the user are deleted from this file, the other items are still open.
+> 2026-11-04 B48, and on 2026-11-14 B41 (the parameter removed). The items dropped by the user are deleted from
+> this file, the other items are still open.
 > Nine reviewers each read one area end to end (configuration, data generation, data loading, core
 > models, detection and keypoint models, training loop, task trainers and losses, evaluation and tracking, deployment
 > and scripts) and reproduced their findings with small scripts on the synthetic datasets, the dummy task or hand-made
@@ -67,7 +68,7 @@
 | Data generation | | [B28](#b28-comments-left-from-the-top-down-keypoint-detector-contradict-the-code), [B29](#b29-the-readme-gives-the-wrong-number-of-objects-per-synthetic-keypoint-image) |
 | Data loading | [B7](#b7-motion-blur-of-the-views-the-largest-kernel-size-is-never-drawn-and-the-viewer-describes-kernels-kornia-does-not-apply) | [B30](#b30-a-category-mapped-to-0-to-exclude-it-names-the-background-class-and-is-counted-under-it-in-datajson) |
 | Core models | [B8](#b8-a-causal-sequence-labeller-or-frame-selector-with-sequence-normalization-uses-the-future-frames), [B9](#b9-a-batch-normalized-classification-head-crashes-on-a-training-batch-of-a-single-vector) | [B32](#b32-backbonecompute_detection_input_information-dry-runs-in-training-mode-with-gradients), [B33](#b33-model-builders-silently-fall-back-on-misspelled-option-strings), [B34](#b34-sequenceclassifier-and-sequencelabeller-are-near-copies) |
-| Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B40](#b40-the-batch_assign_targets_to_anchors-docstring-promises-a-positive-anchor-for-every-ground-truth), [B41](#b41-detectionheadforward-documents-a-tensor_to_concatenate-argument-it-never-reads), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
+| Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B40](#b40-the-batch_assign_targets_to_anchors-docstring-promises-a-positive-anchor-for-every-ground-truth), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
 | Training loop | [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved) | [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries), [B45](#b45-the-console-summary-treats-the-correlation-metrics-as-higher-is-better-a-rising-off-diagonal-correlation-prints-green-with-best), [B47](#b47-the-self-supervised-k-nn-report-re-implements-the-per-class-rows-table-and-scalars-of-class_metrics_reportpy) |
 | Task trainers and losses | | [B48](#b48-the-det-and-ins-input-viewer-captions-the-boxes-with-raw-category-ids-instead-of-class-names), [B49](#b49-an-evaluation-score-threshold-above-the-deployment-threshold-silently-removes-detections-from-the-confusion-matrix-and-the-images), [B50](#b50-keypointtrainer-copies-four-detectiontrainer-methods-and-frameselectiontrainer-redefines-the-describe_split-it-inherits) |
 | Evaluation and tracking | | [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object), [B53](#b53-mean-iou-mean-dice-and-macro-f1-leave-out-the-classes-predicted-but-absent-from-the-ground-truth), [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints) |
@@ -342,13 +343,6 @@
 - **Failure scenario:** anchors `[[0,0,100,100],[300,300,400,400]]` and ground truths `[[0,0,30,30],[0,0,100,90]]`:
   ground truth 0 has no positive anchor in both modes.
 - **Fix:** describe the actual behaviour (as in torchvision).
-
-#### B41. DetectionHead.forward documents a tensor_to_concatenate argument it never reads
-- **Area:** detection and keypoint models · **Severity:** low · **Status:** confirmed (grep: no reader, no caller) ·
-  **Category:** documentation
-- **Where:** `vision_training/models/detection/detection_head.py:93, 107`.
-- **Problem:** extra features passed by a caller are dropped silently.
-- **Fix:** remove the parameter, or implement the concatenation with a test.
 
 #### B42. Training and validation forwards of the detector do inference-only work, with one host synchronisation per image
 - **Area:** detection and keypoint models · **Severity:** low · **Status:** likely (read by the reviewer, not timed) ·

@@ -6,7 +6,7 @@ offsets. Built for every detection block by the TwoStageDetector.
 
 import torch
 
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any
 from torchvision.ops import roi_align
 from torch import nn
 
@@ -89,9 +89,8 @@ class DetectionHead(nn.Module):
                                                 out_features=self.number_classes * 4,
                                                 device=self.device, dtype=self.dtype)
 
-    def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
-                tensor_to_concatenate: Optional[torch.Tensor] = None) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, proposal_boxes: torch.Tensor,
+                input_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the forward pass of the Detection Head.
         
@@ -104,9 +103,7 @@ class DetectionHead(nn.Module):
             proposal_boxes (torch.Tensor): A tensor of shape [K, 5] representing the sampled proposals across the
                 batch, where the first column is the batch index and the rest are [x1, y1, x2, y2].
             input_tensor (torch.Tensor): Batched feature map from backbone of shape [Batch, Channels, Height, Width].
-            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate of shape [K,
-                Additional_Channels].
-            
+
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
                 - classification_scores (torch.Tensor): The predicted class logits of shape [K, number_classes].

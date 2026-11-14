@@ -254,7 +254,6 @@ def test_run_is_written_to_the_local_database(tracking_root: Path, capsys: pytes
     tracker.update_best_metric(metric_name="Accuracy", value=0.4, step=8, metric_prefix="test")
     tracker.update_best_metric(metric_name="Accuracy", value=0.3, step=4, metric_prefix="test_ema")
     tracker.update_best_metric(metric_name="Accuracy", value=0.6, step=8, metric_prefix="test_ema")
-    tracker.set_tags(tags={"note": "smoke"})
     tracker.log_artifact(file_path=configuration_path, artifact_folder="configuration")
     tracker.log_artifact(file_path=configuration_path, artifact_folder="configuration",
                          artifact_name="training_configuration_resume_4.yaml")
@@ -271,8 +270,8 @@ def test_run_is_written_to_the_local_database(tracking_root: Path, capsys: pytes
 
     # Parameters and tags
     assert run.data.params == {"ExperimentConfiguration.batch_size": "4", "Backbone.convolutions.1": "[1, 16]"}
-    assert {"task", "run_name", "host", "note", "best_iteration", "git_commit", "git_dirty"} <= set(run.data.tags)
-    assert run.data.tags["best_iteration"] == "4" and run.data.tags["note"] == "smoke"
+    assert {"task", "run_name", "host", "best_iteration", "git_commit", "git_dirty"} <= set(run.data.tags)
+    assert run.data.tags["best_iteration"] == "4"
     assert run.data.tags["best_iteration_test_ema"] == "8"
 
     # Metrics under their sanitised names, the best value of the trained weights staying the one of iteration 4, the
