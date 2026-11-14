@@ -74,8 +74,8 @@ So that the order and the cost of the benchmark are seen at once, the table list
 |---|---|---|---|---|
 | 0 | Reference and preflight | the starting values | none | done, Test_EMA mask mAP 0.7884 at 15,000 (launch gap 0.0005) |
 | 0b | Mask threshold and final NMS, evaluation only | `mask_threshold` 0.4, 0.5, 0.6; greedy NMS against DIoU-NMS 0.6 | none | done, 0.5 and DIoU-NMS 0.6 kept (0.4 -0.0095, 0.6 -0.0170, greedy NMS +0.0001, a tie) |
-| 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, with `mask_resolution` twice the pool (28, 44); the pool of 18 dropped by the user on 2026-11-14 | none | running, pool 22 (run_3) launched 2026-11-14 03:02 |
-| 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | planned |
+| 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, with `mask_resolution` twice the pool (28, 44); the pool of 18 dropped by the user on 2026-11-14 | none | done, pool 14 kept (pool 22 -0.0122, beyond the launch gaps) |
+| 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | running, resolution 56 at pool 14 (run_5) launched 2026-11-14 17:55 |
 | 3 | Mask head size | `convolutions` `[3, 32]`, `[4, 64]` | none | planned |
 | 4 | Upsampling | `transposed`, `bilinear` | none | planned |
 | 5 | One mask head shared by the levels (`suggestions.md` item 7) | per level, shared | `MaskHead.shared` | planned |
@@ -152,6 +152,17 @@ The pool size is tied to `MaskHead.mask_resolution` by `count_mask_upsamplings` 
 The pool of 22 is trained first, the larger change. The pool of 18 was planned next, but on 2026-11-14 the user dropped it ("drop pool 18"), the pool of 22 trailing the reference by 0.0155 in Test_EMA mask mAP@[0.5:0.95] at iteration 9000, so stage 1 keeps 14 or 22 by the rule of the strategy and stage 2 follows it. The cost grows with the square of the side: the mask head convolutions, and the logits of the 35 classes of up to 4096 positive proposals per batch (64 images, 64 positives each), 0.45 GB in float32 at 28 x 28, 0.74 GB at 36 x 36 and 1.11 GB at 44 x 44, before their gradients.
 
 A larger grid may bring little: RoIAlign samples the feature map of the level of the proposal, and the square anchors span one to four strides on levels 4 to 6 (16 to 256 pixels at strides 16 to 64) and six to twelve on level 7, so the box of an object covers a few cells of its map, rarely as many as the 14 of the grid that already samples it. Mask R-CNN assigns a box of 224 pixels to its stride 16 level (the level rule of the feature pyramid paper), where it covers 14 cells, the side of its grid. Stages 6 and 7 act on that limit.
+
+Once both launches had ended, on 2026-11-14 at 17:26 and 17:53 (run_3 and run_4, 14 hours 24 and 14 hours 20 minutes after their launches, both at 15,000), the pool of 22 read, against the reference:
+
+| Pool, mask resolution | Test_EMA mask mAP@[0.5:0.95] at 15,000 | Gap | Trained weights | Mask mAP@0.5 / @0.75 / @0.95 | Small / medium / large | Box mAP@[0.5:0.95] |
+|---|---|---|---|---|---|---|
+| 14, 28 (run_1, run_2) | 0.7884 (0.7881, 0.7886) | reference | 0.7414 | 0.9559 / 0.9027 / 0.1500 | 0.7166 / 0.8263 / 0.8070 | 0.8371 |
+| 22, 44 (run_3, run_4) | 0.7761 (0.7785, 0.7738) | -0.0122 | 0.7238 | 0.9526 / 0.8918 / 0.1366 | 0.7132 / 0.8150 / 0.7868 | 0.8282 |
+
+The pool of 14 is kept: the pool of 22 loses 0.0122, beyond the launch gaps (0.0005 and 0.0047), and was behind from iteration 2000 on (-0.0178 at 6000, -0.0155 at 9000). It loses on every object size, most on the large objects (-0.0202), at every threshold, most at the strict ones (mask mAP@0.95 -0.0134), with the trained weights (-0.0177) and on the boxes (-0.0088), so the larger grid only spreads the few cells of the map of a proposal over more samples, as expected above. The pool of 18 was dropped by the user, so `run-1.yaml` is unchanged for stage 2. Each launch held about 18.9 GB of GPU memory (18,831 and 18,931 MiB, against 18,067 for the reference), and with the packed manifests parsed once, no validation loader and no pinned batches, the training loader worker stayed at 4.1 to 4.4 GB of private memory from iteration 1000 to 9000 (9.55 GB for the reference at 9000), the main process at 2.0 to 2.5 GB (5.6), the machine keeping 45 to 48 GB free with both launches training (19.4 GB for the reference at 9000).
+
+![Instance segmentation, stage 1: Mask RoIAlign pool size](figures/instance_segmentation/stage_1_mask_roialign_pool_size.png)
 
 ### Stage 2: Mask Resolution
 
