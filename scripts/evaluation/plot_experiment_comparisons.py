@@ -1,15 +1,17 @@
 """
-When run, draws one figure per comparison of the hyperparameter experiments (classification, sequence labelling and
-object detection), so that the verdict of every stage and the noise of a single launch can be seen at a glance. The
-stages are listed in documentation/architecture_benchmarking/experiment_comparisons.yaml (the settings compared, their
-launches, the reference setting, the verdict of the plan), and the test curves of their launches are read from the
-results files kept next to the experiment plans (collect_experiment_results.py and the detection driver write them in
-the git-ignored hyperparameter_experiments folder, the plans keep a copy). Each figure shows, for the trained and the
-averaged weights, every launch as a thin line and the mean of the launches of each setting as a thick one, with the gap
-of every setting to the reference setting of the stage below; the figures are written to
+When run, draws one figure per comparison of the hyperparameter experiments (classification, sequence labelling,
+object detection and instance segmentation), so that the verdict of every stage and the noise of a single launch can be
+seen at a glance. The stages are listed in documentation/architecture_benchmarking/experiment_comparisons.yaml (the
+settings compared, their launches, the reference setting, the verdict of the plan), and the test curves of their
+launches are read from the results files kept next to the experiment plans (collect_experiment_results.py and the
+detection driver write them in the git-ignored hyperparameter_experiments folder, the plans keep a copy, the instance
+segmentation results giving the test mask mAP). Each figure shows, for the trained and the averaged weights, every
+launch as a thin line and the mean of the launches of each setting as a thick one, with the gap of every setting to the
+reference setting of the stage below; the figures are written to
 documentation/architecture_benchmarking/figures/<experiment>/ and linked from the experiment plans. The accuracy of
 the classification and the macro F1 of the sequence labelling are written as the percentages of the reports (labels
-"85.81 %", gaps "+0.95 points", axes "86 %"); the detection mAP keeps 4 decimals until the detection is moved to them.
+"85.81 %", gaps "+0.95 points", axes "86 %"); the detection mAP and the mask mAP of the instance segmentation keep 4
+decimals until the detection is moved to them.
 """
 
 import csv
@@ -35,11 +37,12 @@ BENCHMARKING_FOLDER = Path(__file__).resolve().parents[2] / "documentation" / "a
 # Titles of the experiments, of the test metric of their results files (the prefix of the metric columns) and of the
 # evaluated weights, in the order of the figure columns
 EXPERIMENT_TITLES = {"classification": "Classification", "sequence_labelling": "Sequence labelling",
-                     "object_detection": "Object detection"}
-METRIC_TITLES = {"accuracy": "accuracy", "macro_f1": "Macro F1", "map_50_95": "mAP@[0.5:0.95]"}
+                     "object_detection": "Object detection", "instance_segmentation": "Instance segmentation"}
+METRIC_TITLES = {"accuracy": "accuracy", "macro_f1": "Macro F1", "map_50_95": "mAP@[0.5:0.95]",
+                 "mask_map_50_95": "Mask mAP@[0.5:0.95]"}
 
 # Metric prefixes written as the percentages of the reports, their gaps in points: the classification and sequence
-# labelling rates, the detection mAP keeping 4 decimals
+# labelling rates, the detection and mask mAP keeping 4 decimals
 PERCENT_METRICS = ["accuracy", "macro_f1"]
 WEIGHTS_TITLES = {"trained": "Trained weights", "ema": "Averaged weights (EMA)"}
 
@@ -499,8 +502,8 @@ if __name__ == "__main__":
     registry_path = BENCHMARKING_FOLDER / "experiment_comparisons.yaml"
     # Folder of the figures, one subfolder per experiment, the experiment plans linking every figure
     output_folder = BENCHMARKING_FOLDER / "figures"
-    # Experiment ("classification", "sequence_labelling" or "object_detection") and stage (such as "3" or "2b") to draw
-    # alone after a new stage, None drawing every stage of every experiment
+    # Experiment ("classification", "sequence_labelling", "object_detection" or "instance_segmentation") and stage (such
+    # as "3" or "2b") to draw alone after a new stage, None drawing every stage of every experiment
     experiment = None
     stage = None
 

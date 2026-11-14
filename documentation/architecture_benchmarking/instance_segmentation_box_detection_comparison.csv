@@ -1,0 +1,21 @@
+benchmark,launch,split,weights,box_map_50_95,box_map_50,box_map_75,box_map_95,box_map_small,box_map_medium,box_map_large,mask_map_50_95
+detection,object_detection/run_21,own_test,averaged,0.821584,0.96463,0.937032,0.139377,0.732623,0.845786,0.841251,
+detection,object_detection/run_21,own_test,trained,0.744031,0.948778,0.905061,0.017111,0.636004,0.772222,0.772077,
+detection,object_detection/run_21,instance_segmentation_test,averaged,0.820425,0.964768,0.936782,0.136332,0.734562,0.844447,0.837703,
+detection,object_detection/run_21,instance_segmentation_test,trained,0.74373,0.949162,0.904255,0.017816,0.639556,0.771613,0.7705,
+detection,object_detection/run_21,box_identical_test,averaged,0.879096,0.992455,0.985285,0.205856,0.80102,0.896682,0.928478,
+detection,object_detection/run_21,box_identical_test,trained,0.796417,0.984972,0.965836,0.024717,0.710593,0.818366,0.858387,
+detection,object_detection/run_22,own_test,averaged,0.815066,0.960446,0.931571,0.128151,0.722599,0.833692,0.836623,
+detection,object_detection/run_22,own_test,trained,0.732509,0.948719,0.90052,0.010906,0.627403,0.763813,0.755888,
+detection,object_detection/run_22,instance_segmentation_test,averaged,0.81442,0.961043,0.931908,0.124505,0.725896,0.833715,0.834459,
+detection,object_detection/run_22,instance_segmentation_test,trained,0.732703,0.94983,0.901995,0.010599,0.626791,0.764538,0.755282,
+detection,object_detection/run_22,box_identical_test,averaged,0.871498,0.989985,0.982978,0.182189,0.783477,0.886571,0.926005,
+detection,object_detection/run_22,box_identical_test,trained,0.778017,0.979653,0.959429,0.013309,0.673093,0.811288,0.829941,
+instance segmentation,instance_segmentation/run_1,own_test,averaged,0.837997,0.960107,0.939177,0.195694,0.749557,0.86418,0.852786,0.788131
+instance segmentation,instance_segmentation/run_1,own_test,trained,0.754814,0.942386,0.911679,0.026056,0.662763,0.789013,0.772545,0.736804
+instance segmentation,instance_segmentation/run_1,box_identical_test,averaged,0.897187,0.991569,0.98723,0.270777,0.826372,0.913525,0.940593,0.858833
+instance segmentation,instance_segmentation/run_1,box_identical_test,trained,0.805478,0.981753,0.971522,0.033611,0.723974,0.828057,0.853773,0.804439
+instance segmentation,instance_segmentation/run_2,own_test,averaged,0.836141,0.958491,0.937774,0.186348,0.733239,0.862081,0.856451,0.788616
+instance segmentation,instance_segmentation/run_2,own_test,trained,0.758392,0.943259,0.914311,0.019726,0.670345,0.796436,0.769768,0.746059
+instance segmentation,instance_segmentation/run_2,box_identical_test,averaged,0.894053,0.988634,0.985064,0.269935,0.799506,0.912585,0.942146,0.856208
+instance segmentation,instance_segmentation/run_2,box_identical_test,trained,0.815729,0.980509,0.974342,0.028697,0.741594,0.843538,0.843741,0.817102

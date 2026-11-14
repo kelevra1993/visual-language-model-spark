@@ -52,7 +52,7 @@ So that the order and the cost of the benchmark are seen at once, the table list
 
 | Stage | Parameter | Values | Code | Status |
 |---|---|---|---|---|
-| 0 | Reference and preflight | the starting values | none | planned |
+| 0 | Reference and preflight | the starting values | none | done, Test_EMA mask mAP 0.7884 at 15,000 (launch gap 0.0005) |
 | 0b | Mask threshold and final NMS, evaluation only | `mask_threshold` 0.4, 0.5, 0.6; greedy NMS against DIoU-NMS 0.6 | none | planned |
 | 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, 18, with `mask_resolution` twice the pool (28, 44, 36) | none | planned |
 | 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | planned |
@@ -67,6 +67,8 @@ Stages 0 to 4 change settings only; stages 5 to 8 need code, merged right before
 
 ## The Stages
 
+For a stage to be read without the git-ignored run folders, the copy of the driver gathers the test mask mAP of every launch at every evaluation, trained and averaged weights, in `hyperparameter_experiments/instance_segmentation/results.csv` (`refresh_results`, one column per swept setting). A copy is kept next to this plan and committed after every stage, `instance_segmentation_results.csv`, from which `scripts/evaluation/plot_experiment_comparisons.py` draws the figure of every stage of `experiment_comparisons.yaml` (`figures/instance_segmentation/`): the launches and pair means of the trained and averaged weights, and the gap of every value to the reference below.
+
 ### Stage 0: Reference And Preflight
 
 Before any comparison, the reference pair (run_1 and run_2) trains with the starting values, and the launch is checked first:
@@ -75,7 +77,33 @@ Before any comparison, the reference pair (run_1 and run_2) trains with the star
 - the two evaluations of one checkpoint (trained and averaged weights, 10,000 images each, every mask pasted at 1024 pixels): if they take much more than the 8.3 minutes of a detection checkpoint, the evaluation runs less often than every 500 iterations. Measured on 2026-11-13 at iteration 500 of run_1, beside run_2 training: 157 batches of 64 images at about 13.4 seconds each, 35 minutes per weight set and 70 minutes per checkpoint, the main process at a full CPU core, against 16 minutes of training between two checkpoints (1.9 seconds per iteration, measured while the other launch was starting or evaluating, so with the GPU nearly to itself). The user stopped the pair (run_1 at 500, run_2 at 474) and deleted it. Profiled on test images with the GPU free, 96 of the milliseconds of an image went to the mask overlaps, 85 of them to one float32 product of 16 pasted masks with the ground truth masks over the million pixels of the image, which left most of the GPU idle; `compute_mask_intersection_over_union` now multiplies segments of 1024 pixels in float16, exact, and the mask part takes 16 ms per image, the overlaps equal bit for bit on 64 test images. The user then set the evaluation every 1000 iterations and relaunched the pair from scratch on 2026-11-13 at 10:16. Measured at its first checkpoint: 2.7 seconds per iteration for each launch training side by side (1000 iterations in 45 minutes), and the evaluation of iteration 1000 in about 20 minutes, the trained weights in 8 minutes 45 seconds and the averaged ones in 8 minutes 15 seconds, both launches evaluating at once, instead of 70 minutes. A pair therefore takes about 16 hours (15 cycles of 45 minutes of training and 20 of evaluation);
 - the anchor recall of the dataset (`anchor_recall.csv`, written at the launch), against that of the detection dataset.
 
-The box mAP of the pair can be set beside that of the detection reference (run_21 and run_22, 0.8183), as an indication only: the images and the boxes (those of the visible parts) differ.
+Once both launches had ended, on 2026-11-14 at 01:12 (14 hours 56 minutes after the launch, both at 15,000), the reference read:
+
+| Launch | Test_EMA mask mAP@[0.5:0.95] at 15,000 | Trained weights | Test_EMA box mAP@[0.5:0.95] |
+|---|---|---|---|
+| run_1 | 0.7881 | 0.7368 | 0.8380 |
+| run_2 | 0.7886 | 0.7461 | 0.8361 |
+| Pair | 0.7884 | 0.7414 | 0.8371 |
+
+The two launches agree within 0.0005, and the mask mAP is still rising at 15,000 (+0.0045 since 14,000). Next to the score, the pair reads a mask mAP@0.5 of 0.9559, @0.75 of 0.9027 and @0.95 of 0.1500, and 0.7166, 0.8263 and 0.8070 for the small, medium and large objects: the large objects, whose 28 x 28 masks are stretched over up to 800 pixels, score below the medium ones, which stage 2 addresses. The anchor recall of the training objects is that of the detection dataset (0.8140 against 0.8141 over all levels, 0.4458 against 0.4459 for the small objects), so the boxes of the visible parts need no other anchors. Each launch held about 18 GB of GPU memory (18,067 MiB for run_2 during its last evaluation), and its training loader worker copied the parsed training manifest (9.55 GB of private memory at iteration 9000); the packed manifests, the single parse of every `labels.json` and the validation loader left out at a `validation_iteration_ratio` of 0, merged during the pair, remove that copy from the next stages.
+
+![Instance segmentation, stage 0: Reference](figures/instance_segmentation/stage_0_reference.png)
+
+#### Box Detection On The Same Images
+
+Suppose one wishes to know whether learning the masks costs the boxes anything: on 2026-11-14 the user asked for the detection reference to be evaluated on the test images of this benchmark ("running our best object detector on the 10 000 images, we know their boxes, that will be a fair comparison"). `hyperparameter_experiments/instance_segmentation/cross_evaluation/run_cross_evaluations.py` evaluates the 15,000 checkpoints of run_21 and run_22 (detection stage 7, 0.8183 on the detection test split) on the 10,000 test images as `scripts/evaluation/evaluate_checkpoint.py` does with its `test_data_folder`, writing to `<run>/Checkpoint_Evaluation_instance_segmentation_test/`. The two datasets do not label a covered shape alike, the detection with the box of the whole shape clipped to the image, this dataset with the box of its visible part (`keep_visible_objects` of `create_synthetic_dataset.py`), and 35 % of the 84,922 test objects have a box meeting the box of a later shape or the image border, where the two boxes may differ. `select_box_identical_images.py` therefore keeps the 418 test images (2,590 objects) whose every shape keeps its whole box (no later box within one pixel, no image border), on which the four launches were also evaluated (`<run>/Checkpoint_Evaluation_box_identical_test/`). The values are the box mAP@[0.5:0.95] of the averaged weights at 15,000 unless named, gathered with those of the trained weights by `compare_box_detection.py` in `instance_segmentation_box_detection_comparison.csv` next to this plan:
+
+| Test images | Detection (run_21, run_22) | Instance segmentation (run_1, run_2) | Gap |
+|---|---|---|---|
+| Own test split of each benchmark | 0.8183 (0.8216, 0.8151) | 0.8371 (0.8380, 0.8361) | other images |
+| 10,000 instance segmentation test images | 0.8174 (0.8204, 0.8144) | 0.8371 (0.8380, 0.8361) | +0.0196 |
+| Same 10,000 images, mAP@0.5 / @0.75 / @0.95 | 0.9629 / 0.9343 / 0.1304 | 0.9593 / 0.9385 / 0.1910 | -0.0036 / +0.0041 / +0.0606 |
+| 418 images with the same boxes in both labellings | 0.8753 (0.8791, 0.8715) | 0.8956 (0.8972, 0.8941) | +0.0203 |
+| Same 418 images, mAP@0.5 / @0.75 / @0.95 | 0.9912 / 0.9841 / 0.1940 | 0.9901 / 0.9861 / 0.2704 | -0.0011 / +0.0020 / +0.0763 |
+| Same 418 images, small / medium / large | 0.7922 / 0.8916 / 0.9272 | 0.8129 / 0.9131 / 0.9414 | +0.0207 / +0.0214 / +0.0141 |
+| Same 418 images, trained weights | 0.7872 | 0.8106 | +0.0234 |
+
+On the same images, the instance segmentation pair draws better boxes than the detection reference: +0.0196 on the 10,000 images and +0.0203 on the 418 whose boxes agree, beyond the launch gaps (0.0060 and 0.0019 on the 10,000 images, 0.0076 and 0.0031 on the 418), so the gap does not come from the labelling, and the detection reference scores almost the same on its own test split and on this one (0.8183 and 0.8174). Both find the objects alike (mAP@0.5 within 0.0036), the gain coming from tighter boxes (mAP@0.95 +0.0606 on the 10,000 images, +0.0763 on the 418). The comparison cannot tell the mask loss apart from the training boxes: the detection reference learned the whole boxes of partly hidden shapes, whose hidden extent the image does not show, where the instance segmentation launches learn the pixel exact boxes of what is visible. A detection pair trained on the boxes of this dataset, without masks, would tell them apart.
 
 ### Stage 0b: Mask Threshold And Final NMS (evaluation only)
 
