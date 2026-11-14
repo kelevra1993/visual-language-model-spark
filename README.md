@@ -217,7 +217,7 @@ Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the 
 - The settings that give no run name token, such as the augmentation, batch size, learning rate and its schedule, moving average of the weights and dropout rates, can change between two resumptions. The changed settings are printed, and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
 - Changed labels (another SHA-256 of a `labels.json`) stop the resume, unless `ExperimentConfiguration.allow_data_change_on_resume` is true.
 - To train the same settings from scratch, give the run another `run_name_suffix` or `experiment_folder`, or move its run folder away.
-- A failing iteration is reported in yellow and the training goes on; more than 5 failing iterations in a row stop it, saving a checkpoint.
+- A failing iteration is reported in yellow, with the traceback of its error the first time that error occurs in the run, and the training goes on; more than 5 failing iterations in a row stop it, saving a checkpoint.
 
 The rules of every case are in the [training reference](documentation/reference/training_reference.md#stopping-and-resuming).
 
