@@ -202,7 +202,7 @@ Every `information_dump` iterations it prints the averages of the interval for b
   <img src="README/interval_summary.png" width="100%" />
 </p>
 
-At every evaluation it prints the report appended to `Results.txt` (with `evaluation.per_class_report`, the classes worst first and their recall with its 95 % confidence interval). CLS, M2O, M2M and CMP print their rates as percentages ("94.03 %"), the other tasks between 0 and 1; the files, TensorBoard and MLflow always keep 0 to 1.
+At every evaluation it prints the report appended to `Results.txt` (with `evaluation.per_class_report`, the classes worst first and their recall with its 95 % confidence interval). Every task writes its rates as percentages ("94.03 %") in the report and the interval summaries, their changes in points ("+0.52 points"), while the thresholds, ranks, counts, pixel errors and losses keep their values; the files, TensorBoard and MLflow always keep 0 to 1.
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />

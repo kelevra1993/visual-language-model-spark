@@ -43,7 +43,7 @@ MaskHead of the level of every positive proposal: RoIAlign 14x14 ─► 3 conv x
 final_detection_boxes [B, 100, 4] · _scores · _labels · final_detection_masks [B, 100, 28, 28], detected class
    ▼ paste_instance_masks into 512 x 512 at the boxes, >= mask_threshold 0.5, mask IoU with the ground truth masks
 evaluate_detections on the masks, then on the boxes ─► mAP@0.5 / 0.75 / 0.95 / [0.5:0.95] · by size · mAR · per class
-   (AP, recall at 0.5 and 0.75 with its 95% interval)
+   (AP, recall at 0.5 and 0.75 with its 95 % interval)
    headline Mask mAP@0.5/area · proposal recall · class thresholds and confusion matrix on the masks
 <run>/anchor_recall.csv, Results.txt, Tensorboard/{Train, Test, Test_EMA}, Evaluation/Iteration_<n>/{class_metrics.csv
 (box and mask_ columns), class_thresholds.json, confusion_matrix.csv/.png, proposal_recall.csv, Samples/, EMA/}
@@ -94,14 +94,14 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 
 ### What A Run Writes
 - At every launch, `anchor_recall.csv` in the run folder: the share of the training objects with a foreground anchor, per level and size, the boxes being those of the segmentations (Step 2.18).
-- At every `weight_saving_iterations` checkpoint, in `Evaluation/Iteration_<n>/`: `class_metrics.csv` (37 columns: the box AP of every class at 0.5, 0.75, 0.95 and 0.5:0.95 and by size, its box recall at 0.5 and 0.75 with their 95% confidence intervals, the same columns prefixed with `mask_`, then the threshold and recall at the target precision), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (the detections matched to the objects by mask IoU 0.5), `proposal_recall.csv`, `Samples/<image>.png` (the ground truth masks and boxes next to the detections reaching 0.5 with their masks), `Errors/` with `error_dumps`, and the same files in `EMA/` for the moving average of the weights.
-- `Results.txt`: one block per evaluation (two with the moving average) with eleven tables, the mask then box mAP by method and by size, the mask and box mean average recall, the proposal recall and the mask and box per-class tables, each followed by its per-class recall table; `Tensorboard/Train` holds the total loss, the five losses and the learning rate, `Tensorboard/Test` and `Test_EMA` 126 evaluation scalars for 20 classes, the 8 samples and the confusion matrix.
-- In the INS run of `experiments/readme_screenshots` (the synthetic configuration resumed to 5000 iterations), iteration 5000 gives `Mask mAP@0.5/area` 0.7634 (0.7375 with the averaged weights), `Mask mAP@[0.5:0.95]/area` 0.5870 (0.5745), a box `mAP@0.5/area` of 0.7670, a mask `mAR@0.5` of 0.9724, and 36,975 right detections, 3,792 of the wrong class, 2,878 false positives and 28,915 missed objects at the deployment threshold, matched on the masks.
-- In the run of `run_configurations/instance_segmentation_workflow_run.yaml` shown in Stages 3 to 5 (the synthetic configuration trained to 5000 iterations from scratch, evaluated every 500), iteration 5000 gives `Mask mAP@0.5/area` 0.6372 with the trained weights and 0.7364 with the averaged weights, a box `mAP@0.5/area` of 0.6404 (0.7393), and 32,850 right detections, 8,650 of the wrong class, 3,549 false positives and 28,182 missed objects at the deployment threshold; the trained weights had their best `Mask mAP@0.5/area`, 0.6949, at iteration 4500 (Step 4.7).
+- At every `weight_saving_iterations` checkpoint, in `Evaluation/Iteration_<n>/`: `class_metrics.csv` (37 columns: the box AP of every class at 0.5, 0.75, 0.95 and 0.5:0.95 and by size, its box recall at 0.5 and 0.75 with their 95 % confidence intervals, the same columns prefixed with `mask_`, then the threshold and recall at the target precision), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (the detections matched to the objects by mask IoU 0.5), `proposal_recall.csv`, `Samples/<image>.png` (the ground truth masks and boxes next to the detections reaching 0.5 with their masks), `Errors/` with `error_dumps`, and the same files in `EMA/` for the moving average of the weights.
+- `Results.txt`: one block per evaluation (two with the moving average) with eleven tables, the mask then box mAP by method and by size, the mask and box mean average recall, the proposal recall and the mask and box per-class tables, each followed by its per-class recall table, every average precision and recall written as a percentage (`63.72 %`) while the counts, score thresholds and proposals per image keep their values, the files, TensorBoard and MLflow keeping the rates between 0 and 1; `Tensorboard/Train` holds the total loss, the five losses and the learning rate, `Tensorboard/Test` and `Test_EMA` 126 evaluation scalars for 20 classes, the 8 samples and the confusion matrix.
+- In the INS run of `experiments/readme_screenshots` (the synthetic configuration resumed to 5000 iterations), iteration 5000 gives `Mask mAP@0.5/area` 76.34 % (73.75 % with the averaged weights), `Mask mAP@[0.5:0.95]/area` 58.70 % (57.45 %), a box `mAP@0.5/area` of 76.70 %, a mask `mAR@0.5` of 97.24 %, and 36,975 right detections, 3,792 of the wrong class, 2,878 false positives and 28,915 missed objects at the deployment threshold, matched on the masks.
+- In the run of `run_configurations/instance_segmentation_workflow_run.yaml` shown in Stages 3 to 5 (the synthetic configuration trained to 5000 iterations from scratch, evaluated every 500), iteration 5000 gives `Mask mAP@0.5/area` 63.72 % with the trained weights and 73.64 % with the averaged weights, a box `mAP@0.5/area` of 64.04 % (73.93 %), and 32,850 right detections, 8,650 of the wrong class, 3,549 false positives and 28,182 missed objects at the deployment threshold; the trained weights had their best `Mask mAP@0.5/area`, 69.49 %, at iteration 4500 (Step 4.7).
 
 ### Pitfalls
-- The synthetic configuration stops at 2000 iterations, too early for its samples: in the run of `experiments/readme_screenshots`, `Mask mAP@0.5/area` is 0.1981 at iteration 1000, with 1,148 of the 69,682 test objects found at the deployment threshold, and 0.4032 at 2000; the samples show masks after the resume to 5000 (`suggestions.md`, item 30).
-- The masks are 28 x 28 in their box and pooled from feature maps of stride 32 and 64 (`suggestions.md`, item 5), so thin parts are lost at strict IoU: at iteration 5000 the star has a mask AP@0.5 of 0.9644 but a mask AP@0.75 of 0.1902, against a box AP@0.75 of 0.8574, and the mask `mAP@0.95` is 0.0202.
+- The synthetic configuration stops at 2000 iterations, too early for its samples: in the run of `experiments/readme_screenshots`, `Mask mAP@0.5/area` is 19.81 % at iteration 1000, with 1,148 of the 69,682 test objects found at the deployment threshold, and 40.32 % at 2000; the samples show masks after the resume to 5000 (`suggestions.md`, item 30).
+- The masks are 28 x 28 in their box and pooled from feature maps of stride 32 and 64 (`suggestions.md`, item 5), so thin parts are lost at strict IoU: at iteration 5000 the star has a mask AP@0.5 of 96.44 % but a mask AP@0.75 of 19.02 %, against a box AP@0.75 of 85.74 %, and the mask `mAP@0.95` is 2.02 %.
 - The sizes of the mask tables are measured on the mask areas and those of the box tables on the box areas, so their rows hold different objects: 911 small test objects by mask area against 184 by box area, 18,144 large against 35,919 (`Results.txt`, iteration 5000).
 - The exported model returns the 28 x 28 probabilities of every detection inside its box (`detection_masks`), not image masks: the client pastes them with `paste_instance_masks()` and keeps the pixels from `MaskHead.inference.mask_threshold`, which the export does not apply. The boxes are best restored to the original image unclipped (`restore_boxes_to_original_image(..., clip=False)`, as `restore_detection_boxes()` does for the evaluation), a box clipped at the border squeezing its mask (audit L22); the instance segmentation recipe of the Export section of `documentation/reference/tools_reference.md` does not say so. The client letterboxes its images as the evaluation did by following the input contract that the export writes next to the model (`preprocessing.json`) and into the metadata of `model.onnx`: BGR, `keep_ratio` to 512 pixels, bilinear resize, padding of 0 centred, NCHW, values from 0 to 255.
 - Every level has its own mask head, trained on the positive proposals of its level only, and the export runs every head on all the detections (`suggestions.md`, item 7): at iteration 5000, 183.8 of the 250 proposals per image come from block 5 (`proposal_recall.csv`).
@@ -256,7 +256,7 @@ run_test_evaluation(iteration)   [STAGE 4]
     │   ├── summarise_average_precisions(overlap_type="masks")   mask mAP and mAR, 3 methods, sizes by mask area
     │   ├── summarise_average_precisions(overlap_type="boxes")   box mAP and mAR, 3 methods, sizes by box area
     │   │                                                        (both with the recall of every class at 0.5 and 0.75,
-    │   │                                                        its exact 95% interval and its per-class recall table)
+    │   │                                                        its exact 95 % interval and its per-class recall table)
     │   ├── save_proposal_recall()                               proposal_recall.csv
     │   ├── write_class_metrics_file()                           box and mask columns of every class
     │   └── save_error_analysis()                                thresholds of the mask APs, confusion matrix
@@ -666,17 +666,17 @@ The anchor recall of the detection (see `object_detection_workflow.md`, Step 2.2
 Anchor Recall Of The 358 Training Objects...
 ---------------------------------------------
 Anchor Recall Of The Training Objects
- Objects               Count   Block 5   Block 6   Block 7   All Levels
-────────────────────────────────────────────────────────────────────────
- All Objects             358    0.8855    0.5307    0.4441       0.8855
- Small (< 32²)             2    0.0000    0.0000    0.0000       0.0000
- Medium (32² to 96²)     164    0.7622    0.2561    0.0671       0.7622
- Large (>= 96²)          192    1.0000    0.7708    0.7708       1.0000
+ Objects               Count    Block 5   Block 6   Block 7   All Levels
+─────────────────────────────────────────────────────────────────────────
+ All Objects             358    88.55 %   53.07 %   44.41 %      88.55 %
+ Small (< 32²)             2     0.00 %    0.00 %    0.00 %       0.00 %
+ Medium (32² to 96²)     164    76.22 %   25.61 %    6.71 %      76.22 %
+ Large (>= 96²)          192   100.00 %   77.08 %   77.08 %     100.00 %
 Share of the objects whose best anchor overlaps them by at least 0.5 (RegionProposal.foreground_iou_threshold.min),
 sizes by box area in network input pixels. An object under RegionProposal.foreground_iou_threshold.min in every level
 only gets its single best anchor as foreground. — : no object of the size.
 ```
-The table is saved in `anchor_recall.csv` (263 bytes) and sent to MLflow as an analysis file.
+The table writes its recalls as percentages; it is saved in `anchor_recall.csv` (263 bytes), with the recalls between 0 and 1, and sent to MLflow as an analysis file.
 
 ### Step 2.19 — `restore_last_model()`
 **Example output** (new run folder)
@@ -1048,7 +1048,7 @@ The evaluation of the detection computed twice on the same detections:
 - `summarise_average_precisions(overlap_type="masks", title_prefix="Mask", name_prefix="Mask ", column_prefix="mask_")`: the mask mAP, the detections matched to the objects of their class by mask IoU, with the three methods and by object size, the sizes measured on the **mask areas** (`select_object_size_detections()` reads `mask_areas`).
 - `summarise_average_precisions(overlap_type="boxes", title_prefix="Box")`: the box mAP of the detection, the sizes measured on the box areas, comparable with the object detection runs.
 
-Then `save_proposal_recall()` (see `object_detection_workflow.md`, Step 4.15), `write_class_metrics_file()` with the box and mask columns of every class (Step 4.8), and `save_error_analysis()` with the score thresholds of the **mask** average precisions (Step 4.9). The report holds eleven tables in this order: mask mAP by method, mask mAP by size, box mAP by method, box mAP by size, mask mean average recall, box mean average recall (see `object_detection_workflow.md`, Step 4.14), proposal recall, mask per class, mask per-class recall (`Mask Per Class Recall`), box per class, box per-class recall (`Box Per Class Recall`), the recall tables giving the recall of every class at 0.5 and 0.75 with its 95% confidence interval (see `object_detection_workflow.md`, Steps 4.11 and 4.13). With `evaluation.original_resolution`, `gather_image_detections()` restores the detection boxes to the original image and pastes the masks at that size, and `gather_image_ground_truth()` takes the boxes and mask areas of the original annotations, so that the mean average precisions and recalls, and their sizes, are those of the original images. The checkpoints are compared on `Mask mAP@0.5/area`.
+Then `save_proposal_recall()` (see `object_detection_workflow.md`, Step 4.15), `write_class_metrics_file()` with the box and mask columns of every class (Step 4.8), and `save_error_analysis()` with the score thresholds of the **mask** average precisions (Step 4.9). The report holds eleven tables in this order: mask mAP by method, mask mAP by size, box mAP by method, box mAP by size, mask mean average recall, box mean average recall (see `object_detection_workflow.md`, Step 4.14), proposal recall, mask per class, mask per-class recall (`Mask Per Class Recall`), box per class, box per-class recall (`Box Per Class Recall`), the recall tables giving the recall of every class at 0.5 and 0.75 with its 95 % confidence interval (see `object_detection_workflow.md`, Steps 4.11 and 4.13). With `evaluation.original_resolution`, `gather_image_detections()` restores the detection boxes to the original image and pastes the masks at that size, and `gather_image_ground_truth()` takes the boxes and mask areas of the original annotations, so that the mean average precisions and recalls, and their sizes, are those of the original images. The checkpoints are compared on `Mask mAP@0.5/area`, which the results also list in `percent_metrics` (`['Mask mAP@0.5/area']`, the report having no global metric) so that the best checkpoint line writes it as a percentage (Step 5.5). Every table lists its `percent_columns`: the report writes the average precisions, average recalls, proposal recalls, recalls at the target precision and per-class recalls with their bounds as percentages with two decimals (`63.72 %`), the target precision of the headers and legends as `99 %` and the confidence level as `95 %`, while the object and ground truth counts, the score thresholds and the proposals per image keep their values and the rows and scalars stay between 0 and 1.
 
 **Example: the results of `gather_class_detections()` and `evaluate_detections()`** (the keys of `evaluate_detections()` printed again with the current code, which adds the IoU 0.95 and the recalls)
 ```text
@@ -1073,54 +1073,54 @@ Iteration 5000 · 20000 Test Images · 2026-10-24 17:48 ────────
   Mask Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.6372     0.5467     0.0157           0.4691
-   11 Point     0.6159     0.5413     0.0289           0.4650
-   101 Point    0.6353     0.5457     0.0170           0.4685
+   Area        63.72 %    54.67 %     1.57 %          46.91 %
+   11 Point    61.59 %    54.13 %     2.89 %          46.50 %
+   101 Point   63.53 %    54.57 %     1.70 %          46.85 %
   The mask mAP@0.5 of the area method compares the checkpoints of the run.
 
   Mask Mean Average Precision By Object Size (Area)
    Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   Small (< 32²)             911    0.0537     0.0379     0.0000           0.0324
-   Medium (32² to 96²)     50627    0.6344     0.5402     0.0160           0.4616
-   Large (>= 96²)          18144    0.6229     0.5633     0.0206           0.4758
+   Small (< 32²)             911    5.37 %     3.79 %     0.00 %           3.24 %
+   Medium (32² to 96²)     50627   63.44 %    54.02 %     1.60 %          46.16 %
+   Large (>= 96²)          18144   62.29 %    56.33 %     2.06 %          47.58 %
   COCO sizes by mask area in network input pixels, the objects of the other sizes and the detections finding them being
   ignored. — : no object of the size.
 
   Box Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.6404     0.5818     0.0016           0.4608
-   11 Point     0.6169     0.5732     0.0118           0.4542
-   101 Point    0.6386     0.5804     0.0026           0.4600
+   Area        64.04 %    58.18 %     0.16 %          46.08 %
+   11 Point    61.69 %    57.32 %     1.18 %          45.42 %
+   101 Point   63.86 %    58.04 %     0.26 %          46.00 %
   Box average precisions of the same detections, comparable with the object detection runs.
 
   Box Mean Average Precision By Object Size (Area)
    Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   Small (< 32²)             184    0.0066     0.0000     0.0000           0.0012
-   Medium (32² to 96²)     33579    0.6254     0.5621     0.0022           0.4448
-   Large (>= 96²)          35919    0.6601     0.6042     0.0019           0.4815
+   Small (< 32²)             184    0.66 %     0.00 %     0.00 %           0.12 %
+   Medium (32² to 96²)     33579   62.54 %    56.21 %     0.22 %          44.48 %
+   Large (>= 96²)          35919   66.01 %    60.42 %     0.19 %          48.15 %
   COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
   ignored. — : no object of the size.
 
   Mask Mean Average Recall
    Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   All                     69682    0.9675     0.8661     0.0748           0.7570
-   Small (< 32²)             911    0.2066     0.0993     0.0000           0.1029
-   Medium (32² to 96²)     50627    0.9673     0.8620     0.0731           0.7512
-   Large (>= 96²)          18144    0.9917     0.9287     0.0856           0.7884
+   All                     69682   96.75 %    86.61 %     7.48 %          75.70 %
+   Small (< 32²)             911   20.66 %     9.93 %     0.00 %          10.29 %
+   Medium (32² to 96²)     50627   96.73 %    86.20 %     7.31 %          75.12 %
+   Large (>= 96²)          18144   99.17 %    92.87 %     8.56 %          78.84 %
   Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by mask area in network
   input pixels. — : no object of the size.
 
   Box Mean Average Recall
    Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   All                     69682    0.9736     0.8934     0.0357           0.7419
-   Small (< 32²)             184    0.0406     0.0000     0.0000           0.0099
-   Medium (32² to 96²)     33579    0.9636     0.8734     0.0323           0.7227
-   Large (>= 96²)          35919    0.9873     0.9169     0.0392           0.7627
+   All                     69682   97.36 %    89.34 %     3.57 %          74.19 %
+   Small (< 32²)             184    4.06 %     0.00 %     0.00 %           0.99 %
+   Medium (32² to 96²)     33579   96.36 %    87.34 %     3.23 %          72.27 %
+   Large (>= 96²)          35919   98.73 %    91.69 %     3.92 %          76.27 %
   Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
   input pixels. — : no object of the size.
 
@@ -1128,44 +1128,44 @@ Iteration 5000 · 20000 Test Images · 2026-10-24 17:48 ────────
                                                            Proposals
    Objects               Count   Recall@0.5   Recall@0.7   Per Image
   ───────────────────────────────────────────────────────────────────
-   All Objects           69682       0.9963       0.9741    250.0000
-   Small (< 32²)           184       0.3587       0.0815           —
-   Medium (32² to 96²)   33579       0.9967       0.9672           —
-   Large (>= 96²)        35919       0.9993       0.9852           —
-   Block 5 Proposals     69682       0.7811       0.5229    149.2502
-   Block 6 Proposals     69682       0.8050       0.2168     50.6018
-   Block 7 Proposals     69682       0.7044       0.5004     50.1480
+   All Objects           69682      99.63 %      97.41 %    250.0000
+   Small (< 32²)           184      35.87 %       8.15 %           —
+   Medium (32² to 96²)   33579      99.67 %      96.72 %           —
+   Large (>= 96²)        35919      99.93 %      98.52 %           —
+   Block 5 Proposals     69682      78.11 %      52.29 %    149.2502
+   Block 6 Proposals     69682      80.50 %      21.68 %     50.6018
+   Block 7 Proposals     69682      70.44 %      50.04 %     50.1480
   Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
   area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
 
   Mask Per Class Average Precision (Area)
-                   Ground                                                Threshold    Recall
-   Class           Truths   AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P0.99   @ P0.99
-  ───────────────────────────────────────────────────────────────────────────────────────────
-   heptagon          3466   0.2685    0.2606    0.0015          0.2217           —         —
-   octagon           3454   0.2764    0.2634    0.0049          0.2248           —         —
-   trapezoid         3546   0.2924    0.2514    0.0002          0.2050           —         —
-   rhombus           3436   0.3385    0.3189    0.0027          0.2700      0.4817    0.0006
-   nonagon           3533   0.3475    0.3373    0.0188          0.2929           —         —
-   hexagon           3471   0.3508    0.3393    0.0056          0.2899           —         —
+                   Ground                                                 Threshold    Recall
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P99 %   @ P99 %
+  ────────────────────────────────────────────────────────────────────────────────────────────
+   heptagon          3466   26.85 %   26.06 %    0.15 %         22.17 %           —         —
+   octagon           3454   27.64 %   26.34 %    0.49 %         22.48 %           —         —
+   trapezoid         3546   29.24 %   25.14 %    0.02 %         20.50 %           —         —
+   rhombus           3436   33.85 %   31.89 %    0.27 %         27.00 %      0.4817    0.06 %
+   nonagon           3533   34.75 %   33.73 %    1.88 %         29.29 %           —         —
+   hexagon           3471   35.08 %   33.93 %    0.56 %         28.99 %           —         —
    ...
-   rectangle         3494   0.9369    0.8746    0.0009          0.7006      0.8980    0.7479
-   square            3545   0.9624    0.9049    0.0017          0.7371      0.7861    0.8522
-   plus_sign         3442   0.9646    0.7893    0.0000          0.6144      0.7324    0.9096
-   star              3549   0.9729    0.3022    0.0000          0.4831      0.8004    0.9191
-   annulus           3461   0.9769    0.8102    0.0000          0.6644      0.7104    0.9240
-  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 0.99 is never reached.
+   rectangle         3494   93.69 %   87.46 %    0.09 %         70.06 %      0.8980   74.79 %
+   square            3545   96.24 %   90.49 %    0.17 %         73.71 %      0.7861   85.22 %
+   plus_sign         3442   96.46 %   78.93 %    0.00 %         61.44 %      0.7324   90.96 %
+   star              3549   97.29 %   30.22 %    0.00 %         48.31 %      0.8004   91.91 %
+   annulus           3461   97.69 %   81.02 %    0.00 %         66.44 %      0.7104   92.40 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 99 % is never reached.
 
   Box Per Class Average Precision (Area)
                    Ground
-   Class           Truths   AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]
-  ─────────────────────────────────────────────────────────────────────
-   heptagon          3466   0.2694    0.2557    0.0003          0.2017
-   octagon           3454   0.2769    0.2450    0.0001          0.1911
-   trapezoid         3546   0.2935    0.2428    0.0004          0.1963
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]
+  ──────────────────────────────────────────────────────────────────────
+   heptagon          3466   26.94 %   25.57 %    0.03 %         20.17 %
+   octagon           3454   27.69 %   24.50 %    0.01 %         19.11 %
+   trapezoid         3546   29.35 %   24.28 %    0.04 %         19.63 %
    ...
-   star              3549   0.9811    0.8934    0.0001          0.6611
-   annulus           3461   0.9850    0.9435    0.0028          0.7410
+   star              3549   98.11 %   89.34 %    0.01 %         66.11 %
+   annulus           3461   98.50 %   94.35 %    0.28 %         74.10 %
   Worst AP@0.5 first, ties in class order. — : no ground truth box of the class.
   - Results : Results.txt
   - Class Metrics : class_metrics.csv
@@ -1175,7 +1175,7 @@ Iteration 5000 · 20000 Test Images · 2026-10-24 17:48 ────────
   - Confusion Matrix Image : confusion_matrix.png
   - Sample Images : Samples
 ```
-By mask area, 911 of the 69,682 test objects are small, 50,627 medium and 18,144 large; by box area, 184, 33,579 and 35,919: a shape fills only part of its box. The mask and box mAP@0.5 are close (0.6372 and 0.6404), the same detections finding their objects by masks and by boxes alike at IoU 0.5, but the masks fall behind at 0.75 (0.5467 against 0.5818), most for the thin shapes: the star has a mask AP@0.75 of 0.3022 against a box AP@0.75 of 0.8934. The mask mAP@0.95 (0.0157) is above the box one (0.0016), carried mostly by the circle (mask AP@0.95 0.2319 against a box AP@0.95 of 0.0112). Only the mask per-class table has the threshold columns, the class thresholds being computed on the mask average precisions. The weakest classes are the polygons with many sides (heptagon, octagon, nonagon, hexagon) and the quadrilaterals (trapezoid, rhombus, kite), each below a mask AP@0.5 of 0.39.
+By mask area, 911 of the 69,682 test objects are small, 50,627 medium and 18,144 large; by box area, 184, 33,579 and 35,919: a shape fills only part of its box. The mask and box mAP@0.5 are close (63.72 % and 64.04 %), the same detections finding their objects by masks and by boxes alike at IoU 0.5, but the masks fall behind at 0.75 (54.67 % against 58.18 %), most for the thin shapes: the star has a mask AP@0.75 of 30.22 % against a box AP@0.75 of 89.34 %. The mask mAP@0.95 (1.57 %) is above the box one (0.16 %), carried mostly by the circle (mask AP@0.95 23.19 % against a box AP@0.95 of 1.12 %). Only the mask per-class table has the threshold columns, the class thresholds being computed on the mask average precisions. The weakest classes are the polygons with many sides (heptagon, octagon, nonagon, hexagon) and the quadrilaterals (trapezoid, rhombus, kite), each below a mask AP@0.5 of 39 %.
 
 **Example: the methods tables of the trained weights at iteration 4500 and of the averaged weights at iteration 5000**
 ```text
@@ -1187,16 +1187,16 @@ Iteration 4500 · 20000 Test Images · 2026-10-24 17:36 ────────
   Mask Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.6949     0.6022     0.0149           0.5230
-   11 Point     0.6713     0.5938     0.0287           0.5159
-   101 Point    0.6925     0.6011     0.0163           0.5221
+   Area        69.49 %    60.22 %     1.49 %          52.30 %
+   11 Point    67.13 %    59.38 %     2.87 %          51.59 %
+   101 Point   69.25 %    60.11 %     1.63 %          52.21 %
   ...
   Box Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.6981     0.6412     0.0022           0.5118
-   11 Point     0.6719     0.6280     0.0112           0.5033
-   101 Point    0.6959     0.6393     0.0031           0.5109
+   Area        69.81 %    64.12 %     0.22 %          51.18 %
+   11 Point    67.19 %    62.80 %     1.12 %          50.33 %
+   101 Point   69.59 %    63.93 %     0.31 %          51.09 %
   ...
 ```
 ```text
@@ -1208,22 +1208,22 @@ Iteration 5000 · 20000 Test Images · EMA Weights · 2026-10-24 17:51 ───
   Mask Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.7364     0.6481     0.0413           0.5743
-   11 Point     0.7068     0.6359     0.0610           0.5620
-   101 Point    0.7341     0.6462     0.0432           0.5730
+   Area        73.64 %    64.81 %     4.13 %          57.43 %
+   11 Point    70.68 %    63.59 %     6.10 %          56.20 %
+   101 Point   73.41 %    64.62 %     4.32 %          57.30 %
   ...
   Box Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.7393     0.7008     0.0290           0.5931
-   11 Point     0.7074     0.6853     0.0517           0.5790
-   101 Point    0.7369     0.6986     0.0310           0.5917
+   Area        73.93 %    70.08 %     2.90 %          59.31 %
+   11 Point    70.74 %    68.53 %     5.17 %          57.90 %
+   101 Point   73.69 %    69.86 %     3.10 %          59.17 %
   ...
 ```
-The mask mAP@0.5 of the trained weights rises at every evaluation up to 0.6949 at iteration 4500, then falls to 0.6372 at 5000, the wrong classes jumping from 3,529 to 8,650: the polygons slipped by one side, 2,053 hexagons being found as pentagons and 1,803 heptagons as hexagons at 5000, against 450 and 402 at 4500 (`confusion_matrix.csv`), and the mask AP@0.5 of the hexagon falling from 0.7008 to 0.3508. The averaged weights do not follow this swing: their mask mAP@0.5 rises at every evaluation, to 0.7364 at 5000, with a hexagon mask AP@0.5 of 0.8638, and they give the best checkpoint of the run. With a constant learning rate of 0.0002, the trained weights of a single checkpoint can be caught in such a swing, which the averaged weights smooth out.
+The mask mAP@0.5 of the trained weights rises at every evaluation up to 69.49 % at iteration 4500, then falls to 63.72 % at 5000, the wrong classes jumping from 3,529 to 8,650: the polygons slipped by one side, 2,053 hexagons being found as pentagons and 1,803 heptagons as hexagons at 5000, against 450 and 402 at 4500 (`confusion_matrix.csv`), and the mask AP@0.5 of the hexagon falling from 70.08 % to 35.08 %. The averaged weights do not follow this swing: their mask mAP@0.5 rises at every evaluation, to 73.64 % at 5000, with a hexagon mask AP@0.5 of 86.38 %, and they give the best checkpoint of the run. With a constant learning rate of 0.0002, the trained weights of a single checkpoint can be caught in such a swing, which the averaged weights smooth out.
 
 ### Step 4.8 — `write_class_metrics_file()`
-One row per class, the box columns of the detection followed by the same columns prefixed with `mask_`, then the threshold and recall at the target precision (of the mask average precisions): 37 columns, `average_precision_95` following `average_precision_75` and `mask_average_precision_95` following `mask_average_precision_75` (`351a4d1`), and the six recall columns `recall_50` to `recall_75_upper` (the recall at 0.5 and 0.75 with the bounds of its exact 95% interval over the ground truths, `object_detection_workflow.md`, Step 4.11) following the box sizes, `mask_recall_50` to `mask_recall_75_upper` following the mask sizes.
+One row per class, the box columns of the detection followed by the same columns prefixed with `mask_`, then the threshold and recall at the target precision (of the mask average precisions): 37 columns, `average_precision_95` following `average_precision_75` and `mask_average_precision_95` following `mask_average_precision_75` (`351a4d1`), and the six recall columns `recall_50` to `recall_75_upper` (the recall at 0.5 and 0.75 with the bounds of its exact 95 % interval over the ground truths, `object_detection_workflow.md`, Step 4.11) following the box sizes, `mask_recall_50` to `mask_recall_75_upper` following the mask sizes.
 
 **Example: `Evaluation/Iteration_5000/class_metrics.csv`** (first rows)
 ```text
@@ -1251,7 +1251,7 @@ block_7,69682,0.704400,0.500416,50.147950
 As in the detection run, the proposals overlap 99.63 % of the test objects by 0.5 at iteration 5000, the small ones excepted (66 of 184): the errors come from the classification and the masks, not from the region proposals.
 
 ### Step 4.9 — `save_error_analysis()`
-The class thresholds and the confusion matrix of the detection (see `object_detection_workflow.md`, Step 4.12), the thresholds being those of the mask average precisions and the confusion matrix counting the matches on the masks (Step 4.5).
+The class thresholds and the confusion matrix of the detection (see `object_detection_workflow.md`, Step 4.12), the thresholds being those of the mask average precisions and the confusion matrix counting the matches on the masks (Step 4.5); its image writes the shares, recalls and precisions as percentages with two decimals, in cells of 0.65 inch per class.
 
 **Example output: iteration 5000** (`class_thresholds.json` is written indented, shortened here)
 ```text
@@ -1265,7 +1265,7 @@ confusion_matrix.csv:   true \ predicted,background,square,circle,triangle,recta
                         hexagon,780,0,0,0,0,2053,625,...            <- 2,053 hexagons found as pentagons, 625 right
                         ...
                         heptagon,1552,0,0,0,0,77,1803,...           <- 1,803 heptagons found as hexagons
-confusion_matrix.png:   1852 x 1815 pixels
+confusion_matrix.png:   2640 x 2602 pixels with the current cells, 1852 x 1815 when it was recorded
 ```
 On the diagonal, no octagon, rhombus, trapezoid or nonagon is right at the deployment threshold, 12 kites and 23 heptagons are; the octagons go to the background column (2,834 of 3,454 missed) or are found as heptagons (507).
 
@@ -1331,9 +1331,10 @@ MLflow Run Created In The Experiment 'instance_segmentation' : 09ee1c5e422849309
 --------------------------------------------------------------
 Evaluation Summary Of 20 Checkpoints : evaluation_summary.csv
 --------------------------------------------------------------
-  - Best Checkpoint : iteration 4500 (Mask mAP@0.5/area 0.7029)
-  - Best Checkpoint (EMA Weights) : iteration 5000 (Mask mAP@0.5/area 0.7424)
+  - Best Checkpoint : iteration 4500 (Mask mAP@0.5/area 70.29 %)
+  - Best Checkpoint (EMA Weights) : iteration 5000 (Mask mAP@0.5/area 74.24 %)
 ```
+The best value is written like in the report, as a percentage, since `percent_metrics` names the headline metric (Step 4.7); `evaluation_summary.csv` keeps every scalar between 0 and 1.
 
 **Example: `<run>/Checkpoint_Evaluation/evaluation_summary.csv`** (253 columns: the iteration, the 126 scalars of the trained weights, that is the 86 box, mask and proposal recall scalars of Step 4.10 and the box and mask `AP@0.5` of the 20 classes, then the same 126 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
 ```text
@@ -1373,16 +1374,16 @@ Iteration 5000 · 200 Test Images · 2026-10-25 07:23 ────────�
   Mask Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.6287     0.5294     0.0129           0.4578
-   11 Point     0.6146     0.5189     0.0172           0.4504
-   101 Point    0.6271     0.5283     0.0135           0.4571
+   Area        62.87 %    52.94 %     1.29 %          45.78 %
+   11 Point    61.46 %    51.89 %     1.72 %          45.04 %
+   101 Point   62.71 %    52.83 %     1.35 %          45.71 %
   The mask mAP@0.5 of the area method compares the checkpoints of the run.
   ...
   Box Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.6287     0.5795     0.0063           0.4637
-   11 Point     0.6137     0.5665     0.0136           0.4568
-   101 Point    0.6267     0.5779     0.0068           0.4627
+   Area        62.87 %    57.95 %     0.63 %          46.37 %
+   11 Point    61.37 %    56.65 %     1.36 %          45.68 %
+   101 Point   62.67 %    57.79 %     0.68 %          46.27 %
 ```
 The averaged weights of the same checkpoint (the `EMA Weights` block that follows) find 321 objects right with 31 of the wrong class, against 310 and 96 for the trained weights.

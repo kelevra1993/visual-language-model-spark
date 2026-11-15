@@ -83,7 +83,7 @@ Details of the training runs, completing the [Training](../../README.md#training
     - Learning Rate       : 0.0005 (multiplier 0.5 x 0.001)
 ```
 
-- **Every `information_dump` iterations**: the averages of the interval (samples seen, throughput, real frames per second of the sequences, losses, metrics, duration). A run resumed between two summaries has a shorter first interval. The accuracy of CLS, M2O, M2M and CMP is written as a percentage, `94.03 %`, its change since the last summary in points, `+0.52 points`; the losses and the metrics of the other tasks keep 4 decimals.
+- **Every `information_dump` iterations**: the averages of the interval (samples seen, throughput, real frames per second of the sequences, losses, metrics, duration). A run resumed between two summaries has a shorter first interval. The rates are written as percentages, `94.03 %`, their change since the last summary in points, `+0.52 points`: the accuracy of CLS, M2O, M2M, CMP and SEL, the pixel accuracy and mean IoU of SEG and the positive pair accuracy of SimCLR (SSL); the losses, the correlations and standard deviation of Barlow Twins keep 4 decimals, and DET, INS and KPT follow only losses.
 - **Dropped batches**: a batch that fails to load is skipped. Every distinct error is printed once in yellow, the first with its traceback, and the drops are counted under every summary:
 
 ```text
@@ -91,7 +91,7 @@ Training Batch Dropped : The image cannot be read : <file>
 - Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)
 ```
 
-- **Every `weight_saving_iterations` iterations**: the evaluation report, also appended to `Results.txt`, then the `EMA Weights` report when the moving average is on. The reports of CLS, M2O, M2M and CMP write their rates as percentages, those of DET, INS, KPT, SEG, SEL and SSL between 0 and 1 with 4 decimals; `class_metrics.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
+- **Every `weight_saving_iterations` iterations**: the evaluation report, also appended to `Results.txt`, then the `EMA Weights` report when the moving average is on. The reports of every task write their rates as percentages, the thresholds, ranks, pixel errors, effective rank and standard deviations keeping 4 decimals and the counts their whole numbers; `class_metrics.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
 
 ## Stopping And Resuming
 
@@ -246,4 +246,4 @@ A component with class layers can initialise a run with more classes than its so
 | Mask prediction layer of the mask heads | `MaskHead` |
 | Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `load_class_layers` |
 
-On the synthetic shapes (9 classes extended to 20, stage 14 of `documentation/architecture_benchmarking/experiment_plan.md`), the new classes reached an accuracy of 0.75 at iteration 250, and the source classes kept 0.9986.
+On the synthetic shapes (9 classes extended to 20, stage 14 of `documentation/architecture_benchmarking/experiment_plan.md`), the new classes reached an accuracy of 75.13 % at iteration 250 (trained weights), and the source classes kept 99.86 % (averaged weights).

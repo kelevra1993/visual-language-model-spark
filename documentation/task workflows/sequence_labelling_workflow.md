@@ -80,7 +80,7 @@ Should you start on sequences of your own, `configuration_example.yaml` holds th
 | `ExperimentConfiguration.evaluation.error_dumps` | `activated: False`, `maximum_per_class_pair: 20` | one image per wrong frame in `Errors/<TRUE>-TO-<PREDICTED>/` |
 
 ### What A Run Writes
-- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` and `Per Class Recall` tables (column `Frames`) with `per_class_report`, the second giving the frame recall of every class with its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst recall first. Every global metric, the sequence ones included, and every rate of the tables is written as a percentage with two decimals (`46.97 %`), the thresholds staying between 0 and 1.
+- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` and `Per Class Recall` tables (column `Frames`) with `per_class_report`, the second giving the frame recall of every class with its 95 % confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst recall first. Every global metric, the sequence ones included, and every rate of the tables is written as a percentage with two decimals (`46.97 %`), the thresholds staying between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `class_metrics.csv` (its `samples` are labelled frames, `recall_lower` and `recall_upper` follow `recall`), `class_thresholds.json`, `confusion_matrix.csv`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png`; `predictions.csv` with `save_predictions`, one row per labelled frame (`sequence`, `frame`, `true_class`, `predicted_class`, `correct`, `probability_<class>`).
 - `Samples/<sequence>.png`: the frame grid of 8 fixed test sequences, 4 frames per row, every frame captioned `true/predicted` and `X` on the wrong ones; `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, one image per wrong frame, with `error_dumps.activated`.
 - TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss` and `Accuracy` (of the labelled frames), `Train/` also `Learning Rate`; `Test/` the global metrics, the `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
@@ -204,7 +204,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │                                               count_segment_matches(): Edit Score, Segment F1@10/25/50
 │   ├── compute_recall_intervals()                  overridden: sum_counts_by_group() adds up the true and right
 │   │                                               frames of every class per test sequence, then
-│   │                                               compute_bootstrap_recall_intervals() gives the 95% interval of
+│   │                                               compute_bootstrap_recall_intervals() gives the 95 % interval of
 │   │                                               every frame recall over 1000 resamples of the sequences
 │   ├── class_metrics.csv, confusion_matrix.png and save_score_curve_images() (the images with per_class_report)
 │   ├── write_predictions_file() -> build_prediction_rows()   one row per labelled frame
@@ -744,7 +744,7 @@ TensorBoard: Samples/test_000000, ..., Samples/test_000059
 ```
 
 ### Step 4.7 — `compute_evaluation_results()`
-The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), with `per_class_report` their ROC and precision-recall curves, then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), `compute_recall_intervals()` the 95% confidence interval of the frame recall of every class, a Korn-Graubard interval from a bootstrap over the test sequences (Step 4.9), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
+The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), with `per_class_report` their ROC and precision-recall curves, then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), `compute_recall_intervals()` the 95 % confidence interval of the frame recall of every class, a Korn-Graubard interval from a bootstrap over the test sequences (Step 4.9), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
 
 **Example: the results of iteration 12** (recorded before the curves)
 ```text

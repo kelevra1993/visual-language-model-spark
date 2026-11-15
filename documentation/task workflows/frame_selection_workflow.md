@@ -86,7 +86,7 @@ uv run python -m vision_training.deployment.export_model
 | `ExperimentConfiguration.evaluation.save_predictions` | `True` | `selections.csv`, one row per test sequence and wanted class |
 
 ### What A Run Writes
-- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Frames · <date>`, the `Selection Accuracy`, `Fully Right Sequences`, `Unselected Precision` and `Unselected Recall` of each decoding, `Top-2 Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`, the note naming the decoding of the images and thresholds, then the `Per Class Selection` and `Per Class Recall` tables with `per_class_report`, the second giving the selection accuracy of every wanted class with the decoding of the run and its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst first. Unlike the sequence labelling it is built on, the frame selection writes every rate between 0 and 1 with four decimals (`0.9950`), in the report, the console summaries and the best checkpoint line (`get_percent_tracked_metrics()`, `percent_columns` and `percent_metrics` left empty).
+- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Frames · <date>`, the `Selection Accuracy`, `Fully Right Sequences`, `Unselected Precision` and `Unselected Recall` of each decoding, `Top-2 Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`, the note naming the decoding of the images and thresholds, then the `Per Class Selection` and `Per Class Recall` tables with `per_class_report`, the second giving the selection accuracy of every wanted class with the decoding of the run and its 95 % confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst first. Like the sequence labelling it is built on, the frame selection writes every rate as a percentage with two decimals (`99.50 %`) in the report, the confusion matrix image, the best checkpoint line and the console summaries (the frame accuracy, its change in points, `+1.92 points`): every headline metric but the `Mean True Frame Rank` (`percent_metrics`), the accuracies and the `Recall @ P99 %` of the per-class table and the bounds of the recall table (`percent_columns`). The mean rank and the probability thresholds keep their decimals, and `class_metrics.csv`, `class_thresholds.json`, `selections.csv`, `evaluation_summary.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `class_thresholds.json` (the target precision, the decoding, the unselected class, and the threshold and recall of every wanted class, `null` when never reached), `class_metrics.csv` (one row per wanted class, `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` following the accuracy of the decoding of the run), `confusion_matrix.csv` of the decoded frames and, with `per_class_report`, `confusion_matrix.png`; `selections.csv` with `save_predictions`.
 - `Samples/<sequence>.png` (8 fixed test sequences, evenly spread) and `Errors/<CLASS>/<sequence>.png` (with `error_dumps.activated`): the thumbnail grid of the whole sequence with the borders of the selection, the probability heat map and the number of right selections.
 - TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss`, `Selection Loss` and `Accuracy` (of the real frames), `Train/` also `Learning Rate`; `Test/` the 13 global metrics, `Hungarian Selection Accuracy/<class>`, `Greedy Selection Accuracy/<class>`, `Mean True Frame Rank/<class>`, `Samples/<sequence>` and `Confusion Matrix`.
@@ -95,9 +95,9 @@ uv run python -m vision_training.deployment.export_model
 ### Pitfalls
 - Every sequence must hold exactly `frames_per_class` frames of every wanted class, otherwise the training stops at startup with the list of the first 20 such sequences (Step 2.8, `describe_selection_problem()`); a wanted class left out of the label mapping turns its frames into unselected ones (`SequenceDataset`).
 - The Hungarian decoding maximises the probability of the whole labelling, not the number of right frames: on the 20 sequences of Stage 5, the checkpoint of iteration 3 gets 3 true triangle frames with the greedy decoding and 1 with the Hungarian one (Step 5.6). The best checkpoint, the thresholds and the deployment follow `Selection.decoding` only.
-- Tied probabilities give every tied frame the best rank, so a model giving the same probabilities to every frame scores a Top-k Selection Accuracy and a Mean True Frame Rank of 1.0 (`compute_frame_ranks()`, kept as it is).
+- Tied probabilities give every tied frame the best rank, so a model giving the same probabilities to every frame scores a Top-k Selection Accuracy of 100 % and a Mean True Frame Rank of 1.0 (`compute_frame_ranks()`, kept as it is).
 - A class never reaching `target_precision` gets a `null` threshold, every frame chosen for it being flagged low confidence (Step 4.14). The export reads the `class_thresholds.json` of the exported iteration in `Evaluation/Iteration_<n>/` (training) or `Checkpoint_Evaluation/Iteration_<n>/` (`evaluate_checkpoint.py`), and stops when both hold one (`build_decoding_settings()`, `find_class_thresholds_path()`). It reads them only after the networks: `export_experiment()` exports and checks every format in a staging folder and installs them once all match the eager model (`install_staged_models()`), then writes the decoder and the ensembles straight into the repository, so this stop leaves the new networks installed next to the decoder of an earlier export, if any. A checkpoint exported without any evaluation gets thresholds of 0, so no chosen frame is flagged, and `decoding_settings.json` names its wanted classes by their indices: evaluate an intermediate checkpoint with `evaluate_checkpoint.py` before exporting it. An export of the averaged weights reads the thresholds of the trained weights (`Iteration_<n>/class_thresholds.json`, not those of its `EMA` subfolder), a limit kept as it is.
-- The synthetic configuration is solved quickly: the README screenshot run reaches a Hungarian selection accuracy of 0.9950 at iteration 1000 and 1.0000 at iteration 2000, so its sample images show no wrong choice (`suggestions.md` K34). Its 3 wrong choices of iteration 1000 are triangles (`selections.csv`: `test_000004`, `test_000134`, `test_000052`), the last one chosen at 0.4446, above the triangle threshold of 0.1830, so not flagged.
+- The synthetic configuration is solved quickly: the README screenshot run reaches a Hungarian selection accuracy of 99.50 % at iteration 1000 and 100.00 % at iteration 2000, so its sample images show no wrong choice (`suggestions.md` K34). Its 3 wrong choices of iteration 1000 are triangles (`selections.csv`: `test_000004`, `test_000134`, `test_000052`), the last one chosen at 0.4446, above the triangle threshold of 0.1830, so not flagged.
 - The exported network has no sequence mask: the sequences of one request must have the same number of frames, from 1 to `maximum_sequence_length` (`InferenceSequenceModel`, every frame of its `images` [B, T, 3, S, S] input being real), and the decoding runs in the Python backend on the CPU, after the network.
 
 ## Table of Contents
@@ -209,7 +209,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── the frame metrics of the most probable class              compute_confusion_matrix() +
 │   │                                                             compute_metrics_from_confusion_matrix()
 │   ├── find_selection_thresholds()                               class_thresholds.json
-│   ├── compute_bootstrap_recall_intervals()                      95% interval of the selection accuracy of every
+│   ├── compute_bootstrap_recall_intervals()                      95 % interval of the selection accuracy of every
 │   │                                                             wanted class with the decoding of the run
 │   ├── write_class_metrics_file() / save_confusion_matrix_table() / save_confusion_matrix_image()
 │   ├── write_selections_file()                                   selections.csv (only with save_predictions)
@@ -437,14 +437,15 @@ total                                                     349,348 parameters
 ```
 
 ### Step 2.12 — `initialise_pretrained_components()` + `build_optimizer()` + `get_tracked_metrics()`
-The selection loss is tracked next to the per-frame loss; the total loss is their sum.
+The selection loss is tracked next to the per-frame loss; the total loss is their sum. The accuracy of the real frames is the only rate (`get_percent_tracked_metrics()`, inherited from `ClassificationTrainer`), printed as a percentage with its change in points in the console summary (Step 3.14), the losses keeping 4 decimals.
 
 **Example output**
 ```text
 pretrained_checkpoint_paths = {'Backbone': None, 'TemporalModel': None, 'ClassificationHead': None}
 Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 {'total_loss': 'Total Loss', 'classification_loss': 'Classification Loss', 'selection_loss': 'Selection Loss', 'accuracy': 'Accuracy'}
-MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequences', counts_frames True
+MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequences', counts_frames True,
+               percent_metric_keys ['accuracy']
 ```
 
 ### Step 2.13 — `print_experiment_information()` (→ `describe_split()` → `count_split_sequences()`)
@@ -632,7 +633,7 @@ MLflow, step 4: {'train/Total Loss': 3.3665, 'train/Classification Loss': 1.3112
 Moving Average of Train Total Loss                     :   3.3665
 Moving Average of Train Classification Loss            :   1.3112
 Moving Average of Train Selection Loss                 :   2.0552
-Moving Average of Train Accuracy                       :   0.6307
+Moving Average of Train Accuracy                       :  63.07 %
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:03.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -647,8 +648,8 @@ Moving Average of Train Classification Loss            :   1.0391  -0.1232 Best
 Moving Average of Valid Classification Loss            :   1.2079
 Moving Average of Train Selection Loss                 :   2.0316  +0.0197
 Moving Average of Valid Selection Loss                 :   2.1867
-Moving Average of Train Accuracy                       :   0.6370  +0.0192 Best
-Moving Average of Valid Accuracy                       :   0.6667
+Moving Average of Train Accuracy                       :  63.70 % +1.92 points Best
+Moving Average of Valid Accuracy                       :  66.67 %
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:01.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
@@ -752,8 +753,9 @@ headline_metric   = 'Hungarian Selection Accuracy'
 files             = ['Class Thresholds', 'Class Metrics', 'Confusion Matrix Table', 'Confusion Matrix Image', 'Selections', 'Error Images', 'Sample Images']
 class_scalars     = 9: Hungarian Selection Accuracy/circle, Greedy Selection Accuracy/circle, Mean True Frame Rank/circle, ...
 tables            = Per Class Selection: Class, True Frames, Hungarian Accuracy, Greedy Accuracy, Top-2 Accuracy, Mean Rank,
-                    Threshold @ P0.99, Recall @ P0.99
+                    Threshold @ P99 %, Recall @ P99 %
 ```
+The current results also hold `percent_metrics`, the names of the headline metrics written as percentages in the report and in the best checkpoint line (every one but `Mean True Frame Rank`), and every table its `percent_columns`; `metrics` and the scalars keep their values between 0 and 1.
 
 ### Step 4.8 — `compute_frame_ranks()`
 The rank of every frame for every wanted class among the frames of its sequence ordered by their probability for that class, 1 for the most probable (tied frames take the best of their ranks). It is the input of the ranking metrics (Step 4.11) and of the `true_ranks` column of the selections file.
@@ -833,7 +835,7 @@ Frame Macro F1          = (2 x 0.6112 x 1.0 / 1.6112) / 4  = 0.1897
 ```
 
 ### Step 4.13 — `find_selection_thresholds()` + `write_class_metrics_file()` + `save_confusion_matrix_table()` / `save_confusion_matrix_image()`
-`find_selection_thresholds()` takes, for every wanted class, the probabilities of the frames the decoding of the run chose for it and whether each is a true frame, and finds the lowest probability from which these choices reach `target_precision`, with the share of all the true frames of the class kept. In deployment, a chosen frame below the threshold of its class, or every frame of a class without threshold, is flagged as low confidence for a human to check. The thresholds are saved in `class_thresholds.json`, with the decoding and the unselected class. The selection accuracy of every wanted class with the decoding of the run is its recall: the frames of a sequence being chosen together, `compute_bootstrap_recall_intervals()` of `vision_training/evaluation/recall_intervals.py` gives its 95% Korn-Graubard confidence interval from the right and true frames of every sequence of Step 4.10: the variance of the accuracy over 1000 resamples of the test sequences with replacement (fixed seed) gives an effective sample size, reduced for the degrees of freedom of the sequences holding the class, at which the exact (Clopper-Pearson) interval is taken, or the exact interval over those sequences when they all have the same accuracy, so that it never has zero width. The metrics of every wanted class go to `class_metrics.csv` whatever the per-class report, the bounds as `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` after the accuracy of the decoding of the run (`hungarian_accuracy_lower` and `hungarian_accuracy_upper` here), and with the per-class report `build_recall_interval_table()` shows them in the `Per Class Recall` table (`True Frames`, `Hungarian Accuracy`, `95% Lower`, `95% Upper`, worst accuracy first) after the `Per Class Selection` table. The confusion matrix of the decoded classes is saved as a table, and as an image (titled with the decoding and its selection accuracy) only with the per-class report.
+`find_selection_thresholds()` takes, for every wanted class, the probabilities of the frames the decoding of the run chose for it and whether each is a true frame, and finds the lowest probability from which these choices reach `target_precision`, with the share of all the true frames of the class kept. In deployment, a chosen frame below the threshold of its class, or every frame of a class without threshold, is flagged as low confidence for a human to check. The thresholds are saved in `class_thresholds.json`, with the decoding and the unselected class. The selection accuracy of every wanted class with the decoding of the run is its recall: the frames of a sequence being chosen together, `compute_bootstrap_recall_intervals()` of `vision_training/evaluation/recall_intervals.py` gives its 95 % Korn-Graubard confidence interval from the right and true frames of every sequence of Step 4.10: the variance of the accuracy over 1000 resamples of the test sequences with replacement (fixed seed) gives an effective sample size, reduced for the degrees of freedom of the sequences holding the class, at which the exact (Clopper-Pearson) interval is taken, or the exact interval over those sequences when they all have the same accuracy, so that it never has zero width. The metrics of every wanted class go to `class_metrics.csv` whatever the per-class report, the bounds as `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` after the accuracy of the decoding of the run (`hungarian_accuracy_lower` and `hungarian_accuracy_upper` here), and with the per-class report `build_recall_interval_table()` shows them in the `Per Class Recall` table (`True Frames`, `Hungarian Accuracy`, `95 % Lower`, `95 % Upper`, worst accuracy first, every value but the true frames written as a percentage) after the `Per Class Selection` table. The confusion matrix of the decoded classes is saved as a table, and as an image (titled with the decoding and its selection accuracy, here `Decoded Frames · Iteration 12 · Hungarian Selection Accuracy 12.22 %`, its shares written as percentages) only with the per-class report.
 
 **Example: `Evaluation/Iteration_6/class_thresholds.json`** (at iteration 12 every class is `null`)
 ```text
@@ -879,27 +881,27 @@ No class has a threshold at iteration 12, so every chosen frame is flagged (`1`)
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
 Iteration 12 · 60 Test Sequences, 463 Frames · 2026-10-10 07:20 ────────────────────────────────────────────────────────
-  Hungarian Selection Accuracy     0.1222   Hungarian Fully Right Sequences   0.0000
-  Hungarian Unselected Precision   0.6537   Hungarian Unselected Recall       0.6537
-  Greedy Selection Accuracy        0.1222   Greedy Fully Right Sequences      0.0000
-  Greedy Unselected Precision      0.6537   Greedy Unselected Recall          0.6537
-  Top-2 Selection Accuracy         0.3333   Mean True Frame Rank              4.1444
-  Frame Accuracy                   0.6112   Frame Balanced Accuracy           0.2500
-  Frame Macro F1                   0.1897
+  Hungarian Selection Accuracy     12.22 %   Hungarian Fully Right Sequences   0.00 %
+  Hungarian Unselected Precision   65.37 %   Hungarian Unselected Recall       65.37 %
+  Greedy Selection Accuracy        12.22 %   Greedy Fully Right Sequences      0.00 %
+  Greedy Unselected Precision      65.37 %   Greedy Unselected Recall          65.37 %
+  Top-2 Selection Accuracy         33.33 %   Mean True Frame Rank              4.1444
+  Frame Accuracy                   61.12 %   Frame Balanced Accuracy           25.00 %
+  Frame Macro F1                   18.97 %
   Images, Thresholds And Confusion Matrix : hungarian decoding ('Selection.decoding')
   Error Images : 6 in 3 classes, at most 2 per class
   Sample Images : 8 fixed test sequences
 
   Per Class Selection
                             Hungarian     Greedy      Top-2     Mean   Threshold    Recall
-   Class      True Frames    Accuracy   Accuracy   Accuracy     Rank     @ P0.99   @ P0.99
+   Class      True Frames    Accuracy   Accuracy   Accuracy     Rank     @ P99 %   @ P99 %
   ─────────────────────────────────────────────────────────────────────────────────────────
-   circle              60      0.1167     0.1167     0.4000   3.9500           —         —
-   star                60      0.1167     0.1167     0.2500   4.5333           —         —
-   triangle            60      0.1333     0.1333     0.3500   3.9500           —         —
+   circle              60     11.67 %    11.67 %    40.00 %   3.9500           —         —
+   star                60     11.67 %    11.67 %    25.00 %   4.5333           —         —
+   triangle            60     13.33 %    13.33 %    35.00 %   3.9500           —         —
   Worst hungarian accuracy first, ties in class order. Accuracy : share of the true frames of the class chosen for it.
   Rank : mean rank of the true frames among the frames ordered by their probability for the class, 1 being the best.
-  Threshold : probability from which the hungarian choices reach the precision 0.99, with the share of the true frames
+  Threshold : probability from which the hungarian choices reach the precision 99 %, with the share of the true frames
   kept. — : never reached.
   - Results : Results.txt
   - Class Thresholds : class_thresholds.json
@@ -955,7 +957,7 @@ MLflow Run Created In The Experiment 'frame_selection' : 5cfdfa9ad0e84bd0a36cd3e
 -------------------------------------------------------------
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
 -------------------------------------------------------------
-  - Best Checkpoint : iterations 12, 9, 6, 3 tie (Hungarian Selection Accuracy 0.1500)
+  - Best Checkpoint : iterations 12, 9, 6, 3 tie (Hungarian Selection Accuracy 15.00 %)
 
 iteration,Hungarian Selection Accuracy,Hungarian Fully Right Sequences,Hungarian Unselected Precision,Hungarian Unselected Recall,
 Greedy Selection Accuracy,Greedy Fully Right Sequences,Greedy Unselected Precision,Greedy Unselected Recall,Top-2 Selection Accuracy,
@@ -973,19 +975,19 @@ Mean True Frame Rank,Frame Accuracy,Frame Balanced Accuracy,Frame Macro F1,Hunga
 Evaluating : model_000003.pt
 -----------------------------
 Iteration 3 · 20 Test Sequences, 155 Frames · 2026-10-10 07:20 ─────────────────────────────────────────────────────────
-  Hungarian Selection Accuracy     0.1500   Hungarian Fully Right Sequences   0.0000
-  Hungarian Unselected Precision   0.6421   Hungarian Unselected Recall       0.6421
-  Greedy Selection Accuracy        0.1833   Greedy Fully Right Sequences      0.0000
-  Greedy Unselected Precision      0.6632   Greedy Unselected Recall          0.6632
-  Top-2 Selection Accuracy         0.4000   Mean True Frame Rank              4.0167
-  Frame Accuracy                   0.6129   Frame Balanced Accuracy           0.2500
-  Frame Macro F1                   0.1900
+  Hungarian Selection Accuracy     15.00 %   Hungarian Fully Right Sequences   0.00 %
+  Hungarian Unselected Precision   64.21 %   Hungarian Unselected Recall       64.21 %
+  Greedy Selection Accuracy        18.33 %   Greedy Fully Right Sequences      0.00 %
+  Greedy Unselected Precision      66.32 %   Greedy Unselected Recall          66.32 %
+  Top-2 Selection Accuracy         40.00 %   Mean True Frame Rank              4.0167
+  Frame Accuracy                   61.29 %   Frame Balanced Accuracy           25.00 %
+  Frame Macro F1                   19.00 %
   ...
                             Hungarian     Greedy      Top-2     Mean   Threshold    Recall
-   Class      True Frames    Accuracy   Accuracy   Accuracy     Rank     @ P0.99   @ P0.99
+   Class      True Frames    Accuracy   Accuracy   Accuracy     Rank     @ P99 %   @ P99 %
   ─────────────────────────────────────────────────────────────────────────────────────────
-   triangle            20      0.0500     0.1500     0.3500   3.8500           —         —
-   circle              20      0.2000     0.2000     0.5000   3.9500           —         —
-   star                20      0.2000     0.2000     0.3500   4.2500      0.2495    0.1000
+   triangle            20      5.00 %    15.00 %    35.00 %   3.8500           —         —
+   circle              20     20.00 %    20.00 %    50.00 %   3.9500           —         —
+   star                20     20.00 %    20.00 %    35.00 %   4.2500      0.2495   10.00 %
 ```
-The greedy decoding finds 2 more true triangle frames than the Hungarian one (0.1500 against 0.0500): the Hungarian assignment maximises the total gain of the three classes, not the number of right frames. The best checkpoint is still chosen on the Hungarian selection accuracy, the decoding of the run.
+The greedy decoding finds 2 more true triangle frames than the Hungarian one (15.00 % against 5.00 %): the Hungarian assignment maximises the total gain of the three classes, not the number of right frames. The best checkpoint is still chosen on the Hungarian selection accuracy, the decoding of the run.
