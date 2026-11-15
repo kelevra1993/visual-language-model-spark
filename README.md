@@ -249,7 +249,11 @@ If one wishes to score a smoothed model, `Optimization.exponential_moving_averag
 <p align="center"><em>Right: the two launches of stage 13 of the classification benchmark, scored with their trained and their averaged weights.</em></p>
 
 ## Tasks
-Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts. In `{"1": 0, "2": 1, "3": 1}`, categories 2 and 3 are merged into class 1, and a category missing from the mapping is left out. CLS, M2O, M2M, CMP and SEL predict 0 to K-1; DET, INS, KPT and SEG predict 1 to K, class 0 being their background. Each task starts from the `configuration_example.yaml` of its folder.
+Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts (from 1 for DET, INS, KPT and SEG, whose class 0 is the background), merging categories or leaving out those it does not name. Each task starts from the `configuration_example.yaml` of its folder.
+
+<p align="center">
+  <img src="README/tasks_dataset_layout.png" width="100%" />
+</p>
 
 | Task | Labels | Own sections | Evaluation | Details |
 |---|---|---|---|---|
@@ -269,6 +273,16 @@ A few behaviours are easy to miss:
 - Sequences are fed whole: one longer than `Data.sequence_settings.maximum_sequence_length` is left out with a warning, and the batches are padded with masked frames. The `mean_pooling`, `max_pooling` and `attention_pooling` temporal modules ignore the frame order; `gru`, `lstm`, `transformer` and `temporal_convolution` follow it and are the only ones of M2M and SEL.
 - M2O: a class given by a motion needs `ClassificationHead.global_pooling: flatten`, the other poolings removing the position of the objects.
 
+<p align="center">
+  <img src="README/sequence_padded_batch.gif" width="100%" />
+</p>
+<p align="center"><em>Four synthetic moving-shape sequences padded to the longest one by <code>collate_padded_sequences</code>, and the <code>sequence_mask</code> of their real frames.</em></p>
+
+<p align="center">
+  <img src="README/sequence_pooling_similarity.png" width="100%" />
+</p>
+<p align="center"><em>Similarity of the frame vectors of one moving-shape sequence: after average pooling every frame looks the same, flatten keeps where the shape is.</em></p>
+
 ## Transfer Between Runs
 To be able to start from a trained component, such as a backbone trained on ImageNet for a detector, give its run in the `pretrained` block of the section, the source run being of the same task or of another one:
 
@@ -282,6 +296,10 @@ To be able to start from a trained component, such as a backbone trained on Imag
 | `Detector` | detection heads of every detection level, with their classification and box regression layers | DET, INS |
 | `MaskHead` | mask heads of every detection level, with their mask prediction layers | INS |
 | `HRNet`, `KeypointHead` | high resolution network, heatmap and tag head | KPT |
+
+<p align="center">
+  <img src="README/transfer_between_runs.png" width="100%" />
+</p>
 
 ```yaml
 Backbone:
@@ -298,7 +316,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (checked before the training; the image size may differ), and the averaged weights of the source are loaded when both runs keep a moving average. A component with class layers can initialise a run with more classes, the classes of the source coming first in the same order. The detection heads read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
+The settings defining the layers of the component must be identical in both runs (checked before the training; the image size may differ), a backbone also loading the first blocks of a deeper source backbone (the stem of a keypoint detector), and the averaged weights of the source are loaded when both runs keep a moving average. A component with class layers can initialise a run with more classes, the classes of the source coming first in the same order. The detection heads read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
 
 ## Evaluating Checkpoints
 Each time the checkpoints of a trained run must be scored again (another labelled split, another batch size, or for DET and INS another final NMS), set the variables of the main block of `scripts/evaluation/evaluate_checkpoint.py` (`run_name`, `experiment_folder`, `iteration` as `None` for the last checkpoint, a number or `"all"`, `test_data_folder`, ...), then run:
@@ -307,7 +325,22 @@ Each time the checkpoints of a trained run must be scored again (another labelle
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-It writes `Results.txt`, `Tensorboard/Test`, `evaluation_summary.csv` and one `Iteration_<n>/` folder per checkpoint into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` for another NMS), leaving the files of the training untouched; with `"all"`, the summary compares every checkpoint and the best one is printed. A classifier evaluation also keeps `class_logits.npz` for its temperature explorer ([Export](#export)), and `save_predictions = True` writes the `predictions.csv` of every evaluated sample. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+It writes into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` for another NMS), leaving the files of the training untouched; with `"all"`, `evaluation_summary.csv` compares every checkpoint and the best one is printed. A classifier evaluation also keeps `class_logits.npz` for its temperature explorer ([Export](#export)), and `save_predictions = True` writes the `predictions.csv` of every evaluated sample. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+
+<p align="center">
+  <img src="README/checkpoint_evaluation_folder.png" width="100%" />
+</p>
+
+To find where a classifier fails, read its confusion matrix (percent of every true class, precision and recall in the margins), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
+
+<p align="center">
+  <img src="README/confusion_matrix.png" width="80%" />
+</p>
+
+<p align="center">
+  <img src="README/evaluation_error_images.png" width="100%" />
+</p>
+<p align="center"><em>The confusion matrix and three error folders of the synthetic shapes classifier of the README screenshots, evaluated at iteration 1500.</em></p>
 
 Should a research report need the figures of its kept classifier again, set the run, iteration and weights of the main block of `scripts/evaluation/draw_report_figures.py`, then run the command below. It writes into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` the confusion matrix, the precision-recall curves at the temperature saved from the temperature explorer with the threshold of every target precision, the training curves with the kept checkpoint and, given a manifest of the truck of every image and the `predictions.csv` of the evaluation, the balanced accuracy on the trucks seen and never seen in training, with `report_values.json`, the numbers they show. Details: [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report).
 
@@ -321,11 +354,21 @@ After the launches of a hyperparameter stage have trained, three scripts of `scr
 - `compare_best_evaluations.py` prints Markdown tables of the best test evaluation of runs, over the trained and the averaged weights.
 - `plot_experiment_comparisons.py` draws one figure per stage of the plans of `documentation/architecture_benchmarking`, from the stages of `experiment_comparisons.yaml`.
 
+<p align="center">
+  <img src="README/comparing_launches_flow.png" width="100%" />
+</p>
+
 ```bash
 uv run python -m scripts.evaluation.collect_experiment_results
 uv run python -m scripts.evaluation.compare_best_evaluations
 uv run python -m scripts.evaluation.plot_experiment_comparisons
 ```
+
+Before trusting a gap between two settings, compare it with the spread of the launches of each: in the repeated squeeze-and-excitation stage below, six launches per setting overlap, and the means differ by 0.21 points for a standard error of 1.11 points.
+
+<p align="center">
+  <img src="README/launch_comparison_stage_figure.png" width="80%" />
+</p>
 
 Their settings: [tools reference](documentation/reference/tools_reference.md#comparing-launches).
 
