@@ -1,13 +1,14 @@
 """
 Training curves of the sequence labelling tutorials (the chapter on the model and the loss), made at every build by
 tutorials/figures/sequence_labelling/figures.py from the TensorBoard logs of the real sequence labelling run: the total
-loss and the frame accuracy of the training and validation batches, drawn with the references a run of this task is
-read against, the cross entropy of a uniform guess over the classes, the cross entropy of the position prior of the
-training split and the share of no_change frames. Two PNG files are written, the empty panels with the references (the
-base image of the scene) and the whole chart (its overlay, whose curves the scene uncovers), with the boxes of the
-panels and the values of the curves as facts. The accuracy ticks and the share of no_change frames of its reference
-line are written as the percentages of the reports of the repository ("20 %", "46.82 %"), the facts keeping every
-value between 0 and 1.
+loss and the frame accuracy of the training batches (and validation batches when the run ran some), drawn with the
+references a run of this task is read against, the cross entropy of a uniform guess over the classes, the cross
+entropy of the position prior of the training split (weighted by the balanced class weights when the run was trained
+with them, its loss being the weighted mean of the cross entropy) and the share of no_change frames. Two PNG files are written, the empty panels with the
+references (the base image of the scene) and the whole chart (its overlay, whose curves the scene uncovers), with the
+boxes of the panels and the values of the curves as facts. The accuracy ticks and the share of no_change frames of its
+reference line are written as the percentages of the reports of the repository ("20 %", "46.82 %"), the facts keeping
+every value between 0 and 1.
 """
 
 import matplotlib
@@ -24,6 +25,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from tutorials.figures.foundations.training_curves import read_scalars, smooth_values
+from tutorials.figures.sequence_labelling.sequence_utilities import read_run_sections
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Name of the figures of the training curves
@@ -39,6 +41,18 @@ ITERATION_TICK_STEP = 500
 # which the narration averages the training loss on its plateau, the position prior
 EARLY_LOSS_ITERATION = 100
 LATE_MEAN_START_ITERATION = 500
+
+# Margin of the loss axis below the lowest of the curves and references and above the highest, as shares of their
+# span, the upper one leaving room for the label of the uniform guess, and the distance of a label to its line, as a
+# share of the axis height
+LOSS_AXIS_BOTTOM_MARGIN = 0.1
+LOSS_AXIS_TOP_MARGIN = 0.3
+LABEL_HEIGHT_SHARE = 0.09
+
+# Top of the accuracy axis: at least this value, raised above the highest accuracy of the batches by the margin for a
+# run that learned the changes, and at most a perfect accuracy
+ACCURACY_AXIS_MINIMUM_TOP = 0.7
+ACCURACY_AXIS_TOP_MARGIN = 0.05
 
 # Colours of the curves and of the reference lines
 CURVE_COLOURS = {"Train": SERIES_COLOURS[0], "Validation": SERIES_COLOURS[1]}
@@ -94,7 +108,7 @@ def draw_split_curves(axes: matplotlib.axes.Axes, curves: Dict[Tuple[str, str], 
     Args:
         axes (matplotlib.axes.Axes): The panel.
         curves (Dict[Tuple[str, str], Tuple[numpy.ndarray, numpy.ndarray]]): The iterations and values of every split
-            and scalar.
+            and scalar, without Validation for a run that ran no validation batch.
         tag (str): The scalar, e.g. "Total Loss".
     """
     training_iterations, training_values = curves[("Train", tag)]
@@ -102,9 +116,11 @@ def draw_split_curves(axes: matplotlib.axes.Axes, curves: Dict[Tuple[str, str], 
               linewidth=1.2 * POINTS_PER_PIXEL)
     axes.plot(training_iterations, smooth_values(values=training_values, weight=SMOOTHING_WEIGHT),
               color=CURVE_COLOURS["Train"], linewidth=3 * POINTS_PER_PIXEL, zorder=3)
-    validation_iterations, validation_values = curves[("Validation", tag)]
-    axes.plot(validation_iterations, smooth_values(values=validation_values, weight=0.6),
-              color=CURVE_COLOURS["Validation"], linewidth=3 * POINTS_PER_PIXEL, zorder=3)
+    # Validation curve only for a run that ran validation batches (validation_iteration_ratio above 0)
+    if ("Validation", tag) in curves:
+        validation_iterations, validation_values = curves[("Validation", tag)]
+        axes.plot(validation_iterations, smooth_values(values=validation_values, weight=0.6),
+                  color=CURVE_COLOURS["Validation"], linewidth=3 * POINTS_PER_PIXEL, zorder=3)
 
 
 def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
@@ -123,9 +139,37 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     Returns:
         Dict[str, Any]: The facts of the figure, named training.*.
     """
+    # Curves of the training batches, and of the validation batches when the run ran some
+    splits = ["Train"] + (["Validation"] if (run_folder / "Tensorboard" / "Validation").is_dir() else [])
     curves = {(split, tag): read_scalars(log_folder=run_folder / "Tensorboard" / split, tag=tag)
-              for split in ["Train", "Validation"] for tag in ["Total Loss", "Accuracy"]}
+              for split in splits for tag in ["Total Loss", "Accuracy"]}
     last_iteration = int(curves[("Train", "Total Loss")][0][-1])
+
+    # Position prior the loss of the run is read against: the weighted one for a run trained with balanced weights
+    _, model_configuration = read_run_sections(run_folder=run_folder)
+    class_weighting = model_configuration["ClassificationHead"]["class_weighting"]
+    if class_weighting == "balanced":
+        prior_value = reference_facts["dataset.balanced_prior_cross_entropy"]
+        prior_label = f"position prior, balanced weights: {prior_value:.3f}"
+    else:
+        prior_value = reference_facts["dataset.prior_cross_entropy"]
+        prior_label = f"position prior of the training split: {prior_value:.3f}"
+
+    # Loss axis spanning the smoothed training loss, the validation values and both references
+    smoothed_training_losses = smooth_values(values=curves[("Train", "Total Loss")][1], weight=SMOOTHING_WEIGHT)
+    validation_losses = curves[("Validation", "Total Loss")][1] if "Validation" in splits else numpy.array([])
+    loss_values = numpy.concatenate([smoothed_training_losses, validation_losses,
+                                     [prior_value, reference_facts["dataset.uniform_cross_entropy"]]])
+    loss_span = float(loss_values.max() - loss_values.min())
+    loss_limit = (max(0.0, float(loss_values.min()) - LOSS_AXIS_BOTTOM_MARGIN * loss_span),
+                  float(loss_values.max()) + LOSS_AXIS_TOP_MARGIN * loss_span)
+    label_offset = LABEL_HEIGHT_SHARE * (loss_limit[1] - loss_limit[0])
+
+    # Label of the uniform guess above its line, that of the prior above its own line when the two lines are far
+    # enough apart, below it otherwise (the weighted prior lies close to the uniform guess)
+    uniform_value = reference_facts["dataset.uniform_cross_entropy"]
+    prior_label_value = prior_value + label_offset if uniform_value - prior_value > 3 * label_offset else \
+        prior_value - label_offset
 
     # Figure of the size of the viewport, a loss panel and an accuracy panel, with the references in the base image,
     # apart enough for the percentage ticks of the accuracy
@@ -137,25 +181,26 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     figure.subplots_adjust(left=0.06, right=0.985, top=0.80, bottom=0.12, wspace=0.2)
     figure.text(x=0.012, y=0.955, s=run_label, color=TEXT_SECONDARY_COLOUR, fontsize=16 * POINTS_PER_PIXEL,
                 va="center", family=MONOSPACE_FONT_FAMILY)
+    validation_legend = "green: validation batches · " if "Validation" in splits else ""
     figure.text(x=0.012, y=0.905, s=f"Blue: training batches (faint raw, solid smoothed {SMOOTHING_WEIGHT}) · "
-                                    f"green: validation batches · dashed: references", color=TEXT_SECONDARY_COLOUR,
+                                    f"{validation_legend}dashed: references", color=TEXT_SECONDARY_COLOUR,
                 fontsize=18 * POINTS_PER_PIXEL, va="center")
     style_curve_panel(axes=loss_axes, title="Total loss (cross entropy of the labelled frames)", y_label="Loss",
-                      y_limit=(2.4, 4.6), last_iteration=last_iteration)
+                      y_limit=loss_limit, last_iteration=last_iteration)
+    accuracy_values = numpy.concatenate([curves[(split, "Accuracy")][1] for split in splits])
+    accuracy_top = min(1.0, max(ACCURACY_AXIS_MINIMUM_TOP, float(accuracy_values.max()) + ACCURACY_AXIS_TOP_MARGIN))
     style_curve_panel(axes=accuracy_axes, title="Accuracy of the labelled frames", y_label="Accuracy",
-                      y_limit=(0.0, 0.7), last_iteration=last_iteration)
+                      y_limit=(0.0, accuracy_top), last_iteration=last_iteration)
     # Accuracy ticks written as the percentages of the reports of the repository, and so is the share of no_change
-    # frames of the reference line, the level the accuracy of the README run stays at
+    # frames of the reference line, the accuracy of a model giving no_change to every frame
     accuracy_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     draw_reference_line(axes=loss_axes, value=reference_facts["dataset.uniform_cross_entropy"],
                         label=f"uniform over {reference_facts['dataset.class_count']} classes: "
                               f"ln {reference_facts['dataset.class_count']} = "
                               f"{reference_facts['dataset.uniform_cross_entropy']:.3f}",
-                        label_position=(last_iteration * 0.62, 4.45))
-    draw_reference_line(axes=loss_axes, value=reference_facts["dataset.prior_cross_entropy"],
-                        label=f"position prior of the training split: "
-                              f"{reference_facts['dataset.prior_cross_entropy']:.3f}",
-                        label_position=(last_iteration * 0.62, 3.6))
+                        label_position=(last_iteration * 0.62, uniform_value + label_offset))
+    draw_reference_line(axes=loss_axes, value=prior_value, label=prior_label,
+                        label_position=(last_iteration * 0.62, prior_label_value))
     draw_reference_line(axes=accuracy_axes, value=reference_facts["dataset.no_change_share"],
                         label=f"share of no_change training frames: "
                               f"{format_percentage(value=reference_facts['dataset.no_change_share'])}",
@@ -194,6 +239,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     facts["training.early_iteration"] = EARLY_LOSS_ITERATION
     facts["training.train_total_loss.smoothed_at_early"] = round_fact(
         value=smoothed_losses[numpy.searchsorted(training_iterations, EARLY_LOSS_ITERATION)])
+    facts["training.class_weighting"] = class_weighting
+    facts["training.prior_reference"] = prior_value
     facts["training.late_mean_start_iteration"] = LATE_MEAN_START_ITERATION
     facts["training.train_total_loss.late_mean"] = round_fact(
         value=training_losses[training_iterations > LATE_MEAN_START_ITERATION].mean())

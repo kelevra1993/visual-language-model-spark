@@ -1,8 +1,10 @@
-# Sequence labelling, chapter 2: a batch through the sequence labeller with the shapes and parameter counts of the
-# trained README run (rebuilt on the CPU by the figure script), the frame encoder and the packed GRU, the model
-# settings, the loss of the labelled frames and its class weights, the run name, and the training curves read against
-# the position prior. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top
-# left corner); the figures named figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling.
+# Sequence labelling, chapter 2: a batch through the sequence labeller with the shapes, head layers and parameter
+# counts of the trained run of the series (rebuilt on the CPU by the figure script), the frame encoder and the packed
+# bidirectional LSTM, the backbone pre-trained by a multi-label shape classifier and its transfer, the model settings of the run
+# (tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml), the loss of the labelled frames and its
+# balanced class weights, the run name, and the training curves read against the uniform guess and the position prior
+# weighted by those weights. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at
+# its top left corner); the figures named figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling.
 series: sequence_labelling
 series_title: "Sequence Labelling (M2M)"
 chapter: 2
@@ -15,17 +17,18 @@ references:
   - "vision_training/models/sequence/sequence_labeller.py · SequenceLabeller.forward"
   - "vision_training/models/sequence/sequence_model.py · SequenceFrameModel.compute_class_outputs"
   - "vision_training/models/classification/classification_head.py · ClassificationHead"
+  - "vision_training/models/model_transfer.py · compare_backbone_architectures"
   - "vision_training/losses/classification_losses.py · compute_balanced_class_weights"
   - "vision_training/configuration_processing/run_name.py · build_temporal_tokens"
-  - "documentation/suggestions.md"
+  - "tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml"
 scenes:
   - kind: title_card
     heading: "The model and the loss"
-    subheading: "A frame encoder, a temporal module keeping the time axis, a head on every frame"
+    subheading: "A pre-trained frame encoder, a bidirectional LSTM, a head on every frame"
     footnote: "Sequence Labelling (M2M) · the second chapter"
     narration:
-      - "This chapter follows a batch of the README run through the sequence labeler, with the real shapes of its tensors and the parameters of its parts."
-      - "Then the loss and its class weights, the run name, and the training curves, which already show that something went wrong."
+      - "This chapter follows a batch of the run of this series through the sequence labeler, with the real shapes of its tensors and the parameters of its parts."
+      - "Then the backbone it loads from a shape classifier, its settings, the loss and its class weights, the run name, and the training curves read against the references of the first chapter."
 
   - kind: html
     page: diagram
@@ -37,40 +40,40 @@ scenes:
       - {type: arrow, points: [[300, 145], [355, 145]], appear: 1}
       - {type: box, box: [360, 90, 640, 200], text: "real frames only\n[N, {{sequence_labelling.run.input_channels}}, {{sequence_labelling.dataset.image_size}}, {{sequence_labelling.dataset.image_size}}]", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[640, 145], [695, 145]], appear: 1}
-      - {type: box, box: [700, 90, 1000, 200], text: "Backbone, {{sequence_labelling.run.backbone_block_count}} blocks\n[N, {{sequence_labelling.model.backbone_channels}}, {{sequence_labelling.model.backbone_map_size}}, {{sequence_labelling.model.backbone_map_size}}]", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [700, 90, 1000, 200], text: "pre-trained backbone\n{{sequence_labelling.run.backbone_block_count}} blocks\n[N, {{sequence_labelling.model.backbone_channels}}, {{sequence_labelling.model.backbone_map_size}}, {{sequence_labelling.model.backbone_map_size}}]", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1000, 145], [1055, 145]], appear: 2}
-      - {type: box, box: [1060, 90, 1320, 200], text: "average pooling\n[N, {{sequence_labelling.model.backbone_channels}}]", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
+      - {type: box, box: [1060, 90, 1320, 200], text: "flatten\n[N, {{sequence_labelling.model.flatten_features}}]", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
       - {type: arrow, points: [[1320, 145], [1375, 145]], appear: 2}
-      - {type: box, box: [1380, 90, 1740, 200], text: "back in place\n[{{sequence_labelling.run.batch_size}}, T, {{sequence_labelling.model.backbone_channels}}]\nzeros on the padding", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
+      - {type: box, box: [1380, 90, 1740, 200], text: "back in place\n[{{sequence_labelling.run.batch_size}}, T, {{sequence_labelling.model.flatten_features}}]\nzeros on the padding", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
       # Temporal module and head, one vector and one set of logits per frame
-      - {type: arrow, points: [[1560, 200], [1560, 295]], appear: 3}
-      - {type: box, box: [1380, 300, 1740, 410], text: "GRU {{sequence_labelling.run.temporal_layers}}x{{sequence_labelling.run.temporal_hidden_size}}, packed\n[{{sequence_labelling.run.batch_size}}, T, {{sequence_labelling.model.temporal_features}}]", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1560, 200], [1560, 275]], appear: 3}
+      - {type: box, box: [1380, 280, 1740, 430], text: "{{sequence_labelling.run.temporal_type_upper}} {{sequence_labelling.run.temporal_layers}}x{{sequence_labelling.run.temporal_hidden_size}}\nbidirectional, packed\n[{{sequence_labelling.run.batch_size}}, T, {{sequence_labelling.model.temporal_features}}]", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: arrow, points: [[1380, 355], [1325, 355]], appear: 4}
-      - {type: box, box: [700, 300, 1320, 410], text: "ClassificationHead on every frame\nDropout · Linear({{sequence_labelling.model.temporal_features}}, {{sequence_labelling.run.head_hidden_units}}) · ReLU · Dropout · Linear({{sequence_labelling.run.head_hidden_units}}, {{sequence_labelling.dataset.class_count}})", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
-      - {type: arrow, points: [[700, 355], [645, 355]], appear: 4}
-      - {type: box, box: [360, 300, 640, 410], text: "class_logits\n[{{sequence_labelling.run.batch_size}}, T, {{sequence_labelling.dataset.class_count}}]", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
-      - {type: arrow, points: [[360, 355], [305, 355]], appear: 4}
-      - {type: box, box: [20, 300, 300, 410], text: "loss of the\nlabelled frames", font: diagram_small, outline: red, appear: 4}
+      - {type: box, box: [640, 280, 1320, 430], text: "ClassificationHead on every frame\n{{sequence_labelling.model.head_layers}}", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
+      - {type: arrow, points: [[640, 355], [585, 355]], appear: 4}
+      - {type: box, box: [320, 280, 580, 430], text: "class_logits\n[{{sequence_labelling.run.batch_size}}, T, {{sequence_labelling.dataset.class_count}}]", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
+      - {type: arrow, points: [[320, 355], [265, 355]], appear: 4}
+      - {type: box, box: [20, 280, 260, 430], text: "loss of the\nlabelled frames", font: diagram_small, outline: red, appear: 4}
       # Parameters of the three parts of the trained model
-      - {type: text, position: [20, 470], text: "Parameters of the trained model", font: diagram_bold, appear: 5}
+      - {type: text, position: [20, 480], text: "Parameters of the trained model", font: diagram_bold, appear: 5}
       - type: bars
-        box: [20, 520, 1180, 700]
+        box: [20, 530, 1180, 710]
         orientation: horizontal
         label_width: 300
-        value_width: 140
+        value_width: 160
         values: ["{{sequence_labelling.model.backbone_parameters}}", "{{sequence_labelling.model.temporal_parameters}}", "{{sequence_labelling.model.head_parameters}}"]
-        labels: ["Backbone", "GRU", "Head"]
+        labels: ["Backbone", "{{sequence_labelling.run.temporal_type_upper}}", "Head"]
         value_labels: ["{{sequence_labelling.model.backbone_parameters:,}}", "{{sequence_labelling.model.temporal_parameters:,}}", "{{sequence_labelling.model.head_parameters:,}}"]
         colours: [blue, aqua, violet]
         appear: 5
-      - {type: box, box: [1260, 540, 1740, 680], text: "{{sequence_labelling.model.total_parameters:,}} parameters\n{{sequence_labelling.model.total_megabytes:.2f}} MB", font: diagram_bold, outline: yellow, appear: 5}
+      - {type: box, box: [1260, 550, 1740, 690], text: "{{sequence_labelling.model.total_parameters:,}} parameters\n{{sequence_labelling.model.total_megabytes:.2f}} MB", font: diagram_bold, outline: yellow, appear: 5}
     narration:
-      - "A batch of the README run holds {{sequence_labelling.run.batch_size}} sequences of T frames, T being the longest sequence of the batch, as {{sequence_labelling.run.batch_size}} by T by {{sequence_labelling.run.input_channels:words}} by {{sequence_labelling.dataset.image_size}} by {{sequence_labelling.dataset.image_size}} floats."
-      - "The encoder of the frames keeps the real frames only, N of them, and runs the shared backbone on them, down to {{sequence_labelling.model.backbone_channels}} channels of {{sequence_labelling.model.backbone_map_size}} by {{sequence_labelling.model.backbone_map_size}}, with residual shortcuts in blocks {{sequence_labelling.model.residual_blocks[0]:words}} and {{sequence_labelling.model.residual_blocks[1]:words}} only, the {{sequence_labelling.model.residual_block_count:words}} that keep their channel count."
-      - "Average pooling turns every map into {{sequence_labelling.model.backbone_channels}} values, which go back to the position of their frame, the padding frames getting zeros."
-      - "The temporal module, a GRU of {{sequence_labelling.run.temporal_hidden_size}} units, keeps the time axis: it reads the real frames of every sequence in order and gives one vector of {{sequence_labelling.model.temporal_features}} values per frame."
-      - "The head of the image classifier is applied to every frame vector: {{sequence_labelling.run.head_hidden_units}} hidden units with a dropout on each side, then {{sequence_labelling.dataset.class_count}} logits per frame, the input of the loss."
-      - "That is {{sequence_labelling.model.backbone_parameters:,}} parameters in the backbone, {{sequence_labelling.model.temporal_parameters:,}} in the GRU and {{sequence_labelling.model.head_parameters:,}} in the head: {{sequence_labelling.model.total_parameters:,}} in all."
+      - "A batch of the run of this series holds {{sequence_labelling.run.batch_size}} sequences of T frames, T being the longest sequence of the batch, as {{sequence_labelling.run.batch_size}} by T by {{sequence_labelling.run.input_channels:words}} by {{sequence_labelling.dataset.image_size}} by {{sequence_labelling.dataset.image_size}} floats."
+      - "The encoder of the frames keeps the real frames only, N of them, and runs the backbone on them, a backbone loaded from a shape classifier, down to {{sequence_labelling.model.backbone_channels}} channels of {{sequence_labelling.model.backbone_map_size}} by {{sequence_labelling.model.backbone_map_size}}."
+      - "Flatten pooling keeps the whole map, {{sequence_labelling.model.flatten_features:,}} values per frame, which go back to the position of their frame, the padding frames getting zeros."
+      - "The temporal module, a bidirectional LSTM of {{sequence_labelling.run.temporal_layers:words}} layers of {{sequence_labelling.run.temporal_hidden_size}} units, reads the real frames of every sequence in both directions and gives one vector of {{sequence_labelling.model.temporal_features}} values per frame."
+      - "The head of the image classifier is applied to every frame vector: {{sequence_labelling.run.head_hidden_layers:words}} hidden layers of {{sequence_labelling.run.head_hidden_units}} units, each with a dropout, a layer normalization and a ReLU, then {{sequence_labelling.dataset.class_count}} logits per frame, the input of the loss."
+      - "That is {{sequence_labelling.model.backbone_parameters:,}} parameters in the backbone, {{sequence_labelling.model.temporal_parameters:,}} in the LSTM and {{sequence_labelling.model.head_parameters:,}} in the head: {{sequence_labelling.model.total_parameters:,}} in all, most of them in the LSTM reading the flattened maps."
 
   - kind: code
     title: "Only the real frames enter the backbone"
@@ -86,10 +89,10 @@ scenes:
     narration:
       - "encode frames indexes the batch with the sequence mask, so that the padding frames never run through the backbone and never enter its batch normalization statistics."
       - "Without a mask, the path of the exported models, every frame is real and the frames run as one batch of fixed shape."
-      - "The frame vectors then go back into a tensor of zeros of {{sequence_labelling.run.batch_size}} by T by {{sequence_labelling.model.backbone_channels}}, each at the position of its frame."
+      - "The frame vectors then go back into a tensor of zeros of {{sequence_labelling.run.batch_size}} by T by {{sequence_labelling.model.flatten_features:,}}, each at the position of its frame."
 
   - kind: code
-    title: "A GRU over packed sequences"
+    title: "An LSTM over packed sequences"
     code_reference: "vision_training/models/sequence/temporal_modules.py · RecurrentTemporalModule.forward"
     source:
       file: vision_training/models/sequence/temporal_modules.py
@@ -99,19 +102,39 @@ scenes:
       - {match: "keep_time_axis", sentences: [1]}
       - {match: "number_directions", sentences: [2]}
     narration:
-      - "The recurrent module packs the real frames of every sequence, so that the GRU never reads a padding frame, and pads its outputs back to the length of the batch."
-      - "Keeping the time axis, it returns its output at every frame; not bidirectional, as in the README run, the vector of a frame depends on that frame and the frames before it, which is all a change needs."
-      - "A bidirectional GRU or LSTM doubles the vector to {{sequence_labelling.run.temporal_bidirectional_features}} values and also reads the frames after it, while the transformer and the temporal convolution use the causal flag to see only the past."
+      - "The recurrent module packs the real frames of every sequence, so that the LSTM never reads a padding frame, and pads its outputs back to the length of the batch."
+      - "Keeping the time axis, it returns its output at every frame; bidirectional, as in the run of this series, the vector of a frame joins a pass over the frames before it and a pass over the frames after it."
+      - "Both directions of {{sequence_labelling.run.temporal_hidden_size}} units together give the {{sequence_labelling.run.temporal_bidirectional_features}} values per frame; the transformer and the temporal convolution use the causal flag instead to see only the past."
       - "The poolings of the sequence classification give one vector per sequence, so the checks at launch refuse them for this task."
+
+  - kind: yaml
+    title: "A backbone pre-trained on the shapes"
+    code_reference: "vision_training/models/model_transfer.py · compare_backbone_architectures"
+    source:
+      file: tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml
+      keys: [Backbone.convolutions, Backbone.pretrained.iteration, Backbone.pretrained.freeze,
+             Backbone.pretrained.freeze_normalization_parameters, Backbone.pretrained.learning_rate_multiplier]
+      comments: false
+    highlights:
+      - {key: Backbone.pretrained.iteration, sentences: [0, 1]}
+      - {key: Backbone.convolutions, sentences: [1]}
+      - {key: Backbone.pretrained.freeze, sentences: [2]}
+      - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [2]}
+    narration:
+      - "The backbone does not start from random weights: its pre-trained section, whose experiment folder is left out here, points at a multi-label classifier trained on frames drawn like these to recognize the {{sequence_labelling.dataset.shape_class_count}} shapes."
+      - "Its checkpoint of iteration {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#Backbone.pretrained.iteration:,}} is loaded only once the layers of both backbones are checked to match, block by block, and the averaged weights of the classifier are preferred when it kept some."
+      - "Not frozen, with a learning rate multiplier of {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#Backbone.pretrained.learning_rate_multiplier}}, it is fine-tuned at the learning rate of the other components."
+      - "Say the run resumes: the loaded backbone is not loaded again, the checkpoint of the run holding its fine-tuned weights."
 
   - kind: yaml
     title: "The model settings"
     code_reference: "vision_training/configuration_processing/sequence_checks.py · check_temporal_model_configuration"
     source:
-      file: vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml
+      file: tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml
       keys: [TemporalModel.type, TemporalModel.hidden_size, TemporalModel.number_layers, TemporalModel.bidirectional,
              TemporalModel.causal, ClassificationHead.global_pooling, ClassificationHead.fully_connected,
-             ClassificationHead.dropout_rate, ClassificationHead.label_smoothing, ClassificationHead.class_weighting]
+             ClassificationHead.fully_connected_normalization, ClassificationHead.dropout_rate,
+             ClassificationHead.label_smoothing, ClassificationHead.class_weighting]
       comments: false
     highlights:
       - {key: TemporalModel.type, sentences: [0]}
@@ -121,13 +144,14 @@ scenes:
       - {key: TemporalModel.causal, sentences: [0]}
       - {key: ClassificationHead.global_pooling, sentences: [1]}
       - {key: ClassificationHead.fully_connected, sentences: [2]}
+      - {key: ClassificationHead.fully_connected_normalization, sentences: [2]}
       - {key: ClassificationHead.dropout_rate, sentences: [2]}
       - {key: ClassificationHead.label_smoothing, sentences: [2]}
       - {key: ClassificationHead.class_weighting, sentences: [2]}
     narration:
       - "The temporal module has its own section: the type among GRU, LSTM, transformer and temporal convolution, the hidden size, the layers and the direction, bidirectional and causal together being refused."
-      - "The head keeps the keys of the classification: average pooling gives a frame vector of {{sequence_labelling.model.backbone_channels}} values at any image size, where flatten gives {{sequence_labelling.model.flatten_features:,}} at {{sequence_labelling.dataset.image_size}} pixels."
-      - "Then a hidden layer of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.fully_connected[0]}} units, a dropout rate of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.dropout_rate}}, and the settings of the loss, a label smoothing of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.label_smoothing:.2g}} and a class weighting of {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ClassificationHead.class_weighting}}."
+      - "The head keeps the keys of the classification: flatten gives a frame vector of {{sequence_labelling.model.flatten_features:,}} values at {{sequence_labelling.dataset.image_size}} pixels, where average pooling would give {{sequence_labelling.model.backbone_channels}} at any image size."
+      - "Then {{sequence_labelling.run.head_hidden_layers:words}} hidden layers of {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#ClassificationHead.fully_connected[0]}} units with {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#ClassificationHead.fully_connected_normalization}} normalization, a dropout rate of {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#ClassificationHead.dropout_rate}}, and the settings of the loss, a label smoothing of {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#ClassificationHead.label_smoothing:.2g}} and {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#ClassificationHead.class_weighting}} class weights."
 
   - kind: code
     title: "The loss of the labelled frames"
@@ -142,7 +166,7 @@ scenes:
       - {match: "ignore_index", sentences: [3]}
     narration:
       - "The loss is the cross entropy of every frame, the logits flattened to one row per frame, with the ignore index {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: padding and unmapped frames drop out of the mean."
-      - "Balanced class weights give every class the frames over the number of classes times its frames: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no change against {{sequence_labelling.dataset.balanced_weight_change_minimum:.2f}} to {{sequence_labelling.dataset.balanced_weight_change_maximum:.2f}} for a change class on this training split."
+      - "Balanced class weights, those of the run of this series, give every class the frames over the number of classes times its frames: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no change against {{sequence_labelling.dataset.balanced_weight_change_minimum:.2f}} to {{sequence_labelling.dataset.balanced_weight_change_maximum:.2f}} for a change class on this training split."
       - "Suppose you add label smoothing on top: those weights also enter the smoothing term and pull every frame towards the rarest classes."
       - "Take a batch without any labeled frame: its loss is not a number, the mean having nothing to average."
 
@@ -151,15 +175,15 @@ scenes:
     title: "The run name"
     code_reference: "vision_training/configuration_processing/run_name.py · build_sequence_sections"
     elements:
-      - {type: text, position: [287, 110], font: code_text, segments: [{text: "M2M", highlight: [0]}, {text: "_", colour: dim}, {text: "IN-KAR-512", highlight: [0]}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x32.2x32.2x64.2x64", highlight: [0]}, {text: "_", colour: dim}, {text: "T50", highlight: [1]}, {text: "_", colour: dim}, {text: "GRU1x128", highlight: [1]}, {text: "_", colour: dim}, {text: "HAVG.64", highlight: [2]}, {text: "_", colour: dim}, {text: "MC71", highlight: [2]}]}
-      - {type: box, box: [40, 230, 600, 470], text: "M2M · IN-KAR-512 · SE-RES-BN-B...\n\ntask, input normalization,\nkept aspect ratio, {{sequence_labelling.dataset.image_size}} pixels,\nbackbone and its blocks", font: diagram_small, outline: blue, highlight: [0]}
-      - {type: box, box: [640, 230, 1160, 470], text: "T50 · GRU1x128\n\nmaximum sequence length {{sequence_labelling.run.maximum_sequence_length}},\n{{sequence_labelling.run.temporal_layers:words}} GRU layer of {{sequence_labelling.run.temporal_hidden_size}} units;\nBI when bidirectional,\nCAU for a causal TRF or TCN", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
-      - {type: box, box: [1200, 230, 1720, 470], text: "HAVG.64 · MC71\n\naverage pooling, {{sequence_labelling.run.head_hidden_units}} units,\n{{sequence_labelling.dataset.class_count}} classes, multi class;\nCWB for balanced weights,\nLS<rate> for label smoothing", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: text, position: [165, 110], font: diagram_monospace, segments: [{text: "M2M", highlight: [0]}, {text: "_", colour: dim}, {text: "IN-KAR-256", highlight: [0]}, {text: "_", colour: dim}, {text: "SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT", highlight: [0]}, {text: "_", colour: dim}, {text: "T50", highlight: [1]}, {text: "_", colour: dim}, {text: "LSTM2x96-BI", highlight: [1]}, {text: "_", colour: dim}, {text: "HFLAT.96.96-HLN-CWB", highlight: [2]}, {text: "_", colour: dim}, {text: "MC71", highlight: [2]}]}
+      - {type: box, box: [40, 230, 600, 470], text: "M2M · IN-KAR-256 · SE-RES-BN-B...-PT\n\ntask, input normalization,\nkept aspect ratio, {{sequence_labelling.dataset.image_size}} pixels,\nbackbone and its blocks, PT: pre-trained", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [640, 230, 1160, 470], text: "T50 · LSTM2x96-BI\n\nmaximum sequence length {{sequence_labelling.run.maximum_sequence_length}},\n{{sequence_labelling.run.temporal_layers:words}} LSTM layers of {{sequence_labelling.run.temporal_hidden_size}} units,\nBI: bidirectional;\nCAU for a causal TRF or TCN", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [1200, 230, 1720, 470], text: "HFLAT.96.96-HLN-CWB · MC71\n\nflatten pooling, hidden layers,\nHLN: layer normalization,\nCWB: balanced weights;\n{{sequence_labelling.dataset.class_count}} classes, multi class", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: box, box: [240, 540, 1520, 680], text: "No token: batch size, learning rate, dropout, augmentation, the test split\na run of the same settings resumes in the same folder", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
     narration:
-      - "The run name of the README run starts like every run name: the task, the input normalized and resized to {{sequence_labelling.dataset.image_size}} pixels with its aspect ratio kept, then the backbone and its blocks."
-      - "Then T {{sequence_labelling.run.maximum_sequence_length:words}}, the maximum sequence length, and GRU {{sequence_labelling.run.temporal_layers:words}} by {{sequence_labelling.run.temporal_hidden_size}}, {{sequence_labelling.run.temporal_layers:words}} layer of {{sequence_labelling.run.temporal_hidden_size}} units, which gets BI when bidirectional; a causal transformer or temporal convolution gets CAU."
-      - "Then the head, average pooling and {{sequence_labelling.run.head_hidden_units}} hidden units, and {{sequence_labelling.dataset.class_count}} classes; balanced class weights would add CWB, and label smoothing LS with its rate."
+      - "The run name of the run of this series starts like every run name: the task, the input normalized and resized to {{sequence_labelling.dataset.image_size}} pixels with its aspect ratio kept, then the backbone and its blocks, PT marking it as pre-trained."
+      - "Then T {{sequence_labelling.run.maximum_sequence_length:words}}, the maximum sequence length, and LSTM {{sequence_labelling.run.temporal_layers:words}} by {{sequence_labelling.run.temporal_hidden_size}}, {{sequence_labelling.run.temporal_layers:words}} layers of {{sequence_labelling.run.temporal_hidden_size}} units, BI for bidirectional; a causal transformer or temporal convolution gets CAU."
+      - "Then the head, flatten pooling and its hidden layers, HLN for their layer normalization, CWB for the balanced class weights, and {{sequence_labelling.dataset.class_count}} classes; label smoothing would add LS with its rate."
       - "Say you relaunch with another learning rate: the batch size, the learning rate, the dropout, the augmentation and the test split leave no token, so it resumes in the same folder."
 
   - kind: image
@@ -172,25 +196,22 @@ scenes:
     highlights:
       - {box: "{{sequence_labelling.training.loss_panel_box}}", sentences: [1, 2]}
       - {box: "{{sequence_labelling.training.accuracy_panel_box}}", sentences: [3]}
-    # The throughputs of the console log of the run (experiments/readme_screenshots/sequence_labelling.log), which
-    # tutorial_sources.yaml does not list for the figure scripts to read
-    literal_numbers: [six, "13"]
     narration:
-      - "The README run trained {{sequence_labelling.training.last_iteration}} iterations at six to 13 sequences per second, with a validation batch every {{sequence_labelling.run.validation_iteration_ratio}} iterations."
-      - "The training loss starts at {{sequence_labelling.training.train_total_loss.first:.2f}}, the {{sequence_labelling.dataset.uniform_cross_entropy:.2f}} of a uniform guess, and drops within the first {{sequence_labelling.training.early_iteration:words}} iterations."
-      - "Then it stays around the dashed line of the position prior, {{sequence_labelling.dataset.prior_cross_entropy:.2f}}: its mean after iteration {{sequence_labelling.training.late_mean_start_iteration}} is {{sequence_labelling.training.train_total_loss.late_mean:.2f}}."
-      - "The accuracy goes to the share of no change frames, {{sequence_labelling.dataset.no_change_share:percent}}, and stays there."
-      - "A model comparing the shapes of a frame with the previous one would go below that line; this one learned where a frame is, not what changed, and the next chapter proves it from the evaluation files."
+      - "The run of this series trained {{sequence_labelling.training.last_iteration:,}} iterations without validation batches, its test split evaluated every {{sequence_labelling.run.weight_saving_iterations}} iterations instead."
+      - "The training loss starts at {{sequence_labelling.training.train_total_loss.first:.2f}}, near the {{sequence_labelling.dataset.uniform_cross_entropy:.2f}} of a uniform guess."
+      - "With balanced weights the position prior hardly helps: the first frames, always no change, weigh {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} each, so the prior only reaches {{sequence_labelling.dataset.balanced_prior_cross_entropy:.2f}}, and the loss falls far below it from what the frames show, to a mean of {{sequence_labelling.training.train_total_loss.late_mean:.2f}} after iteration {{sequence_labelling.training.late_mean_start_iteration}}."
+      - "The accuracy of the training batches passes the share of no change frames, {{sequence_labelling.dataset.no_change_share:percent}}, the accuracy of a model that never finds a change, and ends near {{sequence_labelling.training.train_accuracy.smoothed_last:percent}}."
+      - "The next chapter reads the evaluation of this run against the trivial value of every metric and the benchmark."
 
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Backbone on the real frames only, zeros on the padding"}
-      - {text: "Temporal module keeping the time axis: one vector per frame"}
+      - {text: "Backbone loaded from a shape classifier, on the real frames only"}
+      - {text: "Flatten pooling: {{sequence_labelling.model.flatten_features:,}} values per frame"}
+      - {text: "Bidirectional {{sequence_labelling.run.temporal_type_upper}}: one vector per frame from both directions"}
       - {text: "Head of the image classifier on every frame vector"}
       - {text: "Cross entropy of the labelled frames, ignore_index {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}"}
       - {text: "Balanced weights: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no_change, about {{sequence_labelling.dataset.balanced_weight_change_minimum:.1f}} for a change"}
-      - {text: "Loss on the position prior: the model learned no change"}
     narration:
-      - "To recap: the backbone on the real frames, a temporal module keeping one vector per frame, the head on every vector, and the cross entropy of the labeled frames."
-      - "The next chapter reads the evaluation of this run, which looks acceptable at first sight, and shows how to recognize a degenerate solution."
+      - "To recap: a pre-trained backbone on the real frames, the whole maps flattened, a bidirectional LSTM keeping one vector per frame, the head on every vector, and the cross entropy of the labeled frames, weighted by class."
+      - "The next chapter reads the evaluation of this run and shows how a degenerate solution would look next to it."

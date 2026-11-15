@@ -52,9 +52,6 @@ NO_CHANGE_CLASS_NAME = "no_change"
 STRIP_FRAME_SIZE = 390
 BATCH_FRAME_SIZE = 110
 
-# Test sequence of the sample image the evaluation chapter shows (Evaluation/Iteration_<n>/Samples/test_000001.png)
-SAMPLE_SEQUENCE_NAME = "test_000001"
-
 # Prefix of the names of the classes of a shape appearing, one per shape class of the synthetic data
 APPEARING_CLASS_PREFIX = "appearing_"
 
@@ -66,14 +63,14 @@ GENERATOR_TASK = "sequence_labelling"
 REQUIRED_BALANCE_FACTS = ["dataset.minimum_sequence_frames", "dataset.maximum_sequence_frames",
                           "dataset.change_class_count", "dataset.shape_class_count",
                           "dataset.change_class_maximum_share", "listings.no_change_category",
-                          "listings.no_change_class_index"]
+                          "listings.no_change_class_index", "dataset.balanced_prior_cross_entropy"]
 
 
 def draw_sequence_strip(dataset: Any, output_path: Path) -> Dict[str, Any]:
     """
-    Draws the frames of the strip sequence as the test dataset reads them (512 pixels, shown at 390), every frame
-    captioned with its position and its class, the changes in the accent colour, and gives the box of every frame for
-    the views of its scene and the labels of the sequence.
+    Draws the frames of the strip sequence as the test dataset reads them (at the size of the run, shown at 390), every
+    frame captioned with its position and its class, the changes in the accent colour, and gives the box of every frame
+    for the views of its scene, the labels of the sequence and the side of the frames as the data set stores them.
 
     Args:
         dataset (Any): The SequenceDataset of the test split of the run, in the order of its labels file.
@@ -96,12 +93,18 @@ def draw_sequence_strip(dataset: Any, output_path: Path) -> Dict[str, Any]:
                                                 frame_size=STRIP_FRAME_SIZE, gap=36, caption_height=100,
                                                 canvas_size=(CHART_WIDTH, CHART_HEIGHT), top=110,
                                                 outlines=[None] * len(frames), fonts=fonts)
+    # Side of the frames as the data set stores them, before the resize of the run
+    strip_sequence = next(sequence for sequence in dataset.sequences if sequence["sequence_name"] == STRIP_SEQUENCE_NAME)
+    first_frame_path = Path(dataset.data_directory) / strip_sequence["frames"][0]
+    with Image.open(fp=first_frame_path) as first_frame:
+        frame_size = first_frame.size[0]
     draw_figure_header(canvas=canvas, text=f"synthetic_changing_shapes/test · {STRIP_SEQUENCE_NAME} · "
-                                           f"{len(frames)} frames of 512 pixels", fonts=fonts)
+                                           f"{len(frames)} frames of {frame_size} pixels", fonts=fonts)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(fp=output_path)
 
     facts = {"dataset.strip_sequence": STRIP_SEQUENCE_NAME, "dataset.strip_frame_count": len(frames),
+             "dataset.frame_size": frame_size,
              "dataset.strip_labels": [class_names[label] for label in frame_labels]}
     for frame_index, frame_box in enumerate(frame_boxes):
         facts[f"dataset.strip_frame_{frame_index}_box"] = frame_box
@@ -138,24 +141,39 @@ def compute_prior_facts(class_frames: List[int], sequence_count: int) -> Dict[st
     """
     Computes the cross entropy of the position prior on the training frames: no_change with probability 1 on the first
     frame of every sequence (always no_change), and the class frequencies of the later frames on the later frames,
-    whose cross entropy is their entropy. A model reaching this loss knows where a frame is, not what changed.
+    whose cross entropy is their entropy. A model reaching this loss knows where a frame is, not what changed. Also
+    computes the same bound for the loss with balanced class weights (compute_balanced_class_weights), the weighted
+    mean of the cross entropy that the cross entropy of PyTorch gives with a weight per class: its best position prior
+    gives the later frames the probabilities of their classes in proportion to their frames times their weights, and
+    its value is the reference of the training loss of a run trained with balanced weights.
 
     Args:
         class_frames (List[int]): The training frames of every class, no_change first (data.json of the run).
         sequence_count (int): The number of training sequences, one first frame each.
 
     Returns:
-        Dict[str, Any]: The facts of the prior, named dataset.prior_*.
+        Dict[str, Any]: The facts of the prior, named dataset.prior_* and dataset.balanced_prior_*.
     """
     later_frames = numpy.array(class_frames, dtype=numpy.float64)
     later_frames[0] -= sequence_count
     later_shares = later_frames / later_frames.sum()
     later_entropy = float(-(later_shares[later_shares > 0] * numpy.log(later_shares[later_shares > 0])).sum())
     total_frames = float(sum(class_frames))
+
+    # Weighted bound: the first frames still cost nothing, the later frames of a class weigh its frames times its
+    # weight, and the weighted mean divides by the weights of every training frame
+    class_weights = compute_balanced_class_weights(class_counts=class_frames).double().numpy()
+    weighted_later_frames = later_frames * class_weights
+    weighted_later_shares = weighted_later_frames / weighted_later_frames.sum()
+    kept_classes = weighted_later_shares > 0
+    balanced_prior = float(-(weighted_later_frames[kept_classes] * numpy.log(weighted_later_shares[kept_classes])).sum()
+                           / (numpy.array(class_frames, dtype=numpy.float64) * class_weights).sum())
     return {"dataset.prior_later_no_change_share": round_fact(value=later_shares[0]),
             "dataset.prior_later_entropy": round_fact(value=later_entropy),
             "dataset.prior_cross_entropy": round_fact(value=later_frames.sum() / total_frames * later_entropy),
             "dataset.prior_first_frame_share": round_fact(value=sequence_count / total_frames),
+            "dataset.balanced_prior_cross_entropy": round_fact(value=balanced_prior),
+            "dataset.balanced_prior_later_no_change_share": round_fact(value=weighted_later_shares[0]),
             "dataset.uniform_cross_entropy": round_fact(value=math.log(len(class_frames)))}
 
 
@@ -337,24 +355,6 @@ def write_label_listings(training_labels: Dict[str, Any], mapping_path: Path, li
             "listings.no_change_class_index": mapping[str(no_change_category)]}
 
 
-def count_sample_no_change_frames(dataset: Any) -> Dict[str, Any]:
-    """
-    Counts the frames of the sample sequence of the evaluation chapter (its sample image) labelled no_change, the only
-    frames a model predicting no_change on every frame gets right in that image.
-
-    Args:
-        dataset (Any): The SequenceDataset of the test split of the run, in the order of its labels file.
-
-    Returns:
-        Dict[str, Any]: The facts, named sample.name, sample.frame_count and sample.no_change_frames.
-    """
-    batch = collate_named_sequences(dataset=dataset, sequence_names=[SAMPLE_SEQUENCE_NAME])
-    real_labels = batch["labels"][0][batch["sequence_mask"][0]].tolist()
-    return {"sample.name": SAMPLE_SEQUENCE_NAME, "sample.frame_count": len(real_labels),
-            "sample.no_change_frames": sum(dataset.class_names[label] == NO_CHANGE_CLASS_NAME
-                                           for label in real_labels)}
-
-
 def read_script_facts() -> Dict[str, Any]:
     """
     Reads the settings the narration quotes from the main blocks of the synthetic dataset generator (the split sizes
@@ -389,13 +389,12 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
         force (bool): Whether the reused figures are made again.
 
     Returns:
-        Dict[str, Any]: The facts, named dataset.*, batch.*, sample.*, listings.*, generator.*, subset.* and code.*.
+        Dict[str, Any]: The facts, named dataset.*, batch.*, listings.*, generator.*, subset.* and code.*.
     """
     dataset_folder = output_folder / "dataset"
     test_dataset = build_test_dataset(run_folder=run_folder, label_type="frame")
     facts = draw_sequence_strip(dataset=test_dataset, output_path=dataset_folder / "sequence_strip.png")
     facts.update(draw_padded_batch(dataset=test_dataset, output_path=dataset_folder / "padded_batch.png"))
-    facts.update(count_sample_no_change_frames(dataset=test_dataset))
     facts.update(read_script_facts())
 
     # Class balance and listings, from the training labels.json of 250,000 sequences, reused when already made
