@@ -204,6 +204,27 @@ def collect_launches(experiment_folder: Path, metric: str,
     return launches
 
 
+def make_hashable(value: Any) -> Any:
+    """
+    Turns a swept setting read from a training configuration into a value usable in the key grouping the launches of
+    the same settings (build_result_rows): lists become tuples and mappings sorted tuples of their items, at every
+    depth, so that the settings given as lists, such as the [layers, channels] of the mask heads or the backbone blocks
+    of their skips in the instance segmentation experiment, are compared by their values like the scalar settings,
+    which are kept as they are.
+
+    Args:
+        value (Any): The setting, a scalar, a list or a mapping.
+
+    Returns:
+        Any: The setting in a hashable form, equal for two equal settings.
+    """
+    if isinstance(value, list):
+        return tuple(make_hashable(value=item) for item in value)
+    if isinstance(value, dict):
+        return tuple(sorted((key, make_hashable(value=item)) for key, item in value.items()))
+    return value
+
+
 def build_result_rows(launches: List[Dict[str, Any]], metric_column: str, number_last_evaluations: int,
                       swept_settings: Dict[str, Tuple[str, ...]]) -> Tuple[List[str], List[Dict[str, Any]]]:
     """
@@ -241,10 +262,11 @@ def build_result_rows(launches: List[Dict[str, Any]], metric_column: str, number
     columns = ["launch", EVALUATED_WEIGHTS_COLUMN, *iteration_columns, mean_column, last_mean_column, "finished",
                *swept_settings, "run_folder"]
 
-    # Launches of the same settings, in the order of their first launch
+    # Launches of the same settings, in the order of their first launch, the list settings compared by their values
     setting_groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
     for launch in launches:
-        setting_groups.setdefault(tuple(launch["settings"].values()), []).append(launch)
+        settings_key = tuple(make_hashable(value=value) for value in launch["settings"].values())
+        setting_groups.setdefault(settings_key, []).append(launch)
 
     rows = []
     for group_launches in setting_groups.values():
