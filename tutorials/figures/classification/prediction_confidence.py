@@ -5,7 +5,9 @@ last checkpoint of the classification run (save_predictions): on the left, the d
 predicted class over the right and the wrong predictions of the 50,000 test images, which tells whether a threshold on
 that probability can separate them; on the right, the probabilities of pentagon and hexagon of every test pentagon,
 the most confused pair of the run, which shows a confusion between two classes taking the probability mass from each
-other. The boxes of the two panels and the numbers the narration quotes are the facts of the scene.
+other. The boxes of the two panels and the numbers the narration quotes are the facts of the scene. The shares of the
+images of a group are written as the percentages of the reports of the repository (ticks "20 %"), the probabilities
+keeping their decimals.
 """
 
 import csv
@@ -13,6 +15,7 @@ import csv
 import numpy
 
 from matplotlib import pyplot
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -21,6 +24,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 compute_pixel_box, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.evaluation.report_formatting import format_percentage_tick
 
 # Evaluated checkpoint whose predictions are drawn
 PREDICTIONS_ITERATION = 1500
@@ -92,6 +96,8 @@ def draw_confidence_panel(axes: Any, maximum_probabilities: numpy.ndarray, corre
         axes.hist(x=values, bins=PROBABILITY_BINS, weights=numpy.full(shape=len(values), fill_value=1 / len(values)),
                   color=colour, alpha=0.55, label=label, edgecolor=colour, linewidth=1.5 * POINTS_PER_PIXEL)
     axes.set_xlim(left=0.1, right=1.0)
+    # Shares of the images written as the percentages of the reports, the probability axis keeping its decimals
+    axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     axes.legend(loc="upper left", frameon=False, labelcolor=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL)
 
 

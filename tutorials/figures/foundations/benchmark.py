@@ -334,7 +334,10 @@ def measure_panels(figure: matplotlib.figure.Figure, chart_name: str,
 def name_curve_values(fact_prefix: str, curve: numpy.ndarray) -> Dict[str, float]:
     """
     Turns the mean curve of a setting into one fact per evaluated iteration, the iterations a setting did not reach
-    (NaN) left out.
+    (NaN) left out. The means are kept unrounded, the means plot_experiment_comparisons.py and the README figures
+    write with format_percentage, so that the percent format of the storyboards, which rounds like round_percentage,
+    writes the same text: rounded first to the significant digits of round_fact, a mean such as 0.9962500000000001
+    (99.63 % in the repository) would become 0.99625 and be written 99.62 %.
 
     Args:
         fact_prefix (str): The name of the setting in the facts, e.g. "benchmark.model_settings.residual_on".
@@ -343,7 +346,7 @@ def name_curve_values(fact_prefix: str, curve: numpy.ndarray) -> Dict[str, float
     Returns:
         Dict[str, float]: The facts, named <prefix>.accuracy_<iteration>.
     """
-    return {f"{fact_prefix}.accuracy_{iteration}": round_fact(value=value)
+    return {f"{fact_prefix}.accuracy_{iteration}": float(value)
             for iteration, value in zip(EVALUATED_ITERATIONS, curve) if not numpy.isnan(value)}
 
 
@@ -483,14 +486,13 @@ def draw_moving_average_chart(output_folder: Path, launches: Dict[Tuple[str, str
                                     clip_to_panel=axes is zoom_axes)
         averaged_mean = draw_setting(axes=axes, launch_curves=averaged_launches, colour=SERIES_COLOURS[1],
                                      clip_to_panel=axes is zoom_axes)
-    # The labels write the rounded facts the narration quotes, so that a mean ending on a half hundredth of a percent
-    # (99.625 %) is rounded the same way on the chart and in the captions
+    # The labels write the unrounded means the facts keep, as the benchmark figure of stage 13 and the README do, so
+    # that a mean ending on a half hundredth of a percent (99.625 %) is rounded alike on the chart, in the captions and
+    # in the repository
     label_point(axes=zoom_axes, iteration=2000, value=trained_mean[-1],
-                text=format_percentage(value=round_fact(value=trained_mean[-1])), offset=(-30, -40),
-                colour=SERIES_COLOURS[0])
+                text=format_percentage(value=trained_mean[-1]), offset=(-30, -40), colour=SERIES_COLOURS[0])
     label_point(axes=zoom_axes, iteration=2000, value=averaged_mean[-1],
-                text=format_percentage(value=round_fact(value=averaged_mean[-1])), offset=(-30, 40),
-                colour=SERIES_COLOURS[1])
+                text=format_percentage(value=averaged_mean[-1]), offset=(-30, 40), colour=SERIES_COLOURS[1])
     save_figure(figure=figure, output_path=output_folder / "benchmark_moving_average.png")
     facts = measure_panels(figure=figure, chart_name="moving_average", panels={"whole": whole_axes, "zoom": zoom_axes})
     pyplot.close(fig=figure)

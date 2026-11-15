@@ -104,7 +104,7 @@ scenes:
       - "The sample images draw the real before frames above the real after frames, {{constant:vision_training/trainers/sequence_classification_trainer.py#FRAME_GRID_COLUMNS:words}} columns per member, under the true class, the predicted one and its probability."
       - "Test pair {{sequence_comparison.samples.wrong_number_words}} is a loss with {{sequence_comparison.errors.pair_0.before_words}} frames in each member, given same at {{sequence_comparison.samples.test_000003.probability:.2f}}: the object it lost is the small dark rectangle, the hardest to see in every frame."
       - "The other {{sequence_comparison.errors.other_count_words}} errors, pairs {{sequence_comparison.errors.pair_1.number}} and {{sequence_comparison.errors.pair_2.number}}, are losses too, given same at {{sequence_comparison.errors.pair_1.probability:.2f}} and {{sequence_comparison.errors.pair_2.probability:.2f}}."
-      - "Pair {{sequence_comparison.samples.right_number_words}} keeps its objects, and is right at {{sequence_comparison.samples.test_000000.probability:.2%}}."
+      - "Pair {{sequence_comparison.samples.right_number_words}} keeps its objects, and is right at {{sequence_comparison.samples.test_000000.probability:.2f}}."
 
   - kind: image
     title: "Thresholds"

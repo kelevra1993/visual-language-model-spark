@@ -202,7 +202,7 @@ scenes:
       - {box: "{{sequence_classification.lengths.padding_panel_box}}", sentences: [1]}
     narration:
       - "On this machine every sequence has {{sequence_classification.dataset.disk_frames_words}} frames, so the README runs never padded a single batch."
-      - "With the lengths the generator now draws, {{sequence_classification.lengths.padding_share_generator:.0%}} of the frames of a batch of {{sequence_classification.run.batch_size_words}} are padding: made by the collate and moved to the device, but never encoded, as the next chapter shows."
+      - "With the lengths the generator now draws, {{sequence_classification.lengths.padding_share_generator:percent}} of the frames of a batch of {{sequence_classification.run.batch_size_words}} are padding: made by the collate and moved to the device, but never encoded, as the next chapter shows."
       - "The frames per second of the console summary count the real frames only, so they stay comparable whatever the padding."
 
   - kind: summary

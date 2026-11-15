@@ -6,8 +6,9 @@ for the average pooling run (64 features) and the flatten run (4,096 features), 
 sequences cut to different lengths alone and padded in one batch (the padding invariance), the accuracy of the
 flatten run on the first frames of every test sequence, and the parameters and checkpoint sizes of the three runs.
 The inference is reused from the previous build unless forced; its facts are the numbers the narration quotes. The
-accuracies written on the truncation figure are the percentages of the reports of the repository ("94.03 %"), the facts
-keeping them between 0 and 1.
+accuracies written on the truncation figure, and its left axis, are the percentages of the reports of the repository
+("94.03 %", ticks "20 %"), its right axis giving the same scale with the decimals of the probabilities, the facts
+keeping every value between 0 and 1.
 """
 
 import json
@@ -18,19 +19,21 @@ import torch
 
 from matplotlib import pyplot
 from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
-                                                SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                compute_pixel_box, read_reused_facts, register_fonts, round_fact,
-                                                save_figure, style_chart_panel, write_reused_facts)
-from tutorials.figures.sequence_classification.sequence_figure_utilities import (compute_cosine_similarities,
+                                                SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, read_reused_facts,
+                                                register_fonts, round_fact, save_figure, style_chart_panel,
+                                                write_reused_facts)
+from tutorials.figures.sequence_classification.sequence_figure_utilities import (add_probability_axis,
+                                                                                 compute_cosine_similarities,
                                                                                  load_sequence_model)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences, read_sequence_frames
 from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
-from vision_training.evaluation.report_formatting import format_percentage
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.task_model import TaskModel
@@ -174,8 +177,9 @@ def compute_inference_facts(flatten_model: TaskModel, average_model: TaskModel, 
 def draw_truncation_figure(output_path: Path, facts: Dict[str, Any]) -> Dict[str, Any]:
     """
     Draws the accuracy and the mean probability of the true class of the flatten run against the number of first
-    frames kept from every test sequence, both on the same 0 to 1 scale, the 8 frames of the training sequences
-    marked; gives the box of the panel.
+    frames kept from every test sequence, both on the same 0 to 1 scale, written in percent on the left axis for the
+    accuracy and with decimals on the right axis for the probability, the 8 frames of the training sequences marked;
+    gives the box of the panel.
 
     Args:
         output_path (Path): The PNG file.
@@ -188,7 +192,8 @@ def draw_truncation_figure(output_path: Path, facts: Dict[str, Any]) -> Dict[str
     figure, axes = pyplot.subplots(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH),
                                    dpi=DOTS_PER_INCH)
     figure.patch.set_facecolor(SURFACE_COLOUR)
-    figure.subplots_adjust(left=0.07, right=0.97, top=0.84, bottom=0.13)
+    # Margins leaving room for the probability axis on the right
+    figure.subplots_adjust(left=0.07, right=0.93, top=0.84, bottom=0.13)
     series = [("accuracy", "Accuracy", SERIES_COLOURS[0]),
               ("mean_true_probability", "Mean probability of the true class", SERIES_COLOURS[1])]
     for fact_name, label, colour in series:
@@ -197,8 +202,7 @@ def draw_truncation_figure(output_path: Path, facts: Dict[str, Any]) -> Dict[str
                   markersize=10 * POINTS_PER_PIXEL, markeredgecolor=SURFACE_COLOUR,
                   markeredgewidth=2 * POINTS_PER_PIXEL)
         for length, value in zip(TRUNCATION_LENGTHS, values):
-            # The accuracy of every length written as the percentages of the reports, its axis shared with the
-            # probability, which stays between 0 and 1
+            # The accuracy of every length written as the percentages of the reports, like its axis
             if fact_name == "accuracy":
                 axes.annotate(text=format_percentage(value=value), xy=(length, value), xytext=(0, 12),
                               textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
@@ -206,16 +210,18 @@ def draw_truncation_figure(output_path: Path, facts: Dict[str, Any]) -> Dict[str
     style_chart_panel(axes=axes, title=f"Flatten run, iteration 1,000, on the first frames of the "
                                        f"{facts['truncation.sequences']} test sequences",
                       x_label="Frames kept from the start of every sequence (training sequences: 8 frames)",
-                      y_label="Share")
+                      y_label="Accuracy")
     axes.set_xticks(ticks=TRUNCATION_LENGTHS)
     axes.set_ylim(bottom=0.0, top=1.1)
+    # Accuracy ticks in percent on the left, the same scale with the decimals of the probability on the right
+    axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     legend_handles = [Line2D(xdata=[0], ydata=[0], color=colour, linewidth=3 * POINTS_PER_PIXEL, marker="o",
                              markersize=8 * POINTS_PER_PIXEL) for _, _, colour in series]
     figure.legend(handles=legend_handles, labels=[label for _, label, _ in series], loc="center right",
-                  bbox_to_anchor=(0.97, 0.93), ncols=2, frameon=False, labelcolor=TEXT_PRIMARY_COLOUR,
+                  bbox_to_anchor=(0.93, 0.93), ncols=2, frameon=False, labelcolor=TEXT_PRIMARY_COLOUR,
                   fontsize=18 * POINTS_PER_PIXEL)
+    _, box = add_probability_axis(figure=figure, axes=axes, y_label="Mean probability of the true class", margin=6)
     save_figure(figure=figure, output_path=output_path)
-    box = compute_pixel_box(figure=figure, axes=axes, with_labels=True, margin=6)
     pyplot.close(fig=figure)
     return {"truncation.panel_box": box}
 

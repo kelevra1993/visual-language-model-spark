@@ -168,7 +168,7 @@ scenes:
       - {box: "{{classification.confidence.pair_panel_box}}", sentences: [2]}
     narration:
       - "When the goal is to study the errors and the thresholds again without running the model, the predictions file holds one row per test image, {{classification.confidence.test_images:,}} here, with the probability of every class."
-      - "For the {{classification.confidence.wrong_count:,}} wrong predictions, the probability of the predicted class has a median of {{classification.confidence.wrong_median:.2f}}, and only {{classification.confidence.wrong_confident_count}} of them pass {{classification.confidence.confident_probability}}, where {{classification.confidence.correct_confident_share:.0%}} of the right ones do."
+      - "For the {{classification.confidence.wrong_count:,}} wrong predictions, the probability of the predicted class has a median of {{classification.confidence.wrong_median:.2f}}, and only {{classification.confidence.wrong_confident_count}} of them pass {{classification.confidence.confident_probability}}, where {{classification.confidence.correct_confident_share:percent}} of the right ones do."
       - "The test pentagons show a confusion at work: hexagon takes the probability pentagon loses, and {{classification.confidence.pair_wrong:,}} of the {{classification.confidence.pair_images:,}} pentagons tip over, nearly all to hexagon."
 
   - kind: html

@@ -8,7 +8,9 @@ listings of a labels.json entry and of the label mapping. The class balance give
 predictor knowing only where a frame is in its sequence, whose cross entropy the training curves and the evaluation
 chapter compare the run with. The settings the synthetic dataset generator and the split subset script type in their
 main block (split sizes, shapes per frame, size and seed of the test subset) and the number of sequence tasks of the
-repository are facts too, so that the narration quoting them follows the code.
+repository are facts too, so that the narration quoting them follows the code. The shares of the class balance are
+written as the percentages of the reports of the repository ("46.82 %", ticks "20 %"), the facts keeping them between 0
+and 1.
 """
 
 import json
@@ -18,7 +20,7 @@ import operator
 import numpy
 
 from matplotlib import pyplot
-from matplotlib.ticker import FuncFormatter, PercentFormatter
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from PIL import Image, ImageDraw
 from typing import Any, Dict, List
@@ -37,6 +39,7 @@ from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_
 from tutorial_builder.layout import ACCENT_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
 from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 
 # Test sequence drawn frame by frame: a star appears twice, then a rectangle disappears, its frames redrawn every time
@@ -178,15 +181,18 @@ def compute_prior_facts(class_frames: List[int], sequence_count: int) -> Dict[st
             "dataset.uniform_cross_entropy": round_fact(value=math.log(len(class_frames)))}
 
 
-def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any], output_path: Path) -> Dict[str, Any]:
+def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any], later_no_change_share: float,
+                       output_path: Path) -> Dict[str, Any]:
     """
     Draws the class balance of the training split: the frames of every class (no_change first, then the change
-    classes in class order) on the left, and the share of no_change at every frame position on the right, and gives
-    the boxes of the two panels.
+    classes in class order) on the left, and the share of no_change at every frame position on the right, with the
+    share of no_change over the later frames the narration quotes, and gives the boxes of the two panels.
 
     Args:
         class_frames (List[int]): The training frames of every class, in class index order.
         position_shares (Dict[str, Any]): The frames and no_change shares of every position (compute_position_shares).
+        later_no_change_share (float): The share of no_change over the frames after the first one of every sequence,
+            the fact dataset.prior_later_no_change_share of compute_prior_facts.
         output_path (Path): The PNG file.
 
     Returns:
@@ -210,7 +216,9 @@ def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any],
     class_axes.set_xlim(left=-1, right=len(class_frames))
     class_axes.set_ylim(bottom=0, top=max(class_frames) * 1.18)
     class_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
-    class_axes.annotate(text=f"no_change  {class_frames[0]:,}  ({class_frames[0] / total_frames:.1%})",
+    # The share of no_change written as the percentages of the reports, from the fact the narration quotes
+    class_axes.annotate(text=f"no_change  {class_frames[0]:,}  "
+                             f"({format_percentage(value=round_fact(value=class_frames[0] / total_frames))})",
                         xy=(0, class_frames[0]), xytext=(14 * POINTS_PER_PIXEL, 6 * POINTS_PER_PIXEL),
                         textcoords="offset points", ha="left", va="bottom", color=TEXT_PRIMARY_COLOUR,
                         fontsize=19 * POINTS_PER_PIXEL)
@@ -229,14 +237,15 @@ def draw_class_balance(class_frames: List[int], position_shares: Dict[str, Any],
                       y_label="Share of the frames")
     position_axes.set_ylim(bottom=0, top=1.12)
     position_axes.set_xticks(ticks=positions)
-    position_axes.yaxis.set_major_formatter(formatter=PercentFormatter(xmax=1.0, decimals=0))
+    position_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     position_axes.annotate(text="first frame: always no_change", xy=(0, 1.0), xytext=(16 * POINTS_PER_PIXEL, 0),
                            textcoords="offset points", ha="left", va="center", color=TEXT_PRIMARY_COLOUR,
                            fontsize=18 * POINTS_PER_PIXEL)
-    later_share = float(position_shares["no_change_shares"][1:].mean())
-    position_axes.annotate(text=f"later frames: about {later_share:.0%}", xy=(len(positions) // 2, later_share),
-                           xytext=(0, 30 * POINTS_PER_PIXEL), textcoords="offset points", ha="center", va="bottom",
-                           color=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL)
+    # Share of no_change over all the later frames, the fact the narration quotes, in the percent of the reports
+    position_axes.annotate(text=f"later frames: {format_percentage(value=later_no_change_share)}",
+                           xy=(len(positions) // 2, later_no_change_share), xytext=(0, 30 * POINTS_PER_PIXEL),
+                           textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
+                           fontsize=18 * POINTS_PER_PIXEL)
     save_figure(figure=figure, output_path=output_path)
     facts = {"dataset.balance_class_panel_box": compute_pixel_box(figure=figure, axes=class_axes, with_labels=True,
                                                                   margin=0),
@@ -426,7 +435,9 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
     no_change_category = [category["id"] for category in training_labels["categories"]
                           if category["name"] == NO_CHANGE_CLASS_NAME][0]
     position_shares = compute_position_shares(training_labels=training_labels, no_change_category=no_change_category)
+    prior_facts = compute_prior_facts(class_frames=class_frames, sequence_count=position_shares["sequences"])
     balance_facts = draw_class_balance(class_frames=class_frames, position_shares=position_shares,
+                                       later_no_change_share=prior_facts["dataset.prior_later_no_change_share"],
                                        output_path=balance_path)
 
     # Counts of the training split, the prior of the frame position and the balanced weights it would give
@@ -457,7 +468,7 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
                                                            for category_name in category_names),
                           "dataset.change_class_maximum_share": round_fact(value=max(class_frames[1:]) /
                                                                            sum(class_frames))})
-    balance_facts.update(compute_prior_facts(class_frames=class_frames, sequence_count=position_shares["sequences"]))
+    balance_facts.update(prior_facts)
     balance_facts.update(write_label_listings(training_labels=training_labels, mapping_path=mapping_path,
                                               listings_folder=listings_folder))
 

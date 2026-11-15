@@ -4,7 +4,9 @@ tutorials/figures/sequence_classification/figures.py from the moving shapes data
 training_configuration.yaml gives the split folders): the frames of the first training sequence copied for the HTML
 scene of the task, the listings of the split layout and of its labels.json entry, and the chart of the sequence lengths
 on disk against the lengths the current generator draws, with the share of padding frames each gives to batches of the
-run. Its facts are the sizes of the splits, the classes and the padding shares the narration quotes.
+run. Its facts are the sizes of the splits, the classes and the padding shares the narration quotes. The padding
+shares are written as the percentages of the reports of the repository ("39.56 %", ticks "20 %"), the facts keeping
+them between 0 and 1.
 """
 
 import json
@@ -16,6 +18,7 @@ import numpy
 from collections import Counter
 from matplotlib import pyplot
 from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -24,6 +27,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (copy_frames, read_generator_setting,
                                                                                  write_text_lines)
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Sequence shown on the scene of the task, the first of the training manifest
 SHOWN_SEQUENCE_NAME = "train_000000"
@@ -203,10 +207,12 @@ def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_le
     padding_axes.set_xticks(ticks=[0, 1], labels=source_names)
     padding_axes.set_ylim(bottom=0.0, top=0.6)
     padding_axes.grid(visible=False, axis="x")
+    # Shares written as the percentages of the reports, the value of every bar being the fact the narration quotes
+    padding_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     for bar_index, share_value in enumerate(share_values):
-        padding_axes.annotate(text=f"{share_value:.1%}", xy=(bar_index, share_value), xytext=(0, 8),
-                              textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
-                              fontsize=20 * POINTS_PER_PIXEL)
+        padding_axes.annotate(text=format_percentage(value=round_fact(value=share_value)), xy=(bar_index, share_value),
+                              xytext=(0, 8), textcoords="offset points", ha="center", va="bottom",
+                              color=TEXT_PRIMARY_COLOUR, fontsize=20 * POINTS_PER_PIXEL)
 
     # Legend of the two sources above the panels
     legend_handles = [Line2D(xdata=[0], ydata=[0], color=SERIES_COLOURS[0], linewidth=10 * POINTS_PER_PIXEL),

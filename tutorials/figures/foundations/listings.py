@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Tuple
 
 import torch
 
+from tutorials.figures.figure_utilities import round_fact
 from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.configuration_processing.configuration_loader import (load_configuration,
                                                                           load_experiment_configuration)
@@ -251,9 +252,10 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
     Gives the facts of the backbone chapter of the foundations series, read from the model of the classification run
     so that the narration follows the configuration when the run is trained again: the receptive field and stride
     after the last convolution of every block, the parameters of every block and of the Squeeze-and-Excitation modules
-    with the reduction of their channels, the blocks adding a residual shortcut, the shapes of the block drawn layer by
-    layer, the input channels of the backbone, and the side of the convolution kernels and of the max pooling of its
-    blocks.
+    with the reduction of their channels, the share of the backbone parameters held by its last block (between 0 and 1,
+    written as a percentage by the storyboard), the blocks adding a residual shortcut, the shapes of the block drawn
+    layer by layer, the input channels of the backbone, and the side of the convolution kernels and of the max pooling
+    of its blocks.
 
     Args:
         model (ImageClassifier): The model of the classification run, built on the CPU.
@@ -332,8 +334,8 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
             "listings.backbone_parameter_count": backbone_parameter_count,
             "listings.head_parameter_count": model_parameter_count - backbone_parameter_count,
             "listings.last_block_parameter_count": block_parameter_counts[-1],
-            "listings.last_block_parameter_percent": round(100 * block_parameter_counts[-1] /
-                                                           backbone_parameter_count),
+            "listings.last_block_parameter_share": round_fact(value=block_parameter_counts[-1] /
+                                                              backbone_parameter_count),
             "listings.squeeze_excitation_parameter_count": squeeze_excitation_parameter_count,
             "listings.squeeze_excitation_reduction_ratio": reduction_ratios.pop(),
             "listings.block_parameter_labels": [f"{count:,}" for count in block_parameter_counts],

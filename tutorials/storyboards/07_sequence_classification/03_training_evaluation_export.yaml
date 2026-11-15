@@ -120,7 +120,7 @@ scenes:
       - {box: "{{sequence_classification.probabilities.panel_0_box}}", sentences: [0]}
       - {box: "{{sequence_classification.probabilities.panel_1_box}}", sentences: [1]}
     narration:
-      - "The predictions file gives every test sequence with its first and last frames and its {{sequence_classification.run.number_classes:words}} probabilities: the flatten run gives the true class more than {{sequence_classification.probabilities.threshold:.0%}} for {{sequence_classification.probabilities.flatten_128.above_0_9}} of the {{sequence_classification.probabilities.flatten_128.sequences}} sequences."
+      - "The predictions file gives every test sequence with its first and last frames and its {{sequence_classification.run.number_classes:words}} probabilities: the flatten run gives the true class more than {{sequence_classification.probabilities.threshold}} for {{sequence_classification.probabilities.flatten_128.above_0_9}} of the {{sequence_classification.probabilities.flatten_128.sequences}} sequences."
       - "With average pooling, every probability of every sequence lies between {{sequence_classification.probabilities.average_512.minimum_any:.2f}} and {{sequence_classification.probabilities.average_512.maximum_any:.2f}}: the same answer, whatever the frames."
 
   - kind: image
@@ -131,7 +131,7 @@ scenes:
       - {box: "{{sequence_classification.samples.row_0_image_1_box}}", sentences: [1]}
     narration:
       - "Every evaluation draws its {{sequence_classification.run.number_sample_images_words}} fixed test sequences as grids of their real frames, under the true class, the predicted one and its probability, in green when right and in red when wrong."
-      - "Here the same {{sequence_classification.samples.flatten_128.true_class}} sequence: right at {{sequence_classification.samples.flatten_128.probability:.2%}} with flatten, given {{sequence_classification.samples.average_512.predicted_class}} at {{sequence_classification.samples.average_512.probability:.2%}} with average pooling."
+      - "Here the same {{sequence_classification.samples.flatten_128.true_class}} sequence: right at {{sequence_classification.samples.flatten_128.probability:.2f}} with flatten, given {{sequence_classification.samples.average_512.predicted_class}} at {{sequence_classification.samples.average_512.probability:.2f}} with average pooling."
 
   - kind: image
     title: "Shorter sequences"
