@@ -4,8 +4,10 @@ objects, the metrics and the export), made by tutorials/figures/keypoint_detecti
 trained detector on the test image at both strides and their average with the candidates extracted from it, the
 grouping of the candidates of the two hollow capsules keypoint by keypoint (the data of the grouping animation, checked
 against group_keypoint_candidates), the object keypoint similarity of one keypoint against its distance for the boxes
-of the image, the metrics of every evaluated checkpoint read from the TensorBoard logs of the run, its worst classes and
-keypoints read from its class_metrics.csv and keypoint_metrics.csv, and the boxes of the objects in its sample image.
+of the image, and, from the evaluations made again with the current code in the Checkpoint_Evaluation folder of the run
+(EVALUATION_FOLDER_NAME), the metrics of every evaluated checkpoint read from its TensorBoard logs, its worst classes
+and keypoints read from its class_metrics.csv and keypoint_metrics.csv, and the boxes of the objects in its sample
+image.
 """
 
 import csv
@@ -28,7 +30,8 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
 from tutorials.figures.keypoint_detection.dataset_figures import HEATMAP_COLOUR_MAP
 from tutorials.figures.keypoint_detection.keypoint_inference import INFERENCE_ARRAYS_NAME
 from tutorials.figures.keypoint_detection.keypoint_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
-                                                                  OBJECT_COLOURS, SAMPLE_IMAGE_NAME, write_json)
+                                                                  EVALUATION_FOLDER_NAME, OBJECT_COLOURS,
+                                                                  SAMPLE_IMAGE_NAME, write_json)
 from tutorials.figures.keypoint_detection.scalar_logs import read_scalar_values
 from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
@@ -53,7 +56,8 @@ GROUPING_CLASS_NAME = "hollow_capsule"
 # Distances of a keypoint to its ground truth drawn by the object keypoint similarity curves, in pixels
 OKS_DISTANCES = list(range(0, 31))
 
-# Metrics of the evaluated checkpoints shown by the metrics grid, as logged in Tensorboard/Test and Test_EMA
+# Metrics of the evaluated checkpoints shown by the metrics grid, as logged in Checkpoint_Evaluation/Tensorboard/Test
+# and Test_EMA
 GRID_METRICS = {"OKS mAP@0.5/area": "mAP@0.5", "OKS mAP@0.75/area": "mAP@0.75", "OKS mAP@0.95/area": "mAP@0.95",
                 "OKS mAP@[0.5:0.95]/area": "mAP@[.5:.95]", "Keypoint Accuracy/PCK@0.05": "PCK@0.05",
                 "Keypoint Accuracy/Mean OKS": "Mean OKS", "Keypoint Accuracy/Matched Objects": "Matched"}
@@ -390,7 +394,7 @@ def describe_object_keypoint_similarity(sample_record: Dict[str, Any], inference
 def read_results_header(run_folder: Path) -> Dict[str, Any]:
     """
     Reads the number of test images and of test objects with keypoints of the evaluations of the run from the first
-    report block of its Results.txt.
+    report block of its Checkpoint_Evaluation/Results.txt.
 
     Args:
         run_folder (Path): The folder of the keypoint run.
@@ -401,18 +405,19 @@ def read_results_header(run_folder: Path) -> Dict[str, Any]:
     Raises:
         ValueError: If the report does not give them.
     """
-    report = (run_folder / "Results.txt").read_text(encoding="utf-8")
+    report = (run_folder / EVALUATION_FOLDER_NAME / "Results.txt").read_text(encoding="utf-8")
     images_match = re.search(pattern=r"Iteration \d+ · (\d+) Test Images", string=report)
     objects_match = re.search(pattern=r"^\s+All\s+(\d+)\s", string=report, flags=re.MULTILINE)
     if images_match is None or objects_match is None:
-        raise ValueError(f"No test image or object count in {run_folder / 'Results.txt'}.")
+        raise ValueError(f"No test image or object count in {run_folder / EVALUATION_FOLDER_NAME / 'Results.txt'}.")
     return {"metrics_test_images": int(images_match.group(1)), "metrics_test_objects": int(objects_match.group(1))}
 
 
 def describe_metrics(run_folder: Path) -> Dict[str, Any]:
     """
     Reads the metrics of every evaluated checkpoint of the run, for the trained and the averaged weights, from its
-    Tensorboard/Test and Tensorboard/Test_EMA logs: the values of the metrics grid and the facts the narration quotes.
+    Checkpoint_Evaluation/Tensorboard/Test and Test_EMA logs: the values of the metrics grid and the facts the narration
+    quotes.
 
     Args:
         run_folder (Path): The folder of the keypoint run.
@@ -421,8 +426,9 @@ def describe_metrics(run_folder: Path) -> Dict[str, Any]:
         Dict[str, Any]: The facts of the metrics.
     """
     tags = [*GRID_METRICS, ERROR_METRIC]
-    weights_values = {"trained": read_scalar_values(log_folder=run_folder / "Tensorboard" / "Test", tags=tags),
-                      "ema": read_scalar_values(log_folder=run_folder / "Tensorboard" / "Test_EMA", tags=tags)}
+    log_root = run_folder / EVALUATION_FOLDER_NAME / "Tensorboard"
+    weights_values = {"trained": read_scalar_values(log_folder=log_root / "Test", tags=tags),
+                      "ema": read_scalar_values(log_folder=log_root / "Test_EMA", tags=tags)}
 
     # Grid of the metrics, one column per checkpoint and kind of weights
     columns = [(iteration, weights) for iteration in EVALUATED_ITERATIONS for weights in ["trained", "ema"]]
@@ -525,7 +531,7 @@ def draw_worst_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
         Dict[str, Any]: The facts of the worst class and keypoints.
     """
     register_fonts()
-    evaluation_folder = run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}"
+    evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}"
     class_rows = sorted(read_metric_rows(csv_path=evaluation_folder / "class_metrics.csv"),
                         key=read_class_average_precision)[:WORST_COUNT]
     keypoint_rows = sorted(read_metric_rows(csv_path=evaluation_folder / "keypoint_metrics.csv"),
@@ -594,7 +600,8 @@ def describe_sample_image(run_folder: Path, inference_facts: Dict[str, Any]) -> 
     Returns:
         Dict[str, Any]: The facts of the sample image.
     """
-    sample_path = run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}" / "Samples" / SAMPLE_IMAGE_NAME
+    sample_path = (run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}" / "Samples" /
+                   SAMPLE_IMAGE_NAME)
     with Image.open(fp=sample_path) as sample_image:
         image = numpy.asarray(sample_image.convert(mode="RGB"))
     separator = find_panel_separator(image=image)

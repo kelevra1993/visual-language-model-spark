@@ -20,10 +20,12 @@ from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FON
 SAMPLE_ITERATIONS = [500, 1500]
 
 # Iteration of the standalone evaluation and the error image shown for every confused pair of classes, in its
-# Errors/<true class>-TO-<predicted class>/ folder, the file name ending with the probability of the wrong class
+# Errors/<true class>-TO-<predicted class>/ folder, the file name ending with the probability of the wrong class; the
+# first file of every folder in name order, from the evaluation of 2026-11-15 (the error images saved are the first ones
+# the test loader meets, so another evaluation saves other files)
 ERROR_ITERATION = 1500
-ERROR_IMAGES = [("square-TO-rectangle", "test_003231_0.688.png"), ("pentagon-TO-hexagon", "test_001219_0.542.png"),
-                ("circle-TO-octagon", "test_010208_0.688.png"), ("octagon-TO-hexagon", "test_004210_0.613.png")]
+ERROR_IMAGES = [("square-TO-rectangle", "test_003728_0.654.png"), ("pentagon-TO-hexagon", "test_004807_0.736.png"),
+                ("circle-TO-octagon", "test_000692_0.504.png"), ("octagon-TO-hexagon", "test_003702_0.578.png")]
 
 # Layout: four columns of images, the gap between two images and between two grids, the height of the header band
 GRID_COLUMN_COUNT = 4

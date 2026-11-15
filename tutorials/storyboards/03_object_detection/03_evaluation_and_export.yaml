@@ -1,8 +1,9 @@
 # Object detection, chapter 3: the evaluation of a checkpoint (post-processing, sample images along the run, the
 # report tables of the mean average precision, the proposal recall, the moving average of the weights, the classes
 # and their thresholds, the confusion matrix), the export served by Triton with its input settings, and the
-# pitfalls of the task. Every number comes from the DET run of tutorial_sources.yaml, read by
-# tutorials/figures/object_detection.
+# pitfalls of the task. Every number comes from the DET run of tutorial_sources.yaml (trained with the shipped
+# configuration), read by tutorials/figures/object_detection, but the joint selection of the pitfalls, measured on the
+# detection benchmark of chapter 1.
 series: object_detection
 series_title: "Object Detection (DET)"
 chapter: 3
@@ -45,7 +46,7 @@ scenes:
       - "In evaluation the detector runs without ground truth: the filter keeps {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals, every head scores those of its level, and the post-processing takes the softmax without the background, so that every foreground class of every proposal is a candidate."
       - "The candidates reaching the score threshold go through one batched NMS at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}} per image and class, and the {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} best remain, padded with zeros."
       - "The Detector NMS criterion can run it on the distance IoU, the IoU minus a term of the distance between the centers, which spares overlapping boxes whose centers lie apart."
-      - "The run shown here was evaluated before that option, with the plain IoU."
+      - "The run shown here uses it, as the shipped configuration does, its distance term raised to the power {{object_detection.run.nms_distance_exponent}}."
       - "The evaluation runs at its own score threshold, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}} against {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}} at deployment, so that the precision recall curves keep their low end, and restores the deployment one afterwards."
 
   - kind: image
@@ -63,9 +64,9 @@ scenes:
       - {box: "{{object_detection.samples.panel_3_box}}", sentences: [1]}
       - {box: "{{object_detection.samples.panel_4_box}}", sentences: [2]}
     narration:
-      - "The sample images show the same {{object_detection.run.number_sample_images:words}} test images at every evaluation: at iteration {{object_detection.samples.iterations[0]:words}}, at a mAP at 0.5 of {{object_detection.samples.metric_1000:.2f}}, not one detection of the whole test split reaches {{object_detection.run.score_threshold}}."
-      - "Imagine you stop at {{object_detection.samples.iterations[1]:words}}, as the first launch of this run did: only the square is found here, with {{object_detection.outcomes.2000.right:,}} right detections over the {{object_detection.data.test_objects:,}} test objects, so the samples look empty."
-      - "Resumed to {{object_detection.samples.iterations[2]:words}}, the run finds {{object_detection.inference.found_object_count:words}} of the {{object_detection.inference.object_count:words}} shapes, at a mAP of {{object_detection.samples.metric_5000:.2f}}."
+      - "The sample images show the same {{object_detection.run.number_sample_images:words}} test images at every evaluation: at iteration {{object_detection.samples.iterations[0]:words}}, the first one, the mAP at 0.5 is {{object_detection.samples.metrics[0]:.2f}}, and not one detection of the whole test split reaches {{object_detection.run.score_threshold}}."
+      - "Imagine you stop at {{object_detection.samples.iterations[1]:words}}, half the run: only the square and the star are found here, with {{object_detection.samples.right_detections[1]:,}} right detections over the {{object_detection.data.test_objects:,}} test objects, at a mAP of {{object_detection.samples.metrics[1]:.2f}}."
+      - "At {{object_detection.samples.iterations[2]:words}}, the end of the run, it finds {{object_detection.inference.found_object_count:words}} of the {{object_detection.inference.object_count:words}} shapes of this image, both nonagons still missed, at a mAP of {{object_detection.samples.metrics[2]:.2f}}."
 
   - kind: html
     page: diagram
@@ -131,8 +132,8 @@ scenes:
       - {box: "{{object_detection.metrics.panel_1_box}}", sentences: [0]}
       - {box: "{{object_detection.metrics.panel_2_box}}", sentences: [1]}
     narration:
-      - "The run keeps a moving average of its weights, evaluated after the trained weights into its own folders and Test EMA curves; at 0.5 they match at {{object_detection.run.checkpoint_iteration:words}}, {{object_detection.metrics.map_50.test_ema_5000:.2f}} against {{object_detection.metrics.map_50.test_5000:.2f}}."
-      - "From 0.5 to 0.95, the averaged weights do better, {{object_detection.metrics.map_50_95.test_ema_5000:.2f}} against {{object_detection.metrics.map_50_95.test_5000:.2f}}: averaging tightens the boxes."
+      - "The run keeps a moving average of its weights, evaluated after the trained weights into its own folders and Test EMA curves; at 0.5 and iteration {{object_detection.run.checkpoint_iteration:words}}, the averaged weights reach {{object_detection.metrics.map_50.test_ema_last:.2f}} against {{object_detection.metrics.map_50.test_last:.2f}} for the trained ones."
+      - "From 0.5 to 0.95 the lead grows, {{object_detection.metrics.map_50_95.test_ema_last:.2f}} against {{object_detection.metrics.map_50_95.test_last:.2f}}: averaging tightens the boxes."
 
   - kind: image
     title: "Classes and their thresholds"
@@ -143,7 +144,7 @@ scenes:
     narration:
       - "The classes spread widely: the {{object_detection.classes.worst_name}} reaches {{object_detection.classes.worst_ap_50:.2f}} at 0.5, the {{object_detection.classes.best_name}} {{object_detection.classes.best_ap_50:.2f}}, the orange marks giving the AP at 0.75."
       - "On the right, the class thresholds file: the lowest score at which a class keeps a precision of {{object_detection.classes.target_precision}}, with the recall left."
-      - "The square keeps {{object_detection.classes.square.recall:.1%}} of its objects from a score of {{object_detection.classes.square.threshold:.2f}}; the trapezoid never reaches that precision."
+      - "The square keeps {{object_detection.classes.square.recall:.1%}} of its objects from a score of {{object_detection.classes.square.threshold:.2f}}; the {{object_detection.classes.without_threshold[0]}}, the {{object_detection.classes.without_threshold[1]}} and the {{object_detection.classes.without_threshold[2]}} never reach that precision."
       - "With the per-class report, a Per Class Recall table adds the share of the objects of every class found at 0.5 and 0.75, whatever the score, with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval."
 
   - kind: image
@@ -156,7 +157,8 @@ scenes:
     narration:
       - "The confusion matrix counts the detections at the deployment threshold of {{object_detection.run.score_threshold}}, matched at an overlap of {{constant:vision_training/evaluation/detection/detection_confusion.py#MATCHING_INTERSECTION_OVER_UNION_THRESHOLD}}: {{object_detection.confusion.right:,}} right, {{object_detection.confusion.wrong_class:,}} of the wrong class."
       - "The background row holds the {{object_detection.confusion.false_positives:,}} false positives, the background column the {{object_detection.confusion.missed:,}} missed objects."
-      - "Octagons, rhombuses and trapezoids are never right at {{object_detection.run.score_threshold}}, the octagons going to the nonagon column {{object_detection.confusion.octagon_as_nonagon}} times, although the octagon reaches an AP of {{object_detection.classes.octagon.ap_50:.2f}}: its detections score below the threshold."
+      - "Rhombuses and trapezoids are never right at {{object_detection.run.score_threshold}}, although the trapezoid reaches an AP of {{object_detection.classes.trapezoid.ap_50:.2f}}: its detections score below the threshold."
+      - "The largest confusion puts {{object_detection.confusion.largest.count:,}} objects of the {{object_detection.confusion.largest.true_name}} class in the {{object_detection.confusion.largest.predicted_name}} column, shapes that differ by a single corner."
 
   - kind: html
     page: diagram
@@ -171,7 +173,7 @@ scenes:
       - {type: arrow, points: [[330, 340], [395, 340]]}
       - {type: box, box: [400, 60, 1150, 620], fill: null, outline: violet, highlight: [4]}
       - {type: text, position: [775, 90], text: "object_detector · TorchScript and ONNX", font: diagram_bold, anchor: ma}
-      - {type: text, position: [440, 160], text: "input normalization, backbone\nevery region proposal head\ntop-k and NMS, per level or joint\nvalid mask instead of padding copies\nevery detection head on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals,\n  each proposal keeping its level (torch.where)\npost-processing: score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}, NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}}, top {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}", font: diagram_text, appear: 4}
+      - {type: text, position: [440, 160], text: "input normalization, backbone\nevery region proposal head\ntop-k and NMS, per level or joint\nvalid mask instead of padding copies\nevery detection head on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals,\n  each proposal keeping its level (torch.where)\npost-processing: score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}},\n  {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_criterion}} NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}}, top {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}", font: diagram_text, appear: 4}
       - {type: arrow, points: [[1150, 200], [1215, 140]], appear: 3}
       - {type: arrow, points: [[1150, 300], [1215, 270]], appear: 3}
       - {type: arrow, points: [[1150, 380], [1215, 400]], appear: 3}
@@ -186,7 +188,7 @@ scenes:
       - "It takes float BGR images of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels in 0 to 255, letterboxed by the client, the input normalization being part of the model."
       - "For the client to letterbox its images as the evaluation did, the export writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "It returns {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} boxes per image in network pixels, their scores and int64 labels, zero for the padding, and the number of detections of every image."
-      - "In the graph: a single NMS call over the batch for the proposals, one per level with the per-level selection, every detection head run on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals with each keeping its own level, and the score threshold and final NMS of the configuration baked in."
+      - "In the graph: one NMS call over the batch for the proposals of every level with the per-level selection of the run, a single one with the joint selection, every detection head run on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals with each keeping its own level, and the score threshold and the final distance IoU suppression of the configuration baked in."
       - "Outside the graph stay the letterbox, the restoration of the boxes to the original image, and the per-class thresholds; the export is checked against the eager model to a hundredth of a pixel on the boxes."
 
   - kind: terminal
@@ -206,28 +208,27 @@ scenes:
     columns:
       - heading: "Training"
         lines:
-          - "{{object_detection.samples.iterations[1]}} iterations: samples nearly empty"
           - "stride {{object_detection.inference.level_5.stride}} at best: few anchors for small boxes"
           - "anchors on the cell corners"
-          - "joint selection: block 5 takes most proposals"
+          - "joint selection: copies fill the slots"
       - heading: "Evaluation and tools"
         lines:
           - "mAP@[0.5:0.95]: VOC matching, not COCO's"
           - "2-layer heads changing channels: no shortcut"
           - "eager forward: padding copies not masked"
     narration:
-      - "To close, the pitfalls: stopping at {{object_detection.samples.iterations[1]:words}} iterations leaves the samples nearly empty; the small objects get few anchors at a stride of {{object_detection.inference.level_5.stride}}, centered on the cell corners; and in the run shown, which selects its proposals jointly, block 5 takes most proposals."
+      - "To close, the pitfalls: the small objects get few anchors at a stride of {{object_detection.inference.level_5.stride}}, centered on the cell corners; and the joint selection of older configurations fills only {{object_detection.proposal_selection.joint_proposals_per_image:.0f}} of the {{object_detection.proposal_selection.inference_post_nms}} slots of the benchmark with real proposals, the rest with copies."
       - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut."
 
   - kind: summary
     title: "Recap"
     items:
       - {text: "Evaluation at score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}}, deployment at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}; NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}} per class; {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} per image"}
-      - {text: "mAP@0.5 {{object_detection.report.trained.methods.area.0:.3f}} at {{object_detection.run.checkpoint_iteration}}, {{object_detection.samples.metric_2000:.3f}} at {{object_detection.samples.iterations[1]}}"}
+      - {text: "mAP@0.5 {{object_detection.report.trained.methods.area.0:.3f}} at {{object_detection.run.checkpoint_iteration}}, {{object_detection.samples.metrics[1]:.3f}} at {{object_detection.samples.iterations[1]}}"}
       - {text: "Small objects: mAP@0.5 {{object_detection.report.trained.sizes.small.1:.3f}}, proposal recall {{object_detection.proposal_recall.small.recall_50:.1%}}"}
-      - {text: "Moving average: tighter boxes, mAP@[0.5:0.95] {{object_detection.metrics.map_50_95.test_ema_5000:.3f}}"}
+      - {text: "Moving average: tighter boxes, mAP@[0.5:0.95] {{object_detection.metrics.map_50_95.test_ema_last:.3f}}, trained {{object_detection.metrics.map_50_95.test_last:.3f}}"}
       - {text: "class_thresholds.json: per-class scores at precision {{object_detection.classes.target_precision}}"}
       - {text: "object_detector: boxes, scores, labels, count; letterbox and thresholds client side"}
     narration:
-      - "To recap: evaluate at a low score, read the mAP by size and the recalls before the headline number, train well past {{object_detection.samples.iterations[1]:words}} iterations, and keep the letterbox and the class thresholds on the client side."
+      - "To recap: evaluate at a low score, read the mAP by size and the recalls before the headline number, compare the averaged weights with the trained ones, and keep the letterbox and the class thresholds on the client side."
       - "The next series, on instance masks, builds on this detector, adding a mask head to every level."

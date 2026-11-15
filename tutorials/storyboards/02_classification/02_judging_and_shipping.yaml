@@ -6,7 +6,8 @@
 # temperature, its thresholds, its export folder and its input settings. Coordinates of the
 # html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures and facts
 # named classification.* are made by tutorials/figures/classification from the synthetic shapes run of
-# tutorial_sources.yaml, the images under runs: are the files its evaluation wrote.
+# tutorial_sources.yaml, the images under runs: are the files its evaluations wrote (the report block, the confusion
+# matrix image and the precision-recall curves those of its standalone evaluation, run again with the current code).
 series: classification
 series_title: "Image Classification (CLS)"
 chapter: 2
@@ -67,25 +68,24 @@ scenes:
     page: diagram
     title: "The report of a checkpoint"
     code_reference: "vision_training/evaluation/classification/class_metrics_report.py · build_class_metrics_table"
-    # The top-2 accuracy of the report of the run, the two most probable classes and the last two columns of the
-    # report
+    # The last two columns of the report
     literal_numbers: [two]
     elements:
       - type: listing
         box: [20, 24, 1740, 600]
         font: diagram_monospace_small
-        source: {file: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Results.txt", start: "^Iteration 1500", end: "is never reached"}
+        source: {file: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation/Results.txt", start: "^Iteration 1500", end: "is never reached"}
         highlights:
           - {match: "^  Accuracy|^  Macro F1", sentences: [0]}
           - {match: "^  Macro ROC AUC|^   (square|octagon|pentagon) ", sentences: [1]}
-          - {match: "Threshold|@ P0.99|@ P99 %|^   rectangle ", sentences: [2]}
-      - {type: text, position: [880, 660], text: "Results.txt: one block per evaluated checkpoint · the console prints it with the links of the files", font: diagram_small, colour: dim, anchor: mm}
-      - {type: text, position: [880, 705], text: "newer evaluations: rates in percent, and a Per Class Recall table with every {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
+          - {match: "Threshold|@ P99 %|^   rectangle ", sentences: [2]}
+      - {type: text, position: [880, 660], text: "Checkpoint_Evaluation/Results.txt: one block per evaluated checkpoint, as in the Results.txt of the training · the console prints it with the links of the files", font: diagram_small, colour: dim, anchor: mm}
+      - {type: text, position: [880, 705], text: "rates in percent · next in the block: a Per Class Recall table with every {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
     narration:
-      - "At iteration {{classification.class_metrics.iteration}} the report gives an accuracy of {{classification.headline.iteration_1500.accuracy:percent}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top two accuracy of {{classification.headline.iteration_1500.top_2_accuracy:percent}}, newer evaluations writing a top {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} accuracy instead: the right class is almost always among the two most probable."
+      - "Evaluated again by the evaluate checkpoint script, iteration {{classification.checkpoint_evaluation.iteration}} gives an accuracy of {{classification.checkpoint_evaluation.accuracy:percent}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} accuracy of {{classification.checkpoint_evaluation.top_k_accuracy:percent}}: the right class is always among the {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} most probable."
       - "With the per class report, the macro ROC AUC and average precision join them, and every class gets its row, the worst F1 first: square, octagon and pentagon."
       - "The last two columns give the threshold reaching a precision of {{classification.class_metrics.target_precision:percent_label}} and the recall it keeps, a dash when that precision is never reached, as for rectangle."
-      - "Evaluations newer than this run write every rate as a percentage, and add a per class recall table, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval of every recall over the test images of its class."
+      - "Every rate is written as a percentage, and a per class recall table follows in the block, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval of every recall over the test images of its class."
 
   - kind: html
     page: diagram
@@ -112,14 +112,14 @@ scenes:
   - kind: image
     title: "The confusion matrix image"
     code_reference: "vision_training/evaluation/classification/confusion_matrix.py · save_confusion_matrix_image"
-    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Evaluation/Iteration_1500/confusion_matrix.png"
+    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation/Iteration_1500/confusion_matrix.png"
     views:
-      - {box: [0, 40, 1192, 520], from_sentence: 0}
-      - {box: [0, 670, 1192, 1155], from_sentence: 1}
+      - {box: [0, 40, 1470, 630], from_sentence: 0}
+      - {box: [0, 840, 1470, 1432], from_sentence: 1}
     highlights:
-      - {box: [897, 158, 1028, 950], sentences: [1]}
-      - {box: [138, 975, 790, 1115], sentences: [1]}
-      - {box: [897, 975, 1028, 1115], sentences: [1]}
+      - {box: [1174, 157, 1302, 1238], sentences: [1]}
+      - {box: [138, 1261, 1167, 1394], sentences: [1]}
+      - {box: [1174, 1261, 1302, 1394], sentences: [1]}
     narration:
       - "Every evaluation also draws the matrix as confusion matrix png, every cell with its count and its share of the true class, and sends it to TensorBoard."
       - "Its recall column and its precision row sum it up class by class, and the corner gives the accuracy."
@@ -147,17 +147,17 @@ scenes:
   - kind: image
     title: "Precision-recall curves"
     code_reference: "vision_training/evaluation/classification/score_curves.py · compute_class_score_curves"
-    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Evaluation/Iteration_1500/precision_recall_curves.png"
+    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation/Iteration_1500/precision_recall_curves.png"
     views:
       - {box: [0, 0, 1125, 460], from_sentence: 0}
       - {box: [0, 200, 1125, 660], from_sentence: 1}
     highlights:
-      - {box: [140, 52, 990, 86], sentences: [0]}
-      - {box: [140, 262, 990, 380], sentences: [1]}
+      - {box: [154, 86, 975, 114], sentences: [0]}
+      - {box: [154, 280, 975, 360], sentences: [1]}
     narration:
       - "The precision recall curve of every class sweeps that threshold; the dotted line is the target precision, and every dot the threshold reaching it."
       - "The rectangle curve stays near {{classification.confusion.iteration_1500.precision.rectangle:percent}} whatever the threshold, an average precision of {{classification.class_metrics.rectangle.average_precision:percent}}, since the squares taken for rectangles get high rectangle probabilities; the ROC curves, saved next to it, read the same way."
-      - "Evaluations newer than this run write the axes, the target precision and the average precisions of these curves as percentages, and also save precision recall thresholds png, which zooms on these dots and writes every threshold in the colour of its curve."
+      - "The axes, the target precision and the average precisions are written as percentages, and precision recall thresholds png, saved next to these curves, zooms on these dots and writes every threshold in the colour of its curve."
 
   - kind: image
     title: "Probabilities of right and wrong predictions"

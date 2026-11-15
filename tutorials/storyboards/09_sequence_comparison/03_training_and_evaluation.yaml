@@ -69,18 +69,17 @@ scenes:
     source:
       file: "figures:sequence_comparison/listings/results.txt"
       start: "^Iteration 1000"
-      count: 14
+      count: 23
     highlights:
-      - {match: "Accuracy  |Top-1 Accuracy|Macro ROC AUC", sentences: [0]}
-      - {match: "^   same_number_of_objects ", sentences: [1]}
-      - {match: "^   loss_of_object ", sentences: [2]}
-    # The top-1 accuracy is the name of a metric of the report
-    literal_numbers: [top-1]
+      - {match: "Accuracy  |Top-. Accuracy|Macro ROC AUC", sentences: [0]}
+      - {match: '^   same_number_of_objects .* 0\.\d{4} ', sentences: [1]}
+      - {match: '^   loss_of_object .* 0\.\d{4} ', sentences: [2]}
+      - {match: '^  Per Class Recall|^   loss_of_object +\d+( +[\d.]+ %){3}$|Clopper-Pearson', sentences: [3]}
     narration:
-      - "The results file gives the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-1 accuracy, equal to the accuracy as it counts the most probable class only, and the macro ROC AUC and average precision."
+      - "The results file gives the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-{{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES}} accuracy, always at its maximum with {{sequence_comparison.run.class_count_words}} classes, and the macro ROC AUC and average precision, every rate as a percentage."
       - "The table of the classes puts the worst F1 first, here same number of objects: a recall of {{sequence_comparison.evaluation_class.same_recall:percent}}, but a precision of {{sequence_comparison.evaluation_class.same_precision:percent}}."
       - "Loss of object keeps a precision of {{sequence_comparison.evaluation_class.loss_precision:percent}} with a recall of {{sequence_comparison.evaluation_class.loss_recall:percent}}: every error is a missed loss."
-      - "The current code writes the rates as percentages, a top-{{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES}} accuracy instead, always at its maximum with {{sequence_comparison.run.class_count_words}} classes, and a Per Class Recall table: every recall with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval, the pairs being independent."
+      - "The Per Class Recall table gives every recall with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval, the pairs being independent: from {{sequence_comparison.evaluation_class.loss_recall_lower:percent}} to {{sequence_comparison.evaluation_class.loss_recall_upper:percent}} for loss of object, over its {{sequence_comparison.evaluation_class.loss_samples}} test pairs."
 
   - kind: image
     title: "The evaluation images"
@@ -89,10 +88,11 @@ scenes:
     views:
       - {box: "{{sequence_comparison.evaluation.composite.row_0_image_0_box}}", from_sentence: 0}
       - {box: "{{sequence_comparison.evaluation.composite.row_0_box}}", from_sentence: 1}
+      - {box: "{{sequence_comparison.evaluation.composite.row_0_image_3_box}}", from_sentence: 2}
     narration:
       - "The confusion matrix of iteration {{sequence_comparison.run.iteration:,}}: {{sequence_comparison.errors.count_words}} loss pairs given same, and no same pair given loss."
       - "The ROC and precision-recall curves of both classes stay close to the corner, a macro ROC AUC of {{sequence_comparison.evaluation.macro_roc_auc.iteration_1000:percent}}, against {{sequence_comparison.evaluation.macro_roc_auc.iteration_500:percent}} at iteration {{sequence_comparison.evaluation.iterations[0]:,}}."
-      - "The current evaluation also draws the precision-recall curves zoomed on the threshold of every class, its value written beside it."
+      - "The last image zooms the precision-recall curves on the target precision, and marks the threshold of every class at the highest recall that keeps it, its value written beside it."
 
   - kind: image
     title: "A wrong pair"

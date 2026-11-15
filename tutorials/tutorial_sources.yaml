@@ -1,5 +1,6 @@
 # Real runs read by the figure scripts of the tutorials (tutorials/figures/<series>/figures.py), relative to the
-# experiments folder of the build (--experiments-folder, the experiments folder of the repository by default). The runs
+# experiments folder of the build (--experiments-folder, ~/Data/tutorial_runs of tutorial_project.yaml by default,
+# outside the repository so that cleaning its experiments/ keeps them; the runs trained before were copied there). The runs
 # are not in git: a build on another machine first trains them again with the configuration and changes given under
 # every run, then updates the run folder here when its run name changed (the run name follows the configuration).
 # Every run is read as it is: its checkpoints (on the CPU), its TensorBoard logs, its Results.txt and Evaluation folder,
@@ -12,7 +13,7 @@ runs:
   # scripts/evaluation/evaluate_checkpoint.py into the Checkpoint_Evaluation folder of the run
   classification_evaluation:
     folder: readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation
-    trained_with: "scripts/evaluation/evaluate_checkpoint.py on iteration 1500 of the classification run, with at most 10 error images per pair of classes (maximum_error_images_per_class_pair 10)"
+    trained_with: "scripts/evaluation/evaluate_checkpoint.py on iteration 1500 of the classification run, with at most 10 error images per pair of classes (maximum_error_images_per_class_pair 10) and track_evaluation False, run again with the current code on 2026-11-15 (first evaluation 2026-10-23)"
   classification_learning_rates:
     folders:
       - readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.001
@@ -20,47 +21,47 @@ runs:
       - readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.0001
     trained_with: "the classification run with learning rates of 0.001, 0.0005 and 0.0001, told apart by run_name_suffix"
   object_detection:
-    folder: readme_screenshots/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC20
-    trained_with: "vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml of 2026-10-23 (ExperimentConfiguration.learning_rate 2e-4, RegionProposal.background_iou_threshold.min 0.0, Neck.type none, RegionProposal.proposal_selection joint, Detector.nms_criterion iou) on the instance segmentation synthetic dataset, resumed from 2000 to 5000 iterations"
+    folder: tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20
+    trained_with: "tutorials/run_configurations/object_detection_synthetic_shapes_tutorial.yaml (vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml as shipped, experiment_folder ~/Data/tutorial_runs/tutorials) on the instance segmentation synthetic dataset, 2000 iterations, trained on 2026-11-15 on a GPU shared with two other trainings (its throughput is not that of a lone run), its console output saved as tutorials/object_detection.log"
   # Stage 7 of the detection benchmark, read by tutorials/figures/object_detection/proposal_selection.py: the two
-  # launches of each proposal selection and the inference-only preview of the per-level selection on run_9; they lie in
-  # hyperparameter_experiments/ of the repository, next to the experiments folder of the build
+  # launches of each proposal selection and the inference-only preview of the per-level selection on run_9, copied from
+  # hyperparameter_experiments/ of the repository into hyperparameter_experiments/ of the experiments folder of the build
   object_detection_benchmark_joint_a:
-    folder: ../hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    folder: hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35
     trained_with: "run-1.yaml of the detection benchmark (its fixed settings and starting values in documentation/architecture_benchmarking/object_detection_experiment_plan.md) with learning rate 1e-3, background IoU minimum 0.1 and the feature pyramid neck (stage 3 of the plan), RegionProposal.proposal_selection joint, 15,000 iterations, two launches side by side (run_9)"
   object_detection_benchmark_joint_b:
-    folder: ../hyperparameter_experiments/object_detection/run_10/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    folder: hyperparameter_experiments/object_detection/run_10/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35
     trained_with: "run-1.yaml of the detection benchmark (its fixed settings and starting values in documentation/architecture_benchmarking/object_detection_experiment_plan.md) with learning rate 1e-3, background IoU minimum 0.1 and the feature pyramid neck (stage 3 of the plan), RegionProposal.proposal_selection joint, 15,000 iterations, two launches side by side (run_10)"
   object_detection_benchmark_per_level_a:
-    folder: ../hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    folder: hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35
     trained_with: "the settings of run_9 and run_10 with RegionProposal.proposal_selection per_level (stage 7 of documentation/architecture_benchmarking/object_detection_experiment_plan.md), 15,000 iterations, two launches side by side (run_21)"
   object_detection_benchmark_per_level_b:
-    folder: ../hyperparameter_experiments/object_detection/run_22/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35
+    folder: hyperparameter_experiments/object_detection/run_22/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35
     trained_with: "the settings of run_9 and run_10 with RegionProposal.proposal_selection per_level (stage 7 of documentation/architecture_benchmarking/object_detection_experiment_plan.md), 15,000 iterations, two launches side by side (run_22)"
   object_detection_benchmark_per_level_preview:
-    folder: ../hyperparameter_experiments/object_detection/run_9/evaluations/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35_proposal_selection_per_level
+    folder: hyperparameter_experiments/object_detection/run_9/evaluations/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35_proposal_selection_per_level
     trained_with: "scripts/evaluation/evaluate_checkpoint.py on iteration 15,000 of run_9 with RegionProposal.proposal_selection per_level and the greedy final NMS of the run (the stage 7 preview of the plan)"
   instance_segmentation:
     folder: readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20
     trained_with: "vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml, shortened, resumed to 5000 iterations"
   keypoint_detection:
     folder: keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33
-    trained_with: "vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml of 2026-10-17 with the focal heatmap loss, number_iterations 6000, decay_iterations 5500, the augmentation probabilities of that time (0.3 for most types, 0.5 for random_translation and random_hue, 0.2 for random_solarize, random_haze off), evaluated on the first 1024 images of the synthetic test split (a temporary copy, since removed)"
+    trained_with: "vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml of 2026-10-17 with the focal heatmap loss, number_iterations 6000, decay_iterations 5500, the augmentation probabilities of that time (0.3 for most types, 0.5 for random_translation and random_hue, 0.2 for random_solarize, random_haze off), evaluated in training on the first 1024 images of the synthetic test split (a temporary copy, since removed), its checkpoints 2000, 4000 and 6000 evaluated again on 2026-11-15 with the current code by scripts/evaluation/evaluate_checkpoint.py on the same first 1024 images (validation_data_folder set to synthetic_shapes/validation)"
   semantic_segmentation:
     folder: readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9
-    trained_with: "vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml with experiment_folder experiments/readme_screenshots, number_iterations 2000 and the augmentation probabilities of that time (0.3 for most types, 0.5 for random_hue and random_translation, 0.2 for random_solarize; 0.25 now)"
+    trained_with: "vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml with experiment_folder experiments/readme_screenshots, number_iterations 2000 and the augmentation probabilities of that time (0.3 for most types, 0.5 for random_hue and random_translation, 0.2 for random_solarize; 0.25 now), its checkpoints 1000 and 2000 evaluated again on 2026-11-15 with the current code by scripts/evaluation/evaluate_checkpoint.py (Checkpoint_Evaluation)"
   # The current synthetic configuration (flatten pooling at 128 pixels), and the two runs it is compared with in the
   # sequence classification tutorials, read by tutorials/figures/sequence_classification (comparison_runs), each with
   # the console log of its training (console_log)
   sequence_classification:
     folder: readme_screenshots/M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4
-    trained_with: "vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml on the moving shapes dataset, 1000 iterations, a checkpoint evaluated every 500 (weight_saving_iterations 500, intermediate_weight_saving_iterations 250), MLflow tracking on, the augmentation probabilities of that time (0.3 for most types, 0.5 for random_hue and random_translation, 0.2 for random_solarize, shuffle_frames 0.5)"
+    trained_with: "vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml on the moving shapes dataset, 1000 iterations, a checkpoint evaluated every 500 (weight_saving_iterations 500, intermediate_weight_saving_iterations 250), MLflow tracking on, the augmentation probabilities of that time (0.3 for most types, 0.5 for random_hue and random_translation, 0.2 for random_solarize, shuffle_frames 0.5); its checkpoints of iterations 500 and 1000 evaluated again with the current code on 2026-11-15 by scripts/evaluation/evaluate_checkpoint.py (batch size 16, predictions saved, MLflow tracking off) into its Checkpoint_Evaluation folder, which the figures read"
     console_log: readme_screenshots/sequence_classification_flatten.log
     comparison_runs:
       # The former average pooling of the configuration, at 512 pixels, which stays at chance
       average_pooling_512:
         folder: readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4
-        trained_with: "the synthetic configuration with ClassificationHead.global_pooling average and Data.image_settings.size 512, 2000 iterations, the augmentation probabilities of the sequence classification run"
+        trained_with: "the synthetic configuration with ClassificationHead.global_pooling average and Data.image_settings.size 512, 2000 iterations, the augmentation probabilities of the sequence classification run; its checkpoints of iterations 1000 and 2000 evaluated again with the current code on 2026-11-15 by scripts/evaluation/evaluate_checkpoint.py (batch size 16, predictions saved, MLflow tracking off) into its Checkpoint_Evaluation folder, which the figures read"
         console_log: readme_screenshots/sequence_classification.log
       # The flatten pooling at 512 pixels, 65,536 features per frame, also at chance after 500 iterations
       flatten_512:
@@ -73,14 +74,14 @@ runs:
   # The synthetic comparison configuration, read by tutorials/figures/sequence_comparison
   sequence_comparison:
     folder: readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2
-    trained_with: "vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml on the object loss pairs dataset, number_iterations 1000 (a checkpoint evaluated every 500), MLflow tracking on, the augmentation probabilities of 2026-10-23 (0.3 for most types; see the training_configuration.yaml of the run)"
+    trained_with: "vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml on the object loss pairs dataset, number_iterations 1000 (a checkpoint evaluated every 500), MLflow tracking on, the augmentation probabilities of 2026-10-23 (0.3 for most types; see the training_configuration.yaml of the run), its checkpoints 500 and 1000 evaluated again on 2026-11-15 with the current code by scripts/evaluation/evaluate_checkpoint.py (Checkpoint_Evaluation)"
     console_log: readme_screenshots/sequence_comparison.log
   frame_selection:
     folder: readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1
     trained_with: "vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml on 256 pixel frames, number_iterations 2000 (checkpoint and evaluation every 1000, intermediate checkpoint every 500), MLflow tracking on, the augmentation probabilities of 2026-10-23 (0.3 for most types; see the training_configuration.yaml of the run)"
   self_supervised:
     folder: tutorials/SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2
-    trained_with: "tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml (SimCLR on the 9-class synthetic shapes, 256 px, batch 128, 2000 iterations), first trained on 2026-10-24 and deleted on 2026-11-11 to be trained again with the current code: set the date of the new training here"
+    trained_with: "tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml (SimCLR on the 9-class synthetic shapes, 256 px, batch 128, 2000 iterations, a checkpoint evaluated every 500 against 50 reference training images per class), first trained on 2026-10-24, deleted on 2026-11-11, trained again with the launch file on 2026-11-15 into the experiments folder, its console output redirected to tutorials/self_supervised_tutorial.log"
 
 # Files of the repository read by the figure scripts
 repository_files:

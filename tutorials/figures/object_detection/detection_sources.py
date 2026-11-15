@@ -32,8 +32,9 @@ from vision_training.trainers.checkpointing import get_checkpoint_path
 # drawn in the sample images of every evaluation of both runs
 SAMPLE_IMAGE_NAME = "test_014285.png"
 
-# Checkpoint whose trained weights the figures run, the last one of both runs (resumed from 2000 to 5000 iterations),
-# and the evaluated checkpoints whose sample images are compared
+# Checkpoint whose trained weights the instance segmentation figures run, the last one of the INS run (resumed from
+# 2000 to 5000 iterations), and the evaluated checkpoints whose sample images are compared; the object detection figures
+# read those of the DET run from its saved configuration (find_run_iterations of object_detection/figures.py)
 CHECKPOINT_ITERATION = 5000
 SAMPLE_ITERATIONS = [1000, 2000, 5000]
 

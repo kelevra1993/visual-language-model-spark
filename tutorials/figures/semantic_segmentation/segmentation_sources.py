@@ -16,6 +16,7 @@ from typing import Any, Dict
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.utilities.visualization import build_class_colours
 
 # Task of the run, and the test image followed by the chapters, one of the eight sample images of the run
@@ -25,6 +26,11 @@ SAMPLE_IMAGE_NAME = "test_000028.png"
 # Checkpoints evaluated by the run, the last one giving the activations of the figures
 EVALUATED_ITERATIONS = [1000, 2000]
 CHECKPOINT_ITERATION = 2000
+
+# Folder of the evaluations the figures read, inside the run folder: both checkpoints evaluated again with the current
+# code by scripts/evaluation/evaluate_checkpoint.py, the Evaluation folder of the training having been written by an
+# older evaluation (no recall interval, the title of the curve images on one line)
+EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
 
 # Configuration of the task shipped with the repository, relative to its root, whose decoder section the decoder scene
 # of chapter 1 shows next to the shortcuts it would get

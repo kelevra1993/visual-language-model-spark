@@ -130,7 +130,7 @@ scenes:
       - {type: text, position: [30, 540], text: "{{instance_segmentation.run.test_scalar_count}} scalars per evaluation in Tensorboard/Test · class_metrics.csv: the box columns, then the mask_ ones", font: diagram_small, colour: dim, appear: 2}
     narration:
       - "The report starts with the mask tables: at {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP of {{instance_segmentation.report.trained.mask_methods.area.0:.2f}} at 0.5, {{instance_segmentation.report.trained.mask_methods.area.1:.2f}} at 0.75 and {{instance_segmentation.report.trained.mask_methods.area.3:.2f}} from 0.5 to 0.95; the first compares the checkpoints."
-      - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:.2f}} at 0.5, close to the {{object_detection.report.trained.methods.area.0:.2f}} of the detection run on the same data."
+      - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:.2f}} at 0.5, against {{object_detection.report.trained.methods.area.0:.2f}} for the detection run on the same data, trained for {{object_detection.run.checkpoint_iteration:words}} iterations where this run was resumed to {{instance_segmentation.run.checkpoint_iteration:words}}."
       - "At 0.95, the masks do better than the boxes, {{instance_segmentation.report.trained.mask_methods.area.2:.3f}} against {{instance_segmentation.report.trained.box_methods.area.2:.3f}}: a mask is scored on its pixels, where a box one pixel off fails."
 
   - kind: image

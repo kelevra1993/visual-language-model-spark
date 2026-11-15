@@ -151,8 +151,8 @@ def draw_confusion_matrix_figure(evaluation_folder: Path, score_threshold: float
         output_path (Path): The PNG file of the figure.
 
     Returns:
-        Dict[str, Any]: The outcomes, the classes never right at the threshold and the boxes of the background row and
-            column, named confusion.*.
+        Dict[str, Any]: The outcomes, the classes never right at the threshold, the largest confusion between two
+            shapes and the boxes of the background row and column, named confusion.*.
     """
     with open(file=evaluation_folder / "confusion_matrix.csv", mode="r", encoding="utf-8") as file_handler:
         table = list(csv.reader(file_handler))
@@ -225,9 +225,16 @@ def draw_confusion_matrix_figure(evaluation_folder: Path, score_threshold: float
     for class_index, class_name in enumerate(class_names[1:]):
         facts[f"confusion.{class_name}.recall"] = round_fact(value=diagonal[class_index] /
                                                              max(int(row_totals[class_index + 1, 0]), 1))
-    for true_name, predicted_name in [("octagon", "nonagon"), ("nonagon", "circle"), ("ellipse", "capsule")]:
-        facts[f"confusion.{true_name}_as_{predicted_name}"] = int(
-            counts[class_names.index(true_name), class_names.index(predicted_name)])
+
+    # Largest confusion between two shapes, read from the matrix rather than named, so that a run trained again keeps
+    # a true sentence: the class of the objects, the class of their detections and the count
+    wrong_class_counts = counts[1:, 1:].copy()
+    numpy.fill_diagonal(a=wrong_class_counts, val=0)
+    true_index, predicted_index = numpy.unravel_index(indices=int(wrong_class_counts.argmax()),
+                                                      shape=wrong_class_counts.shape)
+    facts.update({"confusion.largest.true_name": class_names[true_index + 1],
+                  "confusion.largest.predicted_name": class_names[predicted_index + 1],
+                  "confusion.largest.count": int(wrong_class_counts[true_index, predicted_index])})
     save_figure(figure=figure, output_path=output_path)
     pyplot.close(fig=figure)
     return facts

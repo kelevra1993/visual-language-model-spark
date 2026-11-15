@@ -23,6 +23,7 @@ from vision_training.configuration_processing.configuration_loader import load_c
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
 from vision_training.data.label_mapping import build_label_dictionary
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.models.keypoints.keypoint_detector import build_keypoint_channel_table
 from vision_training.trainers.checkpointing import get_checkpoint_path
 
@@ -39,6 +40,12 @@ SAMPLE_IMAGE_NAME = "test_000000.png"
 # Checkpoint whose trained weights give the heatmaps, tags and candidates of the figures, and every evaluated one
 CHECKPOINT_ITERATION = 6000
 EVALUATED_ITERATIONS = [2000, 4000, 6000]
+
+# Folder of the evaluations the figures read, inside the run folder: the three checkpoints evaluated again with the
+# current code by scripts/evaluation/evaluate_checkpoint.py on the same first 1024 test images, the Evaluation folder of
+# the training having been written by an older evaluation (a ground truth matched any object of OKS above zero, no
+# recall interval)
+EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
 
 # Colour of every object of the test image in the figures, by its position among the objects with keypoints
 OBJECT_COLOURS = [SERIES_COLOURS[0], SERIES_COLOURS[1], SERIES_COLOURS[2], SERIES_COLOURS[3], SERIES_COLOURS[4]]

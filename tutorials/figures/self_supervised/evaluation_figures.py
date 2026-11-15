@@ -8,6 +8,7 @@ element, and the block of the last checkpoint in Results.txt, a listing of the s
 
 import csv
 import math
+import textwrap
 
 from matplotlib import pyplot
 from matplotlib.ticker import FuncFormatter
@@ -33,6 +34,10 @@ OTHER_TEST_TAGS = {"k-NN Balanced Accuracy": "knn_balanced_accuracy", "k-NN Macr
 # Room left after the longest bar of the per-class F1 bars of the Results.txt scene for its value label, as a factor of
 # the best F1, the axis ending at the next tenth above it
 BAR_HEADROOM = 1.15
+
+# Width of the lines of the Results.txt listing, in characters of its monospace font, so that its lines end before the
+# per-class F1 bars beside it; the longer notes are wrapped
+RESULTS_LISTING_WIDTH = 80
 
 
 def draw_test_metrics(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
@@ -169,7 +174,7 @@ def describe_class_metrics(run_folder: Path) -> Dict[str, Any]:
 def copy_last_results_block(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
     Copies the block of the last evaluated checkpoint of Results.txt as a listing of the scenes, up to the end of its
-    per-class table, and gives its number of test images.
+    per-class table, its notes longer than RESULTS_LISTING_WIDTH wrapped, and gives its number of test images.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -188,12 +193,20 @@ def copy_last_results_block(output_folder: Path, run_folder: Path) -> Dict[str, 
     if not block_starts:
         raise ValueError(f"No block of iteration {last_iteration} in {run_folder / 'Results.txt'}.")
 
-    # The block from its title, its rule shortened to the width of the scene, to the last row of its table
+    # The block from its title, its rule shortened to the width of the scene, to the last row of its table, the notes
+    # longer than the listing (the k-NN note of the reference images) wrapped under their first words
     block_lines = []
     for line in result_lines[block_starts[0]:]:
         if line.startswith("  k-nearest neighbour classification"):
             break
-        block_lines.append(line.rstrip(" ─") if line.startswith("Iteration") else line)
+        if line.startswith("Iteration"):
+            block_lines.append(line.rstrip(" ─"))
+        elif len(line) > RESULTS_LISTING_WIDTH:
+            indent = " " * (len(line) - len(line.lstrip()))
+            block_lines += textwrap.wrap(text=line.strip(), width=RESULTS_LISTING_WIDTH, initial_indent=indent,
+                                         subsequent_indent=indent + "  ")
+        else:
+            block_lines.append(line)
     listing_path = output_folder / "listings" / "last_results_block.txt"
     listing_path.parent.mkdir(parents=True, exist_ok=True)
     listing_path.write_text(data="\n".join(block_lines).rstrip() + "\n", encoding="utf-8")

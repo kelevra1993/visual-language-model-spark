@@ -1,10 +1,11 @@
 """
 Figures and facts of the evaluation scenes of the semantic segmentation series of the tutorial videos, made by
 tutorials/figures/semantic_segmentation/figures.py from the evaluation folders and logs of the synthetic segmentation
-run: the sample image of the test image of the chapters at both evaluated checkpoints, one above the other; the shares
-of the pixel confusion matrix of the last checkpoint (confusion_matrix.csv) for the grid of the storyboard; the IoU and
-boundary IoU of every class (class_metrics.csv); and the headline metrics of both checkpoints read from
-Tensorboard/Test.
+run, both checkpoints evaluated again with the current code in its Checkpoint_Evaluation folder
+(EVALUATION_FOLDER_NAME): the sample image of the test image of the chapters at both evaluated checkpoints, one above
+the other; the shares of the pixel confusion matrix of the last checkpoint (confusion_matrix.csv) for the grid of the
+storyboard; the IoU and boundary IoU of every class (class_metrics.csv); and the headline metrics of both checkpoints
+read from its Tensorboard/Test.
 """
 
 import csv
@@ -23,13 +24,13 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 style_chart_panel)
 from tutorials.figures.keypoint_detection.scalar_logs import read_scalar_values
 from tutorials.figures.semantic_segmentation.segmentation_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
-                                                                         SAMPLE_IMAGE_NAME)
+                                                                         EVALUATION_FOLDER_NAME, SAMPLE_IMAGE_NAME)
 from tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
 
 # Gap between the two sample images stacked in the samples figure
 SAMPLE_GAP = 24
 
-# Headline metrics of the evaluations, as logged in Tensorboard/Test, and their labels in the grid
+# Headline metrics of the evaluations, as logged in Checkpoint_Evaluation/Tensorboard/Test, and their labels in the grid
 HEADLINE_METRICS = {"Mean IoU": "Mean IoU", "Mean Dice": "Mean Dice", "Mean Boundary IoU": "Boundary IoU",
                     "Mean Boundary F1": "Boundary F1", "Pixel Accuracy": "Pixel accuracy",
                     "Frequency Weighted IoU": "Freq. weighted IoU", "Macro ROC AUC": "Macro ROC AUC",
@@ -55,8 +56,8 @@ def stack_sample_images(output_folder: Path, run_folder: Path) -> Dict[str, Any]
     """
     images = []
     for iteration in EVALUATED_ITERATIONS:
-        with Image.open(fp=run_folder / "Evaluation" / f"Iteration_{iteration}" / "Samples" / SAMPLE_IMAGE_NAME) as \
-                sample_image:
+        with Image.open(fp=run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{iteration}" / "Samples" /
+                        SAMPLE_IMAGE_NAME) as sample_image:
             images.append(sample_image.convert(mode="RGB"))
     width = max(image.width for image in images)
     height = sum(image.height for image in images) + SAMPLE_GAP * (len(images) - 1)
@@ -100,7 +101,7 @@ def describe_confusion_matrix(run_folder: Path) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: The facts of the confusion matrix.
     """
-    csv_path = run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}" / "confusion_matrix.csv"
+    csv_path = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}" / "confusion_matrix.csv"
     with csv_path.open(mode="r", encoding="utf-8", newline="") as csv_file:
         rows = list(csv.reader(csv_file))
     class_names = rows[0][1:]
@@ -133,7 +134,8 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path, boundary_toleran
         Dict[str, Any]: The facts of the region and boundary metrics of every class.
     """
     register_fonts()
-    rows = read_csv_rows(csv_path=run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}" / "class_metrics.csv")
+    rows = read_csv_rows(csv_path=run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}" /
+                         "class_metrics.csv")
     rows = sorted(rows, key=read_intersection_over_union, reverse=True)
     figure = pyplot.figure(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH,
                            facecolor=SURFACE_COLOUR)
@@ -191,8 +193,8 @@ def read_intersection_over_union(row: Dict[str, str]) -> float:
 
 def describe_headline_metrics(run_folder: Path) -> Dict[str, Any]:
     """
-    Reads the headline metrics of both evaluated checkpoints of the run from Tensorboard/Test, the grid of the
-    storyboard and the values the narration quotes.
+    Reads the headline metrics of both evaluated checkpoints of the run from Checkpoint_Evaluation/Tensorboard/Test, the
+    grid of the storyboard and the values the narration quotes.
 
     Args:
         run_folder (Path): The folder of the segmentation run.
@@ -200,7 +202,8 @@ def describe_headline_metrics(run_folder: Path) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: The facts of the headline metrics.
     """
-    values = read_scalar_values(log_folder=run_folder / "Tensorboard" / "Test", tags=list(HEADLINE_METRICS))
+    values = read_scalar_values(log_folder=run_folder / EVALUATION_FOLDER_NAME / "Tensorboard" / "Test",
+                                tags=list(HEADLINE_METRICS))
     facts = {"headline_values": [[round(values[tag][iteration], 4) for iteration in EVALUATED_ITERATIONS]
                                  for tag in HEADLINE_METRICS],
              "headline_row_labels": list(HEADLINE_METRICS.values()),
@@ -215,7 +218,7 @@ def describe_headline_metrics(run_folder: Path) -> Dict[str, Any]:
 def write_evaluation_listing(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
     Writes the listing of the evaluation folder of the last checkpoint of the run, every file with its size and the
-    sample images counted, and counts the scalars and images its evaluations wrote to Tensorboard/Test.
+    sample images counted, and counts the scalars and images its evaluations wrote to its Tensorboard/Test.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -224,9 +227,9 @@ def write_evaluation_listing(output_folder: Path, run_folder: Path) -> Dict[str,
     Returns:
         Dict[str, Any]: The facts of the evaluation folder and of the test logs.
     """
-    evaluation_folder = run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}"
+    evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}"
     entries = sorted(evaluation_folder.iterdir(), key=read_entry_name)
-    lines = [f"Evaluation/{evaluation_folder.name}/"]
+    lines = [f"{EVALUATION_FOLDER_NAME}/{evaluation_folder.name}/"]
     for entry_index, entry in enumerate(entries):
         branch = "└── " if entry_index == len(entries) - 1 else "├── "
         if entry.is_dir():
@@ -238,7 +241,7 @@ def write_evaluation_listing(output_folder: Path, run_folder: Path) -> Dict[str,
     listing_path.write_text(data="\n".join(lines) + "\n", encoding="utf-8")
 
     # Scalars and images of the test logs
-    accumulator = EventAccumulator(path=str(run_folder / "Tensorboard" / "Test"),
+    accumulator = EventAccumulator(path=str(run_folder / EVALUATION_FOLDER_NAME / "Tensorboard" / "Test"),
                                    size_guidance={"scalars": 0, "images": 0})
     accumulator.Reload()
     return {"evaluation_files": len(entries), "evaluation_test_scalars": len(accumulator.Tags()["scalars"]),

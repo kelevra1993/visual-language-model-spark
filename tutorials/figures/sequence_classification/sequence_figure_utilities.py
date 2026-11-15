@@ -30,6 +30,7 @@ from tutorial_builder.figure_context import find_sources_file, read_thread_count
 from vision_training.data.synthetic import create_synthetic_dataset
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
+from vision_training.trainers.base_trainer import EVALUATION_FOLDER_NAME
 
 # Escape sequences of the coloured console output and of its terminal hyperlinks, removed from the logs of the runs
 # before they are shown, the hyperlinks keeping the text they display
@@ -137,7 +138,8 @@ def read_scalar_curve(run_folder: Path, split: str, tag: str) -> Tuple[numpy.nda
     Reads every value of one scalar of the TensorBoard logs of a run, the curve TensorBoard draws for it.
 
     Args:
-        run_folder (Path): The run folder.
+        run_folder (Path): The run folder, or the Checkpoint_Evaluation folder of a run evaluated again, whose
+            TensorBoard logs hold the "Test" split of its evaluations.
         split (str): "Train", "Validation" or "Test".
         tag (str): The scalar, e.g. "Total Loss".
 
@@ -159,14 +161,18 @@ def read_scalar_curve(run_folder: Path, split: str, tag: str) -> Tuple[numpy.nda
     return numpy.array([event.step for event in events]), numpy.array([event.value for event in events])
 
 
-def read_predictions(run_folder: Path, iteration: int) -> List[Dict[str, str]]:
+def read_predictions(run_folder: Path, iteration: int,
+                     evaluation_folder_name: str = EVALUATION_FOLDER_NAME) -> List[Dict[str, str]]:
     """
     Reads the predictions file written by the evaluation of a checkpoint (save_predictions), one row per test
-    sequence or pair with its true class, predicted class and the probability of every class.
+    sequence or pair with its true class, predicted class and the probability of every class, from the evaluation of
+    the training or from that of scripts/evaluation/evaluate_checkpoint.py.
 
     Args:
         run_folder (Path): The run folder.
         iteration (int): The evaluated iteration.
+        evaluation_folder_name (str): The folder of the evaluations in the run folder, "Evaluation" for those of the
+            training, "Checkpoint_Evaluation" for a run evaluated again with the current code.
 
     Returns:
         List[Dict[str, str]]: The rows of the file, in its order.
@@ -174,7 +180,7 @@ def read_predictions(run_folder: Path, iteration: int) -> List[Dict[str, str]]:
     Raises:
         FileNotFoundError: If the file is missing.
     """
-    predictions_path = run_folder / "Evaluation" / f"Iteration_{iteration}" / "predictions.csv"
+    predictions_path = run_folder / evaluation_folder_name / f"Iteration_{iteration}" / "predictions.csv"
     if not predictions_path.exists():
         raise FileNotFoundError(f"No predictions file {predictions_path}.")
     with open(file=predictions_path, mode="r", newline="", encoding="utf-8") as predictions_file:

@@ -36,7 +36,7 @@ scenes:
     title: "One class per pixel"
     code_reference: "vision_training/models/segmentation/semantic_segmenter.py · SemanticSegmenter"
     elements:
-      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Evaluation/Iteration_2000/Samples/test_000028.png", crop: [0, 24, 515, 536], box: [20, 40, 420, 440], border: border, caption: "image, {{semantic_segmentation.run_image_size}} x {{semantic_segmentation.run_image_size}}"}
+      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000028.png", crop: [0, 24, 515, 536], box: [20, 40, 420, 440], border: border, caption: "image, {{semantic_segmentation.run_image_size}} x {{semantic_segmentation.run_image_size}}"}
       - {type: arrow, points: [[430, 260], [465, 260]], colour: blue}
       - {type: box, box: [475, 180, 715, 340], text: "backbone\nthe encoder\nskips before pooling", font: diagram_small, outline: blue}
       - {type: arrow, points: [[715, 260], [765, 260]], colour: blue}
@@ -44,7 +44,7 @@ scenes:
       - {type: arrow, points: [[1015, 260], [1065, 260]], colour: violet, appear: 1}
       - {type: box, box: [1075, 180, 1295, 340], text: "1x1 head\n{{semantic_segmentation.run_number_classes}} logits\nper pixel", font: diagram_small, outline: aqua, appear: 1}
       - {type: arrow, points: [[1295, 260], [1330, 260]], colour: aqua, appear: 1}
-      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Evaluation/Iteration_2000/Samples/test_000028.png", crop: [1030, 24, 1545, 536], box: [1340, 40, 1740, 440], border: border, caption: "class of every pixel", appear: 1}
+      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000028.png", crop: [1030, 24, 1545, 536], box: [1340, 40, 1740, 440], border: border, caption: "class of every pixel", appear: 1}
       - {type: box, box: [180, 560, 1580, 690], text: "every pixel a class, the objects not told apart: two touching squares form one region\ninstance segmentation gives every object its own mask", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
     # The 1x1 kernel of the head, and the two touching squares of a made-up example
     literal_numbers: ["1x1", two]

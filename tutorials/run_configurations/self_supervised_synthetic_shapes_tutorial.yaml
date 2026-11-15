@@ -1,12 +1,12 @@
-# Tutorial self_supervised series (tutorials/tutorial_sources.yaml): self_supervised/configuration_synthetic_shapes.yaml
-# in experiments/tutorials, 2000 iterations; uv run python -m vision_training.main --configuration_path=<this file>.
+# Tutorial self_supervised run (tutorial_sources.yaml): self_supervised/configuration_synthetic_shapes.yaml, 2000
+# iterations, in ~/Data/tutorial_runs, outside the repository; run with python -m vision_training.main.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "self_supervised": label-free backbone training on two random
   # views per image; needs ProjectionHead, Data.data_augmentation on; initialises any task (Backbone.pretrained).
   task: "self_supervised"
   # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; views, batch
   # size, learning rate, schedule can change on resume.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/tutorials"
+  experiment_folder: "/home/robert_kelevra/Data/tutorial_runs/tutorials"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
   run_name_suffix: null

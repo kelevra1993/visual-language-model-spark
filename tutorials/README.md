@@ -48,7 +48,7 @@ Before the first build, the machine needs:
 - uv, to create the environment of this folder (`uv sync --project tutorials`) and the one of the repository (`uv sync` at its root): the figure scripts need PyTorch and the repository code.
 - SSH access to GitHub for the private builder repository: `uv sync` clones it with `ssh://git@github.com/kelevra1993/tutorial-video-builder.git`.
 - Chrome or Chromium, to capture the HTML scenes. The first `google-chrome`, `google-chrome-stable`, `chromium` or `chromium-browser` of the PATH is used, or the one given by `--chrome-executable` or `TUTORIAL_BUILDER_CHROME`; without any, run `uv run --project tutorials playwright install chromium`.
-- The real runs of `tutorial_sources.yaml` in the experiments folder, each with its dataset.
+- The real runs of `tutorial_sources.yaml` in the experiments folder (`~/Data/tutorial_runs`, outside the repository so that cleaning its `experiments/` keeps them), each with its dataset.
 - About 1 GB for the caches: the voice and speech recognition models (downloaded on the first build and checked against their SHA-256), the narration of every sentence, the figures and the previews.
 
 ## Rebuilding The Videos
@@ -79,7 +79,7 @@ Should a build need other folders than those of `tutorial_project.yaml`, an opti
 | `--series`, `--chapters` | Series (names of `storyboards/series.yaml`) and chapters to build, all by default; the series video takes its other chapters from the cache, so every chapter must have been built once |
 | `--output-folder` | Folder of the series videos and of the index page (default `~/Data/tutorial_videos`, or `TUTORIAL_BUILDER_OUTPUT`) |
 | `--cache-folder` | Folder of the caches (default `~/.cache/vlms_tutorials`, or `TUTORIAL_BUILDER_CACHE`) |
-| `--experiments-folder` | Folder of the real runs (default the `experiments/` folder of the repository, or `TUTORIAL_BUILDER_EXPERIMENTS`) |
+| `--experiments-folder` | Folder of the real runs (default `~/Data/tutorial_runs` of `tutorial_project.yaml`, or `TUTORIAL_BUILDER_EXPERIMENTS`) |
 | `--repository-python` | Python of the repository environment (default `.venv/bin/python` of the repository, or `TUTORIAL_BUILDER_REPOSITORY_PYTHON`) |
 | `--chrome-executable` | Chrome capturing the HTML scenes (or `TUTORIAL_BUILDER_CHROME`) |
 | `--threads` | Threads of the voice, the speech recognition, the encoding and the figure scripts (default 4, or `TUTORIAL_BUILDER_THREADS`); 4 leaves the processors to the trainings, raise it when the machine is free |
@@ -174,4 +174,4 @@ In case a build stops or crawls, the causes met here (the
 [Troubleshooting](https://github.com/kelevra1993/tutorial-video-builder#troubleshooting) section of the builder lists
 the others: espeak-ng data path, transparent huge pages, no Chrome):
 - **A figure script stops on a missing run**: the message quotes how the run was trained (`tutorial_sources.yaml`).
-- **A build from a git worktree**: the launcher of the worktree builds its own storyboards, but the worktree has no `.venv` and no `experiments/` of its own, and shares the cache of the main checkout. Give it the folders of the main checkout and a scratch cache: `tutorials/build_tutorials.sh --experiments-folder <main checkout>/experiments --repository-python <main checkout>/.venv/bin/python --cache-folder <scratch folder>`, after `uv sync --project tutorials` in the worktree.
+- **A build from a git worktree**: the launcher of the worktree builds its own storyboards, but the worktree has no `.venv` of its own, and shares the cache of the main checkout. Give it the Python of the main checkout and a scratch cache: `tutorials/build_tutorials.sh --repository-python <main checkout>/.venv/bin/python --cache-folder <scratch folder>`, after `uv sync --project tutorials` in the worktree.

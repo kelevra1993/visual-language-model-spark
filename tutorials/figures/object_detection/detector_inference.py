@@ -23,8 +23,8 @@ from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (SERIES_COLOURS, read_reused_facts, read_run_configuration,
                                                 round_fact, write_reused_facts)
-from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, CHECKPOINT_ITERATION,
-                                                                  SAMPLE_IMAGE_NAME, draw_box, find_test_folder,
+from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, SAMPLE_IMAGE_NAME, draw_box,
+                                                                  find_test_folder,
                                                                   hexadecimal_to_rgb, load_caption_fonts,
                                                                   load_run_model, read_category_names,
                                                                   read_image_annotations, read_network_image)
@@ -33,7 +33,8 @@ from tutorial_builder.layout import CARD_COLOUR, DIM_TEXT_COLOUR, TEXT_COLOUR
 from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
 from vision_training.models.detection.box_operations import (clamp_boxes_to_image_boundaries,
                                                              get_intersection_over_union)
-from vision_training.models.detection.region_proposer import select_best_proposals, suppress_overlapping_proposals
+from vision_training.models.detection.region_proposer import (find_nonempty_proposals, select_best_proposals,
+                                                              suppress_overlapping_proposals)
 from vision_training.models.detection.target_assignment import (add_ground_truth_proposals,
                                                                 batch_assign_targets_to_anchors,
                                                                 batch_assign_targets_to_proposals,
@@ -50,7 +51,7 @@ SAMPLING_SEED = 0
 
 # Version of the facts of the inference, raised whenever a fact is added, so that a build reusing the inference of an
 # older build (inference_facts.json) makes it again instead of missing the new facts
-INFERENCE_FACTS_VERSION = 2
+INFERENCE_FACTS_VERSION = 3
 
 # Layout of the figures of three image panels: the side of every panel, the gap between them, and the bands of the
 # headings above the panels and of their notes below them, the figure being 1720 x 700 pixels
@@ -198,23 +199,27 @@ def count_found_objects(object_boxes: torch.Tensor, object_classes: List[int], d
 
 
 def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nms_proposals: int,
-                           post_nms_proposals: int, nms_iou_threshold: float,
-                           input_image_size: int) -> Dict[str, Any]:
+                           post_nms_proposals: int, nms_iou_threshold: float, input_image_size: int,
+                           proposal_selection: str, level_sizes: List[int]) -> Dict[str, Any]:
     """
     Runs the proposal filter of the detector on the proposals of one image, with the counts of one mode (training or
-    evaluation) and the selection over all the levels at once of the run shown ('RegionProposal.proposal_selection'
-    "joint", all the anchors forming one group): the pre_nms_proposals best proposals by objectness, clamped to the
-    image, as select_best_proposals takes them, the survivors of their non-maximum suppression
-    (suppress_overlapping_proposals, one call for the image, as the eager filter runs it), and the post_nms_proposals
-    kept by select_best_proposals itself, with their valid mask.
+    evaluation) and the selection of the run shown ('RegionProposal.proposal_selection', read from the trained
+    detector): for every group of anchors (all the levels at once with "joint", every level on its own with
+    "per_level"), the pre_nms_proposals best proposals by objectness, clamped to the image, as select_best_proposals
+    takes them, and the survivors of their non-maximum suppression (suppress_overlapping_proposals, one call per image
+    and group, as the eager filter runs it), "per_level" leaving out the proposals clamped to an empty box
+    (find_nonempty_proposals); then the post_nms_proposals kept by select_best_proposals itself, with their valid mask.
 
     Args:
         aggregated_proposals (Dict[str, torch.Tensor]): The proposals of all the levels of the image
             (aggregate_proposals_and_anchors), with a batch of one image.
-        pre_nms_proposals (int): The proposals kept before the suppression.
+        pre_nms_proposals (int): The proposals kept before the suppression, in every group.
         post_nms_proposals (int): The proposals kept after it.
         nms_iou_threshold (float): The overlap of the suppression, RegionProposal.nms_iou_threshold.
         input_image_size (int): The side of the network input.
+        proposal_selection (str): The selection of the run, one of PROPOSAL_SELECTIONS.
+        level_sizes (List[int]): The number of anchors of every level, in the order of the concatenation of the
+            proposals (RegionProposalFilter.level_sizes).
 
     Returns:
         Dict[str, Any]: The boxes and levels before the suppression, the survivors, and the kept boxes, levels and
@@ -224,20 +229,34 @@ def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nm
     boxes = aggregated_proposals["proposal_boxes"].detach()
     levels = aggregated_proposals["convolution_block_origin"]
 
-    # Best proposals before the suppression, clamped to the image as select_best_proposals clamps them
-    top_scores, top_indices = torch.topk(input=torch.sigmoid(input=scores), k=pre_nms_proposals, dim=1)
-    top_boxes = clamp_boxes_to_image_boundaries(boxes=torch.gather(input=boxes, dim=1, index=top_indices.unsqueeze(
-        dim=-1).expand(-1, -1, 4)), input_image_size=input_image_size)
-    top_levels = torch.gather(input=levels, dim=1, index=top_indices)
+    # Groups of anchors ranked and suppressed on their own, as select_best_proposals forms them
+    group_sizes = [sum(level_sizes)] if proposal_selection == "joint" else level_sizes
+    group_ends = [sum(group_sizes[:group_index + 1]) for group_index in range(len(group_sizes))]
 
-    # Survivors of the suppression, then the proposals the filter keeps
-    kept_mask = suppress_overlapping_proposals(boxes=top_boxes, scores=top_scores, nms_iou_threshold=nms_iou_threshold,
-                                               suppress_per_image=True)
+    # Best proposals of every group before the suppression, clamped to the image, and the survivors of its suppression
+    group_top_boxes, group_top_levels, group_kept_masks = [], [], []
+    for group_start, group_end in zip([0] + group_ends[:-1], group_ends):
+        top_scores, top_indices = torch.topk(input=torch.sigmoid(input=scores[:, group_start:group_end]),
+                                             k=min(pre_nms_proposals, group_end - group_start), dim=1)
+        top_indices = top_indices + group_start
+        top_boxes = clamp_boxes_to_image_boundaries(boxes=torch.gather(input=boxes, dim=1, index=top_indices.unsqueeze(
+            dim=-1).expand(-1, -1, 4)), input_image_size=input_image_size)
+        nonempty_mask = find_nonempty_proposals(boxes=top_boxes, proposal_selection=proposal_selection)
+        kept_mask = suppress_overlapping_proposals(
+            boxes=top_boxes, scores=torch.where(condition=nonempty_mask, input=top_scores, other=-1.0),
+            nms_iou_threshold=nms_iou_threshold, suppress_per_image=True)
+        group_top_boxes.append(top_boxes)
+        group_top_levels.append(torch.gather(input=levels, dim=1, index=top_indices))
+        group_kept_masks.append(kept_mask & nonempty_mask)
+    top_boxes, top_levels = torch.cat(tensors=group_top_boxes, dim=1), torch.cat(tensors=group_top_levels, dim=1)
+    kept_mask = torch.cat(tensors=group_kept_masks, dim=1)
+
+    # Proposals the filter keeps, computed by the function of the repository itself
     selected_boxes, _, selected_levels, valid_mask = select_best_proposals(
-        proposal_scores=scores, proposal_boxes=boxes, proposal_levels=levels, level_sizes=[scores.shape[1]],
+        proposal_scores=scores, proposal_boxes=boxes, proposal_levels=levels, level_sizes=level_sizes,
         pre_nms_proposals=pre_nms_proposals, post_nms_proposals=post_nms_proposals,
         nms_iou_threshold=nms_iou_threshold, input_image_size=input_image_size, suppress_per_image=True,
-        proposal_selection="joint")
+        proposal_selection=proposal_selection)
     return {"top_boxes": top_boxes[0], "top_levels": top_levels[0], "top_by_level": count_by_level(
                 levels=top_levels[0]),
             "survivor_count": int(kept_mask.sum()), "survivors_by_level": count_by_level(
@@ -250,10 +269,12 @@ def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nm
 def compute_anchor_labels(model: TwoStageDetector, aggregated_proposals: Dict[str, torch.Tensor],
                           object_boxes: torch.Tensor) -> Dict[str, Any]:
     """
-    Labels the 2304 anchors of the image for the region proposal loss the way compute_region_proposal_losses does
+    Labels the anchors of the image for the region proposal loss the way compute_region_proposal_losses does
     (batch_assign_targets_to_anchors with the RegionProposal thresholds of the run, then the sampling of
     number_training_positives among total_training_samples anchors), and counts the foreground, background and ignored
-    anchors, the foreground ones by level and those that reach the foreground threshold by their overlap.
+    anchors, the foreground ones by level and those that reach the foreground threshold by their overlap, and the
+    ignored ones in the band between the background maximum and the foreground minimum apart from those below the
+    background minimum (the anchors overlapping no object when that minimum is above zero).
 
     Args:
         model (TwoStageDetector): The trained detector, whose configuration gives the thresholds and counts.
@@ -277,11 +298,18 @@ def compute_anchor_labels(model: TwoStageDetector, aggregated_proposals: Dict[st
 
     # Foreground anchors reaching the threshold by their overlap, the others coming from the best anchor fallback
     overlaps = get_intersection_over_union(boxes_1=object_boxes, boxes_2=aggregated_proposals["anchors"][0])
+    best_overlaps = overlaps.max(dim=0).values
     foreground_mask = anchor_labels[0] == 1.0
-    overlap_foreground = int((overlaps.max(dim=0).values >= configuration["foreground_iou_threshold"]["min"]).sum())
+    overlap_foreground = int((best_overlaps >= configuration["foreground_iou_threshold"]["min"]).sum())
+
+    # Ignored anchors below the background minimum, the others lying in the band below the foreground minimum
+    ignored_mask = anchor_labels[0] == -1.0
+    ignored_low_mask = ignored_mask & (best_overlaps < configuration["background_iou_threshold"]["min"])
     return {"labels": anchor_labels[0], "sampled_negative_mask": sampled_negative_mask[0],
+            "ignored_band_mask": ignored_mask & ~ignored_low_mask,
             "foreground": int(foreground_mask.sum()), "background": int((anchor_labels[0] == 0.0).sum()),
-            "ignored": int((anchor_labels[0] == -1.0).sum()), "overlap_foreground": overlap_foreground,
+            "ignored": int(ignored_mask.sum()), "ignored_low": int(ignored_low_mask.sum()),
+            "ignored_band": int((ignored_mask & ~ignored_low_mask).sum()), "overlap_foreground": overlap_foreground,
             "fallback_foreground": int(foreground_mask.sum()) - overlap_foreground,
             "foreground_by_level": count_by_level(levels=aggregated_proposals["convolution_block_origin"][0][
                 foreground_mask]),
@@ -413,10 +441,11 @@ def count_parameters(module: torch.nn.Module) -> int:
 
 def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
     """
-    Gives the facts of the architecture of the trained detector: the parameters of every component and of the heads of
-    every level, the RoIAlign settings and the flattened size of the detection heads, the kernels and output channels
-    of the layers of the region proposal heads that the diagrams of the first chapter draw, and the stride of the max
-    pooling dividing the resolution of the backbone from one block to the next.
+    Gives the facts of the architecture of the trained detector: the parameters of every component (the neck among
+    them) and of the heads of every level, the RoIAlign settings and the flattened size of the detection heads, the
+    channels of the maps the heads of every level read, the kernels and output channels of the layers of the region
+    proposal heads that the diagrams of the first chapter draw, and the stride of the max pooling dividing the
+    resolution of the backbone from one block to the next.
 
     Args:
         model (TwoStageDetector): The trained detector.
@@ -460,14 +489,22 @@ def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
              "inference.model.region_proposal_regression_channels":
                  region_proposal_head.region_proposal_bounding_box_regressor.out_channels}
 
-    # Spatial scale of the RoIAlign of every level, the feature map side over the input side
+    # Neck between the backbone blocks and the heads, without parameters when its type is none
+    facts["inference.model.neck_type"] = model.neck.neck_type
+    facts["inference.model.neck_parameters"] = count_parameters(module=model.neck)
+
+    # Spatial scale of the RoIAlign of every level, the feature map side over the input side, and the channels of the
+    # map the heads of the level read, after the neck (those of the backbone block without neck)
     for level, head in model.detector_heads_dictionary.items():
         facts[f"inference.model.level_{level}.spatial_scale"] = round_fact(value=head.spatial_scale)
         facts[f"inference.model.level_{level}.feature_map_size"] = head.feature_map_size
+        facts[f"inference.model.level_{level}.head_input_channels"] = model.detection_input_information[level][
+            "number_channels"]
     return facts
 
 
-def make_detector_inference_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
+def make_detector_inference_figures(output_folder: Path, run_folder: Path, iteration: int,
+                                    force: bool) -> Dict[str, Any]:
     """
     Runs the trained detector of the DET run on the CPU on the test image of the series, draws the proposal filter and
     anchor label figures, writes the image the animated page of the anchors shows, and gives their facts, reused from
@@ -476,6 +513,7 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
     Args:
         output_folder (Path): The figures folder of the series.
         run_folder (Path): The folder of the DET run of tutorial_sources.yaml.
+        iteration (int): The checkpoint whose trained weights are run, the last one of the run.
         force (bool): Whether the inference is run again even when the previous build left its figures.
 
     Returns:
@@ -484,15 +522,18 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
     figure_folder = output_folder / "inference"
     facts_path = figure_folder / "inference_facts.json"
 
-    # An inference left by a build writing an older version of the facts is made again, as when forced
-    outdated = facts_path.exists() and json.loads(facts_path.read_text(encoding="utf-8"))["facts"].get(
-        "inference.facts_version") != INFERENCE_FACTS_VERSION
+    # An inference left by a build writing an older version of the facts, or made from another run or checkpoint, is
+    # made again, as when forced
+    checkpoint_name = f"{run_folder.name}/Iteration_{iteration}"
+    previous_facts = json.loads(facts_path.read_text(encoding="utf-8"))["facts"] if facts_path.exists() else {}
+    outdated = facts_path.exists() and (previous_facts.get("inference.facts_version") != INFERENCE_FACTS_VERSION or
+                                        previous_facts.get("inference.checkpoint_name") != checkpoint_name)
     reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force or outdated)
     if reused_facts is not None:
         return reused_facts
 
     # The trained detector, the test image and its objects
-    model = load_run_model(run_folder=run_folder, iteration=CHECKPOINT_ITERATION)
+    model = load_run_model(run_folder=run_folder, iteration=iteration)
     test_folder = find_test_folder(run_configuration=read_run_configuration(run_folder=run_folder))
     category_names = read_category_names(test_folder=test_folder)
     object_boxes, object_classes, object_names = read_image_objects(test_folder=test_folder,
@@ -511,16 +552,21 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
                 backbone_output_tensor_dictionary=stages["backbone_output_tensor_dictionary"]))
     outputs = stages["model_output_dictionary"]
 
-    # Proposal filter of the image with the evaluation counts, the ones of the detections, and with the training ones
+    # Proposal filter of the image with the evaluation counts, the ones of the detections, and with the training ones,
+    # in the proposal selection of the run over the anchors of its levels
     filter_configuration = model.region_proposal_configuration
+    proposal_selection = model.region_proposal_filter.proposal_selection
+    level_sizes = model.region_proposal_filter.level_sizes
     evaluation_filter = filter_image_proposals(
         aggregated_proposals=aggregated_proposals, pre_nms_proposals=filter_configuration["inference"][
             "pre_nms_proposals"], post_nms_proposals=filter_configuration["inference"]["post_nms_proposals"],
-        nms_iou_threshold=filter_configuration["nms_iou_threshold"], input_image_size=model.input_image_size)
+        nms_iou_threshold=filter_configuration["nms_iou_threshold"], input_image_size=model.input_image_size,
+        proposal_selection=proposal_selection, level_sizes=level_sizes)
     training_filter = filter_image_proposals(
         aggregated_proposals=aggregated_proposals, pre_nms_proposals=filter_configuration["training"][
             "pre_nms_proposals"], post_nms_proposals=filter_configuration["training"]["post_nms_proposals"],
-        nms_iou_threshold=filter_configuration["nms_iou_threshold"], input_image_size=model.input_image_size)
+        nms_iou_threshold=filter_configuration["nms_iou_threshold"], input_image_size=model.input_image_size,
+        proposal_selection=proposal_selection, level_sizes=level_sizes)
 
     # Anchors of the levels, labels of the anchors and targets of the detection heads
     level_descriptions, object_descriptions = describe_level_anchors(model=model, object_boxes=object_boxes,
@@ -558,9 +604,11 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
         entry["caption_below"] = any(abs(entry["box"][0] - other["box"][0]) < 24 and
                                      abs(entry["box"][1] - other["box"][1]) < 24
                                      for other in detection_entries[:detection_index])
+    # Heading of the best proposals naming the per-level selection, whose best proposals are those of every level
+    selection_wording = "by objectness" if proposal_selection == "joint" else "by level"
     proposal_panel_boxes = draw_panel_figure(image=rgb_image, panels=[
         {"heading": f"{evaluation_filter['top_boxes'].shape[0]} best of {aggregated_proposals['anchors'].shape[1]} "
-                    f"by objectness", "note": format_level_counts(counts=evaluation_filter["top_by_level"]),
+                    f"{selection_wording}", "note": format_level_counts(counts=evaluation_filter["top_by_level"]),
          "boxes": top_entries},
         {"heading": f"{evaluation_filter['valid_count']} kept after the NMS at "
                     f"{filter_configuration['nms_iou_threshold']}",
@@ -570,22 +618,26 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
         output_path=figure_folder / "proposal_filter.png")
 
     # Anchor label figure: the foreground, ignored and sampled background anchors of the image, their notes quoting the
-    # thresholds of the run
+    # thresholds of the run; the ignored panel draws the band below the foreground minimum, the anchors below the
+    # background minimum (those overlapping no object) being only counted in its note
     anchors = aggregated_proposals["anchors"][0]
     foreground_minimum = filter_configuration["foreground_iou_threshold"]["min"]
+    background_minimum = filter_configuration["background_iou_threshold"]["min"]
     background_maximum = filter_configuration["background_iou_threshold"]["max"]
     foreground_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=FOREGROUND_COLOUR), "alpha": 1.0,
                            "width": 3} for box in anchors[anchor_labels["labels"] == 1.0]]
     ignored_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=IGNORED_COLOUR), "alpha": 0.9,
-                        "width": 2} for box in anchors[anchor_labels["labels"] == -1.0]]
+                        "width": 2} for box in anchors[anchor_labels["ignored_band_mask"]]]
+    ignored_note = f"IoU {background_maximum:g} to {foreground_minimum:g}: {anchor_labels['ignored_band']}, no loss"
+    if background_minimum > 0.0:
+        ignored_note += f" · below {background_minimum:g}: {anchor_labels['ignored_low']}"
     negative_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=BACKGROUND_COLOUR), "alpha": 0.55}
                         for box in anchors[anchor_labels["sampled_negative_mask"]]]
     label_panel_boxes = draw_panel_figure(image=rgb_image, panels=[
         {"heading": f"{anchor_labels['foreground']} foreground anchors",
          "note": f"IoU >= {foreground_minimum:g}: {anchor_labels['overlap_foreground']} · best anchor only: "
                  f"{anchor_labels['fallback_foreground']}", "boxes": object_entries + foreground_entries},
-        {"heading": f"{anchor_labels['ignored']} ignored anchors",
-         "note": f"IoU from {background_maximum:g} to {foreground_minimum:g}, no loss",
+        {"heading": f"{anchor_labels['ignored']} ignored anchors", "note": ignored_note,
          "boxes": object_entries + ignored_entries},
         {"heading": f"{anchor_labels['sampled_negatives']} background of {anchor_labels['background']}",
          "note": f"sampled: {anchor_labels['sampled_positives']} positives + {anchor_labels['sampled_negatives']} "
@@ -602,7 +654,8 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
              "inference.proposal_filter.panel_boxes": proposal_panel_boxes,
              "inference.anchor_labels.panel_boxes": label_panel_boxes,
              "inference.detection_count": detection_count, "inference.found_object_count": found_object_count,
-             "inference.level_count": len(level_descriptions), "inference.facts_version": INFERENCE_FACTS_VERSION}
+             "inference.level_count": len(level_descriptions), "inference.facts_version": INFERENCE_FACTS_VERSION,
+             "inference.checkpoint_name": checkpoint_name}
     facts["inference.fallback_count"] = len(facts["inference.fallback_objects"])
     facts["inference.overlap_object_count"] = len(object_descriptions) - facts["inference.fallback_count"]
     for panel_index, (proposal_box, label_box) in enumerate(zip(proposal_panel_boxes, label_panel_boxes)):
@@ -623,8 +676,8 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, force
             facts[f"inference.{mode_name}_filter.top_level_{level}"] = count
         for level, count in mode_filter["kept_by_level"].items():
             facts[f"inference.{mode_name}_filter.kept_level_{level}"] = count
-    for key in ["foreground", "background", "ignored", "overlap_foreground", "fallback_foreground",
-                "sampled_positives", "sampled_negatives"]:
+    for key in ["foreground", "background", "ignored", "ignored_low", "ignored_band", "overlap_foreground",
+                "fallback_foreground", "sampled_positives", "sampled_negatives"]:
         facts[f"inference.anchor_labels.{key}"] = anchor_labels[key]
     for level, count in anchor_labels["foreground_by_level"].items():
         facts[f"inference.anchor_labels.foreground_level_{level}"] = count

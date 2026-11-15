@@ -12,6 +12,7 @@ figures_module: tutorials.figures.make_figures
 output_folder: ~/Data/tutorial_videos
 # Voice and speech recognition models, narration of every sentence, figures and previews, kept between builds
 cache_folder: ~/.cache/vlms_tutorials
-# Real runs read by the figure scripts, and Python of the repository environment running them, relative to the repository
-experiments_folder: experiments
+# Real runs read by the figure scripts, kept outside the repository so that cleaning its experiments/ keeps them, and
+# Python of the repository environment running them, relative to the repository
+experiments_folder: ~/Data/tutorial_runs
 repository_python: .venv/bin/python

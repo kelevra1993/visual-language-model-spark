@@ -1,8 +1,8 @@
 # Sequence classification, chapter 3: the README run of the synthetic configuration against the average pooling and
-# flatten runs at 512 pixels: the console summary, the training loss, Results.txt, the confusion matrices and ROC
-# curves, the probabilities of the predictions file, the sample sequences, the accuracy on shorter sequences, the
-# export with its input settings and the pitfalls of the task. The figures are made by
-# tutorials/figures/sequence_classification.
+# flatten runs at 512 pixels: the console summary, the training loss, Results.txt and its Per Class Recall table, the
+# confusion matrices and ROC curves, the probabilities of the predictions file, the sample sequences, the accuracy on
+# shorter sequences, the export with its input settings and the pitfalls of the task. The figures are made by
+# tutorials/figures/sequence_classification, the evaluations read from the Checkpoint_Evaluation folder of the runs.
 series: sequence_classification
 series_title: "Sequence Classification (M2O)"
 chapter: 3
@@ -77,13 +77,28 @@ scenes:
     highlights:
       - {match: "Accuracy  |Macro F1|Macro ROC AUC", sentences: [0]}
       - {match: "^   moving_left ", sentences: [1]}
-      - {match: "Threshold|@ P0.99|@ P99 %|Worst F1 first", sentences: [3]}
+      - {match: "Threshold|@ P99 %|Worst F1 first", sentences: [3]}
     narration:
       - "The results file gets one block per evaluated checkpoint: the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-k accuracy, the macro ROC AUC and the macro average precision."
       - "At iteration {{sequence_classification.evaluation.flatten_128.first_iteration}}, one test sequence is wrong: sequence {{sequence_classification.evaluation.flatten_128.first_wrong.number}}, a {{sequence_classification.evaluation.flatten_128.first_wrong.true_class}} shape given {{sequence_classification.evaluation.flatten_128.first_wrong.predicted_class}} at {{sequence_classification.evaluation.flatten_128.first_wrong.probability:.2f}}, hence the recall of moving left."
-      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, every metric of the block is {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:percent}}."
+      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, every headline and per-class metric is {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:percent}}."
       - "The per-class table is sorted by F1, worst first, with the lowest threshold keeping a precision of {{sequence_classification.run.target_precision:percent_label}} and the recall it keeps."
-      - "Evaluations newer than this run write every rate as a percentage, and add a Per Class Recall table: the recall of every class with its exact Clopper-Pearson {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval, the test sequences being independent."
+      - "Every rate of the report is written as a percentage."
+
+  - kind: code
+    title: "Per Class Recall"
+    code_reference: "vision_training/evaluation/recall_intervals.py · build_recall_interval_table"
+    syntax: plain
+    source:
+      file: "figures:sequence_classification/listings/results_flatten_128.txt"
+      start: "^  Per Class Recall"
+      count: 10
+    highlights:
+      - {match: "Lower|Clopper-Pearson", sentences: [0]}
+      - {match: "^   moving_left ", sentences: [1]}
+    narration:
+      - "The same block ends with the Per Class Recall table: the recall of every class with its exact Clopper-Pearson {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval, the test sequences being independent."
+      - "It is sorted by recall, worst first, so {{sequence_classification.evaluation.flatten_128.first_wrong.true_class}}, the class of the wrong sequence, comes first, and even a perfect recall keeps a lower bound below it, every class holding few test sequences."
 
   - kind: image
     title: "Flatten against average"
@@ -95,7 +110,7 @@ scenes:
       - "The evaluation folder holds the files of the image classification without its temperature explorer: the confusion matrix, the class metrics and thresholds, the ROC and precision-recall curves, the predictions, and the sample sequences."
       - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, the flatten run has a diagonal confusion matrix and a ROC AUC of {{sequence_classification.evaluation.flatten_128.macro_roc_auc.iteration_1000:percent}} for every class."
       - "The average pooling run predicts moving down for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:percent}}, the share of moving down, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:percent}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:percent}}."
-      - "Evaluations newer than these runs write the accuracies, the areas under the curves and the axes of these images as percentages."
+      - "Like the report, these images write the accuracies, the areas under the curves and their axes as percentages."
 
   - kind: image
     title: "The probability of the true class"

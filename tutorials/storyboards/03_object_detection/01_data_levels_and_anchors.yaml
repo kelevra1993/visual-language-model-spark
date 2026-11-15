@@ -6,9 +6,10 @@
 # settings are quoted from the synthetic detection configuration ({{config:...}}), the ones written next to a
 # measurement of the run (its thresholds, filter counts and samplings) from the configuration saved in the run
 # ({{object_detection.run.*}} and the filter facts), so that both stay true when the shipped values move on (the run
-# trained with the joint proposal selection its proposal filter scene names, and the greedy final NMS), and the block
-# numbers 5, 6 and 7 (the keys of DetectionLevels, also in the names of the facts) are kept as typed. The joint and
-# per-level proposal selections are then shown on the detector of the detection benchmark, whose facts
+# trained with the shipped configuration: the feature pyramid neck, the per-level proposal selection its proposal
+# filter scene names, and DIoU-NMS), and the block numbers 5, 6 and 7 (the keys of DetectionLevels, also in the names
+# of the facts) are kept as typed. The joint and per-level proposal selections are then compared on the detector of
+# the detection benchmark, whose facts
 # {{object_detection.proposal_selection.*}} come from its stage 7 launches (proposal_selection.py).
 series: object_detection
 series_title: "Object Detection (DET)"
@@ -42,7 +43,7 @@ scenes:
   - kind: image
     title: "What the detector returns"
     code_reference: "vision_training/trainers/detection_trainer.py · DetectionTrainer.draw_test_image"
-    image: "runs:readme_screenshots/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_5000/Samples/test_014285.png"
+    image: "figures:object_detection/evaluation/last_sample.png"
     highlights:
       - {box: [0, 24, 512, 536], sentences: [0]}
       - {box: [516, 24, 1028, 536], sentences: [1]}
@@ -66,18 +67,21 @@ scenes:
       - {type: arrow, points: [[375, 330], [425, 125]]}
       - {type: arrow, points: [[375, 360], [425, 360]]}
       - {type: arrow, points: [[375, 390], [425, 590]]}
+      # The neck around the levels, whose maps of the channels the heads read are given under every block
+      - {type: box, box: [412, 50, 622, 690], fill: null, outline: border, highlight: [0]}
+      - {type: text, position: [517, 18], text: "neck: {{object_detection.inference.model.neck_type}}", font: diagram_small, colour: dim, anchor: ma, highlight: [0]}
       - {type: cuboid, box: [435, 85, 495, 145], depth: 18, fill: blue, highlight: [1]}
-      - {type: text, position: [430, 165], text: "block 5 · stride {{object_detection.inference.level_5.stride}}\n[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Backbone.convolutions.5[1]}}, {{object_detection.inference.level_5.cells}}, {{object_detection.inference.level_5.cells}}]", font: diagram_small}
+      - {type: text, position: [430, 165], text: "block 5 · stride {{object_detection.inference.level_5.stride}}\n[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{object_detection.inference.model.level_5.head_input_channels}}, {{object_detection.inference.level_5.cells}}, {{object_detection.inference.level_5.cells}}]", font: diagram_small}
       - {type: cuboid, box: [445, 335, 475, 365], depth: 18, fill: blue, highlight: [1]}
-      - {type: text, position: [430, 390], text: "block 6 · stride {{object_detection.inference.level_6.stride}}\n[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Backbone.convolutions.6[1]}}, {{object_detection.inference.level_6.cells}}, {{object_detection.inference.level_6.cells}}]", font: diagram_small}
+      - {type: text, position: [430, 390], text: "block 6 · stride {{object_detection.inference.level_6.stride}}\n[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{object_detection.inference.model.level_6.head_input_channels}}, {{object_detection.inference.level_6.cells}}, {{object_detection.inference.level_6.cells}}]", font: diagram_small}
       - {type: cuboid, box: [445, 565, 475, 595], depth: 18, fill: blue, highlight: [1]}
-      - {type: text, position: [430, 620], text: "block 7 · stride {{object_detection.inference.level_7.stride}}\n[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Backbone.convolutions.7[1]}}, {{object_detection.inference.level_7.cells}}, {{object_detection.inference.level_7.cells}}]", font: diagram_small}
+      - {type: text, position: [430, 620], text: "block 7 · stride {{object_detection.inference.level_7.stride}}\n[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{object_detection.inference.model.level_7.head_input_channels}}, {{object_detection.inference.level_7.cells}}, {{object_detection.inference.level_7.cells}}]", font: diagram_small}
       # Region proposal heads of every level, then the proposal filter, per level in the shipped configurations
-      - {type: arrow, points: [[600, 115], [665, 115]], appear: 1}
+      - {type: arrow, points: [[628, 115], [665, 115]], appear: 1}
       - {type: box, box: [670, 70, 890, 160], text: "region proposals\n{{object_detection.inference.level_5.anchor_count}} anchors", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[600, 345], [665, 345]], appear: 1}
+      - {type: arrow, points: [[628, 345], [665, 345]], appear: 1}
       - {type: box, box: [670, 300, 890, 390], text: "region proposals\n{{object_detection.inference.level_6.anchor_count}} anchors", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[600, 575], [665, 575]], appear: 1}
+      - {type: arrow, points: [[628, 575], [665, 575]], appear: 1}
       - {type: box, box: [670, 530, 890, 620], text: "region proposals\n{{object_detection.inference.level_7.anchor_count}} anchors", font: diagram_small, outline: aqua, appear: 1, highlight: [1]}
       - {type: arrow, points: [[890, 115], [935, 270]], appear: 2}
       - {type: arrow, points: [[890, 345], [935, 345]], appear: 2}
@@ -96,7 +100,7 @@ scenes:
       - {type: box, box: [1575, 290, 1745, 400], text: "post-process\n{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} per image", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
       - {type: text, position: [1390, 660], text: "{{object_detection.inference.model.number_classes}} classes · a box per class", font: diagram_small, colour: dim, anchor: ma, appear: 3}
     narration:
-      - "The detector is a two-stage detector in the style of Faster R-CNN, built on the shared backbone of the repository; the run shown here has no neck, which the Neck section of a configuration adds."
+      - "The detector is a two-stage detector in the style of Faster R-CNN, built on the shared backbone of the repository, with the feature pyramid neck of the Neck section between the backbone and the heads, which then read its maps of {{object_detection.inference.model.level_5.head_input_channels}} channels."
       - "Every block named in Detection Levels is a level with its own anchors and region proposal head: here blocks 5, 6 and 7, with {{object_detection.inference.level_5.anchor_count:,}}, {{object_detection.inference.level_6.anchor_count:,}} and {{object_detection.inference.level_7.anchor_count:,}} anchors at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels."
       - "The proposal filter keeps at most the best {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.pre_nms_proposals:words}} proposals of every level, or of all the levels with the joint selection, suppresses their overlaps at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.nms_iou_threshold}}, and passes the best {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} per image to the second stage, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} in evaluation."
       - "Every proposal goes back to the detection head of the level its anchor came from, which pools it with ROI Align, classifies it among {{object_detection.inference.model.number_classes}} classes and refines one box per class."
@@ -131,20 +135,21 @@ scenes:
     title: "The levels in the configuration"
     code_reference: "vision_training/configuration_processing/detection_checks.py · check_detection_levels"
     # The block numbers of the levels
-    literal_numbers: ["6", "7"]
+    literal_numbers: ["5", "6", "7"]
     source:
       file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
-      keys: [Backbone.last_max_pooling, DetectionLevels]
+      keys: [Backbone.last_max_pooling, DetectionLevels, Neck]
       comments: false
     highlights:
       - {match: "^  \"[567]\":", sentences: [0]}
       - {match: "last_max_pooling", sentences: [1]}
-      - {match: "anchors:", sentences: [2]}
+      - {key: Neck.type, sentences: [2]}
+      - {key: Neck.output_channels, sentences: [2]}
       - {match: "region_proposal:|detector:", sentences: [3]}
     narration:
       - "Detection Levels names the backbone blocks the detector reads, as quoted keys in increasing order, and gives every level its anchors, its region proposal head and its detection head."
       - "The backbone divides the resolution by {{object_detection.inference.model.backbone_pooling_stride:words}} in every block; with the last max pooling off, block 7 keeps the {{object_detection.inference.level_6.cells:words}} by {{object_detection.inference.level_6.cells:words}} map of block 6, so the levels have strides of {{object_detection.inference.level_5.stride}}, {{object_detection.inference.level_6.stride}} and {{object_detection.inference.level_7.stride}}."
-      - "Picture a data set of small objects: without a neck, as in the run shown here, no top-down path merges the levels, the finest stride is {{object_detection.inference.level_5.stride}}, and those objects pay for it, as the last chapter shows; a feature pyramid or path aggregation neck, set in the Neck section, adds that path."
+      - "Picture a data set of small objects: the feature pyramid of the Neck section brings the context of the coarser blocks down to block 5 through a top-down path, path aggregation adding a bottom-up path after it, but the finest stride stays {{object_detection.inference.level_5.stride}}, which those objects pay for in the last chapter."
       - "The heads are small here: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.region_proposal.convolutions[0]:words}} convolutions of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.region_proposal.convolutions[1]}} channels for the proposals, and for the detections {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.convolutions[0]:words}} convolutions with squeeze and excitation and residual shortcuts, then fully connected layers of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.fully_connected[0]}} and {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.detector.fully_connected[1]}} units."
 
   - kind: html
@@ -221,8 +226,8 @@ scenes:
     # offsets of a box
     literal_numbers: ["5", two, four, "4"]
     elements:
-      - {type: cuboid, box: [50, 250, 150, 350], depth: 26, fill: blue, label: "[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Backbone.convolutions.5[1]}}, {{object_detection.inference.level_5.cells}}, {{object_detection.inference.level_5.cells}}]"}
-      - {type: text, position: [115, 200], text: "block 5", font: diagram_bold, anchor: ma}
+      - {type: cuboid, box: [50, 250, 150, 350], depth: 26, fill: blue, label: "[{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.batch_size}}, {{object_detection.inference.model.level_5.head_input_channels}}, {{object_detection.inference.level_5.cells}}, {{object_detection.inference.level_5.cells}}]"}
+      - {type: text, position: [115, 170], text: "block 5\nafter the neck", font: diagram_bold, anchor: ma}
       - {type: arrow, points: [[180, 300], [235, 300]]}
       - {type: box, box: [240, 230, 560, 370], text: "ConvolutionBlock [{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.region_proposal.convolutions[0]}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#DetectionLevels.5.region_proposal.convolutions[1]}}]\n{{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.normalization.feature_map_normalization}} normalization\nno SE, no shortcut", font: diagram_small, outline: aqua, highlight: [0]}
       - {type: arrow, points: [[560, 300], [615, 300]]}
@@ -252,7 +257,7 @@ scenes:
       - {type: text, position: [40, 30], text: "{{object_detection.inference.anchor_total:,}} anchors", font: diagram_bold}
       - {type: bars, box: [40, 80, 560, 280], orientation: horizontal, values: ["{{object_detection.inference.level_5.anchor_count}}", "{{object_detection.inference.level_6.anchor_count}}", "{{object_detection.inference.level_7.anchor_count}}"], labels: ["block 5", "block 6", "block 7"], value_labels: ["{{object_detection.inference.level_5.anchor_count}}", "{{object_detection.inference.level_6.anchor_count}}", "{{object_detection.inference.level_7.anchor_count}}"], colours: [blue, aqua, magenta], label_width: 120}
       - {type: arrow, points: [[570, 180], [615, 180]], appear: 0}
-      - {type: text, position: [630, 30], text: "{{object_detection.inference.evaluation_filter.top_count}} best by objectness", font: diagram_bold}
+      - {type: text, position: [630, 30], text: "{{object_detection.inference.evaluation_filter.top_count:,}} best, level by level", font: diagram_bold}
       - {type: bars, box: [630, 80, 1130, 280], orientation: horizontal, values: ["{{object_detection.inference.evaluation_filter.top_level_5}}", "{{object_detection.inference.evaluation_filter.top_level_6}}", "{{object_detection.inference.evaluation_filter.top_level_7}}"], labels: ["block 5", "block 6", "block 7"], value_labels: ["{{object_detection.inference.evaluation_filter.top_level_5}}", "{{object_detection.inference.evaluation_filter.top_level_6}}", "{{object_detection.inference.evaluation_filter.top_level_7}}"], colours: [blue, aqua, magenta], label_width: 120}
       - {type: arrow, points: [[1140, 180], [1185, 180]], appear: 1}
       - {type: text, position: [1200, 30], text: "{{object_detection.inference.evaluation_filter.valid_count}} kept after NMS {{object_detection.run.proposal_nms_threshold}}", font: diagram_bold, appear: 1}
@@ -261,12 +266,12 @@ scenes:
       - {type: box, box: [40, 390, 820, 560], text: "fewer survivors than slots:\ncopies of random survivors fill the slots,\na valid mask tells them apart", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: text, position: [900, 380], text: "test split, iteration {{object_detection.run.checkpoint_iteration:,}}: proposals per image", font: diagram_bold, appear: 3}
       - {type: bars, box: [900, 430, 1720, 610], orientation: horizontal, values: "{{object_detection.proposal_recall.proposals_per_block}}", labels: ["block 5", "block 6", "block 7"], value_labels: "{{object_detection.proposal_recall.proposals_per_block_labels}}", colours: [blue, aqua, magenta], label_width: 120, appear: 3, highlight: [3]}
-      - {type: text, position: [900, 650], text: "run shown: one top-k and one NMS over all the levels", font: diagram_small, colour: dim, appear: 3}
+      - {type: text, position: [900, 650], text: "run shown: a top-k and an NMS per level, then the best over all the levels", font: diagram_small, colour: dim, appear: 3}
     narration:
-      - "The run shown takes the {{object_detection.inference.anchor_total:,}} proposals of an image at once: the sigmoid of the objectness ranks them, and the best {{object_detection.inference.training_filter.top_count:words}} in training, {{object_detection.inference.evaluation_filter.top_count}} in evaluation, are kept and clamped to the image."
-      - "A non-maximum suppression at {{object_detection.run.proposal_nms_threshold}} removes the duplicates, here keeping {{object_detection.inference.evaluation_filter.survivor_count}} of {{object_detection.inference.evaluation_filter.top_count}}, and the {{object_detection.inference.evaluation_filter.valid_count}} best survivors go to the detection heads, {{object_detection.inference.training_filter.valid_count}} in training."
+      - "The run shown ranks the proposals of every level on its own by the sigmoid of their objectness, and keeps at most the best {{object_detection.run.inference_pre_nms_proposals}} of every level in evaluation, {{object_detection.run.training_pre_nms_proposals:words}} in training, all of them on the smaller levels: {{object_detection.inference.evaluation_filter.top_count:,}} for this image, clamped to the image."
+      - "A non-maximum suppression at {{object_detection.run.proposal_nms_threshold}} removes the duplicates within every level, here keeping {{object_detection.inference.evaluation_filter.survivor_count:,}} of {{object_detection.inference.evaluation_filter.top_count:,}}, and the {{object_detection.inference.evaluation_filter.valid_count}} best survivors over all the levels go to the detection heads, {{object_detection.inference.training_filter.valid_count}} in training."
       - "With fewer survivors, the empty slots are filled with copies of random survivors, so that every image has the same number of proposals, and a valid mask tells them apart."
-      - "Ranked over all the levels at once, block 5 takes {{object_detection.inference.evaluation_filter.kept_level_5}} of the slots of this image, and {{object_detection.proposal_recall.block_5.proposals_per_image:.0f}} of {{object_detection.inference.evaluation_filter.valid_count}} per image over the test split."
+      - "Ranked together by score after their suppressions, block 5 takes {{object_detection.inference.evaluation_filter.kept_level_5}} of the slots of this image, and {{object_detection.proposal_recall.block_5.proposals_per_image:.0f}} of {{object_detection.run.inference_post_nms_proposals}} per image over the test split."
 
   - kind: image
     title: "Proposals of the test image"
@@ -277,9 +282,9 @@ scenes:
       - {box: "{{object_detection.inference.proposal_filter.panel_2_box}}", sentences: [1]}
       - {box: "{{object_detection.inference.proposal_filter.panel_3_box}}", sentences: [2]}
     narration:
-      - "On the image, the {{object_detection.inference.evaluation_filter.top_count}} best proposals pile up on the shapes, every level in its color."
-      - "After the suppression, {{object_detection.inference.evaluation_filter.valid_count}} remain, still several per object, for the detection heads to score and refine."
-      - "The heads turn them into {{object_detection.inference.detection_count}} detections above {{object_detection.run.score_threshold}}: the small nonagon is lost, and the large one gets both a nonagon and a circle box."
+      - "On the image, the {{object_detection.inference.evaluation_filter.top_count:,}} best proposals of the levels pile up on the shapes, every level in its color."
+      - "After the suppressions, {{object_detection.inference.evaluation_filter.valid_count}} remain, still several per object, for the detection heads to score and refine."
+      - "The heads turn them into {{object_detection.inference.detection_count:words}} detections above {{object_detection.run.score_threshold}}, which find {{object_detection.inference.found_object_count:words}} of the {{object_detection.inference.object_count:words}} objects: both nonagons get no box above that score."
 
   - kind: code
     title: "One selection for training and export"
@@ -463,14 +468,14 @@ scenes:
     lines:
       - {role: comment, text: "# The instance segmentation data set: task = \"instance_segmentation\" in the main block"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
-      - {role: comment, text: "# The detector on it: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations as shipped, resumed to {{object_detection.run.number_iterations}} for this run"}
+      - {role: comment, text: "# The detector on it: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations as shipped, {{object_detection.run.number_iterations}} for this run"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
       - "Assuming you would like to reproduce the run, generate the data set of the instance masks with the synthetic data set script, its task set in its main block; a new data set has {{object_detection.data.generated_category_count}} shapes, the one of this run {{object_detection.data.category_count}}."
       - "With its hard objects option, the object detection task of the script draws the images of the detection benchmark instead: small, faint, covered or cut shapes next to very large ones."
-      - "The training takes the synthetic detection configuration, which stops at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown here, trained before the per-level selection and the feature pyramid, was resumed to {{object_detection.run.number_iterations:words}}."
+      - "The training takes the synthetic detection configuration, which stops at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown here was trained with it as shipped, for {{object_detection.run.number_iterations:words}} iterations, only its experiment folder changed."
       - "The evaluation script evaluates any checkpoint again, set in its main block like every script but the training."
 
   - kind: summary
@@ -478,7 +483,7 @@ scenes:
     # The two stages and the four losses of the method, and the block numbers of the levels
     literal_numbers: [two, four, "5", "6", "7"]
     items:
-      - {text: "Two stages: proposals per level, then RoI heads per level; Neck: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Neck.type}} shipped, none in the run"}
+      - {text: "Two stages: proposals per level, then RoI heads per level; Neck: {{object_detection.inference.model.neck_type}}"}
       - {text: "COCO bbox [x, y, w, h] to corners; background added as class {{object_detection.data.background_class}}"}
       - {text: "Blocks 5, 6, 7: strides {{object_detection.inference.level_5.stride}}, {{object_detection.inference.level_6.stride}}, {{object_detection.inference.level_7.stride}}"}
       - {text: "{{object_detection.inference.level_5.anchors_per_cell}} anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners"}
