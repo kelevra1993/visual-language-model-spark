@@ -5,29 +5,33 @@ report of the labelled test images, its per-class metrics file and the sample im
 mixing labelled and unlabelled images is trained on every image and evaluated on the labelled ones, the classes of
 the evaluation are named after the categories of the three manifests (the validation one read without its loader in
 a training without validation), the labelled test images are classified by the reference training images and not by
-each other, the reference images are the same for every trainer of a run and bounded per class, and the input viewer
+each other, the reference images are the same for every trainer of a run and bounded per class, the k-NN rates of the
+report and the positive pair accuracy of the SimCLR console summary are written as percentages, and the input viewer
 of the grouped batches finds the groups of every image of a batch by its identifier.
 """
 
 import csv
 import json
 import pytest
+import re
 import torch
 import yaml
 
 from collections import Counter
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from types import MethodType, SimpleNamespace
+from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
-from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY
+from vision_training.core.contracts import IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.grouped_batch_sampler import build_grouped_batch_sampler
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
-from vision_training.trainers.self_supervised_trainer import METHOD_TRACKED_METRICS, SelfSupervisedTrainer
+from vision_training.evaluation.report_formatting import build_report_renderables, render_report_text
+from vision_training.trainers.self_supervised_trainer import (METHOD_PERCENT_TRACKED_METRICS, METHOD_TRACKED_METRICS,
+                                                              SelfSupervisedTrainer)
 from vision_training.utilities.visualization import CAPTION_BAR_HEIGHT
 from tests.data.classification.test_classification_dataset import write_split
 from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
@@ -38,9 +42,10 @@ SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / 
 # Image size of the smoke test, small enough for a few quick iterations
 SMOKE_IMAGE_SIZE = 64
 
-# Metrics of the evaluation of a test split with labels, in the order of the report
+# Metrics of the evaluation of a test split with labels, in the order of the report, the k-NN rates first
 LABELLED_EVALUATION_METRICS = ["k-NN Accuracy", "k-NN Balanced Accuracy", "k-NN Macro F1", "Effective Rank",
                                "Representation Standard Deviation"]
+NEAREST_NEIGHBOUR_RATES = LABELLED_EVALUATION_METRICS[:3]
 
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
@@ -116,10 +121,10 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     """
     Verifies the self-supervised training pipeline of each method on a generated synthetic dataset: 5 iterations save
     the intermediate, evaluated and final checkpoints with the loss and batch metrics of the method in TensorBoard,
-    the evaluation of the test split is reported (Results.txt block with the k-NN metrics, effective rank and
-    representation standard deviation, the k-NN accuracy as headline metric) with its per-class metrics file and the
-    sample images of two views of every test image, and a second run with the same settings resumes from the last
-    checkpoint with exactly its weights. No training step may fail silently.
+    the evaluation of the test split is reported (Results.txt block with the k-NN metrics written as percentages,
+    effective rank and representation standard deviation with 4 decimals, the k-NN accuracy as headline metric) with
+    its per-class metrics file and the sample images of two views of every test image, and a second run with the same
+    settings resumes from the last checkpoint with exactly its weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -138,6 +143,7 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
         head_settings={"method": method}))
     assert trainer.run_name.startswith("SSL_") and trainer.run_name.endswith(run_name_ending)
     assert trainer.class_names == list(SHAPE_CATEGORIES)
+    assert trainer.metric_tracker.percent_metric_keys == METHOD_PERCENT_TRACKED_METRICS[method]
     data_record = json.loads(s=(trainer.experiment_folder / "data.json").read_text())
     assert [class_record["class_name"] for class_record in data_record["classes"]] == list(SHAPE_CATEGORIES)
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
@@ -164,6 +170,14 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     assert "Labelled Test Images : 6 of 6" in results["notes"]
     assert "Per Class k-NN Metrics" in results_blocks[0]["text"]
     assert len(results["class_scalars"]) == 3 * len(trainer.class_names)
+
+    # The k-NN rates and the columns of both k-NN tables written as percentages, the collapse metrics with 4 decimals
+    assert results["percent_metrics"] == NEAREST_NEIGHBOUR_RATES
+    first_grid_line = results_blocks[0]["text"].splitlines()[0]
+    assert f"{100.0 * results['metrics']['k-NN Accuracy']:.2f} %" in first_grid_line
+    assert f"{results['metrics']['Effective Rank']:.4f}" in results_blocks[0]["text"]
+    assert [table["percent_columns"] for table in results["tables"]] == [["Precision", "Recall", "F1"],
+                                                                        ["Recall", "95 %\nLower", "95 %\nUpper"]]
 
     # Files of the evaluated checkpoint: the per-class k-NN metrics of every class, and the sample images
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
@@ -307,6 +321,74 @@ def test_test_images_are_classified_by_the_reference_training_images(tmp_path: P
         self=trainer, representations=torch.tensor(data=[[1.0, 0.0], [0.95, 0.31]]), labels=torch.tensor(data=[0, 1]),
         evaluation_folder=tmp_path)
     assert global_metrics["k-NN Accuracy"] == 1.0
+
+
+@pytest.mark.parametrize(argnames=("test_labels", "expected_percent_metrics", "expected_grid_pattern",
+                                   "expected_circle_rows"),
+                         argvalues=[([0, 1], NEAREST_NEIGHBOUR_RATES,
+                                     r"k-NN Accuracy +100\.00 % +k-NN Balanced Accuracy +100\.00 %",
+                                     ["circle 1 100.00 % 100.00 % 100.00 %", "circle 1 100.00 % 2.50 % 100.00 %"]),
+                                    ([IGNORED_LABEL_INDEX, IGNORED_LABEL_INDEX], [],
+                                     r"Effective Rank +\d\.\d{4} +Representation Standard Deviation +\d\.\d{4}", [])])
+def test_report_writes_the_nearest_neighbour_rates_as_percentages(tmp_path: Path, test_labels: List[int],
+                                                                  expected_percent_metrics: List[str],
+                                                                  expected_grid_pattern: str,
+                                                                  expected_circle_rows: List[str]) -> None:
+    """
+    Verifies the report of the evaluation of the representations: with labelled test images, the k-NN accuracy,
+    balanced accuracy and macro F1 and the columns of the per-class k-NN table and of the k-NN recall table are written
+    as percentages ("100.00 %", the exact interval of a single image "2.50 %"), the effective rank and the standard
+    deviation keeping 4 decimals; without labelled test image, the k-NN metrics are skipped, no value is a percentage
+    and the report is still rendered, the report refusing a percent metric missing from the metrics.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, receiving class_metrics.csv.
+        test_labels (List[int]): The class indices of the two test images, IGNORED_LABEL_INDEX without category.
+        expected_percent_metrics (List[str]): The metrics expected as percentages.
+        expected_grid_pattern (str): The pattern of the first line of the metrics grid.
+        expected_circle_rows (List[str]): The rows of the class circle in the k-NN tables, spaces collapsed.
+    """
+    # Trainer reduced to the attributes of the evaluation, its two reference images voting for the test images
+    trainer = SimpleNamespace(class_names=["circle", "square"], number_neighbours=1, SAMPLE_NAME="Images",
+                              encode_reference_images=MagicMock(return_value=(torch.tensor(data=[[1.0, -0.5],
+                                                                                                 [0.7, 0.7]]),
+                                                                              torch.tensor(data=[0, 1]))),
+                              reference_dataloader=MagicMock(), reference_notes=[],
+                              get_evaluation_folder=MagicMock(return_value=tmp_path))
+    trainer.compute_nearest_neighbour_results = MethodType(SelfSupervisedTrainer.compute_nearest_neighbour_results,
+                                                           trainer)
+    accumulator = {"representations": [torch.tensor(data=[[1.0, 0.0], [0.95, 0.31]])],
+                   "labels": [torch.tensor(data=test_labels)], "sample_identifiers": [torch.tensor(data=[1, 2])]}
+    results = SelfSupervisedTrainer.compute_evaluation_results(self=trainer, accumulator=accumulator, iteration=4)
+    assert results["percent_metrics"] == expected_percent_metrics
+
+    # Block of Results.txt: the grid, the rows of both k-NN tables, the collapse metrics with 4 decimals
+    lines = render_report_text(renderables=build_report_renderables(results=results, iteration=4,
+                                                                    timestamp="2026-11-15 12:00",
+                                                                    per_class_report=True)).splitlines()
+    text = "\n".join(lines)
+    assert re.search(pattern=expected_grid_pattern, string=lines[1]) is not None
+    assert [" ".join(line.split()) for line in lines if line.strip().startswith("circle")] == expected_circle_rows
+    assert f"{results['metrics']['Effective Rank']:.4f}" in text and ("%" in text) == bool(expected_percent_metrics)
+
+
+@pytest.mark.parametrize(argnames=("method", "expected_percent_keys"),
+                         argvalues=[("simclr", ["positive_pair_accuracy"]), ("barlow_twins", [])])
+def test_console_summary_writes_the_rates_of_the_method_as_percentages(method: str,
+                                                                       expected_percent_keys: List[str]) -> None:
+    """
+    Verifies the tracked metrics written as percentages in the console summary of every method: the positive pair
+    accuracy of SimCLR, none for Barlow Twins, whose correlations are not rates any more than the embedding standard
+    deviation, every percent key being one of the tracked keys of the method, which the metric tracker requires.
+
+    Args:
+        method (str): The self-supervised method, 'ProjectionHead.method'.
+        expected_percent_keys (List[str]): The tracked keys expected as percentages.
+    """
+    trainer = SimpleNamespace(method=method)
+    percent_keys = SelfSupervisedTrainer.get_percent_tracked_metrics(self=trainer)
+    assert percent_keys == expected_percent_keys
+    assert set(percent_keys) <= set(SelfSupervisedTrainer.get_tracked_metrics(self=trainer))
 
 
 def test_reference_images_are_fixed_and_bounded_per_class(tmp_path: Path) -> None:
