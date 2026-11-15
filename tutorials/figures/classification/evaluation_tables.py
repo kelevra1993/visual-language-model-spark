@@ -5,7 +5,9 @@ tutorials/tutorial_sources.yaml: the confusion matrix of every evaluated checkpo
 confusion_matrix.csv) as the row percentages the grids of the confusion scene draw, the main confusions with their
 counts, the per-class metrics and the thresholds at the target precision of the last checkpoint (class_metrics.csv,
 class_thresholds.json) as the values and labels of the bars, the headline metrics of every evaluation read from the
-Test logs of TensorBoard, the size of the predictions file, and the temperatures of the slider of the temperature
+Test logs of TensorBoard, those of the standalone evaluation of the last checkpoint (classification_evaluation of
+tutorial_sources.yaml, written by scripts/evaluation/evaluate_checkpoint.py with the current code), whose report block
+the report scene shows, the size of the predictions file, and the temperatures of the slider of the temperature
 explorer page with the port of the script serving it. Nothing is drawn: the scenes draw these values with the grid and
 bars elements of the diagram engine. The labels of the bars write the F1 and recalls as the percentages of the reports
 of the repository ("94.03 %"), the facts keeping every rate between 0 and 1.
@@ -23,6 +25,7 @@ from tutorials.figures.figure_utilities import round_fact
 from tutorials.figures.foundations.code_values import read_main_block_value
 from tutorials.figures.foundations.training_curves import read_scalars
 from tutorial_builder.figure_context import find_repository_root
+from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 from vision_training.evaluation.classification.temperature_explorer import TEMPERATURE_GRID
 from vision_training.evaluation.report_formatting import format_percentage
 
@@ -35,6 +38,12 @@ LAST_ITERATION = 1500
 HEADLINE_METRICS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy", "Macro F1": "macro_f1",
                     "Top-2 Accuracy": "top_2_accuracy", "Macro ROC AUC": "macro_roc_auc",
                     "Macro Average Precision": "macro_average_precision"}
+
+# Headline metrics of the standalone evaluation, written by the current code: its top-k accuracy counts the
+# TOP_K_ACCURACY_CLASSES most probable classes, where the training of the run logged a top-2 accuracy
+CHECKPOINT_EVALUATION_METRICS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy",
+                                 "Macro F1": "macro_f1", f"Top-{TOP_K_ACCURACY_CLASSES} Accuracy": "top_k_accuracy",
+                                 "Macro ROC AUC": "macro_roc_auc", "Macro Average Precision": "macro_average_precision"}
 
 # Script serving the temperature explorer pages, whose main block sets the port of its local page
 TEMPERATURE_EXPLORER_SCRIPT = Path("scripts") / "evaluation" / "serve_temperature_explorer.py"
@@ -222,21 +231,48 @@ def describe_headline_metrics(run_folder: Path) -> Dict[str, Any]:
     return facts
 
 
-def make_evaluation_tables(run_folder: Path) -> Dict[str, Any]:
+def describe_checkpoint_evaluation(evaluation_folder: Path) -> Dict[str, Any]:
     """
-    Reads the evaluation tables of the classification run and gives their facts.
+    Gives the headline metrics of the standalone evaluation of the last checkpoint, read from its Test logs of
+    TensorBoard, the values of the report block of its Results.txt that the report scene shows.
+
+    Args:
+        evaluation_folder (Path): The '<run>/Checkpoint_Evaluation' folder of the classification run.
+
+    Returns:
+        Dict[str, Any]: The facts, named checkpoint_evaluation.*, with the evaluated iteration.
+
+    Raises:
+        ValueError: If the evaluation does not hold LAST_ITERATION alone.
+    """
+    facts = {"checkpoint_evaluation.iteration": LAST_ITERATION}
+    for metric_tag, fact_name in CHECKPOINT_EVALUATION_METRICS.items():
+        iterations, values = read_scalars(log_folder=evaluation_folder / "Tensorboard" / "Test", tag=metric_tag)
+        if iterations.tolist() != [LAST_ITERATION]:
+            raise ValueError(f"The standalone evaluation {evaluation_folder} logs {metric_tag} at the iterations "
+                             f"{iterations.tolist()}, expected [{LAST_ITERATION}] alone.")
+        facts[f"checkpoint_evaluation.{fact_name}"] = round_fact(value=values[0])
+    return facts
+
+
+def make_evaluation_tables(run_folder: Path, evaluation_folder: Path) -> Dict[str, Any]:
+    """
+    Reads the evaluation tables of the classification run and of its standalone evaluation, and gives their facts.
 
     Args:
         run_folder (Path): The folder of the classification run of tutorial_sources.yaml.
+        evaluation_folder (Path): The folder of its standalone evaluation, classification_evaluation of
+            tutorial_sources.yaml.
 
     Returns:
-        Dict[str, Any]: The facts, named confusion.*, class_metrics.*, headline.*, predictions_file.* and
-            temperature_explorer.* (the lowest and highest temperatures of the slider of the explorer page, and the
-            port of the local page of serve_temperature_explorer.py).
+        Dict[str, Any]: The facts, named confusion.*, class_metrics.*, headline.*, checkpoint_evaluation.*,
+            predictions_file.* and temperature_explorer.* (the lowest and highest temperatures of the slider of the
+            explorer page, and the port of the local page of serve_temperature_explorer.py).
     """
     facts = describe_confusion_matrices(run_folder=run_folder)
     facts.update(describe_class_metrics(run_folder=run_folder))
     facts.update(describe_headline_metrics(run_folder=run_folder))
+    facts.update(describe_checkpoint_evaluation(evaluation_folder=evaluation_folder))
 
     # Temperatures of the slider of the explorer page, and the port its serving script sets in its main block
     facts.update({"temperature_explorer.minimum_temperature": min(TEMPERATURE_GRID),

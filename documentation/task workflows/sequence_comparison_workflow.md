@@ -878,11 +878,11 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
                                        "same_number_of_objects": null}}
 ```
 
-**Example: the layout with the curves, `Evaluation/Iteration_500/class_metrics.csv` of the README run** (`CMP_IN-KAR-512_..._MC2` in `experiments/readme_screenshots/`, 3 `loss_of_object` pairs predicted `same_number_of_objects`; with `per_class_report` the `roc_auc` and `average_precision` columns follow `f1`)
+**Example: the current layout, `Checkpoint_Evaluation/Iteration_500/class_metrics.csv` of the README run** (`CMP_IN-KAR-512_..._MC2`, its checkpoints evaluated again on 2026-11-15 by `scripts/evaluation/evaluate_checkpoint.py`, 3 `loss_of_object` pairs predicted `same_number_of_objects`; the bounds of the 95% interval follow `recall`, and with `per_class_report` the `roc_auc` and `average_precision` columns follow `f1`)
 ```text
-class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
-0,loss_of_object,108,1.000000,0.972222,0.985915,0.996176,0.997449,0.379811,0.981481
-1,same_number_of_objects,92,0.968421,1.000000,0.983957,0.996176,0.994622,0.944715,0.630435
+class_index,class,samples,precision,recall,recall_lower,recall_upper,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
+0,loss_of_object,108,1.000000,0.972222,0.920964,0.994235,0.985915,0.996176,0.997449,0.379811,0.981481
+1,same_number_of_objects,92,0.968421,1.000000,0.960697,1.000000,0.983957,0.996176,0.994622,0.944715,0.630435
 ```
 
 ### Step 4.10 — `write_predictions_file()`   (only with `save_predictions`)
@@ -897,7 +897,7 @@ test_000023,same_number_of_objects,same_number_of_objects,1,0.476021,0.523979
 ```
 
 ### Step 4.11 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-The block of the report and the links of the files written by the evaluation (see `classification_workflow.md`, Steps 4.18 and 4.19). The first example predates the curves; the second one, from the README run, has the layout with the curves, without the `Per Class Recall` table that now follows `Per Class Metrics`.
+The block of the report and the links of the files written by the evaluation (see `classification_workflow.md`, Steps 4.18 and 4.19). The first example predates the curves; the second one, from the README run evaluated again with the current code, has the current layout: the curves, the top-5 accuracy and the `Per Class Recall` table after `Per Class Metrics`.
 
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
@@ -920,11 +920,11 @@ Iteration 12 · 200 Test Pairs · 2026-10-10 07:10 ─────────�
   - Sample Images : file:///.../Evaluation/Iteration_12/Samples
 ```
 
-**Example: the layout with the curves, the first block of `Results.txt` of the README run** (`CMP_IN-KAR-512_..._MC2`, trained on GPU with the error images off)
+**Example: the current layout, the first block of `Checkpoint_Evaluation/Results.txt` of the README run** (`CMP_IN-KAR-512_..._MC2`, trained on GPU with the error images off, its checkpoints evaluated again on 2026-11-15 by `scripts/evaluation/evaluate_checkpoint.py`)
 ```text
-Iteration 500 · 200 Test Pairs · 2026-10-23 04:12 ──────────────────────────────────────────────────────────────────────
+Iteration 500 · 200 Test Pairs · 2026-11-15 15:34 ──────────────────────────────────────────────────────────────────────
   Accuracy        98.50 %   Balanced Accuracy         98.61 %
-  Macro F1        98.49 %   Top-1 Accuracy            98.50 %
+  Macro F1        98.49 %   Top-5 Accuracy            100.00 %
   Macro ROC AUC   99.62 %   Macro Average Precision   99.60 %
   Sample Images : 8 fixed test pairs
 
@@ -936,6 +936,15 @@ Iteration 500 · 200 Test Pairs · 2026-10-23 04:12 ─────────�
    loss_of_object               108    100.00 %    97.22 %   98.59 %   99.62 %     99.74 %      0.3798   98.15 %
   Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
   is never reached.
+
+  Per Class Recall
+                                                    95 %       95 %
+   Class                    Samples     Recall     Lower      Upper
+  ──────────────────────────────────────────────────────────────────
+   loss_of_object               108    97.22 %   92.10 %    99.42 %
+   same_number_of_objects        92   100.00 %   96.07 %   100.00 %
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
 ```
 
 **Example: TensorBoard and MLflow after the two evaluations**
@@ -945,7 +954,7 @@ Tensorboard/Test: 10 scalars (4 global + 6 per class), 9 images (8 samples + Con
 MLflow: test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-1 Accuracy, test/best_Accuracy (steps 6, 12),
         6 test_class/<metric>/<class>, train/frame_throughput (steps 4, 8, 12)
 ```
-The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 per class), as the event file of the README run holds, and 12 images, the 11 of that event file (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`) and `Precision Recall Thresholds`, and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 10 `test_class/` scalars, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to MLflow.
+The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 per class) and 12 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`), as `Checkpoint_Evaluation/Tensorboard/Test` of the README run holds, and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 10 `test_class/` scalars, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to MLflow.
 
 
 ---

@@ -45,7 +45,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     return merge_facts(fact_groups=[
         make_evaluation_figures(output_folder=output_folder, run_folder=run_folder,
                                 evaluation_folder=evaluation_folder),
-        make_evaluation_tables(run_folder=run_folder),
+        make_evaluation_tables(run_folder=run_folder, evaluation_folder=evaluation_folder),
         make_prediction_confidence_figure(output_folder=output_folder, run_folder=run_folder),
         make_learning_rate_figure(output_folder=output_folder, experiments_folder=experiments_folder,
                                   run_folder=run_folder),

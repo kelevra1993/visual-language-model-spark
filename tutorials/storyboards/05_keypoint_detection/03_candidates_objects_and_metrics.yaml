@@ -95,7 +95,7 @@ scenes:
   - kind: image
     title: "The sample image of the evaluation"
     code_reference: "vision_training/utilities/visualization.py · build_keypoint_sample_grid"
-    image: "runs:keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Evaluation/Iteration_6000/Samples/test_000000.png"
+    image: "runs:keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/Samples/test_000000.png"
     highlights:
       - {box: "{{keypoint_detection.sample_prediction_hollow_capsule_box}}", sentences: [0]}
       - {box: "{{keypoint_detection.sample_ground_truth_hollow_capsule_box}}", sentences: [0]}
@@ -136,8 +136,8 @@ scenes:
     page: diagram
     title: "Metrics of the evaluated checkpoints"
     code_reference: "vision_training/evaluation/keypoints/object_keypoint_similarity.py · match_ground_truth_objects"
-    # The similarities of the metric names, mAP@0.5 and mAP@0.95, and the similarity above zero of the old match
-    literal_numbers: ["0.5", "0.95", zero]
+    # The similarities of the metric names, mAP@0.5 and mAP@0.95
+    literal_numbers: ["0.5", "0.95"]
     elements:
       - type: grid
         box: [330, 90, 1500, 600]
@@ -162,7 +162,7 @@ scenes:
       - "Every evaluation of this run covers the first {{keypoint_detection.metrics_test_images}} test images, holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
       - "From iteration {{keypoint_detection.metrics_first_iteration}} to {{keypoint_detection.checkpoint_iteration}}, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:.2f}} to {{keypoint_detection.metrics_trained_6000_map_0_5:.2f}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:.2f}} to {{keypoint_detection.metrics_trained_6000_map_0_95:.2f}}."
       - "At iteration {{keypoint_detection.metrics_first_iteration}} the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:.2f}} at 0.95; by {{keypoint_detection.checkpoint_iteration}} they are within a hundredth of the trained weights."
-      - "This run was scored before a match needed an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}, when a ground truth matched any object with an OKS above zero, so {{keypoint_detection.metrics_trained_6000_matched:.2%}} matched sits next to a mean error of {{keypoint_detection.metrics_trained_6000_error:.1f}} pixels."
+      - "A ground truth counts as matched only by an object reaching an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}: {{keypoint_detection.metrics_trained_6000_matched:.2%}} at iteration {{keypoint_detection.checkpoint_iteration}}, the mean error of {{keypoint_detection.metrics_trained_6000_error:.1f}} pixels coming from these matches only."
 
   - kind: image
     title: "Worst classes and key points"

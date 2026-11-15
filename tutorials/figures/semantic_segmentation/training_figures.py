@@ -23,7 +23,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 save_figure, style_chart_panel)
 from tutorials.figures.keypoint_detection.scalar_logs import (SMOOTHING_WEIGHT, draw_smoothed_curve, read_scalars,
                                                              smooth_values)
-from tutorials.figures.semantic_segmentation.segmentation_sources import CHECKPOINT_ITERATION
+from tutorials.figures.semantic_segmentation.segmentation_sources import CHECKPOINT_ITERATION, EVALUATION_FOLDER_NAME
 
 # Curves of both panels, logged by the segmentation trainer in Tensorboard/Train and Validation, with their colours
 LOSS_CURVES = {"Total Loss": SERIES_COLOURS[0], "Cross Entropy Loss": SERIES_COLOURS[1], "Dice Loss": SERIES_COLOURS[2]}
@@ -162,7 +162,7 @@ def describe_pixel_shares(run_folder: Path, number_classes: int) -> Dict[str, An
     Returns:
         Dict[str, Any]: The facts of the pixel shares.
     """
-    csv_path = run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}" / "class_metrics.csv"
+    csv_path = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}" / "class_metrics.csv"
     lines = csv_path.read_text(encoding="utf-8").splitlines()
     header = lines[0].split(",")
     rows = [dict(zip(header, line.split(","))) for line in lines[1:]]

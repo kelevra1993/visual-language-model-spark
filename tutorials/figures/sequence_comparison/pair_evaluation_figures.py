@@ -1,12 +1,14 @@
 """
 Training and evaluation figures of the sequence comparison tutorials (chapter 3), made by
 tutorials/figures/sequence_comparison/figures.py from the README run of the task: its launch information and console
-summary, its training and validation curves (an empty-axes base and its overlay, uncovered one panel at a time), its
-Results.txt, the confusion matrix, ROC and precision-recall curves of its last evaluation side by side, the probability
-of same_number_of_objects of every test pair with the thresholds of the evaluation, and the sample image of a wrong and
-of a right pair. Its facts are the metrics, losses, throughputs, thresholds and wrong pairs the narration quotes. The
-accuracies and the target precision drawn are written as the percentages of the reports of the repository ("94.03 %",
-"99 %"), the facts and the probability thresholds keeping their values between 0 and 1.
+summary, its training and validation curves (an empty-axes base and its overlay, uncovered one panel at a time), and,
+from the evaluations of both checkpoints made again with the current code in its Checkpoint_Evaluation folder, its
+Results.txt, the confusion matrix, ROC and precision-recall curves and the precision-recall curves zoomed on the
+thresholds of its last evaluation side by side, the probability of same_number_of_objects of every test pair with the
+thresholds of the evaluation, and the sample image of a wrong and of a right pair. Its facts are the metrics, losses,
+throughputs, thresholds and wrong pairs the narration quotes. The accuracies and the target precision drawn are
+written as the percentages of the reports of the repository ("94.03 %", "99 %"), the facts and the probability
+thresholds keeping their values between 0 and 1.
 """
 
 import csv
@@ -32,11 +34,17 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
                                                                                  read_interval_summaries,
                                                                                  read_predictions, read_scalar_curve,
                                                                                  write_text_lines)
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.report_formatting import (format_percentage, format_percentage_label,
                                                           format_percentage_tick)
 
 # Smoothing of the training curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.95
+
+# Folder of the evaluations the figures read, inside the run folder: both checkpoints evaluated again with the current
+# code by scripts/evaluation/evaluate_checkpoint.py (rates as percentages, top-5 accuracy, Per Class Recall table,
+# precision_recall_thresholds.png), the Evaluation folder of the training having been written by an older evaluation
+EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
 
 # Headline scalars of the test evaluations kept as facts, with the names of their facts
 TEST_SCALARS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy", "Macro F1": "macro_f1",
@@ -68,7 +76,9 @@ def draw_curve_figure(output_folder: Path, run_folder: Path, class_count: int) -
     """
     curves = {(split, tag): read_scalar_curve(run_folder=run_folder, split=split, tag=tag)
               for split in ["Train", "Validation"] for tag in ["Total Loss", "Accuracy"]}
-    test_iterations, test_accuracies = read_scalar_curve(run_folder=run_folder, split="Test", tag="Accuracy")
+    # Test accuracies of the evaluations of the current code, whose TensorBoard logs are in Checkpoint_Evaluation
+    test_iterations, test_accuracies = read_scalar_curve(run_folder=run_folder / EVALUATION_FOLDER_NAME, split="Test",
+                                                         tag="Accuracy")
     last_iteration = int(curves[("Train", "Total Loss")][0][-1])
     register_fonts()
     figure, (loss_axes, accuracy_axes) = pyplot.subplots(nrows=1, ncols=2, figsize=(CHART_WIDTH / DOTS_PER_INCH,
@@ -239,27 +249,29 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     # Curves, Results.txt and the headline metrics of every evaluation
     facts.update(draw_curve_figure(output_folder=output_folder, run_folder=run_folder, class_count=class_count))
     write_text_lines(output_path=output_folder / "listings" / "results.txt",
-                     lines=(run_folder / "Results.txt").read_text(encoding="utf-8").splitlines())
+                     lines=(run_folder / EVALUATION_FOLDER_NAME / "Results.txt").read_text(
+                         encoding="utf-8").splitlines())
     for scalar_name, fact_name in TEST_SCALARS.items():
-        iterations, values = read_scalar_curve(run_folder=run_folder, split="Test", tag=scalar_name)
+        iterations, values = read_scalar_curve(run_folder=run_folder / EVALUATION_FOLDER_NAME, split="Test",
+                                               tag=scalar_name)
         for evaluated_iteration, value in zip(iterations, values):
             facts[f"evaluation.{fact_name}.iteration_{int(evaluated_iteration)}"] = round_fact(value=value)
         facts["evaluation.iterations"] = [int(evaluated_iteration) for evaluated_iteration in iterations]
 
-    # Confusion matrix, ROC and precision-recall curves of the last evaluation side by side
-    evaluation_folder = run_folder / "Evaluation" / f"Iteration_{iteration}"
-    composite_facts = compose_image_grid(rows=[[evaluation_folder / "confusion_matrix.png",
-                                                evaluation_folder / "roc_curves.png",
-                                                evaluation_folder / "precision_recall_curves.png"]],
-                                         row_headings=[f"Evaluation/Iteration_{iteration}"],
-                                         column_headings=["confusion_matrix.png", "roc_curves.png",
-                                                          "precision_recall_curves.png"],
-                                         image_height=560, output_path=output_folder / "evaluation" /
-                                         "evaluation_images.png")
+    # Confusion matrix, ROC and precision-recall curves and the precision-recall curves zoomed on the thresholds of the
+    # last evaluation side by side
+    evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{iteration}"
+    image_names = ["confusion_matrix.png", "roc_curves.png", "precision_recall_curves.png",
+                   "precision_recall_thresholds.png"]
+    composite_facts = compose_image_grid(rows=[[evaluation_folder / image_name for image_name in image_names]],
+                                         row_headings=[f"{EVALUATION_FOLDER_NAME}/Iteration_{iteration}"],
+                                         column_headings=image_names, image_height=560,
+                                         output_path=output_folder / "evaluation" / "evaluation_images.png")
     facts.update({f"evaluation.composite.{name}": box for name, box in composite_facts.items()})
 
     # Probabilities of the predictions file, with the thresholds of the evaluation and the wrong pairs
-    predictions = read_predictions(run_folder=run_folder, iteration=iteration)
+    predictions = read_predictions(run_folder=run_folder, iteration=iteration,
+                                   evaluation_folder_name=EVALUATION_FOLDER_NAME)
     thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text(encoding="utf-8"))
     class_names = list(thresholds["classes"])
     facts.update(draw_probability_figure(output_path=output_folder / "evaluation" / "pair_probabilities.png",
@@ -285,17 +297,19 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     for error_index, row in enumerate(sorted_rows):
         facts[f"errors.pair_{error_index}.number"] = int(row["pair"].split("_")[-1])
 
-    # Precision and recall of every class at the last evaluation, from class_metrics.csv
+    # Precision and recall of every class at the last evaluation, with the bounds of the interval of the recall, from
+    # class_metrics.csv
     with open(file=evaluation_folder / "class_metrics.csv", mode="r", newline="", encoding="utf-8") as metrics_file:
         for metrics_row in csv.DictReader(metrics_file):
             short_name = "loss" if metrics_row["class"] == class_names[0] else "same"
-            facts[f"evaluation_class.{short_name}_precision"] = round_fact(value=float(metrics_row["precision"]))
-            facts[f"evaluation_class.{short_name}_recall"] = round_fact(value=float(metrics_row["recall"]))
+            for column in ["precision", "recall", "recall_lower", "recall_upper"]:
+                facts[f"evaluation_class.{short_name}_{column}"] = round_fact(value=float(metrics_row[column]))
+            facts[f"evaluation_class.{short_name}_samples"] = int(metrics_row["samples"])
 
     # Sample images of a wrong and of a right pair
     sample_facts = compose_image_grid(rows=[[evaluation_folder / "Samples" / f"{WRONG_SAMPLE}.png",
                                              evaluation_folder / "Samples" / f"{RIGHT_SAMPLE}.png"]],
-                                      row_headings=[f"Evaluation/Iteration_{iteration}/Samples"],
+                                      row_headings=[f"{EVALUATION_FOLDER_NAME}/Iteration_{iteration}/Samples"],
                                       column_headings=[f"{WRONG_SAMPLE}.png", f"{RIGHT_SAMPLE}.png"],
                                       image_height=660, output_path=output_folder / "evaluation" / "samples.png")
     facts.update({f"samples.{name}": box for name, box in sample_facts.items()})

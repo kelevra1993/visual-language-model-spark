@@ -110,8 +110,8 @@ scenes:
     title: "Curves of the pixel probabilities"
     code_reference: "vision_training/evaluation/classification/score_curves.py · compute_histogram_score_curves"
     elements:
-      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Evaluation/Iteration_1000/precision_recall_curves.png", box: [40, 20, 860, 660], caption: "iteration {{semantic_segmentation.run_first_evaluated_iteration}}"}
-      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Evaluation/Iteration_2000/precision_recall_curves.png", box: [900, 20, 1720, 660], caption: "iteration {{semantic_segmentation.run_checkpoint_iteration}}", appear: 2}
+      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_1000/precision_recall_curves.png", box: [40, 20, 860, 660], caption: "iteration {{semantic_segmentation.run_first_evaluated_iteration}}"}
+      - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/precision_recall_curves.png", box: [900, 20, 1720, 660], caption: "iteration {{semantic_segmentation.run_checkpoint_iteration}}", appear: 2}
     narration:
       - "With the per-class report, the histograms give the ROC and precision-recall curves of every class, one against the rest, exact at the edges of the {{constant:vision_training/evaluation/segmentation/segmentation_metrics.py#SCORE_HISTOGRAM_BINS:words}} bins."
       - "The macro ROC AUC is already {{semantic_segmentation.headline_macro_roc_auc_1000:.2f}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}}, when the mean IOU is {{semantic_segmentation.headline_mean_iou_1000:.2f}}: the millions of negative pixels flatter it."
@@ -146,7 +146,7 @@ scenes:
       - {type: box, box: [40, 450, 1100, 670], text: "Results.txt: one block per checkpoint,\nthe classes sorted by IoU, worst first,\nand a recall table with {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} intervals\nTensorBoard Test: {{semantic_segmentation.evaluation_test_scalars}} scalars and {{semantic_segmentation.evaluation_test_images}} images per evaluation", font: diagram_text, outline: violet, appear: 1, highlight: [1, 2]}
       - {type: box, box: [1160, 40, 1720, 670], text: "save_predicted_masks:\none class index PNG\nper test image\n\noriginal_resolution:\nscored against\nthe original masks", font: diagram_text, outline: aqua, appear: 3, highlight: [3]}
     narration:
-      - "Every evaluation folder holds the class metrics, the confusion matrix as counts and as an image, the ROC and precision-recall curves and the sample images."
+      - "Every evaluation folder, here the one the standalone evaluation wrote for iteration {{semantic_segmentation.run_checkpoint_iteration}}, holds the class metrics, the confusion matrix as counts and as an image, the ROC and precision-recall curves and the sample images."
       - "The report goes to the results file, its classes sorted by IOU, worst first, and to TensorBoard with {{semantic_segmentation.evaluation_test_scalars}} scalars per evaluation, the per-class ones included."
       - "In the report, a second table gives the recall of every class with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval, worst first, and the class metrics file keeps the bounds next to every recall."
       - "If, for instance, you need the masks, save predicted masks writes one class index image per test image, and original resolution scores the predictions against the original masks, as a deployment uses them."

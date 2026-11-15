@@ -6,7 +6,9 @@ and the console summary of the flatten run, the training loss of the three runs 
 uncovered one panel at a time), the confusion matrices and ROC curves of the flatten and average runs side by side, the
 probability of the true class of every test sequence from their predictions files, and one sample sequence of both
 runs; its facts are the metrics of every evaluation, the throughputs and losses of the logs and the predictions the
-narration quotes.
+narration quotes. The evaluations of the flatten run at 128 pixels and the average run are read from their
+Checkpoint_Evaluation folder, where scripts/evaluation/evaluate_checkpoint.py evaluated their checkpoints again with
+the current code, so that the report, the images and the metrics show what the current evaluation writes.
 """
 
 import math
@@ -26,6 +28,8 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from tutorials.figures.foundations.training_curves import smooth_values
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (compose_image_grid,
                                                                                  draw_console_figure,
                                                                                  extract_interval_block,
@@ -37,10 +41,14 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
 # Smoothing of the training curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.95
 
-# Headline scalars of the test evaluations kept as facts, with the names of their facts
+# Headline scalars of the test evaluations kept as facts, with the names of their facts, the k of the top-k accuracy
+# being the fixed one of the current evaluation
 TEST_SCALARS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy", "Macro F1": "macro_f1",
-                "Top-2 Accuracy": "top_2_accuracy", "Macro ROC AUC": "macro_roc_auc",
-                "Macro Average Precision": "macro_average_precision"}
+                f"Top-{TOP_K_ACCURACY_CLASSES} Accuracy": f"top_{TOP_K_ACCURACY_CLASSES}_accuracy",
+                "Macro ROC AUC": "macro_roc_auc", "Macro Average Precision": "macro_average_precision"}
+
+# Runs whose evaluations the scenes show, evaluated again into their Checkpoint_Evaluation folder
+EVALUATED_RUNS = ["flatten_128", "average_512"]
 
 # Sample sequence compared between the runs, one of the 8 fixed test sequences of both
 SAMPLE_SEQUENCE = "test_000000"
@@ -57,9 +65,9 @@ EVALUATION_FOLDER_PATTERN = re.compile(pattern=r"^Iteration_(\d+)$")
 
 def find_first_evaluated_iteration(run_folder: Path) -> int:
     """
-    Finds the first checkpoint evaluated by the training of a run, the earliest Evaluation/Iteration_<n> folder, whose
-    wrong predictions the report scene quotes, so that the facts follow the evaluations the run wrote rather than a
-    typed iteration.
+    Finds the first evaluated checkpoint of a run, the earliest Checkpoint_Evaluation/Iteration_<n> folder, whose
+    wrong predictions the report scene quotes, so that the facts follow the evaluations of the run rather than a typed
+    iteration.
 
     Args:
         run_folder (Path): The run folder.
@@ -70,17 +78,18 @@ def find_first_evaluated_iteration(run_folder: Path) -> int:
     Raises:
         FileNotFoundError: If the run holds no evaluation folder.
     """
-    iterations = [int(match.group(1)) for folder in (run_folder / "Evaluation").iterdir()
+    evaluation_root = run_folder / CHECKPOINT_EVALUATION_FOLDER_NAME
+    iterations = [int(match.group(1)) for folder in evaluation_root.iterdir()
                   if (match := EVALUATION_FOLDER_PATTERN.match(folder.name)) is not None and folder.is_dir()]
     if not iterations:
-        raise FileNotFoundError(f"No Evaluation/Iteration_<n> folder in {run_folder}.")
+        raise FileNotFoundError(f"No Iteration_<n> folder in {evaluation_root}.")
     return min(iterations)
 
 
 def read_test_metrics(run_folder: Path, run_name: str) -> Dict[str, Any]:
     """
-    Reads the headline metrics of every test evaluation of a run from its TensorBoard logs, as facts named
-    evaluation.<run name>.<metric>.iteration_<n>.
+    Reads the headline metrics of every evaluated checkpoint of a run from the TensorBoard logs of its
+    Checkpoint_Evaluation folder, as facts named evaluation.<run name>.<metric>.iteration_<n>.
 
     Args:
         run_folder (Path): The run folder.
@@ -91,7 +100,8 @@ def read_test_metrics(run_folder: Path, run_name: str) -> Dict[str, Any]:
     """
     facts = {}
     for scalar_name, fact_name in TEST_SCALARS.items():
-        iterations, values = read_scalar_curve(run_folder=run_folder, split="Test", tag=scalar_name)
+        iterations, values = read_scalar_curve(run_folder=run_folder / CHECKPOINT_EVALUATION_FOLDER_NAME, split="Test",
+                                               tag=scalar_name)
         for iteration, value in zip(iterations, values):
             facts[f"evaluation.{run_name}.{fact_name}.iteration_{int(iteration)}"] = round_fact(value=value)
     return facts
@@ -214,9 +224,10 @@ def draw_probability_figure(output_path: Path, probability_sets: Dict[str, Dict[
 def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], log_paths: Dict[str, Path],
                             evaluation_iterations: Dict[str, int]) -> Dict[str, Any]:
     """
-    Makes the training and evaluation figures of the three runs and gives their facts: the metrics of every test
-    evaluation, the throughput and interval losses of the console logs, the first and last training losses, the
-    wrong predictions of the flatten run at its first evaluation, and the probabilities of the predictions files.
+    Makes the training and evaluation figures of the three runs and gives their facts: the metrics of every evaluated
+    checkpoint of the flatten run at 128 pixels and the average run, the throughput and interval losses of the console
+    logs, the first and last training losses, the wrong predictions of the flatten run at its first evaluation, and the
+    probabilities of the predictions files.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -228,9 +239,10 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
         Dict[str, Any]: The facts, named evaluation.*, launch.*, console.*, training.*, probabilities.* and
             samples.*.
     """
+    # Metrics of the evaluated checkpoints of the two runs whose evaluations the scenes show
     facts = {}
-    for run_name, run_folder in run_folders.items():
-        facts.update(read_test_metrics(run_folder=run_folder, run_name=run_name))
+    for run_name in EVALUATED_RUNS:
+        facts.update(read_test_metrics(run_folder=run_folders[run_name], run_name=run_name))
 
     # Launch information of the flatten run: its split descriptions and the length of an epoch
     launch_lines = extract_launch_block(log_path=log_paths["flatten_128"], last_line_start="- Batch Size")
@@ -288,8 +300,9 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
 
     # Confusion matrices and ROC curves of the flatten and average runs at their last evaluation
     composite_rows, row_headings = [], []
-    for run_name in ["flatten_128", "average_512"]:
-        evaluation_folder = run_folders[run_name] / "Evaluation" / f"Iteration_{evaluation_iterations[run_name]}"
+    for run_name in EVALUATED_RUNS:
+        evaluation_folder = (run_folders[run_name] / CHECKPOINT_EVALUATION_FOLDER_NAME /
+                             f"Iteration_{evaluation_iterations[run_name]}")
         composite_rows.append([evaluation_folder / "confusion_matrix.png", evaluation_folder / "roc_curves.png"])
         row_headings.append(f"{run_labels[run_name][0]}, iteration {evaluation_iterations[run_name]:,}")
     composite_facts = compose_image_grid(rows=composite_rows, row_headings=row_headings,
@@ -300,9 +313,9 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
 
     # Probability of the true class of every test sequence, and the wrong predictions of every evaluation
     probability_sets = {}
-    for run_name in ["flatten_128", "average_512"]:
-        predictions = read_predictions(run_folder=run_folders[run_name],
-                                       iteration=evaluation_iterations[run_name])
+    for run_name in EVALUATED_RUNS:
+        predictions = read_predictions(run_folder=run_folders[run_name], iteration=evaluation_iterations[run_name],
+                                       evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME)
         true_probabilities = compute_true_probabilities(predictions=predictions)
         all_probabilities = numpy.array([float(value) for row in predictions for key, value in row.items()
                                          if key.startswith("probability_")])
@@ -320,7 +333,8 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                                          probability_sets=probability_sets))
     # Wrong predictions of the first evaluated checkpoint of the flatten run
     first_iteration = find_first_evaluated_iteration(run_folder=run_folders["flatten_128"])
-    first_predictions = read_predictions(run_folder=run_folders["flatten_128"], iteration=first_iteration)
+    first_predictions = read_predictions(run_folder=run_folders["flatten_128"], iteration=first_iteration,
+                                         evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME)
     wrong_rows = [row for row in first_predictions if row["correct"] == "0"]
     facts.update({"probabilities.threshold": CONFIDENT_PROBABILITY,
                   "evaluation.flatten_128.first_iteration": first_iteration})
@@ -335,22 +349,24 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                           value=float(wrong_rows[0][f"probability_{wrong_rows[0]['true_class']}"])),
                       "evaluation.flatten_128.first_wrong.number": int(wrong_rows[0]["sequence"].split("_")[-1])})
 
-    # Results.txt of the flatten run, read by the code scene of the report
-    results_path = run_folders["flatten_128"] / "Results.txt"
+    # Results.txt of the evaluation of the flatten run, read by the code scene of the report
+    results_path = run_folders["flatten_128"] / CHECKPOINT_EVALUATION_FOLDER_NAME / "Results.txt"
     write_text_lines(output_path=output_folder / "listings" / "results_flatten_128.txt",
                      lines=results_path.read_text(encoding="utf-8").splitlines())
 
     # The same sample sequence drawn by the evaluation of both runs
     sample_facts = compose_image_grid(
-        rows=[[run_folders[run_name] / "Evaluation" / f"Iteration_{evaluation_iterations[run_name]}" / "Samples" /
-               f"{SAMPLE_SEQUENCE}.png" for run_name in ["flatten_128", "average_512"]]],
+        rows=[[run_folders[run_name] / CHECKPOINT_EVALUATION_FOLDER_NAME /
+               f"Iteration_{evaluation_iterations[run_name]}" / "Samples" / f"{SAMPLE_SEQUENCE}.png"
+               for run_name in EVALUATED_RUNS]],
         row_headings=[f"Samples/{SAMPLE_SEQUENCE}.png"], column_headings=[row_headings[0], row_headings[1]],
         image_height=400, output_path=output_folder / "evaluation" / "samples.png")
     facts.update({f"samples.{name}": box for name, box in sample_facts.items()})
     facts["samples.sequence"] = SAMPLE_SEQUENCE
-    for run_name in ["flatten_128", "average_512"]:
+    for run_name in EVALUATED_RUNS:
         sample_row = next(row for row in read_predictions(run_folder=run_folders[run_name],
-                                                          iteration=evaluation_iterations[run_name])
+                                                          iteration=evaluation_iterations[run_name],
+                                                          evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME)
                           if row["sequence"] == SAMPLE_SEQUENCE)
         facts.update({f"samples.{run_name}.true_class": sample_row["true_class"],
                       f"samples.{run_name}.predicted_class": sample_row["predicted_class"],
