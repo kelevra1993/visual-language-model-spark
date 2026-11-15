@@ -190,14 +190,14 @@ scenes:
     # The block numbers of the levels
     literal_numbers: ["5", "6", "7"]
     elements:
-      - {type: text, position: [40, 30], text: "anchor_recall.csv · share of the objects whose best anchor reaches IoU {{object_detection.run.anchor_foreground_minimum}}", font: diagram_bold}
+      - {type: text, position: [40, 30], text: "anchor_recall.csv · % of the objects whose best anchor reaches IoU {{object_detection.run.anchor_foreground_minimum}}", font: diagram_bold}
       - type: grid
         box: [470, 150, 1150, 610]
-        values: "{{object_detection.anchor_recall.values}}"
+        values: "{{object_detection.anchor_recall.percentages}}"
         show_values: true
-        decimals: 3
+        decimals: 2
         minimum: 0
-        maximum: 1
+        maximum: 100
         font: diagram_monospace_small
         row_labels: "{{object_detection.anchor_recall.row_labels}}"
         column_labels: ["block 5", "block 6", "block 7", "all levels"]
@@ -213,9 +213,9 @@ scenes:
       - {type: box, box: [470, 640, 1730, 730], text: "diagnosis_modes.compute_anchor_coverage: this table for the training, validation\nand test objects at its iou_threshold, then exit: no training, no run folder", font: diagram_small, outline: accent, appear: 4, highlight: [4]}
     narration:
       - "At every launch, the trainer measures how well the anchors fit the training objects, from the annotations alone, and writes anchor recall dot csv in the run folder."
-      - "Of the {{object_detection.anchor_recall.all.count:,}} training objects, {{object_detection.anchor_recall.all.recall_all_levels:.1%}} have an anchor reaching {{object_detection.run.anchor_foreground_minimum}} in some level."
-      - "Block 5 covers {{object_detection.anchor_recall.medium.recall_block_5:.1%}} of the medium objects and none of the large ones, which blocks 6 and 7 take at {{object_detection.anchor_recall.large.recall_block_6:.1%}}."
-      - "Only {{object_detection.anchor_recall.small.recall_all_levels:.1%}} of the {{object_detection.anchor_recall.small.count:,}} small objects have one; the others rely on the fallback alone, and the evaluation shows the cost."
+      - "Of the {{object_detection.anchor_recall.all.count:,}} training objects, {{object_detection.anchor_recall.all.recall_all_levels:percent}} have an anchor reaching {{object_detection.run.anchor_foreground_minimum}} in some level."
+      - "Block 5 covers {{object_detection.anchor_recall.medium.recall_block_5:percent}} of the medium objects and none of the large ones, which blocks 6 and 7 take at {{object_detection.anchor_recall.large.recall_block_6:percent}}."
+      - "Only {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the {{object_detection.anchor_recall.small.count:,}} small objects have one; the others rely on the fallback alone, and the evaluation shows the cost."
       - "To check the anchors before training, the compute anchor coverage diagnosis mode prints this table for the training, validation and test objects at its own overlap threshold, then exits without creating a run folder."
 
   - kind: html
@@ -420,7 +420,7 @@ scenes:
     narration:
       - "Over the test split of the benchmark, at iteration {{object_detection.proposal_selection.compared_iteration:,}}, the joint pair fills only {{object_detection.proposal_selection.joint_proposals_per_image:.1f}} of its {{object_detection.proposal_selection.inference_post_nms}} slots with real proposals, the rest with copies, and the per-level pair fills all of them."
       - "Level {{object_detection.proposal_selection.level_names[0]}} still takes most of them, {{object_detection.proposal_selection.per_level_proposals_per_level[0]:.0f}} per image, since the last ranking is by score, and the other levels gain a few proposals each."
-      - "Yet every level now covers more of the test objects at an IoU of 0.5: level {{object_detection.proposal_selection.level_names[1]}} {{object_detection.proposal_selection.per_level_recall_per_level[1]:.0%}} of them against {{object_detection.proposal_selection.joint_recall_per_level[1]:.0%}}, and level {{object_detection.proposal_selection.level_names[2]}} {{object_detection.proposal_selection.per_level_recall_per_level[2]:.0%}} against {{object_detection.proposal_selection.joint_recall_per_level[2]:.0%}}."
+      - "Yet every level now covers more of the test objects at an IoU of 0.5: level {{object_detection.proposal_selection.level_names[1]}} {{object_detection.proposal_selection.per_level_recall_per_level[1]:percent}} of them against {{object_detection.proposal_selection.joint_recall_per_level[1]:percent}}, and level {{object_detection.proposal_selection.level_names[2]}} {{object_detection.proposal_selection.per_level_recall_per_level[2]:percent}} against {{object_detection.proposal_selection.joint_recall_per_level[2]:percent}}."
 
   - kind: html
     page: diagram
@@ -455,12 +455,12 @@ scenes:
         y_label: "points"
         appear: 2
         highlight: [2]
-      - {type: box, box: [80, 600, 1700, 720], text: "iteration {{object_detection.proposal_selection.compared_iteration:,}}: per level {{object_detection.proposal_selection.per_level_map:.4f}}, joint {{object_detection.proposal_selection.joint_map:.4f}}, lead {{object_detection.proposal_selection.lead_points:.2f}} points, gap {{object_detection.proposal_selection.margin_points:.2f}}\nper level at inference only, on joint weights: {{object_detection.proposal_selection.preview_per_level_map:.4f}} against {{object_detection.proposal_selection.preview_joint_map:.4f}}", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: box, box: [80, 600, 1700, 720], text: "iteration {{object_detection.proposal_selection.compared_iteration:,}}: per level {{object_detection.proposal_selection.per_level_map:percent}}, joint {{object_detection.proposal_selection.joint_map:percent}}, lead {{object_detection.proposal_selection.lead:points}}, gap {{object_detection.proposal_selection.margin:points}}\nper level at inference only, on joint weights: {{object_detection.proposal_selection.preview_per_level_map:percent}} against {{object_detection.proposal_selection.preview_joint_map:percent}}", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
     narration:
       - "Each selection trained {{object_detection.proposal_selection.launches_per_selection:words}} detectors from scratch for {{object_detection.proposal_selection.compared_iteration:,}} iterations, every other setting the same."
-      - "The per-level pair led from the first evaluation, by up to {{object_detection.proposal_selection.maximum_lead_points:.1f}} mAP points at iteration {{object_detection.proposal_selection.maximum_lead_iteration:,}}, and ended at {{object_detection.proposal_selection.per_level_map:.1%}} against {{object_detection.proposal_selection.joint_map:.1%}}."
-      - "A lead counts only above the gap between the {{object_detection.proposal_selection.launches_per_selection:words}} launches of the same settings, the noise of one training: the lead of {{object_detection.proposal_selection.lead_points:.2f}} points has stayed above that gap since iteration {{object_detection.proposal_selection.first_win_iteration:,}}, ending at {{object_detection.proposal_selection.margin_points:.2f}}."
-      - "Applied at inference only to weights trained jointly, the per-level selection gains just {{object_detection.proposal_selection.preview_gain_points:.2f}} points: the gain comes from training the heads on the proposals it selects."
+      - "The per-level pair led from the first evaluation, by up to {{object_detection.proposal_selection.maximum_lead:points}} of mAP at iteration {{object_detection.proposal_selection.maximum_lead_iteration:,}}, and ended at {{object_detection.proposal_selection.per_level_map:percent}} against {{object_detection.proposal_selection.joint_map:percent}}."
+      - "A lead counts only above the gap between the {{object_detection.proposal_selection.launches_per_selection:words}} launches of the same settings, the noise of one training: the lead of {{object_detection.proposal_selection.lead:points}} has stayed above that gap since iteration {{object_detection.proposal_selection.first_win_iteration:,}}, the gap ending at {{object_detection.proposal_selection.margin:points}}."
+      - "Applied at inference only to weights trained jointly, the per-level selection gains just {{object_detection.proposal_selection.preview_gain:points}}: the gain comes from training the heads on the proposals it selects."
 
   - kind: terminal
     title: "Generate, train, evaluate"
@@ -487,9 +487,9 @@ scenes:
       - {text: "COCO bbox [x, y, w, h] to corners; background added as class {{object_detection.data.background_class}}"}
       - {text: "Blocks 5, 6, 7: strides {{object_detection.inference.level_5.stride}}, {{object_detection.inference.level_6.stride}}, {{object_detection.inference.level_7.stride}}"}
       - {text: "{{object_detection.inference.level_5.anchors_per_cell}} anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners"}
-      - {text: "anchor_recall.csv: {{object_detection.anchor_recall.all.recall_all_levels:.1%}} of the objects, {{object_detection.anchor_recall.small.recall_all_levels:.1%}} of the small ones"}
+      - {text: "anchor_recall.csv: {{object_detection.anchor_recall.all.recall_all_levels:percent}} of the objects, {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the small ones"}
       - {text: "Proposals ({{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.proposal_selection}}): top-k and NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.nms_iou_threshold}}, then {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} or {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} kept"}
-      - {text: "Per level against joint on the benchmark: every slot real, +{{object_detection.proposal_selection.lead_points:.2f}} mAP points"}
+      - {text: "Per level against joint on the benchmark: every slot real, {{object_detection.proposal_selection.lead:points}} of mAP"}
     narration:
       - "To recap: {{object_detection.inference.level_count:words}} levels of the backbone, {{object_detection.inference.level_5.anchors_per_cell:words}} anchors per cell, region proposals selected per level or jointly, and an anchor recall that tells at launch which objects the detector can learn."
       - "The next chapter follows the training: how the anchors and proposals get their targets, the detection heads, and the four losses."

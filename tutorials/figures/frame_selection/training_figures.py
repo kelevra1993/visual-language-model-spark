@@ -6,7 +6,8 @@ logits (ln K for the per-frame loss over the K categories, the mean ln T of the 
 loss), and the frame accuracy of the training and validation batches with the share of unselected frames. Two PNG files
 are written, the empty panels with the references (the base image of the scene) and the whole chart (its overlay), with
 the boxes of the panels, the values of the curves and the median throughput of the training (from the wall times of
-the logs) as facts.
+the logs) as facts. The accuracy and the share of unselected frames are written as the percentages of the reports of
+the repository ("94.03 %", ticks "60 %"), the facts keeping them between 0 and 1.
 """
 
 import matplotlib
@@ -25,6 +26,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 style_chart_panel)
 from tutorials.figures.foundations.training_curves import read_scalars, smooth_values
 from tutorials.figures.sequence_labelling.sequence_utilities import read_run_sections
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Name of the figures of the training curves
 FIGURE_NAME = "training_curves"
@@ -168,6 +170,9 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     style_curve_panel(axes=accuracy_axes, title="Accuracy of the frames", y_label="Accuracy",
                       last_iteration=last_iteration)
     accuracy_axes.set_ylim(bottom=0.5, top=1.03)
+
+    # Accuracy ticks written as the percentages of the reports of the repository, the losses keeping their decimals
+    accuracy_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     draw_reference_line(axes=loss_axes, value=reference_facts["dataset.mean_log_length"],
                         label=f"selection, equal logits: mean ln T = {reference_facts['dataset.mean_log_length']:.3f}",
                         last_iteration=last_iteration, vertical_alignment="bottom")
@@ -176,7 +181,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
                               f"{reference_facts['dataset.log_class_count']:.3f}",
                         last_iteration=last_iteration, vertical_alignment="top")
     draw_reference_line(axes=accuracy_axes, value=reference_facts["dataset.unselected_share"],
-                        label=f"share of unselected frames: {reference_facts['dataset.unselected_share']:.3f}",
+                        label=f"share of unselected frames: "
+                              f"{format_percentage(value=reference_facts['dataset.unselected_share'])}",
                         last_iteration=last_iteration, vertical_alignment="top")
     save_figure(figure=figure, output_path=output_folder / "training" / f"{FIGURE_NAME}_axes.png")
 

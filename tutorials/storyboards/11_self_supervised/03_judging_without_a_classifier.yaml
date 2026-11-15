@@ -81,7 +81,7 @@ scenes:
       - {box: "{{self_supervised.test.effective_rank_panel_box}}", sentences: [1]}
       - {box: "{{self_supervised.test.representation_standard_deviation_panel_box}}", sentences: [2]}
     narration:
-      - "Over the evaluations of the whole test split, the k-NN accuracy goes from {{self_supervised.test.knn_accuracy_first:.1%}} to {{self_supervised.test.knn_accuracy_last:.1%}}, {{self_supervised.test.knn_accuracy_last_over_chance:.1f}} times the chance of one in {{self_supervised.test.class_count}}."
+      - "Over the evaluations of the whole test split, the k-NN accuracy goes from {{self_supervised.test.knn_accuracy_first:percent}} to {{self_supervised.test.knn_accuracy_last:percent}}, {{self_supervised.test.knn_accuracy_last_over_chance:.1f}} times the chance of one in {{self_supervised.test.class_count}}."
       - "The effective rank goes from {{self_supervised.test.effective_rank_first:.0f}} to {{self_supervised.test.effective_rank_last:.0f}} of the {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} directions of the representation."
       - "The spread of the representations goes from {{self_supervised.test.representation_standard_deviation_first:.2f}} to {{self_supervised.test.representation_standard_deviation_last:.2f}}: never negative after the ReLU and the pooling, the representations cover only part of the sphere, so read the spread next to the other two: a collapse drives it towards zero while the effective rank falls with it."
 
@@ -144,12 +144,12 @@ scenes:
       - {type: text, position: [1060, 40], text: "k-NN F1 per class · iteration {{self_supervised.results.last_iteration:,}}", font: diagram_bold, appear: 1}
       - {type: bars, box: [1060, 100, 1720, 600], orientation: horizontal, values: "{{self_supervised.classes.f1_values}}", labels: "{{self_supervised.classes.f1_labels}}", value_labels: "{{self_supervised.classes.f1_value_labels}}", colour: blue, maximum: "{{self_supervised.classes.f1_bar_maximum}}", label_width: 160, appear: 1, highlight: [2]}
       - {type: text, position: [1060, 650], text: "class_metrics.csv: the same metrics in class order", font: diagram_small, colour: dim, appear: 1}
-      - {type: text, position: [1060, 690], text: "then: k-NN recall with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval", font: diagram_small, colour: dim, appear: 3, highlight: [3]}
+      - {type: text, position: [1060, 690], text: "then: k-NN recall with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval", font: diagram_small, colour: dim, appear: 3, highlight: [3]}
     narration:
       - "Results.txt keeps one block per evaluation: the five global metrics, the labelled test images, the neighbours and reference training images of the k-NN, and the sample images."
       - "Then the table of the classes, worst F1 first, the class metrics file holding the same rows in class order."
-      - "The {{self_supervised.classes.best_class}} and the {{self_supervised.classes.second_class}} lead with an F1 of {{self_supervised.classes.best_f1:.2f}} and {{self_supervised.classes.second_f1:.2f}}, while {{self_supervised.classes.bottom_four}} trail, down to {{self_supervised.classes.worst_f1:.2f}}."
-      - "A per class k-NN recall table follows, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} confidence interval of every recall over the labelled test images of its class."
+      - "The {{self_supervised.classes.best_class}} and the {{self_supervised.classes.second_class}} lead with an F1 of {{self_supervised.classes.best_f1:percent}} and {{self_supervised.classes.second_f1:percent}}, while {{self_supervised.classes.bottom_four}} trail, down to {{self_supervised.classes.worst_f1:percent}}."
+      - "A per class k-NN recall table follows, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval of every recall over the labelled test images of its class."
 
   - kind: image
     title: "The first validations"

@@ -141,9 +141,9 @@ scenes:
     elements:
       - type: grid
         box: [330, 90, 1500, 600]
-        values: "{{keypoint_detection.metrics_grid_values}}"
+        values: "{{keypoint_detection.metrics_grid_percentages}}"
         show_values: true
-        decimals: 3
+        decimals: 2
         font: diagram_monospace_small
         row_labels: "{{keypoint_detection.metrics_grid_row_labels}}"
         column_labels: "{{keypoint_detection.metrics_grid_column_labels}}"
@@ -153,16 +153,16 @@ scenes:
           - {row: 0, column: 0, sentences: [1]}
           - {row: 0, column: 4, sentences: [1]}
           - {row: 2, column: 0, sentences: [1, 2]}
-          - {row: 2, column: 4, sentences: [1]}
+          - {row: 2, column: 4, sentences: [1, 2]}
           - {row: 2, column: 1, sentences: [2]}
           - {row: 2, column: 5, sentences: [2]}
           - {row: 6, column: 4, sentences: [3]}
-      - {type: text, position: [330, 640], text: "{{keypoint_detection.metrics_test_images}} test images, {{keypoint_detection.metrics_test_objects:,}} objects with key points · mean error at {{keypoint_detection.checkpoint_iteration}}: {{keypoint_detection.metrics_trained_6000_error:.2f}} px", font: diagram_small, colour: dim}
+      - {type: text, position: [330, 640], text: "cells in % · {{keypoint_detection.metrics_test_images}} test images, {{keypoint_detection.metrics_test_objects:,}} objects with key points · mean error at {{keypoint_detection.checkpoint_iteration}}: {{keypoint_detection.metrics_trained_6000_error:.2f}} px", font: diagram_small, colour: dim}
     narration:
       - "Every evaluation of this run covers the first {{keypoint_detection.metrics_test_images}} test images, holding {{keypoint_detection.metrics_test_objects:,}} objects with key points, for the trained and the averaged weights."
-      - "From iteration {{keypoint_detection.metrics_first_iteration}} to {{keypoint_detection.checkpoint_iteration}}, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:.2f}} to {{keypoint_detection.metrics_trained_6000_map_0_5:.2f}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:.2f}} to {{keypoint_detection.metrics_trained_6000_map_0_95:.2f}}."
-      - "At iteration {{keypoint_detection.metrics_first_iteration}} the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:.2f}} at 0.95; by {{keypoint_detection.checkpoint_iteration}} they are within a hundredth of the trained weights."
-      - "A ground truth counts as matched only by an object reaching an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}: {{keypoint_detection.metrics_trained_6000_matched:.2%}} at iteration {{keypoint_detection.checkpoint_iteration}}, the mean error of {{keypoint_detection.metrics_trained_6000_error:.1f}} pixels coming from these matches only."
+      - "From iteration {{keypoint_detection.metrics_first_iteration}} to {{keypoint_detection.checkpoint_iteration}}, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:percent}} to {{keypoint_detection.metrics_trained_6000_map_0_5:percent}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:percent}} to {{keypoint_detection.metrics_trained_6000_map_0_95:percent}}."
+      - "At iteration {{keypoint_detection.metrics_first_iteration}} the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:percent}} at 0.95; by {{keypoint_detection.checkpoint_iteration}} they reach {{keypoint_detection.metrics_ema_6000_map_0_95:percent}}, against {{keypoint_detection.metrics_trained_6000_map_0_95:percent}} for the trained weights."
+      - "A ground truth counts as matched only by an object reaching an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}: {{keypoint_detection.metrics_trained_6000_matched:percent}} at iteration {{keypoint_detection.checkpoint_iteration}}, the mean error of {{keypoint_detection.metrics_trained_6000_error:.1f}} pixels coming from these matches only."
 
   - kind: image
     title: "Worst classes and key points"
@@ -171,9 +171,9 @@ scenes:
     # The similarities of the recall columns of class metrics
     literal_numbers: ["0.5", "0.75"]
     narration:
-      - "Per class, the {{keypoint_detection.worst_class}} is the weakest at {{keypoint_detection.worst_class_ap:.2f}}; per key point, the {{keypoint_detection.worst_keypoint_name}} of the {{keypoint_detection.worst_keypoint_class}}, with a PCK of {{keypoint_detection.worst_keypoint_pck:.2f}} and {{keypoint_detection.worst_keypoint_error:.0f}} pixels of mean error."
+      - "Per class, the {{keypoint_detection.worst_class}} is the weakest at {{keypoint_detection.worst_class_ap:percent}}; per key point, the {{keypoint_detection.worst_keypoint_name}} of the {{keypoint_detection.worst_keypoint_class}}, with a PCK of {{keypoint_detection.worst_keypoint_pck:percent}} and {{keypoint_detection.worst_keypoint_error:.0f}} pixels of mean error."
       - "Both tables come from class metrics and key point metrics, written in the evaluation folder of every checkpoint next to its sample images and to the same files for the averaged weights."
-      - "Class metrics also holds the recall of every class at an OKS of 0.5 and 0.75, with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval over its objects, shown worst first in a recall table of the per-class report."
+      - "Class metrics also holds the recall of every class at an OKS of 0.5 and 0.75, with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval over its objects, shown worst first in a recall table of the per-class report."
 
   - kind: terminal
     title: "Generate, train, evaluate, export"

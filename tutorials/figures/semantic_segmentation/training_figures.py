@@ -4,7 +4,8 @@ tutorials/figures/semantic_segmentation/figures.py from the synthetic segmentati
 curves read from its TensorBoard logs (the losses on one panel, the batch metrics on the other, an empty-axes base image
 and its overlay whose curves the scene uncovers), the values the narration quotes (the first and last values, the
 uniform cross entropy ln K), the share of the test pixels of every class read from its class_metrics.csv, and the
-throughput of its training log.
+throughput of its training log. The batch metrics and the pixel shares drawn are written as the percentages of the
+reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
 
 import math
@@ -24,6 +25,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
 from tutorials.figures.keypoint_detection.scalar_logs import (SMOOTHING_WEIGHT, draw_smoothed_curve, read_scalars,
                                                              smooth_values)
 from tutorials.figures.semantic_segmentation.segmentation_sources import CHECKPOINT_ITERATION, EVALUATION_FOLDER_NAME
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Curves of both panels, logged by the segmentation trainer in Tensorboard/Train and Validation, with their colours
 LOSS_CURVES = {"Total Loss": SERIES_COLOURS[0], "Cross Entropy Loss": SERIES_COLOURS[1], "Dice Loss": SERIES_COLOURS[2]}
@@ -93,6 +95,9 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     loss_axes.set_ylim(bottom=0.0, top=3.6)
     metric_axes.set_ylim(bottom=0.0, top=1.0)
 
+    # Batch metric ticks written as the percentages of the reports of the repository, the losses keeping their decimals
+    metric_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
+
     # Every curve: the training values smoothed, the validation values as dots of the same colour
     facts = {"curves_last_iteration": last_iteration}
     for axes, panel_curves in [(loss_axes, LOSS_CURVES), (metric_axes, METRIC_CURVES)]:
@@ -153,7 +158,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
 def describe_pixel_shares(run_folder: Path, number_classes: int) -> Dict[str, Any]:
     """
     Gives the share of the labelled test pixels of every class, read from the class_metrics.csv of the last evaluation
-    of the run, the bars of the loss scene, and the cross entropy of a uniform prediction, ln K.
+    of the run, the bars of the loss scene with their percentages ("90.32 %"), and the cross entropy of a uniform
+    prediction, ln K.
 
     Args:
         run_folder (Path): The folder of the segmentation run.
@@ -171,7 +177,7 @@ def describe_pixel_shares(run_folder: Path, number_classes: int) -> Dict[str, An
     order = numpy.argsort(-shares)
     return {"shares_values": [round_fact(value=shares[index]) for index in order],
             "shares_labels": [rows[index]["class"].replace("_", " ") for index in order],
-            "shares_value_labels": [f"{shares[index]:.2%}" for index in order],
+            "shares_value_labels": [format_percentage(value=shares[index]) for index in order],
             "shares_background": round_fact(value=shares[0]), "shares_labelled_pixels": int(pixels.sum()),
             "shares_smallest_class": rows[int(order[-1])]["class"].replace("_", " "),
             "shares_smallest": round_fact(value=shares[order[-1]]),

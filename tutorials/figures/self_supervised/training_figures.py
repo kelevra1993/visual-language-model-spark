@@ -5,6 +5,8 @@ training log of the SimCLR run: the InfoNCE loss against ln(2N - 1), the positiv
 1 / (2N - 1) and the embedding standard deviation against 1, for the training batches and the validation batches (an
 empty-axes base image and its overlay, whose curves the scene uncovers); the first iterations of the validation, whose
 running statistics of the batch normalization had not settled yet; and the last console summary of the run, a listing.
+The positive pair accuracy is drawn on an axis of the percentages of the reports of the repository (ticks "20 %"), the
+facts keeping it between 0 and 1, and the labelled iteration ticks are spaced for the length of the run.
 """
 
 import math
@@ -24,24 +26,28 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 read_run_configuration, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from tutorials.figures.self_supervised.ssl_sources import LOG_FILE_NAME
+from vision_training.evaluation.report_formatting import format_percentage_tick
 
 # Smoothing weight of the training curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.95
 
-# Panels of the training curves: the scalar, its title, its value axis, its limits and the fact name of its scalar
+# Panels of the training curves: the scalar, its title, its value axis, its limits, the fact name of its scalar and
+# whether it is a rate drawn on an axis of percentages
 CURVE_PANELS = [{"tag": "InfoNCE Loss", "title": "InfoNCE loss", "y_label": "Loss", "limits": (3.0, 6.0),
-                 "name": "info_nce"},
+                 "name": "info_nce", "in_percent": False},
                 {"tag": "Positive Pair Accuracy", "title": "Positive pair accuracy", "y_label": "Share of the views",
-                 "limits": (0.0, 0.4), "name": "positive_pair_accuracy"},
+                 "limits": (0.0, 0.4), "name": "positive_pair_accuracy", "in_percent": True},
                 {"tag": "Embedding Standard Deviation", "title": "Embedding standard deviation", "y_label": "Value",
-                 "limits": (0.0, 1.1), "name": "embedding_standard_deviation"}]
+                 "limits": (0.0, 1.1), "name": "embedding_standard_deviation", "in_percent": False}]
 
 # Iterations shown by the figure of the first validations, and between two of its labelled ticks
 EARLY_ITERATIONS = 200
 EARLY_TICK_STEP = 50
 
-# Iterations between two labelled ticks of the training curves
-ITERATION_TICK_STEP = 500
+# Iterations between two labelled ticks of the training curves and of the test metrics, the smallest of these steps
+# giving at most MAXIMUM_ITERATION_INTERVALS intervals over the run, so that the labels stay apart whatever its length
+ITERATION_TICK_STEPS = [500, 1000, 2500, 5000, 10000]
+MAXIMUM_ITERATION_INTERVALS = 5
 
 # Pattern of the escape sequences of the colours and links of the console, removed from the log
 ESCAPE_SEQUENCE_PATTERN = re.compile(pattern=r"\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b]*\x1b\\")
@@ -114,6 +120,28 @@ def fit_axis_limits(limits: Tuple[float, float], values: List[numpy.ndarray]) ->
     return bottom, top
 
 
+def choose_iteration_tick_step(last_iteration: int) -> int:
+    """
+    Chooses the iterations between two labelled ticks of the training curves and of the test metrics of the run, the
+    smallest step of ITERATION_TICK_STEPS giving at most MAXIMUM_ITERATION_INTERVALS intervals up to its last
+    iteration: 500 for a run of 2,000 iterations, 5,000 for one of 20,000, so that the labels never overlap.
+
+    Args:
+        last_iteration (int): The last iteration drawn on the horizontal axis.
+
+    Returns:
+        int: The iterations between two labelled ticks.
+
+    Raises:
+        ValueError: If even the largest step gives more intervals than MAXIMUM_ITERATION_INTERVALS.
+    """
+    for tick_step in ITERATION_TICK_STEPS:
+        if last_iteration <= tick_step * MAXIMUM_ITERATION_INTERVALS:
+            return tick_step
+    raise ValueError(f"A run of {last_iteration} iterations needs more than {MAXIMUM_ITERATION_INTERVALS} intervals of "
+                     f"{ITERATION_TICK_STEPS[-1]} iterations: add a larger step to ITERATION_TICK_STEPS.")
+
+
 def draw_reference_line(axes: Any, value: float, label: str, right: float) -> None:
     """
     Draws a dashed horizontal reference of a panel (the loss of random embeddings, a chance level, the spread of
@@ -179,8 +207,13 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
         bottom, top = fit_axis_limits(limits=panel["limits"], values=[train_values, validation_values,
                                                                       numpy.array([reference_value])])
         axes.set_ylim(bottom=bottom, top=top)
-        axes.set_xticks(ticks=list(range(0, last_iteration + 1, ITERATION_TICK_STEP)))
+        axes.set_xticks(ticks=list(range(0, last_iteration + 1,
+                                         choose_iteration_tick_step(last_iteration=last_iteration))))
         axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
+
+        # Ticks of a rate written as the percentages of the reports of the repository, the others keeping their values
+        if panel["in_percent"]:
+            axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
 
         # Reference line of the panel: random embeddings for the loss and the accuracy, the whole sphere for the spread
         if panel["name"] == "info_nce":

@@ -64,9 +64,9 @@ scenes:
       - {box: "{{object_detection.samples.panel_3_box}}", sentences: [1]}
       - {box: "{{object_detection.samples.panel_4_box}}", sentences: [2]}
     narration:
-      - "The sample images show the same {{object_detection.run.number_sample_images:words}} test images at every evaluation: at iteration {{object_detection.samples.iterations[0]:words}}, the first one, the mAP at 0.5 is {{object_detection.samples.metrics[0]:.2f}}, and not one detection of the whole test split reaches {{object_detection.run.score_threshold}}."
-      - "Imagine you stop at {{object_detection.samples.iterations[1]:words}}, half the run: only the square and the star are found here, with {{object_detection.samples.right_detections[1]:,}} right detections over the {{object_detection.data.test_objects:,}} test objects, at a mAP of {{object_detection.samples.metrics[1]:.2f}}."
-      - "At {{object_detection.samples.iterations[2]:words}}, the end of the run, it finds {{object_detection.inference.found_object_count:words}} of the {{object_detection.inference.object_count:words}} shapes of this image, both nonagons still missed, at a mAP of {{object_detection.samples.metrics[2]:.2f}}."
+      - "The sample images show the same {{object_detection.run.number_sample_images:words}} test images at every evaluation: at iteration {{object_detection.samples.iterations[0]:words}}, the first one, the mAP at 0.5 is {{object_detection.samples.metrics[0]:percent}}, and not one detection of the whole test split reaches {{object_detection.run.score_threshold}}."
+      - "Imagine you stop at {{object_detection.samples.iterations[1]:words}}, half the run: only the square and the star are found here, with {{object_detection.samples.right_detections[1]:,}} right detections over the {{object_detection.data.test_objects:,}} test objects, at a mAP of {{object_detection.samples.metrics[1]:percent}}."
+      - "At {{object_detection.samples.iterations[2]:words}}, the end of the run, it finds {{object_detection.inference.found_object_count:words}} of the {{object_detection.inference.object_count:words}} shapes of this image, both nonagons still missed, at a mAP of {{object_detection.samples.metrics[2]:percent}}."
 
   - kind: html
     page: diagram
@@ -101,10 +101,10 @@ scenes:
       - {type: box, box: [1180, 70, 1740, 270], text: "PASCAL VOC matching at every IoU:\nmAP@[0.5:0.95] and 101 points\nare not those of pycocotools", font: diagram_small, outline: red, appear: 2, highlight: [2]}
     narration:
       - "Every evaluated checkpoint appends its report to the results file; the mAP is computed with {{object_detection.report.trained.method_count:words}} methods, the area under the interpolated curve, eleven points and a hundred and one points."
-      - "At iteration {{object_detection.run.checkpoint_iteration:words}} the area method gives {{object_detection.report.trained.methods.area.0:.2f}} at an overlap of 0.5, {{object_detection.report.trained.methods.area.1:.2f}} at 0.75, and {{object_detection.report.trained.methods.area.2:.2f}} at 0.95: the boxes are rarely that tight."
-      - "The matching follows the PASCAL VOC rule at every threshold, so the average from 0.5 to 0.95, {{object_detection.report.trained.methods.area.3:.2f}}, is not the number of the official COCO tools, which match a detection to the best ground truth still free."
-      - "By size, the {{object_detection.report.trained.sizes.small.0}} small test objects score {{object_detection.report.trained.sizes.small.1:.2f}}, against {{object_detection.report.trained.sizes.medium.1:.2f}} for the medium and {{object_detection.report.trained.sizes.large.1:.2f}} for the large ones."
-      - "The mean average recall counts the objects found at all: {{object_detection.report.trained.recall.all.1:.2f}} at 0.5, but {{object_detection.report.trained.recall.small.1:.2f}} for the small ones; if, for instance, you see a low mAP with a high recall, good boxes are ranked below false positives."
+      - "At iteration {{object_detection.run.checkpoint_iteration:words}} the area method gives {{object_detection.report.trained.methods.area.0:percent}} at an overlap of 0.5, {{object_detection.report.trained.methods.area.1:percent}} at 0.75, and {{object_detection.report.trained.methods.area.2:percent}} at 0.95: the boxes are rarely that tight."
+      - "The matching follows the PASCAL VOC rule at every threshold, so the average from 0.5 to 0.95, {{object_detection.report.trained.methods.area.3:percent}}, is not the number of the official COCO tools, which match a detection to the best ground truth still free."
+      - "By size, the {{object_detection.report.trained.sizes.small.0}} small test objects score {{object_detection.report.trained.sizes.small.1:percent}}, against {{object_detection.report.trained.sizes.medium.1:percent}} for the medium and {{object_detection.report.trained.sizes.large.1:percent}} for the large ones."
+      - "The mean average recall counts the objects found at all: {{object_detection.report.trained.recall.all.1:percent}} at 0.5, but {{object_detection.report.trained.recall.small.1:percent}} for the small ones; if, for instance, you see a low mAP with a high recall, good boxes are ranked below false positives."
 
   - kind: html
     page: diagram
@@ -119,8 +119,8 @@ scenes:
       - {type: bars, box: [940, 110, 1720, 330], orientation: horizontal, values: "{{object_detection.proposal_recall.recall_per_block}}", labels: ["block 5", "block 6", "block 7"], value_labels: "{{object_detection.proposal_recall.recall_per_block_labels}}", colours: [blue, aqua, magenta], maximum: 1.0, label_width: 140, appear: 1, highlight: [1]}
       - {type: text, position: [40, 470], text: "{{object_detection.inference.evaluation_filter.valid_count}} valid proposals per image at the inference settings of the filter,\nthe padding copies left out with the valid mask", font: diagram_small, colour: dim}
     narration:
-      - "The proposal recall measures what the region proposal network hands the heads: {{object_detection.proposal_recall.all.recall_50:.1%}} of the test objects have a proposal overlapping them by {{constant:vision_training/evaluation/detection/region_recall.py#PROPOSAL_RECALL_THRESHOLDS[0]}}, but only {{object_detection.proposal_recall.small.recall_50:.1%}} of the small ones."
-      - "Each block alone reaches {{object_detection.proposal_recall.block_5.recall_50:.0%}}, {{object_detection.proposal_recall.block_6.recall_50:.0%}} and {{object_detection.proposal_recall.block_7.recall_50:.0%}} of the objects: the levels overlap in what they cover."
+      - "The proposal recall measures what the region proposal network hands the heads: {{object_detection.proposal_recall.all.recall_50:percent}} of the test objects have a proposal overlapping them by {{constant:vision_training/evaluation/detection/region_recall.py#PROPOSAL_RECALL_THRESHOLDS[0]}}, but only {{object_detection.proposal_recall.small.recall_50:percent}} of the small ones."
+      - "Each block alone reaches {{object_detection.proposal_recall.block_5.recall_50:percent}}, {{object_detection.proposal_recall.block_6.recall_50:percent}} and {{object_detection.proposal_recall.block_7.recall_50:percent}} of the objects: the levels overlap in what they cover."
 
   - kind: image
     title: "Trained and averaged weights"
@@ -132,8 +132,8 @@ scenes:
       - {box: "{{object_detection.metrics.panel_1_box}}", sentences: [0]}
       - {box: "{{object_detection.metrics.panel_2_box}}", sentences: [1]}
     narration:
-      - "The run keeps a moving average of its weights, evaluated after the trained weights into its own folders and Test EMA curves; at 0.5 and iteration {{object_detection.run.checkpoint_iteration:words}}, the averaged weights reach {{object_detection.metrics.map_50.test_ema_last:.2f}} against {{object_detection.metrics.map_50.test_last:.2f}} for the trained ones."
-      - "From 0.5 to 0.95 the lead grows, {{object_detection.metrics.map_50_95.test_ema_last:.2f}} against {{object_detection.metrics.map_50_95.test_last:.2f}}: averaging tightens the boxes."
+      - "The run keeps a moving average of its weights, evaluated after the trained weights into its own folders and Test EMA curves; at 0.5 and iteration {{object_detection.run.checkpoint_iteration:words}}, the averaged weights reach {{object_detection.metrics.map_50.test_ema_last:percent}} against {{object_detection.metrics.map_50.test_last:percent}} for the trained ones."
+      - "From 0.5 to 0.95 the lead grows, {{object_detection.metrics.map_50_95.test_ema_last:percent}} against {{object_detection.metrics.map_50_95.test_last:percent}}: averaging tightens the boxes."
 
   - kind: image
     title: "Classes and their thresholds"
@@ -142,10 +142,10 @@ scenes:
     literal_numbers: ["0.5", "0.75"]
     image: "figures:object_detection/evaluation/class_average_precision.png"
     narration:
-      - "The classes spread widely: the {{object_detection.classes.worst_name}} reaches {{object_detection.classes.worst_ap_50:.2f}} at 0.5, the {{object_detection.classes.best_name}} {{object_detection.classes.best_ap_50:.2f}}, the orange marks giving the AP at 0.75."
-      - "On the right, the class thresholds file: the lowest score at which a class keeps a precision of {{object_detection.classes.target_precision}}, with the recall left."
-      - "The square keeps {{object_detection.classes.square.recall:.1%}} of its objects from a score of {{object_detection.classes.square.threshold:.2f}}; the {{object_detection.classes.without_threshold[0]}}, the {{object_detection.classes.without_threshold[1]}} and the {{object_detection.classes.without_threshold[2]}} never reach that precision."
-      - "With the per-class report, a Per Class Recall table adds the share of the objects of every class found at 0.5 and 0.75, whatever the score, with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval."
+      - "The classes spread widely: the {{object_detection.classes.worst_name}} reaches {{object_detection.classes.worst_ap_50:percent}} at 0.5, the {{object_detection.classes.best_name}} {{object_detection.classes.best_ap_50:percent}}, the orange marks giving the AP at 0.75."
+      - "On the right, the class thresholds file: the lowest score at which a class keeps a precision of {{object_detection.classes.target_precision:percent_label}}, with the recall left."
+      - "The square keeps {{object_detection.classes.square.recall:percent}} of its objects from a score of {{object_detection.classes.square.threshold:.2f}}; the {{object_detection.classes.without_threshold[0]}}, the {{object_detection.classes.without_threshold[1]}} and the {{object_detection.classes.without_threshold[2]}} never reach that precision."
+      - "With the per-class report, a Per Class Recall table adds the share of the objects of every class found at 0.5 and 0.75, whatever the score, with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval."
 
   - kind: image
     title: "The confusion matrix"
@@ -157,7 +157,7 @@ scenes:
     narration:
       - "The confusion matrix counts the detections at the deployment threshold of {{object_detection.run.score_threshold}}, matched at an overlap of {{constant:vision_training/evaluation/detection/detection_confusion.py#MATCHING_INTERSECTION_OVER_UNION_THRESHOLD}}: {{object_detection.confusion.right:,}} right, {{object_detection.confusion.wrong_class:,}} of the wrong class."
       - "The background row holds the {{object_detection.confusion.false_positives:,}} false positives, the background column the {{object_detection.confusion.missed:,}} missed objects."
-      - "Rhombuses and trapezoids are never right at {{object_detection.run.score_threshold}}, although the trapezoid reaches an AP of {{object_detection.classes.trapezoid.ap_50:.2f}}: its detections score below the threshold."
+      - "Rhombuses and trapezoids are never right at {{object_detection.run.score_threshold}}, although the trapezoid reaches an AP of {{object_detection.classes.trapezoid.ap_50:percent}}: its detections score below the threshold."
       - "The largest confusion puts {{object_detection.confusion.largest.count:,}} objects of the {{object_detection.confusion.largest.true_name}} class in the {{object_detection.confusion.largest.predicted_name}} column, shapes that differ by a single corner."
 
   - kind: html
@@ -224,10 +224,10 @@ scenes:
     title: "Recap"
     items:
       - {text: "Evaluation at score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}}, deployment at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}; NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}} per class; {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} per image"}
-      - {text: "mAP@0.5 {{object_detection.report.trained.methods.area.0:.3f}} at {{object_detection.run.checkpoint_iteration}}, {{object_detection.samples.metrics[1]:.3f}} at {{object_detection.samples.iterations[1]}}"}
-      - {text: "Small objects: mAP@0.5 {{object_detection.report.trained.sizes.small.1:.3f}}, proposal recall {{object_detection.proposal_recall.small.recall_50:.1%}}"}
-      - {text: "Moving average: tighter boxes, mAP@[0.5:0.95] {{object_detection.metrics.map_50_95.test_ema_last:.3f}}, trained {{object_detection.metrics.map_50_95.test_last:.3f}}"}
-      - {text: "class_thresholds.json: per-class scores at precision {{object_detection.classes.target_precision}}"}
+      - {text: "mAP@0.5 {{object_detection.report.trained.methods.area.0:percent}} at {{object_detection.run.checkpoint_iteration}}, {{object_detection.samples.metrics[1]:percent}} at {{object_detection.samples.iterations[1]}}"}
+      - {text: "Small objects: mAP@0.5 {{object_detection.report.trained.sizes.small.1:percent}}, proposal recall {{object_detection.proposal_recall.small.recall_50:percent}}"}
+      - {text: "Moving average: tighter boxes, mAP@[0.5:0.95] {{object_detection.metrics.map_50_95.test_ema_last:percent}}, trained {{object_detection.metrics.map_50_95.test_last:percent}}"}
+      - {text: "class_thresholds.json: per-class scores at precision {{object_detection.classes.target_precision:percent_label}}"}
       - {text: "object_detector: boxes, scores, labels, count; letterbox and thresholds client side"}
     narration:
       - "To recap: evaluate at a low score, read the mAP by size and the recalls before the headline number, compare the averaged weights with the trained ones, and keep the letterbox and the class thresholds on the client side."

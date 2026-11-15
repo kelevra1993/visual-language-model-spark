@@ -8,8 +8,9 @@ the weighted vote of its neighbours, checked against compute_nearest_neighbour_p
 images for the animated page animations/11_self_supervised/knn_vote.html); a mosaic of its nearest reference images at
 both checkpoints; the cosine similarities of the embeddings of the two views of four sample images, the InfoNCE matrix
 of chapter 2; the views similarity of the star at every evaluated checkpoint; and the positive pair accuracy of an
-untrained and of the trained network on colour and on grayscale views, the cue the two views share. The encoding takes
-minutes on a shared CPU, so the figures are reused unless forced.
+untrained and of the trained network on colour and on grayscale views, the cue the two views share. The shares of the
+vote are written as the percentages of the reports of the repository ("45.23 %"), the facts keeping every rate between 0
+and 1. The encoding takes minutes on a shared CPU, so the figures are reused unless forced.
 """
 
 import json
@@ -32,6 +33,7 @@ from tutorials.figures.self_supervised.ssl_sources import (build_view_augmenter,
                                                           read_images, read_reference_samples, read_test_samples)
 from tutorials.figures.self_supervised.view_figures import VIEW_SAMPLE_NAMES
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.evaluation.self_supervised.representation_metrics import (
     NEAREST_NEIGHBOUR_TEMPERATURE, compute_nearest_neighbour_predictions)
 from vision_training.losses.self_supervised_losses import compute_info_nce_loss
@@ -478,7 +480,8 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
             vote_shares = neighbourhood["votes"] / neighbourhood["votes"].sum()
             facts["knn.vote_shares"] = [round_fact(value=share) for share in vote_shares]
             facts["knn.vote_labels"] = [name.replace("_", " ") for name in class_names]
-            facts["knn.vote_value_labels"] = [f"{share:.0%}" if share > 0 else "" for share in vote_shares]
+            facts["knn.vote_value_labels"] = [format_percentage(value=share) if share > 0 else ""
+                                              for share in vote_shares]
             facts["knn.vote_colours"] = CLASS_COLOURS[:len(class_names)]
             facts["knn.weight_ratio"] = round_fact(value=math.exp(
                 (facts[f"knn.query_nearest_similarity_{iteration}"] -

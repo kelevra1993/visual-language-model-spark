@@ -99,8 +99,8 @@ scenes:
     # The intersection over union of the metric name, mAP@0.5
     literal_numbers: ["0.5"]
     narration:
-      - "At iteration {{instance_segmentation.samples.iterations[0]:words}}, at a mask mAP at 0.5 of {{instance_segmentation.samples.metric_1000:.2f}}, only {{instance_segmentation.outcomes.1000.right:,}} of the {{object_detection.data.test_objects:,}} test objects are found right at the deployment threshold, and the samples stay empty."
-      - "At {{instance_segmentation.samples.iterations[1]:words}} iterations the mask mAP is {{instance_segmentation.samples.metric_2000:.2f}}; resumed to {{instance_segmentation.samples.iterations[2]:words}}, {{instance_segmentation.samples.metric_5000:.2f}}, with masks on {{instance_segmentation.predictions.found_object_count:words}} of the {{instance_segmentation.predictions.object_count:words}} shapes of this image."
+      - "At iteration {{instance_segmentation.samples.iterations[0]:words}}, at a mask mAP at 0.5 of {{instance_segmentation.samples.metric_1000:percent}}, only {{instance_segmentation.outcomes.1000.right:,}} of the {{object_detection.data.test_objects:,}} test objects are found right at the deployment threshold, and the samples stay empty."
+      - "At {{instance_segmentation.samples.iterations[1]:words}} iterations the mask mAP is {{instance_segmentation.samples.metric_2000:percent}}; resumed to {{instance_segmentation.samples.iterations[2]:words}}, {{instance_segmentation.samples.metric_5000:percent}}, with masks on {{instance_segmentation.predictions.found_object_count:words}} of the {{instance_segmentation.predictions.object_count:words}} shapes of this image."
 
   - kind: html
     page: diagram
@@ -108,9 +108,6 @@ scenes:
     code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.compute_evaluation_results"
     # The intersections over union of the metric names, mAP@0.5, @0.75 and @[0.5:0.95]
     literal_numbers: ["0.5", "0.75", "0.95"]
-    # Both mAP at 0.95 are below a hundredth for the boxes: two decimals would read the box value as zero and hide
-    # that the masks score higher
-    exact_facts: [instance_segmentation.report.trained.mask_methods.area.2, instance_segmentation.report.trained.box_methods.area.2]
     elements:
       - type: listing
         box: [30, 30, 1000, 230]
@@ -126,12 +123,12 @@ scenes:
         highlights:
           - {match: "^ Area", sentences: [1, 2]}
       - {type: box, box: [1080, 60, 1740, 200], text: "headline: Mask mAP@0.5/area\nclass thresholds and confusion\nmatrix on the masks", font: diagram_small, outline: magenta}
-      - {type: box, box: [1080, 300, 1740, 430], text: "detection run, same data:\nbox mAP@0.5 {{object_detection.report.trained.methods.area.0:.3f}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [1080, 300, 1740, 430], text: "detection run, same data:\nbox mAP@0.5 {{object_detection.report.trained.methods.area.0:percent}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: text, position: [30, 540], text: "{{instance_segmentation.run.test_scalar_count}} scalars per evaluation in Tensorboard/Test · class_metrics.csv: the box columns, then the mask_ ones", font: diagram_small, colour: dim, appear: 2}
     narration:
-      - "The report starts with the mask tables: at {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP of {{instance_segmentation.report.trained.mask_methods.area.0:.2f}} at 0.5, {{instance_segmentation.report.trained.mask_methods.area.1:.2f}} at 0.75 and {{instance_segmentation.report.trained.mask_methods.area.3:.2f}} from 0.5 to 0.95; the first compares the checkpoints."
-      - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:.2f}} at 0.5, against {{object_detection.report.trained.methods.area.0:.2f}} for the detection run on the same data, trained for {{object_detection.run.checkpoint_iteration:words}} iterations where this run was resumed to {{instance_segmentation.run.checkpoint_iteration:words}}."
-      - "At 0.95, the masks do better than the boxes, {{instance_segmentation.report.trained.mask_methods.area.2:.3f}} against {{instance_segmentation.report.trained.box_methods.area.2:.3f}}: a mask is scored on its pixels, where a box one pixel off fails."
+      - "The report starts with the mask tables: at {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP of {{instance_segmentation.report.trained.mask_methods.area.0:percent}} at 0.5, {{instance_segmentation.report.trained.mask_methods.area.1:percent}} at 0.75 and {{instance_segmentation.report.trained.mask_methods.area.3:percent}} from 0.5 to 0.95; the first compares the checkpoints."
+      - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:percent}} at 0.5, against {{object_detection.report.trained.methods.area.0:percent}} for the detection run on the same data, trained for {{object_detection.run.checkpoint_iteration:words}} iterations where this run was resumed to {{instance_segmentation.run.checkpoint_iteration:words}}."
+      - "At 0.95, the masks do better than the boxes, {{instance_segmentation.report.trained.mask_methods.area.2:percent}} against {{instance_segmentation.report.trained.box_methods.area.2:percent}}: a mask is scored on its pixels, where a box one pixel off fails."
 
   - kind: image
     title: "Where masks and boxes part"
@@ -140,9 +137,9 @@ scenes:
     # The intersections over union of the metric names, AP@0.75 and AP@0.95
     literal_numbers: ["0.75", "0.95"]
     narration:
-      - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:.2f}} on its masks against {{instance_segmentation.classes.star.box_ap_75:.2f}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:.2f}} against {{instance_segmentation.classes.l_shape.box_ap_75:.2f}}."
+      - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:percent}} on its masks against {{instance_segmentation.classes.star.box_ap_75:percent}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:percent}} against {{instance_segmentation.classes.l_shape.box_ap_75:percent}}."
       - "Think of thin, pointed objects: masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels pooled from strides of {{instance_segmentation.geometry.strides_text}} cannot follow the points of a star."
-      - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:.2f}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:.2f}} on its boxes."
+      - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:percent}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:percent}} on its boxes."
 
   - kind: html
     page: diagram
@@ -155,11 +152,11 @@ scenes:
       - {type: bars, box: [40, 100, 820, 330], orientation: horizontal, values: "{{instance_segmentation.report.mask_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.mask_sizes_count_labels}}", colours: [magenta, magenta, magenta], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 120, highlight: [1]}
       - {type: text, position: [940, 40], text: "test objects by box area", font: diagram_bold}
       - {type: bars, box: [940, 100, 1720, 330], orientation: horizontal, values: "{{instance_segmentation.report.box_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.box_sizes_count_labels}}", colours: [blue, blue, blue], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 120, highlight: [1]}
-      - {type: box, box: [40, 420, 1720, 560], text: "small below {{instance_segmentation.geometry.small_object_limit}}, medium to {{instance_segmentation.geometry.large_object_limit}}, large above · a shape fills only part of its box\nmask mAP@0.5 of the small objects {{instance_segmentation.report.trained.mask_sizes.small.1:.3f}} · box {{instance_segmentation.report.trained.box_sizes.small.1:.3f}}", font: diagram_small, outline: border, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 420, 1720, 560], text: "small below {{instance_segmentation.geometry.small_object_limit}}, medium to {{instance_segmentation.geometry.large_object_limit}}, large above · a shape fills only part of its box\nmask mAP@0.5 of the small objects {{instance_segmentation.report.trained.mask_sizes.small.1:percent}} · box {{instance_segmentation.report.trained.box_sizes.small.1:percent}}", font: diagram_small, outline: border, appear: 2, highlight: [2]}
     narration:
       - "The size tables measure the objects differently: by mask area for the mask table, by box area for the box table."
       - "So {{instance_segmentation.report.trained.mask_sizes.small.0:,}} test objects are small by their mask but only {{instance_segmentation.report.trained.box_sizes.small.0:,}} by their box, and {{instance_segmentation.report.trained.mask_sizes.large.0:,}} are large against {{instance_segmentation.report.trained.box_sizes.large.0:,}}: the two rows of a size hold different objects."
-      - "The small objects stay the weak point either way, at a mask mAP of {{instance_segmentation.report.trained.mask_sizes.small.1:.2f}}."
+      - "The small objects stay the weak point either way, at a mask mAP of {{instance_segmentation.report.trained.mask_sizes.small.1:percent}}."
 
   - kind: yaml
     title: "Scoring at the original resolution"
@@ -228,8 +225,8 @@ scenes:
       - {text: "Masks predicted on the final boxes, at the level of their proposal"}
       - {text: "paste_instance_masks: bilinear at pixel centres, then >= {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}}"}
       - {text: "Mask IoU in chunks, float64 ratio; mAP on masks, then on boxes"}
-      - {text: "Mask mAP@0.5 {{instance_segmentation.report.trained.mask_methods.area.0:.3f}}, box {{instance_segmentation.report.trained.box_methods.area.0:.3f}} at {{instance_segmentation.run.checkpoint_iteration}}"}
-      - {text: "Star at 0.75: mask {{instance_segmentation.classes.star.mask_ap_75:.3f}}, box {{instance_segmentation.classes.star.box_ap_75:.3f}}"}
+      - {text: "Mask mAP@0.5 {{instance_segmentation.report.trained.mask_methods.area.0:percent}}, box {{instance_segmentation.report.trained.box_methods.area.0:percent}} at {{instance_segmentation.run.checkpoint_iteration}}"}
+      - {text: "Star at 0.75: mask {{instance_segmentation.classes.star.mask_ap_75:percent}}, box {{instance_segmentation.classes.star.box_ap_75:percent}}"}
       - {text: "detection_masks [B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]: pasted and thresholded by the client"}
     narration:
       - "To recap: masks are scored after pasting, on their own IoU and size, next to the boxes of the same detections, and shipped as probabilities the client pastes."

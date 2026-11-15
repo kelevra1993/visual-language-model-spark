@@ -197,7 +197,7 @@ scenes:
     narration:
       - "On the whole image, the {{keypoint_detection.targets_trained_keypoints}} key points of the {{keypoint_detection.labels_image_objects_with_keypoints:words}} objects give {{keypoint_detection.targets_stride_4_positive_cells}} positive cells per stride, among {{keypoint_detection.targets_stride_4_cells:,}} cells at stride {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}} and {{keypoint_detection.branch_cell_ratio:words}} times as many at stride {{keypoint_detection.branch_stride:words}}."
       - "The Gaussians of the trapezoid corners are sharper at stride {{keypoint_detection.branch_stride:words}}, where a cell is {{keypoint_detection.branch_stride:words}} pixels."
-      - "Only {{keypoint_detection.targets_stride_4_nonzero_share:.2%}} of the cells are not zero: a squared error collapsed to empty heat maps on such targets, which is why the focal loss replaced it."
+      - "Only {{keypoint_detection.targets_stride_4_nonzero_share:percent}} of the cells are not zero: a squared error collapsed to empty heat maps on such targets, which is why the focal loss replaced it."
 
   - kind: summary
     title: "Recap"

@@ -9,7 +9,9 @@ tutorials/tutorial_sources.yaml); the test mAP of the averaged weights at every 
 results of the benchmark (object_detection_benchmark_results, object_detection_results.csv), averaged over the two
 launches of each selection as the plan compares them, with the gap between the two launches of a selection (the noise
 of a training); and the inference-only preview of the per-level selection on the weights of a joint launch. Nothing
-is drawn: the scenes draw the values as pipelines, bars and curves.
+is drawn: the scenes draw the values as pipelines, bars and curves, the labels of the recalls and the ticks of the mAP
+written as the percentages of the reports of the repository ("94.03 %", "30 %") and the lead and gap in percentage
+points, the facts keeping the rates and their differences between 0 and 1.
 """
 
 import csv
@@ -22,6 +24,8 @@ from typing import Any, Dict, List
 from scripts.evaluation.collect_experiment_results import read_test_curves
 from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, round_fact
 from tutorials.figures.object_detection.detection_sources import load_run_model
+from vision_training.evaluation.report_formatting import (convert_to_percentage, format_percentage,
+                                                          format_percentage_label)
 
 # Launches of each selection, the run keys of tutorial_sources.yaml, and their names in the results of the benchmark
 SELECTION_LAUNCHES = {"joint": {"object_detection_benchmark_joint_a": "run_9",
@@ -161,8 +165,8 @@ def describe_measured_proposals(run_folders: Dict[str, List[Path]], level_names:
         post_nms_proposals (int): The evaluation slots of an image, filled with copies when too few proposals survive.
 
     Returns:
-        Dict[str, Any]: The values of every selection, with their labels and the top of the recall bars, named
-            proposal_selection.*.
+        Dict[str, Any]: The values of every selection, with their labels (the recalls as percentages) and the top of
+            the recall bars, named proposal_selection.*.
     """
     facts = {}
     for selection_name, selection_folders in run_folders.items():
@@ -177,12 +181,12 @@ def describe_measured_proposals(run_folders: Dict[str, List[Path]], level_names:
         facts[f"proposal_selection.{selection_name}_copied_slots"] = round_fact(
             value=post_nms_proposals - proposals_per_image)
 
-        # Share of the test objects covered at 0.5 by a proposal of every level
+        # Share of the test objects covered at 0.5 by a proposal of every level, labelled as percentages
         recall_per_level = read_pair_level_values(run_folders=selection_folders, tag_template=PROPOSAL_RECALL_TAG,
                                                   level_names=level_names)
         facts[f"proposal_selection.{selection_name}_recall_per_level"] = recall_per_level
         facts[f"proposal_selection.{selection_name}_recall_per_level_labels"] = [
-            f"{value:.3f}" for value in recall_per_level]
+            format_percentage(value=value) for value in recall_per_level]
 
     # Top of the recall bars, the next tenth above the highest level, leaving room for the legend of the bars
     facts["proposal_selection.recall_axis_maximum"] = math.ceil(max(
@@ -197,16 +201,16 @@ def describe_measured_proposals(run_folders: Dict[str, List[Path]], level_names:
     return facts
 
 
-def make_axis_ticks(maximum: float, step: float, decimals: int) -> List[Dict[str, Any]]:
+def make_axis_ticks(maximum: float, step: float, in_percent: bool) -> List[Dict[str, Any]]:
     """
-    Gives the ticks of an axis of a curve scene from 0 to its maximum, the labels written with thousands separators or
-    with a fixed number of decimals, so that the axes follow the measured values instead of numbers typed in the
-    storyboard.
+    Gives the ticks of an axis of a curve scene from 0 to its maximum, the labels written as whole numbers with
+    thousands separators (iterations, mAP points) or, for an axis of rates, as the percentage labels of the reports of
+    the repository ("30 %"), so that the axes follow the measured values instead of numbers typed in the storyboard.
 
     Args:
         maximum (float): The end of the axis.
         step (float): The distance between two ticks.
-        decimals (int): The decimals of the labels, 0 for whole numbers written with thousands separators.
+        in_percent (bool): Whether the axis holds rates between 0 and 1, labelled as percentages.
 
     Returns:
         List[Dict[str, Any]]: The value and label of every tick.
@@ -214,7 +218,8 @@ def make_axis_ticks(maximum: float, step: float, decimals: int) -> List[Dict[str
     # Ticks from 0 to the maximum, rounded so that a fractional step gives clean labels
     tick_count = int(round(maximum / step)) + 1
     tick_values = [round(tick_index * step, 6) for tick_index in range(tick_count)]
-    return [{"value": tick_value, "label": f"{tick_value:,.0f}" if decimals == 0 else f"{tick_value:.{decimals}f}"}
+    return [{"value": tick_value,
+             "label": format_percentage_label(value=tick_value) if in_percent else f"{tick_value:,.0f}"}
             for tick_value in tick_values]
 
 
@@ -223,13 +228,15 @@ def describe_training_comparison(results_path: Path) -> Dict[str, Any]:
     Gives the test mAP of the averaged weights of both selections at every evaluation, averaged over their two
     launches, the lead of the per-level selection and the larger gap between the two launches of a selection (the
     noise of one training, the tie margin of the plan) at every evaluation, the first iteration from which the lead
-    stays above that margin, and the axes of the two curves of the training scene.
+    stays above that margin, and the axes of the two curves of the training scene (the mAP in percent, the lead and
+    margin in percentage points).
 
     Args:
         results_path (Path): The results of the benchmark, object_detection_results.csv.
 
     Returns:
-        Dict[str, Any]: The curves, final values, lead and margin, named proposal_selection.*.
+        Dict[str, Any]: The curves, final values, lead and margin (between 0 and 1, the curves of the lead and margin
+            in percentage points), named proposal_selection.*.
 
     Raises:
         ValueError: If the launches of the selections were not evaluated at the same iterations up to the compared one.
@@ -261,10 +268,10 @@ def describe_training_comparison(results_path: Path) -> Dict[str, Any]:
         raise ValueError(f"The per-level selection does not lead beyond the margin at {COMPARED_ITERATION}: the "
                          f"training scene of chapter 1 says it does.")
 
-    # Axes of the curves: the iterations from 0, the mAP up to the next tenth (three ticks), the lead and margin in
-    # mAP points up to the next tick
+    # Axes of the curves: the iterations from 0, the mAP up to the next tenth (three ticks, labelled in percent), the
+    # lead and margin in mAP points up to the next tick
     map_maximum = math.ceil(max(means["per_level"] + means["joint"]) * 10) / 10
-    points_maximum = POINTS_TICK_STEP * math.ceil(max(leads + margins) * 100 / POINTS_TICK_STEP)
+    points_maximum = POINTS_TICK_STEP * math.ceil(convert_to_percentage(value=max(leads + margins)) / POINTS_TICK_STEP)
     return {"proposal_selection.compared_iteration": COMPARED_ITERATION,
             "proposal_selection.launches_per_selection": len(SELECTION_LAUNCHES["joint"]),
             "proposal_selection.joint_launches": list(SELECTION_LAUNCHES["joint"].values()),
@@ -273,27 +280,27 @@ def describe_training_comparison(results_path: Path) -> Dict[str, Any]:
                                                     for iteration, value in zip(iterations, means["joint"])],
             "proposal_selection.per_level_map_points": [[iteration, round_fact(value=value)]
                                                         for iteration, value in zip(iterations, means["per_level"])],
-            "proposal_selection.lead_points_curve": [[iteration, round_fact(value=lead * 100)]
+            "proposal_selection.lead_points_curve": [[iteration, round_fact(value=convert_to_percentage(value=lead))]
                                                      for iteration, lead in zip(iterations, leads)],
-            "proposal_selection.margin_points_curve": [[iteration, round_fact(value=margin * 100)]
-                                                       for iteration, margin in zip(iterations, margins)],
+            "proposal_selection.margin_points_curve": [
+                [iteration, round_fact(value=convert_to_percentage(value=margin))]
+                for iteration, margin in zip(iterations, margins)],
             "proposal_selection.joint_map": round_fact(value=means["joint"][-1]),
             "proposal_selection.per_level_map": round_fact(value=means["per_level"][-1]),
             "proposal_selection.lead": round_fact(value=leads[-1]),
-            "proposal_selection.lead_points": round_fact(value=leads[-1] * 100),
             "proposal_selection.margin": round_fact(value=margins[-1]),
-            "proposal_selection.margin_points": round_fact(value=margins[-1] * 100),
-            "proposal_selection.maximum_lead_points": round_fact(value=max(leads) * 100),
+            "proposal_selection.maximum_lead": round_fact(value=max(leads)),
             "proposal_selection.maximum_lead_iteration": iterations[leads.index(max(leads))],
             "proposal_selection.first_win_iteration": iterations[first_win_index],
             "proposal_selection.iteration_range": [0, COMPARED_ITERATION],
             "proposal_selection.iteration_ticks": make_axis_ticks(maximum=COMPARED_ITERATION, step=ITERATION_TICK_STEP,
-                                                                  decimals=0),
+                                                                  in_percent=False),
             "proposal_selection.map_range": [0, map_maximum],
-            "proposal_selection.map_ticks": make_axis_ticks(maximum=map_maximum, step=map_maximum / 3, decimals=1),
+            "proposal_selection.map_ticks": make_axis_ticks(maximum=map_maximum, step=map_maximum / 3,
+                                                            in_percent=True),
             "proposal_selection.points_range": [0, points_maximum],
             "proposal_selection.points_ticks": make_axis_ticks(maximum=points_maximum, step=POINTS_TICK_STEP,
-                                                               decimals=0)}
+                                                               in_percent=False)}
 
 
 def describe_inference_preview(experiments_folder: Path) -> Dict[str, Any]:
@@ -322,8 +329,7 @@ def describe_inference_preview(experiments_folder: Path) -> Dict[str, Any]:
     gain = preview_values["per_level"] - preview_values["joint"]
     return {"proposal_selection.preview_joint_map": round_fact(value=preview_values["joint"]),
             "proposal_selection.preview_per_level_map": round_fact(value=preview_values["per_level"]),
-            "proposal_selection.preview_gain": round_fact(value=gain),
-            "proposal_selection.preview_gain_points": round_fact(value=gain * 100)}
+            "proposal_selection.preview_gain": round_fact(value=gain)}
 
 
 def make_proposal_selection_facts(experiments_folder: Path) -> Dict[str, Any]:

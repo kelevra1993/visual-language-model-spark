@@ -5,7 +5,8 @@ models of the DET and INS runs of tutorials/tutorial_sources.yaml rebuilt on the
 image both series follow (test_014285.png, six shapes of the synthetic shapes test split, one of the eight sample
 images of both runs) with its objects read from the test labels.json, the TensorBoard scalars, the blocks of
 Results.txt (their table values read whether the report wrote the rates as percentages, "78.64 %", or with the
-decimals of the reports written before, "0.7864"), the console logs of the runs stripped of their terminal codes, and
+decimals of the reports written before, "0.7864"), the folder of the evaluations made again with the current code
+(EVALUATION_FOLDER_NAME), the console logs of the runs stripped of their terminal codes, and
 the drawing of boxes and listings in the palette of the videos. Both runs train on the same instance segmentation data
 set, so that the two series show the same image and objects.
 """
@@ -25,6 +26,7 @@ from typing import Any, Dict, List, Tuple
 from tutorial_builder.layout import MONOSPACE_FONT_PATH, SANS_SEMIBOLD_FONT_PATH
 from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.preprocessing import read_image
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.report_formatting import PERCENT_SIGN
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
@@ -39,6 +41,12 @@ SAMPLE_IMAGE_NAME = "test_014285.png"
 # read those of the DET run from its saved configuration (find_run_iterations of object_detection/figures.py)
 CHECKPOINT_ITERATION = 5000
 SAMPLE_ITERATIONS = [1000, 2000, 5000]
+
+# Folder of the last checkpoint of both runs evaluated again with the current code by
+# scripts/evaluation/evaluate_checkpoint.py, whose Results.txt tables, class metrics and thresholds, confusion matrix
+# and proposal recall the evaluation chapters read, so that their listings write the rates as the reports of the
+# repository do; the sample images and the curves of every evaluation stay those of the training
+EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
 
 # Value of a row of a Results.txt table: a number, followed by the percent sign of the reports when it is a rate written
 # as a percentage ("78.64 %", the reports written since the percentages; "0.7864" before them), or the dash of a missing

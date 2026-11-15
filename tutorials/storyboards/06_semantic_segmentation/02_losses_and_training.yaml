@@ -89,7 +89,7 @@ scenes:
         value_width: 120
       - {type: text, position: [80, 670], text: "share of the {{semantic_segmentation.shares_labelled_pixels:,}} labelled pixels of the test split, class_metrics.csv of iteration {{semantic_segmentation.run_checkpoint_iteration}}", font: diagram_small, colour: dim}
     narration:
-      - "On the test split the background holds {{semantic_segmentation.shares_background:.1%}} of the labelled pixels and the {{semantic_segmentation.shares_smallest_class}} only {{semantic_segmentation.shares_smallest:.2%}}: a pixel cross entropy is dominated by the background."
+      - "On the test split the background holds {{semantic_segmentation.shares_background:percent}} of the labelled pixels and the {{semantic_segmentation.shares_smallest_class}} only {{semantic_segmentation.shares_smallest:percent}}: a pixel cross entropy is dominated by the background."
       - "Balancing that is the job of the Dice loss."
 
   - kind: code
@@ -169,9 +169,9 @@ scenes:
       - {box: "{{semantic_segmentation.curves_metric_panel_box}}", sentences: [3]}
     narration:
       - "The total loss falls from {{semantic_segmentation.curves_total_loss_first:.2f}} to about {{semantic_segmentation.curves_total_loss_last_smoothed:.2f}}, the cross entropy to {{semantic_segmentation.curves_cross_entropy_loss_last_smoothed:.2f}} and the Dice loss to {{semantic_segmentation.curves_dice_loss_last_smoothed:.2f}}, most of what is left."
-      - "The cross entropy makes {{semantic_segmentation.curves_loss_fall_share:.0%}} of its fall within the first {{semantic_segmentation.curves_cross_entropy_loss_fall_iteration}} iterations, while the Dice loss keeps falling to the end of the run."
+      - "The cross entropy makes {{semantic_segmentation.curves_loss_fall_share:percent_label}} of its fall within the first {{semantic_segmentation.curves_cross_entropy_loss_fall_iteration}} iterations, while the Dice loss keeps falling to the end of the run."
       - "The dots are the validation batches, one every {{semantic_segmentation.run_validation_ratio}} iterations, {{semantic_segmentation.curves_total_loss_validation_count}} in all, close to the training curves."
-      - "The pixel accuracy of the batches passes {{semantic_segmentation.curves_pixel_accuracy_threshold}} by iteration {{semantic_segmentation.curves_pixel_accuracy_reaches_0_9}}, while their mean IOU climbs slowly to about {{semantic_segmentation.curves_mean_iou_last_smoothed:.2f}}."
+      - "The pixel accuracy of the batches passes {{semantic_segmentation.curves_pixel_accuracy_threshold:percent_label}} by iteration {{semantic_segmentation.curves_pixel_accuracy_reaches_0_9}}, while their mean IOU climbs slowly to about {{semantic_segmentation.curves_mean_iou_last_smoothed:percent}}."
       - "The run went at about {{semantic_segmentation.training_throughput:.0f}} images per second on the GPU, {{semantic_segmentation.training_interval_seconds:.0f}} seconds per {{semantic_segmentation.training_interval_iterations}} iterations."
 
   - kind: html
@@ -184,13 +184,13 @@ scenes:
         values: ["{{semantic_segmentation.headline_pixel_accuracy_1000}}", "{{semantic_segmentation.headline_mean_iou_1000}}", "{{semantic_segmentation.headline_pixel_accuracy_2000}}", "{{semantic_segmentation.headline_mean_iou_2000}}"]
         maximum: 1.0
         labels: ["pixel accuracy\n{{semantic_segmentation.run_first_evaluated_iteration}}", "mean IoU\n{{semantic_segmentation.run_first_evaluated_iteration}}", "pixel accuracy\n{{semantic_segmentation.run_checkpoint_iteration}}", "mean IoU\n{{semantic_segmentation.run_checkpoint_iteration}}"]
-        value_labels: ["{{semantic_segmentation.headline_pixel_accuracy_1000:.3f}}", "{{semantic_segmentation.headline_mean_iou_1000:.3f}}", "{{semantic_segmentation.headline_pixel_accuracy_2000:.3f}}", "{{semantic_segmentation.headline_mean_iou_2000:.3f}}"]
+        value_labels: ["{{semantic_segmentation.headline_pixel_accuracy_1000:percent}}", "{{semantic_segmentation.headline_mean_iou_1000:percent}}", "{{semantic_segmentation.headline_pixel_accuracy_2000:percent}}", "{{semantic_segmentation.headline_mean_iou_2000:percent}}"]
         colours: [dim, blue, dim, blue]
         gap: 40
       - {type: box, box: [1200, 140, 1720, 460], text: "test split, every pixel:\npixel accuracy follows\nthe background;\nthe mean IoU over classes\ncompares the checkpoints", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
     narration:
-      - "The test evaluations show why: at iteration {{semantic_segmentation.run_first_evaluated_iteration}} the pixel accuracy is already {{semantic_segmentation.headline_pixel_accuracy_1000:.2f}} while the mean IOU is {{semantic_segmentation.headline_mean_iou_1000:.2f}}, most shapes still being missed."
-      - "At iteration {{semantic_segmentation.run_checkpoint_iteration}} they reach {{semantic_segmentation.headline_pixel_accuracy_2000:.2f}} and {{semantic_segmentation.headline_mean_iou_2000:.2f}}: the mean IOU, the headline metric of the task, is what compares the checkpoints."
+      - "The test evaluations show why: at iteration {{semantic_segmentation.run_first_evaluated_iteration}} the pixel accuracy is already {{semantic_segmentation.headline_pixel_accuracy_1000:percent}} while the mean IOU is {{semantic_segmentation.headline_mean_iou_1000:percent}}, most shapes still being missed."
+      - "At iteration {{semantic_segmentation.run_checkpoint_iteration}} they reach {{semantic_segmentation.headline_pixel_accuracy_2000:percent}} and {{semantic_segmentation.headline_mean_iou_2000:percent}}: the mean IOU, the headline metric of the task, is what compares the checkpoints."
 
   - kind: summary
     title: "Recap"

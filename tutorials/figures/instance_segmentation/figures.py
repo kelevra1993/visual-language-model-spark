@@ -4,11 +4,12 @@ tutorials.figures.make_figures --series instance_segmentation) at every build, f
 tutorials/tutorial_sources.yaml (the synthetic configuration resumed to 5000 iterations) and the code of the
 repository: the run length encoding of the masks and its decoding, the mask target of a real proposal, the masks the
 trained instance segmenter predicts on the CPU and their pasting (mask_figures.py), the mask against box average
-precision and the report tables (evaluation_figures.py), and, with the run figures of the object detection series
-imported from tutorials/figures/object_detection/run_figures.py, the losses, the sample images along the run, the mask
-mAP of the trained and averaged weights and the console summaries, with the geometry of the mask heads, the deployment
-score threshold of the run (read from its saved configuration, the shipped one free to move on) and the values the
-narration derives from them (describe_quoted_facts). The facts are quoted by the storyboards as
+precision and the report tables of the last checkpoint evaluated again with the current code in the
+Checkpoint_Evaluation folder of the run (evaluation_figures.py), and, with the run figures of the object detection
+series imported from tutorials/figures/object_detection/run_figures.py, the losses, the sample images along the run,
+the mask mAP of the trained and averaged weights and the console summaries, with the geometry of the mask heads, the
+deployment score threshold of the run (read from its saved configuration, the shipped one free to move on) and the
+values the narration derives from them (describe_quoted_facts). The facts are quoted by the storyboards as
 {{instance_segmentation.<name>}}.
 """
 
@@ -19,8 +20,9 @@ from tutorials.figures.figure_utilities import find_run_folder, merge_facts, rea
 from tutorials.figures.instance_segmentation.evaluation_figures import (draw_mask_box_figure,
                                                                         write_mask_report_listings)
 from tutorials.figures.instance_segmentation.mask_figures import describe_mask_geometry, make_mask_figures
-from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
-                                                                  SAMPLE_ITERATIONS, count_scalar_tags)
+from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, EVALUATION_FOLDER_NAME,
+                                                                  SAMPLE_IMAGE_NAME, SAMPLE_ITERATIONS,
+                                                                  count_scalar_tags)
 from tutorials.figures.object_detection.evaluation_figures import read_confusion_notes, read_proposal_recall
 from tutorials.figures.object_detection.run_figures import (draw_loss_curves_figure, draw_metric_iterations_figure,
                                                             draw_sample_iterations_figure,
@@ -84,8 +86,10 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     Returns:
         Dict[str, Any]: The facts of every figure family, keyed by their dotted names.
     """
+    # Run folder and its last checkpoint as the current code evaluated it again (report, classes, proposal recall), the
+    # sample images and curves staying those of the training
     run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="instance_segmentation")
-    evaluation_folder = run_folder / "Evaluation" / f"Iteration_{CHECKPOINT_ITERATION}"
+    evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}"
     listings_folder = output_folder / "listings"
 
     # Console summaries of the first evaluation and of the last iteration, read from the logs next to the run folder
@@ -111,8 +115,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                       fact_prefix="metrics"),
         draw_mask_box_figure(evaluation_folder=evaluation_folder,
                              output_path=output_folder / "evaluation" / "mask_box_average_precision.png"),
-        write_mask_report_listings(run_folder=run_folder, iteration=CHECKPOINT_ITERATION,
-                                   output_folder=listings_folder),
+        write_mask_report_listings(results_path=run_folder / EVALUATION_FOLDER_NAME / "Results.txt",
+                                   iteration=CHECKPOINT_ITERATION, output_folder=listings_folder),
         read_proposal_recall(evaluation_folder=evaluation_folder),
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),
          "run.checkpoint_iteration": CHECKPOINT_ITERATION,

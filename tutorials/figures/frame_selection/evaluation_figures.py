@@ -1,10 +1,12 @@
 """
 Evaluation figures of the frame selection tutorials (the chapter on the evaluation and the deployment), made at every
-build by tutorials/figures/frame_selection/figures.py from the evaluation folders of the real frame selection run: the
-listing of the evaluation block of iteration 1000 in Results.txt, and the probability of every frame chosen by the
-decoding of the run (selections.csv) for every wanted class at iterations 1000 and 2000, the right and wrong choices
-apart, against the confidence threshold of the class in class_thresholds.json, found with that decoding, so that the
-scene shows which wrong choices the deployed decoder flags as low confidence and which go through.
+build by tutorials/figures/frame_selection/figures.py from the standalone evaluation of the real frame selection run
+(its Checkpoint_Evaluation folder, EVALUATION_FOLDER_NAME): the listing of the evaluation block of iteration 1000 in its
+Results.txt, the rates written as percentages ("99.50 %") and read back between 0 and 1 for the facts, and the
+probability of every frame chosen by the decoding of the run (selections.csv) for every wanted class at iterations 1000
+and 2000, the right and wrong choices apart, against the confidence threshold of the class in class_thresholds.json,
+found with that decoding at the target precision written as a percentage ("99 %"), so that the scene shows which wrong
+choices the deployed decoder flags as low confidence and which go through.
 """
 
 import json
@@ -20,10 +22,11 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, register_fonts, round_fact,
                                                 save_figure, style_chart_panel)
-from tutorials.figures.frame_selection.selection_figures import read_selection_rows
+from tutorials.figures.frame_selection.selection_figures import EVALUATION_FOLDER_NAME, read_selection_rows
 from tutorials.figures.sequence_labelling.sequence_utilities import (parse_block_metrics, read_results_block,
                                                                      read_run_sections, write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.evaluation.report_formatting import format_percentage_label
 
 # Iterations of the evaluations compared, the one with wrong choices and the last one
 THRESHOLD_ITERATIONS = [1000, 2000]
@@ -122,21 +125,23 @@ def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any
     figure.patch.set_facecolor(SURFACE_COLOUR)
     figure.subplots_adjust(left=0.075, right=0.985, top=0.79, bottom=0.13, wspace=0.08)
 
-    # Thresholds of every panel, the header writing the decoding and the target precision they were found with
-    panel_thresholds = {iteration: json.loads((run_folder / "Evaluation" / f"Iteration_{iteration}" /
+    # Thresholds of every panel, the header writing the decoding and the target precision they were found with, as a
+    # percentage like the headers of the report
+    panel_thresholds = {iteration: json.loads((run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{iteration}" /
                                                "class_thresholds.json").read_text(encoding="utf-8"))
                         for iteration in THRESHOLD_ITERATIONS}
     first_thresholds = panel_thresholds[THRESHOLD_ITERATIONS[0]]
-    figure.text(x=0.012, y=0.955, s=f"Evaluation/Iteration_<n>/selections.csv · class_thresholds.json · "
+    figure.text(x=0.012, y=0.955, s=f"{EVALUATION_FOLDER_NAME}/Iteration_<n>/selections.csv · class_thresholds.json · "
                                     f"{first_thresholds['decoding']} decoding, target precision "
-                                    f"{first_thresholds['target_precision']}", color=TEXT_SECONDARY_COLOUR,
-                fontsize=16 * POINTS_PER_PIXEL, va="center", family=MONOSPACE_FONT_FAMILY)
+                                    f"{format_percentage_label(value=first_thresholds['target_precision'])}",
+                color=TEXT_SECONDARY_COLOUR, fontsize=16 * POINTS_PER_PIXEL, va="center",
+                family=MONOSPACE_FONT_FAMILY)
     figure.text(x=0.012, y=0.905, s="Green: right choice · red: wrong choice · yellow tick: threshold of the class, "
                                     "a choice under it is flagged low confidence", color=TEXT_SECONDARY_COLOUR,
                 fontsize=18 * POINTS_PER_PIXEL, va="center")
     facts = {}
     for axes, iteration in zip(panel_axes, THRESHOLD_ITERATIONS):
-        evaluation_folder = run_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{iteration}"
         thresholds = panel_thresholds[iteration]
         facts.update(draw_threshold_panel(axes=axes, selection_rows=read_selection_rows(
             selections_path=evaluation_folder / "selections.csv"), thresholds=thresholds,
@@ -164,7 +169,9 @@ def make_evaluation_figures(output_folder: Path, run_folder: Path) -> Dict[str, 
     Returns:
         Dict[str, Any]: The facts, named evaluation.* and thresholds.*.
     """
-    block_lines = read_results_block(results_path=run_folder / "Results.txt", iteration=LISTED_ITERATION)
+    # Block of the listed iteration in the Results.txt of the standalone evaluation, its rates in percent
+    results_path = run_folder / EVALUATION_FOLDER_NAME / "Results.txt"
+    block_lines = read_results_block(results_path=results_path, iteration=LISTED_ITERATION)
     write_listing(lines=[line[:LISTED_LINE_LENGTH] for line in block_lines],
                   listing_path=output_folder / "listings" / "results_block.txt")
     facts = draw_thresholds_figure(run_folder=run_folder, output_path=output_folder / "evaluation" /
@@ -177,7 +184,7 @@ def make_evaluation_figures(output_folder: Path, run_folder: Path) -> Dict[str, 
                   "evaluation.results_listing_lines": len(block_lines),
                   "evaluation.top_k": int(experiment_configuration["evaluation"]["top_k"])})
     facts.update(parse_block_metrics(block_lines=block_lines, fact_prefix="evaluation"))
-    facts.update(parse_block_metrics(block_lines=read_results_block(results_path=run_folder / "Results.txt",
+    facts.update(parse_block_metrics(block_lines=read_results_block(results_path=results_path,
                                                                     iteration=THRESHOLD_ITERATIONS[-1]),
                                      fact_prefix=f"evaluation.iteration_{THRESHOLD_ITERATIONS[-1]}"))
     return facts

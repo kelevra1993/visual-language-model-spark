@@ -5,7 +5,8 @@ run, both checkpoints evaluated again with the current code in its Checkpoint_Ev
 (EVALUATION_FOLDER_NAME): the sample image of the test image of the chapters at both evaluated checkpoints, one above
 the other; the shares of the pixel confusion matrix of the last checkpoint (confusion_matrix.csv) for the grid of the
 storyboard; the IoU and boundary IoU of every class (class_metrics.csv); and the headline metrics of both checkpoints
-read from its Tensorboard/Test.
+read from its Tensorboard/Test. The rates drawn are written as the percentages of the reports of the repository (ticks
+"20 %"), the facts keeping them between 0 and 1.
 """
 
 import csv
@@ -13,6 +14,7 @@ import csv
 import numpy
 
 from matplotlib import pyplot
+from matplotlib.ticker import FuncFormatter
 from PIL import Image
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
@@ -26,6 +28,7 @@ from tutorials.figures.keypoint_detection.scalar_logs import read_scalar_values
 from tutorials.figures.semantic_segmentation.segmentation_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
                                                                          EVALUATION_FOLDER_NAME, SAMPLE_IMAGE_NAME)
 from tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
+from vision_training.evaluation.report_formatting import format_percentage_tick
 
 # Gap between the two sample images stacked in the samples figure
 SAMPLE_GAP = 24
@@ -93,7 +96,9 @@ def read_csv_rows(csv_path: Path) -> List[Dict[str, str]]:
 def describe_confusion_matrix(run_folder: Path) -> Dict[str, Any]:
     """
     Reads the pixel confusion matrix of the last evaluation of the run (pixel counts, rows true classes) and gives the
-    share of every true class in percent for the grid of the storyboard, with the shares the narration quotes.
+    share of every true class in percent with the two decimals of the reports for the grid of the storyboard, whose
+    cells show numbers, with the shares the narration quotes between 0 and 1, written as percentages by the format of
+    their placeholders.
 
     Args:
         run_folder (Path): The folder of the segmentation run.
@@ -106,8 +111,8 @@ def describe_confusion_matrix(run_folder: Path) -> Dict[str, Any]:
         rows = list(csv.reader(csv_file))
     class_names = rows[0][1:]
     counts = numpy.array([[int(value) for value in row[1:]] for row in rows[1:]], dtype=numpy.float64)
-    shares = counts / counts.sum(axis=1, keepdims=True) * 100.0
-    facts = {"confusion_values": [[round(float(value), 1) for value in row] for row in shares],
+    shares = counts / counts.sum(axis=1, keepdims=True)
+    facts = {"confusion_values": [[round(float(value) * 100.0, 2) for value in row] for row in shares],
              "confusion_labels": [name.replace("_", " ") for name in class_names],
              "confusion_total_pixels": int(counts.sum())}
     for true_name, predicted_name in CONFUSION_PAIRS:
@@ -122,7 +127,7 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path, boundary_toleran
     """
     Draws the IoU and the boundary IoU of every class of the last evaluation of the run, read from its
     class_metrics.csv, as one row per class sorted by IoU, the two values joined, so that the gap between the regions
-    and their contours shows.
+    and their contours shows, on an axis of percentages like the reports.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -157,6 +162,7 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path, boundary_toleran
     axes.set_yticks(ticks=positions, labels=[row["class"].replace("_", " ") for row in rows])
     axes.set_ylim(bottom=len(rows) - 0.5, top=-0.5)
     axes.set_xlim(left=0.0, right=1.02)
+    axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     axes.tick_params(axis="y", labelcolor=TEXT_PRIMARY_COLOUR, labelsize=18 * POINTS_PER_PIXEL)
     axes.grid(axis="y", visible=False)
     axes.legend(loc="lower left", frameon=False, labelcolor=TEXT_SECONDARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL)

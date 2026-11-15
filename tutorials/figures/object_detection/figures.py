@@ -5,7 +5,8 @@ tutorials/tutorial_sources.yaml (the shipped synthetic configuration) and the co
 and anchor recall of its data, the trained detector of its last checkpoint run on the CPU on the test image of the
 series (anchors, proposals in the proposal selection of the run, anchor labels, training targets), its training losses
 and console summaries, and its evaluation (sample images at three iterations, mAP of the trained and averaged weights,
-average precision of every class, confusion matrix, report tables, proposal recall), the settings and iterations of
+and, from its last checkpoint evaluated again with the current code in its Checkpoint_Evaluation folder, the average
+precision of every class, confusion matrix, report tables and proposal recall), the settings and iterations of
 the run quoted next to its measurements (read from its saved configuration, not from the shipped one, nor typed), and
 the joint and per-level proposal selections compared by stage 7
 of the detection benchmark (proposal_selection.py). Every figure family is a module of this folder writing into a
@@ -21,7 +22,8 @@ from typing import Any, Dict
 
 from tutorials.figures.figure_utilities import find_run_folder, merge_facts, read_run_configuration
 from tutorials.figures.object_detection.dataset_figures import make_dataset_figures
-from tutorials.figures.object_detection.detection_sources import SAMPLE_IMAGE_NAME, count_scalar_tags
+from tutorials.figures.object_detection.detection_sources import (EVALUATION_FOLDER_NAME, SAMPLE_IMAGE_NAME,
+                                                                  count_scalar_tags)
 from tutorials.figures.object_detection.detector_inference import make_detector_inference_figures
 from tutorials.figures.object_detection.evaluation_figures import (draw_class_average_precision_figure,
                                                                    draw_confusion_matrix_figure, read_confusion_notes,
@@ -202,17 +204,20 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     Returns:
         Dict[str, Any]: The facts of every figure family, keyed by their dotted names.
     """
-    # Run folder, the settings it was trained and evaluated with, its iterations and its last evaluated checkpoint
+    # Run folder, the settings it was trained and evaluated with, its iterations, and its last checkpoint as the
+    # training evaluated it (sample images) and as the current code evaluated it again (report, classes, confusion
+    # matrix and proposal recall)
     run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="object_detection")
     run_configuration = read_run_configuration(run_folder=run_folder)
     run_settings = describe_run_settings(run_configuration=run_configuration)
     iterations = find_run_iterations(run_configuration=run_configuration)
     checkpoint_iteration = iterations["checkpoint_iteration"]
-    evaluation_folder = run_folder / "Evaluation" / f"Iteration_{checkpoint_iteration}"
+    training_evaluation_folder = run_folder / "Evaluation" / f"Iteration_{checkpoint_iteration}"
+    evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{checkpoint_iteration}"
     listings_folder = output_folder / "listings"
 
     # Sample image of the test image at the last checkpoint, as the evaluation wrote it, shown by the first chapter
-    sample_path = evaluation_folder / "Samples" / SAMPLE_IMAGE_NAME
+    sample_path = training_evaluation_folder / "Samples" / SAMPLE_IMAGE_NAME
     if not sample_path.exists():
         raise FileNotFoundError(f"No sample image {sample_path} of the last checkpoint of the DET run.")
     (output_folder / "evaluation").mkdir(parents=True, exist_ok=True)
@@ -247,7 +252,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         draw_confusion_matrix_figure(evaluation_folder=evaluation_folder,
                                      score_threshold=run_settings["run.score_threshold"],
                                      output_path=output_folder / "evaluation" / "confusion_matrix.png"),
-        write_report_listings(run_folder=run_folder, iteration=checkpoint_iteration, output_folder=listings_folder),
+        write_report_listings(results_path=run_folder / EVALUATION_FOLDER_NAME / "Results.txt",
+                              iteration=checkpoint_iteration, output_folder=listings_folder),
         read_proposal_recall(evaluation_folder=evaluation_folder),
         make_proposal_selection_facts(experiments_folder=experiments_folder),
         describe_box_loss_beta(), run_settings,
