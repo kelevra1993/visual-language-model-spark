@@ -27,6 +27,7 @@
   - [Export](#export)
   - [Input Contract](#input-contract)
   - [Triton Server](#triton-server)
+  - [Serving Formats And Precision](#serving-formats-and-precision)
 - [Configurations](#configurations)
 - [Run Names](#run-names)
 - [MLflow Tracking](#mlflow-tracking)
@@ -281,6 +282,10 @@ When a run is ready to be served, `vision_training/deployment/export_model.py` w
 uv run python -m vision_training.deployment.export_model
 ```
 
+<p align="center">
+  <img src="README/export_pipeline.png" width="100%" />
+</p>
+
 The models are written to `vision_training/deployment/triton/served_models/<model name>_<format>/<version>/` with their `config.pbtxt`:
 
 | Task | Model name | Inputs | Outputs |
@@ -302,6 +307,11 @@ A classifier that reaches its target precision only above a threshold such as 0.
 ### Input Contract
 Should a server build the input of an exported model from a photo, it reads the input contract written with the model instead of assuming a resize or a channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to the model of both formats, with the keys of `vision_training/deployment/input_contract.py`: the BGR photo as `cv2.imread` decodes it, a `stretch`, `keep_ratio` or `tiles` resize with its OpenCV interpolation, the padding and the layout. The export stops before writing any file when a run uses an input the contract cannot describe.
 
+<p align="center">
+  <img src="README/input_contract_resizes.png" width="100%" />
+</p>
+<p align="center"><em>The three resizes of a 640 x 359 photo for an input size of 256, computed by <code>preprocess_image</code>, <code>compute_letterbox_region</code> and <code>compute_tile_starts</code> (tiles with an overlap of 64). Photo: COCO 2017 validation image 288882, Flickr, CC BY 2.0.</em></p>
+
 ```python
 session = onnxruntime.InferenceSession("model.onnx", providers=["CPUExecutionProvider"])
 input_contract = session.get_modelmeta().custom_metadata_map
@@ -318,7 +328,118 @@ cd vision_training/deployment/triton
 docker compose up
 ```
 
-`uv run python -m vision_training.deployment.run_inference` then sends the images of `vision_training/deployment/inference_data/` to the model of a run, in the process and through Triton, and prints the throughput of each.
+<p align="center">
+  <img src="README/triton_request_flow.png" width="100%" />
+</p>
+
+`uv run python -m vision_training.deployment.run_inference` then sends the images of `vision_training/deployment/inference_data/` to the model of a run, in the process and through Triton, and prints the throughput of each. It sends one request at a time from one client, so the dynamic batcher never forms a batch of more than one image, and its in-process reference is the eager PyTorch model on the GPU, not the TorchScript file.
+
+<p align="center">
+  <img src="README/run_inference_output.png" width="100%" />
+</p>
+<p align="center"><em>The README classifier (512 pixels) exported with TensorRT FP32, measured on 2026-10-23 while three trainings shared the GPU (item 28 of <code>documentation/suggestions.md</code>): lower than the model gives alone, to measure again on an idle GPU.</em></p>
+
+### Serving Formats And Precision
+Before a model goes to production, its serving path and its number format decide its latency, its throughput, its memory and how far its outputs move from the FP32 model that was evaluated. This part states what the repository exports today, what Triton, TensorRT and the reduced precisions add and cost on this machine (GB10 GPU; the Triton image `26.01-py3` ships Triton 2.65.0, CUDA 13.1.1 and TensorRT 10.14.1, [release notes](https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2670/release-notes/rel-26-01.html)), and the measurements still to make.
+
+#### What Is Exported Today
+If you are looking for what can be deployed without new code, here is what `export_model.py` and `triton_configuration.py` write. The inputs and outputs of every served model stay float32 (`TYPE_FP32` in `config.pbtxt`) whatever the precision: it only changes the computation inside the engine, so a request keeps its size.
+
+| Path | File and Triton platform | Computation | Checked by the export | Status |
+|---|---|---|---|---|
+| In the process | checkpoint, eager PyTorch (`run_inference.py`) | FP32, convolutions in TF32 (PyTorch default) | reference | measured by `run_inference.py` |
+| TorchScript | `model.pt`, `pytorch_libtorch` | FP32 by libtorch | `torch.jit.load` on the GPU against the eager model, TF32 off | exported |
+| ONNX Runtime CUDA | `model.onnx`, `onnxruntime_onnx` | FP32 | ONNX Runtime on the CPU against the eager model | `tensorrt_precision = None` |
+| ONNX with TensorRT, FP32 | the same file, TensorRT accelerator | FP32, TF32 allowed by TensorRT by default | the ONNX graph on the CPU, never the TensorRT engine | default (`"FP32"`) |
+| ONNX with TensorRT, FP16 | the same file, `precision_mode` FP16 | FP16 where TensorRT picks it, FP32 elsewhere | not checked | `"FP16"`, served unchecked |
+| BF16, INT8 | `precision_mode` values the [ONNX Runtime backend](https://github.com/triton-inference-server/onnxruntime_backend) documents | | | not offered: the export documents `"FP32"`, `"FP16"` and `None` (the temperature explorer refuses any other value) and has no calibration |
+| Native TensorRT engine | `model.plan`, `tensorrt_plan` | FP32 to FP8 | | not implemented |
+| FP8, FP4 | Q/DQ nodes of explicit quantization | | | not implemented |
+
+<p align="center">
+  <img src="README/serving_formats.png" width="100%" />
+</p>
+
+#### Triton Or The Model In The Process
+Suppose several cameras or services query the same model at once: in the process every call runs alone, while Triton queues the requests, batches them and spreads them over its instances.
+
+| Triton gives | Set by the export | It costs |
+|---|---|---|
+| [Dynamic batching](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/batcher.html): requests arriving within the queue delay run as one batch | `dynamic_batching { max_queue_delay_microseconds: 1000 }`, `max_batch_size` 16 | up to 1 millisecond of queue time; a batch only forms when requests overlap |
+| Several [instances](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/model_configuration.html) of a model running requests in parallel on the GPU | `instance_group [ { kind: KIND_GPU count: 1 } ]` | the weights and workspace of the model once per instance |
+| Every model and format of `served_models/` behind one endpoint, the frame selector chaining its GPU network and CPU decoder in an ensemble | one folder per model | the GPU memory of every loaded model at once |
+| HTTP and gRPC for any language: the client needs `tritonclient` and numpy, not PyTorch nor a CUDA context | ports 8000 and 8001 | a container to run and upgrade (`nvcr.io/nvidia/tritonserver:26.01-py3`, NVIDIA container runtime) |
+| Versions side by side in the repository, the served one chosen by `version_policy` | `version_policy: { specific: { versions: [ 1 ] } }` | the compose file starts Triton without a model control mode, so a new export is loaded at the next start |
+| [Metrics](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/metrics.html) of every model on port 8002: requests, queue time, compute time, GPU use | on by default in Triton | |
+| The photo prepared by the client, the network run by the server | the input contract, `preprocessing.json` | every request carries its float32 tensor through gRPC, 3.1 MB per 512 x 512 image and 12.6 MB at 1024, unless `use_shared_memory` passes it through `/dev/shm` |
+
+<p align="center">
+  <img src="README/dynamic_batching_timeline.png" width="100%" />
+</p>
+
+With one client and one request at a time, the only setting measured so far, the TorchScript file served by Triton gave 11 % less throughput than the eager model in the process (43.14 against 48.72 samples per second, figure of [Triton Server](#triton-server), GPU shared with three trainings): the server, the gRPC copy of every image and the libtorch runtime, with no batching to pay them back. The gain of dynamic batching appears only with concurrent requests, still to measure here: NVIDIA's [conceptual guide](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/tutorials/Conceptual_Guide/Part_2-improving_resource_utilization/README.html) reports, for a text recognition ONNX model at 16 concurrent requests, 975 inferences per second without dynamic batching, 3,188 with it and 4,134 with two instances, the 95th percentile latency falling from 34.0 to 10.6 and 8.2 milliseconds (published figures, not measured on this machine).
+
+#### TensorRT Or TorchScript And ONNX Runtime CUDA
+Whenever the latency of a model matters more than the portability of its file, TensorRT compiles the ONNX graph into an engine for this GPU instead of running it operator by operator:
+- **Layer and tensor fusion.** The convolution, batch normalization and ReLU of `convolution_block.py` become one kernel. ONNX Runtime CUDA folds the batch normalization into the convolution at load but keeps the ReLU apart (its convolution and activation fusion is listed for the CPU provider only, [graph optimizations](https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html)), and libtorch runs the traced operators one by one.
+- **Kernel auto-tuning.** The builder times the candidate kernels of every layer on the GPU itself and keeps the fastest.
+- **Reduced precision.** FP16 kernels on the Tensor Cores where TensorRT finds them faster, the FP16 flag allowing them without forcing them ([precision control, TensorRT 10](https://docs.nvidia.com/deeplearning/tensorrt/10.x.x/inference-library/precision-control.html)).
+
+Measured once, in the conditions above: 96.59 samples per second with TensorRT FP32, 2.2 times TorchScript through Triton (43.14) and twice the eager model in the process (48.72). ONNX Runtime CUDA alone is not measured. What it costs with the configuration the export writes ([TensorRT execution provider](https://onnxruntime.ai/docs/execution-providers/TensorRT-ExecutionProvider.html)):
+- **Engines built while serving.** ONNX Runtime builds an engine at the first request, a build its documentation warns can be very long (every kernel is profiled); the 20 warm-up requests of `run_inference.py` absorb it for batches of one image only.
+- **A new engine for every larger batch.** `config.pbtxt` gives no `trt_profile_min_shapes`, `trt_profile_opt_shapes` or `trt_profile_max_shapes`, so ONNX Runtime builds for the shapes seen so far and rebuilds when a request falls outside them: every batch larger than all the earlier ones, as the dynamic batcher forms them, waits for a build.
+- **A cache lost with the container.** `trt_engine_cache_path` is `/tmp/tensorrt_engine_cache` inside the container, which `docker-compose.yml` does not mount, so a recreated container builds every engine again. The cache is also stale after a change of the model, of ONNX Runtime, of TensorRT or of the GPU.
+- **Engines tied to the GPU and the TensorRT version.** An engine built on the GB10 (compute capability 12.1) with TensorRT 10.14.1 runs on no other GPU or TensorRT version, unless built in the hardware and version compatibility modes of TensorRT; `model.onnx` and `model.pt` run on any GPU. TensorRT 11 keeps only strongly typed networks ([current precision control](https://docs.nvidia.com/deeplearning/tensorrt/latest/inference-library/precision-control.html)), to check before upgrading the image.
+- **Unsupported operators.** ONNX Runtime gives TensorRT only the subgraphs it supports and runs the rest with CUDA, every boundary adding a copy; whether the post-processing of DET, INS and KPT (NMS, top-k, RoI Align) runs inside TensorRT is not checked yet.
+- **Workspace memory.** `max_workspace_size_bytes` lets every engine take up to 4294967296 bytes (4 GiB, the backend default being 1 GB), out of the 128 GB of memory the GPU shares with the CPU and the trainings on a DGX Spark.
+- **"FP32" is not exact FP32.** TensorRT allows TF32 Tensor Cores by default, as PyTorch does for convolutions; the export turns TF32 off for its reference only.
+
+Native engines (`model.plan` served by `tensorrt_plan`) are not implemented: they would be built at export with explicit optimization profiles of the batch sizes, instead of at the first requests, but on the GPU and with the TensorRT version of the server.
+
+#### Number Formats
+In case you consider FP16 or a lower precision for a served model, the bits of each format decide the range it holds (exponent) and its rounding (mantissa); every value below follows from the format.
+
+<p align="center">
+  <img src="README/number_formats.png" width="100%" />
+</p>
+
+| Format | In the repository | Gains | Risks |
+|---|---|---|---|
+| FP32 | weights, inputs and outputs of every export; every evaluation | the reference | 4 bytes per value |
+| TF32 | PyTorch convolutions and TensorRT "FP32" engines by default; off in the export check | FP32 range on the Tensor Cores, nothing to change in the model | 10-bit mantissa: scores about 1e-3 from exact FP32 (comment of `export_experiment`) |
+| BF16 | forward passes of every training (autocast of `base_trainer.py`); not offered for serving | range of FP32, no overflow; the models already trained with BF16 activations; 2 bytes | 2.4 decimal digits: pixel coordinates on a grid of 4 pixels between 512 and 1024 and of 8 pixels from 1024 to 2048; probabilities near 1 in steps of 0.0039, so a threshold of 0.999 falls between 0.996 and 1: post-processing must stay FP32 |
+| FP16 | `tensorrt_precision = "FP16"`, served without check | 2 bytes on the Tensor Cores, 3.3 digits against 2.4 for BF16 | overflow above 65,504: computed in FP16, the area of a box of 256 x 256 pixels or more is infinite; values below 6.1e-5 lose precision; coordinates on a grid of 0.5 pixel between 512 and 1024 and of 1 pixel from 1024 to 2048 |
+| FP8 E4M3, E5M2 | not implemented: explicit quantization only, not a `precision_mode` of the ONNX Runtime backend | 1 byte | E4M3 overflows above 448 and keeps 1.2 digits: needs a scale per tensor |
+| INT8 | not implemented: needs Q/DQ nodes or a calibration table, implicit calibration being deprecated since TensorRT 10.1 ([quantized types](https://docs.nvidia.com/deeplearning/tensorrt/10.x.x/inference-library/work-quantized-types.html); about 500 images calibrate an ImageNet classifier) | 1 byte, integer Tensor Cores | 256 levels per tensor or channel: wide ranges such as heatmaps and box offsets lose resolution |
+| FP4 E2M1 | not implemented | half a byte; the published 1 petaFLOP of the [DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/) is a theoretical FP4 figure with sparsity | 8 values per sign, from 0 to 6 |
+
+<p align="center">
+  <img src="README/number_format_rounding.png" width="100%" />
+</p>
+<p align="center"><em>Gap between neighbouring representable values: a value is rounded by up to half of it, and the format overflows past the cross. The dotted lines mark values of this repository: a class threshold, a pixel coordinate of a 1024-pixel input and the area of a 256 x 256 box.</em></p>
+
+A reduced precision also shrinks the memory the model reads at every request. The weights of four saved runs, counted from their model state (weights and batch normalization statistics):
+
+<p align="center">
+  <img src="README/model_weight_sizes.png" width="100%" />
+</p>
+
+The DGX Spark gives its GPU 273 GB/s of memory bandwidth shared with the CPU ([specifications](https://www.nvidia.com/en-us/products/workstations/dgx-spark/)), so halving the bytes of weights and activations halves the traffic of a memory-bound layer; how much latency it saves on these models is part of the benchmark below.
+
+#### Benchmark Still To Run
+Once the GPU is free of trainings, fill this table with the protocol of the [TODO](#todo) entry; no value in it is measured yet.
+
+| Path | p50 latency (milliseconds) | p99 latency (milliseconds) | Images Per Second | GPU memory (gigabytes) | Test metric against FP32 (points) | Engine build (seconds) |
+|---|---|---|---|---|---|---|
+| In the process, eager PyTorch | to be measured | to be measured | to be measured | to be measured | 0 (reference) | none |
+| In the process, TorchScript (`torch.jit.load`) | to be measured | to be measured | to be measured | to be measured | to be measured | none |
+| Triton, TorchScript | to be measured | to be measured | to be measured | to be measured | to be measured | none |
+| Triton, ONNX Runtime CUDA | to be measured | to be measured | to be measured | to be measured | to be measured | none |
+| Triton, ONNX with TensorRT FP32 | to be measured | to be measured | to be measured | to be measured | to be measured | to be measured |
+| Triton, ONNX with TensorRT FP16 | to be measured | to be measured | to be measured | to be measured | to be measured | to be measured |
+| Triton, ONNX with TensorRT BF16 (`config.pbtxt` edited) | to be measured | to be measured | to be measured | to be measured | to be measured | to be measured |
+| Triton, native TensorRT FP16 engine | not implemented | | | | | |
+| INT8 or FP8 | not implemented | | | | | |
 
 ## Configurations
 Before writing a configuration of your own, start from a copy of the files of its task: every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` in `vision_training/configurations/<task>/`, holding only, and all, the keys the task reads, each explained by its comment. `Data.image_settings.size` must be even and a multiple of 2 to the power of the number of max poolings of `Backbone`, so that no pooling drops a row or a column: with 5 poolings, 96, 224, 384 and 512 are accepted. The keys and values of every task are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
@@ -392,3 +513,11 @@ To find your way in the code, here is where each part lives:
 ```
 
 ## TODO
+In case you pick up open work, these entries are still to do:
+- **Benchmark the serving formats and precisions** and fill the table of [Benchmark Still To Run](#benchmark-still-to-run), on a GPU free of trainings:
+  - Models: the README classifier of `export_model.py` (CLS, 512 pixels), the detection benchmark reference run_9 (DET, 1024 pixels, NMS inside the model) and the sequence labelling tutorial run (M2M, a bidirectional LSTM over up to 50 frames, operators TensorRT may leave to CUDA).
+  - Exports: `export_model.py` with `tensorrt_precision` `None`, `"FP32"` and `"FP16"`, each in a model repository of its own, plus BF16 by editing the `precision_mode` of a copy of the ONNX `config.pbtxt`.
+  - Server settings: dynamic batching on (`max_queue_delay_microseconds` 1000, as exported) and off, `instance_group` count 1 and 2, `max_batch_size` 16.
+  - Load: `perf_analyzer` of the Triton SDK image (`nvcr.io/nvidia/tritonserver:26.01-py3-sdk`) over gRPC, with and without system shared memory, at concurrencies 1, 4 and 16 and client batch sizes 1, 4 and 16; `run_inference.py` for the comparison with the model in the process, extended with the TorchScript file loaded by `torch.jit.load`.
+  - Metrics: p50 and p99 latency in milliseconds, images per second, GPU memory (nvidia-smi reports `memory.used` as N/A on the GB10: check whether `nv_gpu_memory_used_bytes` on port 8002 gives a value, otherwise read the drop of `MemAvailable` in `/proc/meminfo`), engine build time (first request after emptying `/tmp/tensorrt_engine_cache`, then the first request of every larger batch), and the test metric of every served format against the FP32 evaluation of `evaluate_checkpoint.py`, in points, which needs a Triton client of the test split not written yet.
+  - Afterwards: capture `README/run_inference_output.png` again on the idle GPU, keep the raw `perf_analyzer` files next to the table, and decide on native TensorRT engines built at export with optimization profiles, BF16 in the export settings, a mounted engine cache, and a check of the served engine against the eager model.
