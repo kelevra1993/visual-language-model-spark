@@ -81,7 +81,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | Key | Value in the synthetic configuration | Effect |
 |---|---|---|
 | `MaskHead.mask_resolution` | 28 | side of the masks of every level, the `MR28` token of the run name and the `[D, 28, 28]` of the exported `detection_masks` |
-| `DetectionLevels.<5, 6, 7>.mask_head` | `roi_align_pool_size: 14`, `convolutions: [3, 32]` | RoIAlign and convolution block of the mask head of every level (`M14.3x32`), the pool doubled once to 28 (`count_mask_upsamplings()`); the pool size must not exceed the mask resolution |
+| `DetectionLevels.<5, 6, 7>.mask_head` | `roi_align_pool_size: 14`, `convolutions: [3, 32]` | RoIAlign and convolution block of the mask head of every level (`M14.3x32`), the pool doubled once to 28 (`count_mask_upsamplings()`); the pool size must not exceed the mask resolution; on the hard dataset, the pool of 14 with the resolution of 28 beat a pool of 22 (resolution 44) and a resolution of 56 (stages 1 and 2 of `documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`) |
 | `MaskHead.upsampling` | `"transposed"` | a 2 x 2 transposed convolution of stride 2 per doubling (`MUTC`), or `"bilinear"`, a bilinear doubling followed by a 3 x 3 convolution (`MUBL`) |
 | `MaskHead.skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` | `[]`, `[0, 0]`, `[]`, `[0, 0]` (off; this document runs without them) | finer inputs of the mask heads (stage 3b of the instance segmentation benchmark): backbone blocks before their pooling pooled at the pool size (`MSP`), an image branch of plain 3 x 3 convolutions on the RoIAlign crop of the normalized input image (`MIB`) and blocks pooled at the mask resolution (`MSM`), both concatenated after the doublings, and plain 3 x 3 fusion convolutions before the predictor (`MF`) |
 | `MaskHead.modules`, `MaskHead.normalization` | residual shortcuts on, squeeze-and-excitation and inception off; batch normalization | the convolution blocks of the mask heads (`MRES-MBN`) |
@@ -277,7 +277,7 @@ scripts/evaluation/evaluate_checkpoint.py   [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1).
 
 ### Step 1.2 — `load_experiment_configuration()`
-The model sections are those of the object detection (see `object_detection_workflow.md`, Step 1.2) plus `MaskHead`, the settings shared by the mask heads of every level: `mask_resolution` (the side of the predicted masks, 28), `upsampling` (`transposed` or `bilinear`, how the pooled features are doubled up to the mask resolution), `normalization`, `modules`, `inference.mask_threshold` (the probability from which a pixel of a predicted mask belongs to its object) and `pretrained`. Every level of `DetectionLevels` holds, next to its anchors, region proposal and detector settings, a `mask_head` with its own `roi_align_pool_size` and `convolutions` (`[number of layers, number of filters]`).
+The model sections are those of the object detection (see `object_detection_workflow.md`, Step 1.2) plus `MaskHead`, the settings shared by the mask heads of every level: `mask_resolution` (the side of the predicted masks, 28), `upsampling` (`transposed` or `bilinear`, how the pooled features are doubled up to the mask resolution), the four finer inputs of the heads (`skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions`, off), `normalization`, `modules`, `inference.mask_threshold` (the probability from which a pixel of a predicted mask belongs to its object) and `pretrained`. Every level of `DetectionLevels` holds, next to its anchors, region proposal and detector settings, a `mask_head` with its own `roi_align_pool_size` and `convolutions` (`[number of layers, number of filters]`).
 
 **Example: the sections and the mask settings**
 ```text
@@ -299,7 +299,7 @@ MaskHead: {"mask_resolution": 28, "upsampling": "transposed",
            "inference": {"mask_threshold": 0.5},
            "pretrained": {"experiment_folder": null, "iteration": null, "freeze": false, "learning_rate_multiplier": 1.0}}
 ```
-The current file also has a `Neck` section (`type: "none"`) before `RegionProposal`, `'original_resolution': False` in its `evaluation` section, between `target_precision` and `error_dumps` (the scoring at the original resolution of Step 4.7), `mask_loss: 1.0` in `Optimization.loss_weights`, and `instance_index_maps: True` in its `Data` section, between `image_settings` and `label_mapping` (Step 2.9), and the current loader adds the runtime key `standalone_evaluation_folder` after `run_name` (`None` for a training, `Checkpoint_Evaluation` or `Checkpoint_Evaluation_nms_<name>` set by the evaluation script of Stage 5).
+The current file also has a `Neck` section (`type: "none"`) before `RegionProposal`, `'original_resolution': False` in its `evaluation` section, between `target_precision` and `error_dumps` (the scoring at the original resolution of Step 4.7), `mask_loss: 1.0` in `Optimization.loss_weights`, the four finer inputs of `MaskHead` turned off (`[]`, `[0, 0]`, `[]`, `[0, 0]`) between `upsampling` and `normalization`, and `instance_index_maps: True` in its `Data` section, between `image_settings` and `label_mapping` (Step 2.9), and the current loader adds the runtime key `standalone_evaluation_folder` after `run_name` (`None` for a training, `Checkpoint_Evaluation` or `Checkpoint_Evaluation_nms_<name>` set by the evaluation script of Stage 5).
 
 ### Step 1.3 — `load_configuration()`
 **Example output**
@@ -320,7 +320,7 @@ dict: {1: 1, 2: 2, 3: 3, ..., 19: 19, 20: 20, 'background': 0}
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_instance_segmentation_configuration()`: the checks of the detection (`check_detection_configuration()`, which also requires a `mask_head` in every detection level, refuses `random_perspective` and `random_jigsaw`, whose moves the boxes and the masks cannot follow, and checks the weight of the `mask_loss` with the four others), `check_mask_head_configuration()`, and a boolean `evaluation.original_resolution`. The RoIAlign pool size of every level must not exceed `MaskHead.mask_resolution`, since the mask head only enlarges the pooled features.
+The common checks run first, then `check_instance_segmentation_configuration()`: the checks of the detection (`check_detection_configuration()`, which also requires a `mask_head` in every detection level, refuses `random_perspective` and `random_jigsaw`, whose moves the boxes and the masks cannot follow, and checks the weight of the `mask_loss` with the four others), `check_mask_head_configuration()` (with `check_mask_head_fine_inputs()`: the `[layers, channels]` of the image branch and of the fusion convolutions both positive or `[0, 0]`, the skip blocks distinct numbers from 0, the normalized input image, to the last backbone block, and no image branch with mask heads initialised by another run, the branch not being transferred with them), and a boolean `evaluation.original_resolution`. The RoIAlign pool size of every level must not exceed `MaskHead.mask_resolution`, since the mask head only enlarges the pooled features.
 
 **Example: output with `MaskHead.upsampling: nearest` and `DetectionLevels.5.mask_head.roi_align_pool_size: 32` in the YAML**
 ```text
@@ -380,7 +380,7 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()` → `build_instance_segmentation_sections()`
-The prefix is `INS`, and the sections are those of the detection (see `object_detection_workflow.md`, Step 2.4) with a mask heads section before the classes: `MRES` (residual shortcuts; `MSE` and `MINC` for the other modules), `MBN` (batch normalization; `MLN`, `MNN`), `MUTC` (transposed convolutions; `MUBL` for bilinear), `M14.4x64` (RoIAlign of 14, 4 layers of 64 filters, written once when every level has the same mask head, otherwise per level joined with `+`) and `MR28` (mask resolution). The mask threshold gives no token, so that it can change between two resumptions of a run.
+The prefix is `INS`, and the sections are those of the detection (see `object_detection_workflow.md`, Step 2.4) with a mask heads section before the classes: `MRES` (residual shortcuts; `MSE` and `MINC` for the other modules), `MBN` (batch normalization; `MLN`, `MNN`), `MUTC` (transposed convolutions; `MUBL` for bilinear), `M14.4x64` (RoIAlign of 14, 4 layers of 64 filters, written once when every level has the same mask head, otherwise per level joined with `+`) and `MR28` (mask resolution), followed, only when used, by the finer inputs: `MSP<blocks>` (skips at the pool size), `MIB<layers>x<channels>` (image branch), `MSM<blocks>` (skips at the mask resolution) and `MF<layers>x<channels>` (fusion convolutions), the blocks joined with `.`, so that the runs written before them keep their names. The mask threshold gives no token, so that it can change between two resumptions of a run.
 
 **Example output**
 ```text
@@ -530,7 +530,7 @@ mask head 7: pool 14, upsamplings 1, upsampled 28, mask 28, spatial scale 0.0156
 ```
 
 ### Step 2.14 — `initialise_pretrained_components()` + `build_optimizer()` + `get_tracked_metrics()`
-Four components can be initialised by another run: `Backbone`, `RegionProposal`, `Detector` and `MaskHead` (each section with its `pretrained` settings). `get_tracked_metrics()` adds `mask_loss` to the five metrics of the detection.
+Four components can be initialised by another run: `Backbone`, `RegionProposal`, `Detector` and `MaskHead` (each section with its `pretrained` settings). The mask heads of the source run must have the same mask resolution, upsampling, normalization, modules, finer inputs and per-level `mask_head` (`compare_detection_heads()`, a run written before the finer inputs counting as without them); the image branch, built apart from the mask heads (`MaskFineInputs`), is not transferred. `get_tracked_metrics()` adds `mask_loss` to the five metrics of the detection.
 
 **Example output**
 ```text
@@ -570,7 +570,7 @@ tracked metrics: {'total_loss': 'Total Loss', 'region_proposal_classification_lo
 ```
 
 ### Step 2.16 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The panels of the detection (backbone, region proposal, detection, receptive field; see `object_detection_workflow.md`, Step 2.19) are followed by a **Mask Architecture** panel, one block per level, and the model size panel counts the mask heads apart. The `Modules` lines list the residual shortcuts only for a block adding one (`count_residual_additions()`): the detection heads of blocks 6 and 7 list the squeeze-and-excitation only, their 2 layers adding no shortcut once the first one has turned 128 channels into 64 (`bug_standards.md` H4, dropped), while every mask head lists `Residual Shortcuts`, the 4 layers of those of blocks 6 and 7 adding one shortcut after that first layer.
+The panels of the detection (backbone, region proposal, detection, receptive field; see `object_detection_workflow.md`, Step 2.19) are followed by a **Mask Architecture** panel, one block per level, and the model size panel counts the mask heads apart. With finer inputs, the mask panel adds the `Image Branch` and `Skips At Mask Size` lines and, in every level, `Skips At Pool Size` and `Fusion Layers`, and the model size panel a `Mask Image Branch` row; this run has none. The `Modules` lines list the residual shortcuts only for a block adding one (`count_residual_additions()`): the detection heads of blocks 6 and 7 list the squeeze-and-excitation only, their 2 layers adding no shortcut once the first one has turned 128 channels into 64 (`bug_standards.md` H4, dropped), while every mask head lists `Residual Shortcuts`, the 4 layers of those of blocks 6 and 7 adding one shortcut after that first layer.
 
 **Example output: the region proposal panel, the mask panel and the model size** (rebuilt on the CPU with the current code from the configuration of this stage, the same as printed then; the backbone, detection and receptive field panels are those of the detection)
 ```text

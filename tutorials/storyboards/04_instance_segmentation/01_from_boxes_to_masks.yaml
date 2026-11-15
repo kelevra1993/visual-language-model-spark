@@ -119,13 +119,14 @@ scenes:
     code_reference: "vision_training/models/instance_segmentation/mask_head.py · count_mask_upsamplings"
     source:
       file: vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml
-      keys: [DetectionLevels.5.mask_head, MaskHead.mask_resolution, MaskHead.upsampling, MaskHead.normalization, MaskHead.modules, MaskHead.inference]
+      keys: [DetectionLevels.5.mask_head, MaskHead.mask_resolution, MaskHead.upsampling, MaskHead.skip_blocks_at_pool_size, MaskHead.image_branch_convolutions, MaskHead.skip_blocks_at_mask_resolution, MaskHead.fusion_convolutions, MaskHead.normalization, MaskHead.modules, MaskHead.inference]
       comments: false
     highlights:
       - {match: "mask_head:", sentences: [0]}
-      - {match: "mask_resolution|upsampling:|normalization:|residual_nets|squeeze_and_excite", sentences: [1]}
-      - {match: "mask_resolution", sentences: [2]}
+      - {match: "^ *mask_resolution:|upsampling:|normalization:|residual_nets|squeeze_and_excite", sentences: [1]}
+      - {match: "^ *mask_resolution:", sentences: [2]}
       - {match: "mask_threshold", sentences: [3]}
+      - {match: "skip_blocks_at_pool_size:|image_branch_convolutions:|skip_blocks_at_mask_resolution:|fusion_convolutions:", sentences: [4]}
     # The pool size, doubled size and mask resolution of the scenario, not of the configuration
     literal_numbers: ["10", "20", "28"]
     narration:
@@ -133,6 +134,7 @@ scenes:
       - "The Mask Head section sets what the levels share: masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels, the upsampling that doubles the pool, and the modules and normalization of the convolution block."
       - "The pool is doubled as many times as fits in the mask resolution, here from {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}} to {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}; should you set a pool of 10 with masks of 28, it would be doubled to 20, then resized to 28."
       - "The mask threshold of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}} serves the evaluation and the sample images; the export leaves it to the client."
+      - "The skip, image branch and fusion settings, off here, would feed the head finer inputs: backbone blocks before their pooling, convolutions on the crop of the input image, and convolutions mixing them before the predictor."
 
   - kind: html
     page: diagram

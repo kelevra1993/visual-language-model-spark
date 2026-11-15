@@ -386,7 +386,7 @@ To find your way in the code, here is where each part lives:
 │   ├── tracking/                      # MLflow tracking
 │   ├── deployment/                    # Export, input contract, Triton server, throughput measurement
 │   └── utilities/                     # File, tensor, mask and visualization helpers
-├── scripts/                           # Configuration, data, embedding and evaluation scripts
+├── scripts/                           # Configuration, data, embedding, evaluation and model drawing scripts
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
 └── tutorials/                         # Narrated tutorial videos: storyboards, builder and figure scripts
 ```
