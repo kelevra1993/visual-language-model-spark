@@ -1,5 +1,5 @@
 # Shape pretrainer named after this file (~/Data/tutorial_runs/pretrained, run folder renamed after training): the 35
-# counted shapes, multi-label, 30,000 iterations of 64 images from random weights.
+# counted shapes, multi-label, 40,000 iterations of 64 images from random weights.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.
@@ -25,7 +25,7 @@ ExperimentConfiguration:
   # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
   intermediate_weight_saving_iterations: 0
   # Total training iterations: 10,000 of 256 images see the 512,000 training images 5 times.
-  number_iterations: 30000
+  number_iterations: 40000
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 0
   # Test evaluation at every weight_saving_iterations checkpoint: accuracy, balanced accuracy, macro F1, top-k accuracy,
