@@ -48,7 +48,7 @@ final_detection_boxes [B, 100, 4], _scores [B, 100], _labels [B, 100] · number_
    ▼
 evaluate_detections ─► mAP@0.5 / 0.75 / 0.95 / [0.5:0.95] x area, 11, 101 point · by size · mAR · AP per class
                        headline mAP@0.5/area · proposal recall · class thresholds at precision 0.99 · confusion matrix
-                       · recall of every class at 0.5 and 0.75 with its 95% interval
+                       · recall of every class at 0.5 and 0.75 with its 95 % interval
 <run>/anchor_recall.csv, Results.txt · Evaluation/Iteration_<n>/{class_metrics.csv, class_thresholds.json,
 confusion_matrix.csv/.png, proposal_recall.csv, Samples/, EMA/} · Tensorboard/{Train, Test, Test_EMA}
 ```
@@ -101,15 +101,15 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 
 ### What A Run Writes
 - At every launch, `anchor_recall.csv` in the run folder: the share of the training objects with a foreground anchor, per level and size (Step 2.21).
-- At every `weight_saving_iterations` checkpoint, in `Evaluation/Iteration_<n>/`: `class_metrics.csv` (AP of every class at 0.5, 0.75, 0.95 and 0.5:0.95, by size, recall at 0.5 and 0.75 with its 95% confidence interval, threshold and recall at the target precision), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (a `background` row for the false positives and column for the missed objects), `proposal_recall.csv`, `Samples/<image>.png` (the ground truth boxes next to the detections reaching 0.5), `Errors/` with `error_dumps`, and the same files in `EMA/` for the moving average of the weights.
-- `Results.txt`: one block per evaluation (two with the moving average) with the confusion matrix note and the tables of the methods, object sizes, mean average recall, proposal recall and classes, then the per-class recall table; `Tensorboard/Train` holds the total loss, the four losses and the learning rate, `Tensorboard/Test` and `Test_EMA` the evaluation scalars (72 for 20 classes), the 8 samples and the confusion matrix.
-- In the DET run of `experiments/readme_screenshots` (the synthetic configuration of 2026-10-23, with the joint proposal selection and the greedy NMS, resumed to 5000 iterations), iteration 5000 gives `mAP@0.5/area` 0.7469 (0.7429 with the averaged weights), `mAP@[0.5:0.95]` 0.5425 (0.5917), a proposal recall at 0.5 of 0.9965 and 40,068 right detections, 4,885 of the wrong class, 3,078 false positives and 24,729 missed objects at the deployment threshold.
-- In the run of `run_configurations/object_detection_workflow_run.yaml` shown in Stages 3 to 5 (the synthetic configuration trained to 5000 iterations from scratch, evaluated every 500), iteration 5000 gives `mAP@0.5/area` 0.7151 (0.7208 with the averaged weights), `mAP@[0.5:0.95]` 0.5160 (0.5673), a proposal recall at 0.5 of 0.9967 and 34,213 right detections, 3,228 of the wrong class, 3,038 false positives and 32,241 missed objects at the deployment threshold; the mAP was still rising at the last evaluation.
+- At every `weight_saving_iterations` checkpoint, in `Evaluation/Iteration_<n>/`: `class_metrics.csv` (AP of every class at 0.5, 0.75, 0.95 and 0.5:0.95, by size, recall at 0.5 and 0.75 with its 95 % confidence interval, threshold and recall at the target precision), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (a `background` row for the false positives and column for the missed objects), `proposal_recall.csv`, `Samples/<image>.png` (the ground truth boxes next to the detections reaching 0.5), `Errors/` with `error_dumps`, and the same files in `EMA/` for the moving average of the weights.
+- `Results.txt`: one block per evaluation (two with the moving average) with the confusion matrix note and the tables of the methods, object sizes, mean average recall, proposal recall and classes, then the per-class recall table, every average precision and recall written as a percentage (`71.51 %`) while the counts, score thresholds and proposals per image keep their values, the files, TensorBoard and MLflow keeping the rates between 0 and 1; `Tensorboard/Train` holds the total loss, the four losses and the learning rate, `Tensorboard/Test` and `Test_EMA` the evaluation scalars (72 for 20 classes), the 8 samples and the confusion matrix.
+- In the DET run of `experiments/readme_screenshots` (the synthetic configuration of 2026-10-23, with the joint proposal selection and the greedy NMS, resumed to 5000 iterations), iteration 5000 gives `mAP@0.5/area` 74.69 % (74.29 % with the averaged weights), `mAP@[0.5:0.95]` 54.25 % (59.17 %), a proposal recall at 0.5 of 99.65 % and 40,068 right detections, 4,885 of the wrong class, 3,078 false positives and 24,729 missed objects at the deployment threshold.
+- In the run of `run_configurations/object_detection_workflow_run.yaml` shown in Stages 3 to 5 (the synthetic configuration trained to 5000 iterations from scratch, evaluated every 500), iteration 5000 gives `mAP@0.5/area` 71.51 % (72.08 % with the averaged weights), `mAP@[0.5:0.95]` 51.60 % (56.73 %), a proposal recall at 0.5 of 99.67 % and 34,213 right detections, 3,228 of the wrong class, 3,038 false positives and 32,241 missed objects at the deployment threshold; the mAP was still rising at the last evaluation.
 
 ### Pitfalls
-- The synthetic configuration stops at 2000 iterations, where few detections reach the 0.5 of the sample images: in the run of `experiments/readme_screenshots`, `mAP@0.5/area` is 0.0901 at iteration 1000, with no detection reaching 0.5, and 0.3126 at 2000; the samples only show detections after the resume to 5000 (`suggestions.md`, item 30).
-- Small objects are barely found: the finest level has a stride of 32 and anchors of 32 and 64 pixels, the anchors sitting on the cell corners (`suggestions.md`, item 5; the cell centres tied with them in stage 8 of the detection benchmark and were removed, `bug_standards.md` L1). `anchor_recall.csv` of that run gives a foreground anchor to 10.3 % of the 1,254 small training objects, and at iteration 5000 the 184 small test objects have a `mAP@0.5` of 0.0147 and a proposal recall at 0.5 of 0.3315 (`Results.txt`).
-- The runs shown select the proposals over all the levels at once (`select_best_proposals()`, `RegionProposal.proposal_selection: "joint"`, audit M3): at iteration 5000 of the run of `experiments/readme_screenshots`, 178.7 of the 250 proposals per image come from block 5 (`proposal_recall.csv`; 166.9 in the run of Stages 3 to 5, Step 4.15). The object detection configurations use `"per_level"` since stage 7 of the detection benchmark (+0.0104 mAP@[0.5:0.95], `object_detection_experiment_plan.md`), which ranks and suppresses every level on its own, as torchvision; the post-NMS top-k still ranks all the levels by score, so it lets every level reach the suppression rather than reserving it slots.
+- The synthetic configuration stops at 2000 iterations, where few detections reach the 0.5 of the sample images: in the run of `experiments/readme_screenshots`, `mAP@0.5/area` is 9.01 % at iteration 1000, with no detection reaching 0.5, and 31.26 % at 2000; the samples only show detections after the resume to 5000 (`suggestions.md`, item 30).
+- Small objects are barely found: the finest level has a stride of 32 and anchors of 32 and 64 pixels, the anchors sitting on the cell corners (`suggestions.md`, item 5; the cell centres tied with them in stage 8 of the detection benchmark and were removed, `bug_standards.md` L1). `anchor_recall.csv` of that run gives a foreground anchor to 10.3 % of the 1,254 small training objects, and at iteration 5000 the 184 small test objects have a `mAP@0.5` of 1.47 % and a proposal recall at 0.5 of 33.15 % (`Results.txt`).
+- The runs shown select the proposals over all the levels at once (`select_best_proposals()`, `RegionProposal.proposal_selection: "joint"`, audit M3): at iteration 5000 of the run of `experiments/readme_screenshots`, 178.7 of the 250 proposals per image come from block 5 (`proposal_recall.csv`; 166.9 in the run of Stages 3 to 5, Step 4.15). The object detection configurations use `"per_level"` since stage 7 of the detection benchmark (+1.04 points of mAP@[0.5:0.95], `object_detection_experiment_plan.md`), which ranks and suppresses every level on its own, as torchvision; the post-NMS top-k still ranks all the levels by score, so it lets every level reach the suppression rather than reserving it slots.
 - The mAP matches the detections with the PASCAL VOC rule at every IoU, so `mAP@[0.5:0.95]` and the 101-point values are not those of pycocotools (`match_detections_to_ground_truth()`, audit L6).
 - A head or backbone block whose first convolution changes the channel count adds no residual shortcut with 2 layers (`ConvolutionBlock.count_residual_additions()`, `bug_standards.md` H4, dropped): the detection heads of blocks 6 and 7 of the configuration of Stages 1 and 2 (128 to 64 channels, without neck) compute without shortcut, the summary listing only their squeeze-and-excitation (Step 2.19); the feature pyramid of the current `configuration_example.yaml` gives them 64 channels, so they add their shortcut.
 
@@ -258,7 +258,7 @@ run_test_evaluation(iteration)  [STAGE 4]
     │   │   │   ├── for every object size (small, medium, large), the same with select_object_size_detections()
     │   │   │   └── find_class_score_thresholds() -> find_score_threshold()       at IoU 0.5, for every class
     │   │   ├── build_class_average_precision_rows() -> compute_clopper_pearson_intervals()   recall_50 and recall_75
-    │   │   │                                    with their exact 95% interval over the ground truths of the class
+    │   │   │                                    with their exact 95 % interval over the ground truths of the class
     │   │   └── build_mean_average_precision_table() + build_object_size_table() + build_average_recall_table() +
     │   │       build_class_average_precision_table() + build_recall_interval_table()
     │   ├── save_proposal_recall() -> summarise_proposal_recall() + write_class_metrics_file()   proposal_recall.csv
@@ -609,7 +609,7 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 ```
 
 ### Step 2.21 — `analyse_training_data()` → anchor recall
-Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` (Step 2.20), at every launch, resumes included, and never in a diagnosis mode that exits (`view_input_images`, `compute_anchor_coverage`). The hook of the general trainer writes nothing; the detection one measures how many training objects the anchors can learn. `measure_anchor_recall()` does the work: `gather_object_boxes()` reads the boxes of the training split from its annotations (`select_image_objects()`, the background left out, as in `__getitem__()`), placed in network input pixels by `preprocess_boxes()` without loading any image and without the augmentations. `compute_best_anchor_overlaps()` gives the overlap of the best anchor of every object in every level from the anchor generator of the level (`TwoStageDetector.get_level_anchor_generators()`): for one anchor shape, the intersection only shrinks as the anchor centre moves away from the object centre along x or y, so `Anchors.compute_best_overlaps()` takes the grid anchor nearest the object centre for every scale and aspect ratio, on the cell corners, the exact best of all the anchors from one overlap per anchor shape, in float64 on the CPU. `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, in every level alone and in all of them, since the region proposal network assigns the objects to the anchors of all the levels at once. An object under the threshold everywhere only gets its single best anchor as foreground (the fallback assignment). The table is printed and `anchor_recall.csv` is written in the run folder, then sent to the `analysis` folder of the MLflow run by `start_experiment_tracking()` (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
+Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` (Step 2.20), at every launch, resumes included, and never in a diagnosis mode that exits (`view_input_images`, `compute_anchor_coverage`). The hook of the general trainer writes nothing; the detection one measures how many training objects the anchors can learn. `measure_anchor_recall()` does the work: `gather_object_boxes()` reads the boxes of the training split from its annotations (`select_image_objects()`, the background left out, as in `__getitem__()`), placed in network input pixels by `preprocess_boxes()` without loading any image and without the augmentations. `compute_best_anchor_overlaps()` gives the overlap of the best anchor of every object in every level from the anchor generator of the level (`TwoStageDetector.get_level_anchor_generators()`): for one anchor shape, the intersection only shrinks as the anchor centre moves away from the object centre along x or y, so `Anchors.compute_best_overlaps()` takes the grid anchor nearest the object centre for every scale and aspect ratio, on the cell corners, the exact best of all the anchors from one overlap per anchor shape, in float64 on the CPU. `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, in every level alone and in all of them, since the region proposal network assigns the objects to the anchors of all the levels at once. An object under the threshold everywhere only gets its single best anchor as foreground (the fallback assignment). The table is printed with the layout of the report, its recalls written as percentages (`89.74 %`) and its counts as they are, and `anchor_recall.csv` is written in the run folder with the recalls between 0 and 1, then sent to the `analysis` folder of the MLflow run by `start_experiment_tracking()` (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
 
 With `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: <threshold> }`, `diagnose_data_splits()` runs `measure_anchor_recall()` on the training, validation and test splits at `iou_threshold`, each with a progress bar over its images (`Gathering The <Split> Objects`), prints the three tables and exits before `analyse_training_data()`: no run folder is created and no file is written, the input viewer following when `view_input_images` is also on.
 
@@ -618,12 +618,12 @@ With `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold:
 Anchor Recall Of The 351 Training Objects...
 ---------------------------------------------
 Anchor Recall Of The Training Objects
- Objects               Count   Block 5   Block 6   Block 7   All Levels
-────────────────────────────────────────────────────────────────────────
- All Objects             351    0.8974    0.5442    0.4160       0.8974
- Small (< 32²)             0         —         —         —            —
- Medium (32² to 96²)     178    0.7978    0.2978    0.0449       0.7978
- Large (>= 96²)          173    1.0000    0.7977    0.7977       1.0000
+ Objects               Count    Block 5   Block 6   Block 7   All Levels
+─────────────────────────────────────────────────────────────────────────
+ All Objects             351    89.74 %   54.42 %   41.60 %      89.74 %
+ Small (< 32²)             0          —         —         —            —
+ Medium (32² to 96²)     178    79.78 %   29.78 %    4.49 %      79.78 %
+ Large (>= 96²)          173   100.00 %   79.77 %   79.77 %     100.00 %
 Share of the objects whose best anchor overlaps them by at least 0.5 (RegionProposal.foreground_iou_threshold.min),
 sizes by box area in network input pixels. An object under RegionProposal.foreground_iou_threshold.min in every level
 only gets its single best anchor as foreground. — : no object of the size.
@@ -1029,8 +1029,9 @@ tables            = Mean Average Precision: Method, mAP@0.5, mAP@0.75, mAP@0.95,
                     Mean Average Recall: Objects Of, Objects, mAR@0.5, mAR@0.75, mAR@0.95, mAR@[0.5:0.95]
                     Proposal Recall: Objects, Count, Recall@0.5, Recall@0.7, Proposals Per Image
                     Per Class Average Precision (Area): Class, Ground Truths, AP@0.5, AP@0.75, AP@0.95, AP@[0.5:0.95],
-                    Threshold @ P0.99, Recall @ P0.99
+                    Threshold @ P99 %, Recall @ P99 %
 ```
+The current results also hold `percent_metrics`, `['mAP@0.5/area']`: the detection has no global metric to write as a percentage, but its headline metric is a rate, so that the best checkpoint line of the evaluation of several checkpoints writes it as a percentage (Step 5.5). Every table holds its `percent_columns`, every average precision, average recall and proposal recall column, the recall at the target precision and the recalls of the per-class recall table with their bounds, written `71.51 %` in the report; the object and ground truth counts, the score threshold and the proposals per image keep their values, and the rows and `scalars` stay between 0 and 1.
 
 ### Step 4.8 — `gather_class_detections()` → `find_best_ground_truth()`
 For every foreground class, once for all the thresholds and methods: the detections of the class of every image, sorted by decreasing score, the best IoU of every detection with a ground truth box of the same class in the same image (0 when the image has none), and the number of ground truth boxes of the class.
@@ -1056,18 +1057,18 @@ precisions of the first 5 detections [0.0, 0.0, 0.0, 0.0, 0.0]   recalls [0.0, 0
 ### Step 4.10 — `compute_average_precision()` + `compute_mean_average_precision()`
 The average precision of a class summarises its curve: `area`, the area under the curve once every precision is raised to the best precision at a higher recall (PASCAL VOC 2010 and later); `11_point`, the mean of the interpolated precision at the recalls 0, 0.1, ..., 1 (PASCAL VOC 2007); `101_point`, the same at 101 recall levels (COCO). The mAP of a threshold is the mean over the classes that have ground truth boxes; `evaluate_detections()` gives, for every method, the mAP at 0.5, at 0.75, at 0.95 (since `351a4d1`) and averaged over the 10 thresholds 0.50, 0.55, ..., 0.95 (`mAP@[0.5:0.95]`), with the same four values for every class. The matching is the PASCAL VOC rule of Step 4.9 at every threshold, so the `mAP@[0.5:0.95]` and the 101-point values are not those of pycocotools, which matches every detection to the best ground truth not taken yet (`suggestions.md`, audit L6, kept on purpose).
 
-**Example: iteration 5000** (from `Results.txt` and `class_metrics.csv`)
+**Example: iteration 5000** (from `Results.txt`, which writes the average precisions as percentages, and `class_metrics.csv`, which keeps them between 0 and 1)
 ```text
-area:      mAP@0.5 0.7151   mAP@0.75 0.6451   mAP@0.95 0.0021   mAP@[0.5:0.95] 0.5160
-11_point:  mAP@0.5 0.6878   mAP@0.75 0.6351   mAP@0.95 0.0112   mAP@[0.5:0.95] 0.5077
-101_point: mAP@0.5 0.7132   mAP@0.75 0.6436   mAP@0.95 0.0030   mAP@[0.5:0.95] 0.5152
-octagon (area): AP@0.5 0.5144   AP@0.75 0.4896   AP@0.95 0.0041   AP@[0.5:0.95] 0.3956
+area:      mAP@0.5 71.51 %   mAP@0.75 64.51 %   mAP@0.95 0.21 %   mAP@[0.5:0.95] 51.60 %
+11_point:  mAP@0.5 68.78 %   mAP@0.75 63.51 %   mAP@0.95 1.12 %   mAP@[0.5:0.95] 50.77 %
+101_point: mAP@0.5 71.32 %   mAP@0.75 64.36 %   mAP@0.95 0.30 %   mAP@[0.5:0.95] 51.52 %
+octagon (area): AP@0.5 51.44 %   AP@0.75 48.96 %   AP@0.95 0.41 %   AP@[0.5:0.95] 39.56 %
 class_ground_truths {1: 3545, 2: 3566, 3: 3512, 4: 3494, 5: 3475, ..., 19: 3344, 20: 3528}      69,682 boxes in all
 ```
-The three methods agree within 0.03. The 11-point values are lower at 0.5 and higher at 0.95: the interpolated precision at recall 0 counts for a whole eleventh of the mean, even for a class whose detections reach almost no recall at that IoU. The mAP drops from 0.7151 at IoU 0.5 to 0.6451 at 0.75 but to 0.0021 at 0.95: the boxes are mostly well placed, but almost never tight enough for an IoU of 0.95.
+The three methods agree within 3 points. The 11-point values are lower at 0.5 and higher at 0.95: the interpolated precision at recall 0 counts for a whole eleventh of the mean, even for a class whose detections reach almost no recall at that IoU. The mAP drops from 71.51 % at IoU 0.5 to 64.51 % at 0.75 but to 0.21 % at 0.95: the boxes are mostly well placed, but almost never tight enough for an IoU of 0.95.
 
 ### Step 4.11 — `build_class_average_precision_rows()` + `write_class_metrics_file()`
-The average precisions of every foreground class with the area method, with the score threshold of the class reaching the target precision and the recall it keeps (Step 4.12), empty when the precision is never reached, saved whatever the per-class report. Since the object sizes (Step 4.14), the AP@0.5 and AP@[0.5:0.95] of every size follow the average precisions of all the objects, empty for a size the class has no object of. Then come `recall_50` and `recall_75`, the share of the ground truths of the class matched by a detection kept for the evaluation at IoU 0.5 and 0.75, whatever its score (the per-class values of the `mAR@0.5` and `mAR@0.75` of Step 4.14), each followed by the bounds of its exact (Clopper-Pearson) 95% confidence interval over the ground truths of the class, independent objects (`compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py`, `classification_workflow.md`, Step 4.14), empty for a class without ground truth.
+The average precisions of every foreground class with the area method, with the score threshold of the class reaching the target precision and the recall it keeps (Step 4.12), empty when the precision is never reached, saved whatever the per-class report. Since the object sizes (Step 4.14), the AP@0.5 and AP@[0.5:0.95] of every size follow the average precisions of all the objects, empty for a size the class has no object of. Then come `recall_50` and `recall_75`, the share of the ground truths of the class matched by a detection kept for the evaluation at IoU 0.5 and 0.75, whatever its score (the per-class values of the `mAR@0.5` and `mAR@0.75` of Step 4.14), each followed by the bounds of its exact (Clopper-Pearson) 95 % confidence interval over the ground truths of the class, independent objects (`compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py`, `classification_workflow.md`, Step 4.14), empty for a class without ground truth.
 
 **Example: `Evaluation/Iteration_5000/class_metrics.csv`** (the hexagon has no small test object; the rhombus never reaches the precision 0.99)
 ```text
@@ -1083,9 +1084,9 @@ class_index,class,ground_truths,average_precision_50,average_precision_75,averag
 ```
 
 ### Step 4.12 — `find_class_score_thresholds()` + `save_error_analysis()`
-With a target precision, `evaluate_detections()` also gives the score threshold of every class. From the matching of the AP@0.5 (Step 4.9), `find_score_threshold()`, the function of the class thresholds of the classification, keeps the lowest score whose detections of the class at or above it reach the target precision, i.e. the highest recall at this precision. The recall counts every ground truth box of the class, those found by no detection included, and only the detections down to `evaluation.score_threshold` can give a threshold. `save_error_analysis()` saves these thresholds in `class_thresholds.json`, in the format of the classification tasks (`null` for a class whose detections never reach the precision), and the confusion matrix of Step 4.5 in `confusion_matrix.csv`, rows the true classes and columns the predicted classes, the background first. With the per-class report, the confusion matrix is also drawn in `confusion_matrix.png` and logged to TensorBoard: its background cell is left blank, and its background row and column have no recall or precision. The report gets a note counting the outcomes of the detections and, with the error images on, a note counting the images and their folders.
+With a target precision, `evaluate_detections()` also gives the score threshold of every class. From the matching of the AP@0.5 (Step 4.9), `find_score_threshold()`, the function of the class thresholds of the classification, keeps the lowest score whose detections of the class at or above it reach the target precision, i.e. the highest recall at this precision. The recall counts every ground truth box of the class, those found by no detection included, and only the detections down to `evaluation.score_threshold` can give a threshold. `save_error_analysis()` saves these thresholds in `class_thresholds.json`, in the format of the classification tasks (`null` for a class whose detections never reach the precision), and the confusion matrix of Step 4.5 in `confusion_matrix.csv`, rows the true classes and columns the predicted classes, the background first. With the per-class report, the confusion matrix is also drawn in `confusion_matrix.png` and logged to TensorBoard (`in_percent`, its shares, recalls and precisions written as percentages with two decimals, `94.03 %`, in cells of 0.65 inch per class): its background cell is left blank, and its background row and column have no recall or precision. The report gets a note counting the outcomes of the detections and, with the error images on, a note counting the images and their folders.
 
-At iteration 5000, 17 classes get a threshold and 3 never reach the precision 0.99 (`null`): the rhombus, the kite and the capsule. A threshold often keeps almost nothing: the trapezoid reaches 0.99 only above 0.4119, with a recall of 0.0003, while the plus_sign keeps a recall of 0.9198 above 0.6335.
+At iteration 5000, 17 classes get a threshold and 3 never reach the precision 0.99 (`null`): the rhombus, the kite and the capsule. A threshold often keeps almost nothing: the trapezoid reaches 0.99 only above 0.4119, with a recall of 0.03 % in the report (0.0003 in the file), while the plus_sign keeps a recall of 91.98 % above 0.6335.
 
 **Example: the files of iteration 5000** (`class_thresholds.json` is written indented, shortened here)
 ```text
@@ -1120,12 +1121,12 @@ class_thresholds.json
 
 note:
   Confusion Matrix : score >= 0.50, IoU >= 0.5 (boxes), 34213 right, 3228 wrong class, 3038 false positives, 32241 missed
-confusion_matrix.png (1852 x 1815 pixels)
+confusion_matrix.png (2640 x 2602 pixels with the current cells, 1852 x 1815 when it was recorded)
 ```
 The diagonal shows which shapes the detector has learnt at the deployment threshold: more than 3,000 right detections for the square, circle, rectangle, plus_sign, star and annulus, but none for the rhombus, the trapezoid and the kite, and 59 for the 3,454 octagons. Most objects of these classes are missed (3,341 of the 3,436 rhombuses, 3,446 of the 3,546 trapezoids, 3,402 of the 3,471 kites, 3,068 of the octagons) rather than confused: no detection reaching 0.5 finds them. The confusions are between similar shapes: 430 heptagons found as hexagons, 400 nonagons as circles, 339 ellipses as capsules, 199 capsules as ellipses and 63 rhombuses as parallelograms, of which only 394 of 3,503 are found. The background row counts 3,038 false positives, 703 of them `l_shape` detections.
 
 ### Step 4.13 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-With `per_class_report`, the `Per Class Recall` table (`build_recall_interval_table()`) follows the per-class table: the ground truths of every class, then `Recall @0.5` and `Recall @0.75`, each followed by `95% Lower` and `95% Upper`, sorted by the recall at 0.5, worst first.
+With `per_class_report`, the `Per Class Recall` table (`build_recall_interval_table()`) follows the per-class table: the ground truths of every class, then `Recall @0.5` and `Recall @0.75`, each followed by `95 % Lower` and `95 % Upper`, sorted by the recall at 0.5, worst first. Every table of the report writes its rates as percentages with two decimals (`percent_columns`, `71.51 %`), the target precision of the per-class headers and legend as `99 %` (`Threshold @ P99 %`, `Recall @ P99 %`), and keeps the counts, the score thresholds and the proposals per image as they are.
 
 **Example output: the block of iteration 5000** (the per-class table shortened; the same text, without the file lines, is appended to `Results.txt`)
 ```text
@@ -1137,27 +1138,27 @@ Iteration 5000 · 20000 Test Images · 2026-10-24 16:09 ────────
   Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.7151     0.6451     0.0021           0.5160
-   11 Point     0.6878     0.6351     0.0112           0.5077
-   101 Point    0.7132     0.6436     0.0030           0.5152
+   Area        71.51 %    64.51 %     0.21 %          51.60 %
+   11 Point    68.78 %    63.51 %     1.12 %          50.77 %
+   101 Point   71.32 %    64.36 %     0.30 %          51.52 %
   The mAP@0.5 of the area method compares the checkpoints of the run.
 
   Mean Average Precision By Object Size (Area)
    Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   Small (< 32²)             184    0.0155     0.0002     0.0000           0.0040
-   Medium (32² to 96²)     33579    0.6654     0.5811     0.0007           0.4595
-   Large (>= 96²)          35919    0.7520     0.6959     0.0034           0.5600
+   Small (< 32²)             184    1.55 %     0.02 %     0.00 %           0.40 %
+   Medium (32² to 96²)     33579   66.54 %    58.11 %     0.07 %          45.95 %
+   Large (>= 96²)          35919   75.20 %    69.59 %     0.34 %          56.00 %
   COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
   ignored. — : no object of the size.
 
   Mean Average Recall
    Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   All                     69682    0.9801     0.8893     0.0333           0.7381
-   Small (< 32²)             184    0.0860     0.0053     0.0000           0.0232
-   Medium (32² to 96²)     33579    0.9733     0.8613     0.0179           0.7073
-   Large (>= 96²)          35919    0.9897     0.9192     0.0434           0.7664
+   All                     69682   98.01 %    88.93 %     3.33 %          73.81 %
+   Small (< 32²)             184    8.60 %     0.53 %     0.00 %           2.32 %
+   Medium (32² to 96²)     33579   97.33 %    86.13 %     1.79 %          70.73 %
+   Large (>= 96²)          35919   98.97 %    91.92 %     4.34 %          76.64 %
   Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
   input pixels. — : no object of the size.
 
@@ -1165,30 +1166,30 @@ Iteration 5000 · 20000 Test Images · 2026-10-24 16:09 ────────
                                                            Proposals
    Objects               Count   Recall@0.5   Recall@0.7   Per Image
   ───────────────────────────────────────────────────────────────────
-   All Objects           69682       0.9967       0.9751    249.9534
-   Small (< 32²)           184       0.3967       0.0870           —
-   Medium (32² to 96²)   33579       0.9973       0.9680           —
-   Large (>= 96²)        35919       0.9992       0.9864           —
-   Block 5 Proposals     69682       0.8093       0.5095    166.8608
-   Block 6 Proposals     69682       0.7734       0.2626     49.9440
-   Block 7 Proposals     69682       0.6736       0.4271     33.1486
+   All Objects           69682      99.67 %      97.51 %    249.9534
+   Small (< 32²)           184      39.67 %       8.70 %           —
+   Medium (32² to 96²)   33579      99.73 %      96.80 %           —
+   Large (>= 96²)        35919      99.92 %      98.64 %           —
+   Block 5 Proposals     69682      80.93 %      50.95 %    166.8608
+   Block 6 Proposals     69682      77.34 %      26.26 %     49.9440
+   Block 7 Proposals     69682      67.36 %      42.71 %     33.1486
   Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
   area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
 
   Per Class Average Precision (Area)
-                   Ground                                                Threshold    Recall
-   Class           Truths   AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P0.99   @ P0.99
-  ───────────────────────────────────────────────────────────────────────────────────────────
-   trapezoid         3546   0.3184    0.2870    0.0002          0.2225      0.4119    0.0003
-   kite              3471   0.3400    0.2884    0.0000          0.2202           —         —
-   rhombus           3436   0.3626    0.3397    0.0000          0.2501           —         —
-   capsule           3344   0.4964    0.4386    0.0005          0.3422           —         —
-   octagon           3454   0.5144    0.4896    0.0041          0.3956      0.5593    0.0003
+                   Ground                                                 Threshold    Recall
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P99 %   @ P99 %
+  ────────────────────────────────────────────────────────────────────────────────────────────
+   trapezoid         3546   31.84 %   28.70 %    0.02 %         22.25 %      0.4119    0.03 %
+   kite              3471   34.00 %   28.84 %    0.00 %         22.02 %           —         —
+   rhombus           3436   36.26 %   33.97 %    0.00 %         25.01 %           —         —
+   capsule           3344   49.64 %   43.86 %    0.05 %         34.22 %           —         —
+   octagon           3454   51.44 %   48.96 %    0.41 %         39.56 %      0.5593    0.03 %
    ...
-   plus_sign         3442   0.9719    0.9157    0.0020          0.7280      0.6335    0.9198
-   star              3549   0.9749    0.8745    0.0010          0.6899      0.7606    0.8901
-   annulus           3461   0.9804    0.9293    0.0039          0.7436      0.6806    0.9070
-  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 0.99 is never reached.
+   plus_sign         3442   97.19 %   91.57 %    0.20 %         72.80 %      0.6335   91.98 %
+   star              3549   97.49 %   87.45 %    0.10 %         68.99 %      0.7606   89.01 %
+   annulus           3461   98.04 %   92.93 %    0.39 %         74.36 %      0.6806   90.70 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 99 % is never reached.
   - Results : Results.txt
   - Class Metrics : class_metrics.csv
   - Proposal Recall : proposal_recall.csv
@@ -1208,12 +1209,12 @@ Iteration 5000 · 20000 Test Images · EMA Weights · 2026-10-24 16:15 ───
   Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.7208     0.6812     0.0155           0.5673
-   11 Point     0.6977     0.6741     0.0320           0.5610
-   101 Point    0.7186     0.6793     0.0170           0.5665
+   Area        72.08 %    68.12 %     1.55 %          56.73 %
+   11 Point    69.77 %    67.41 %     3.20 %          56.10 %
+   101 Point   71.86 %    67.93 %     1.70 %          56.65 %
   ...
 ```
-The averaged weights reach a higher mAP than the trained ones at iteration 5000, 0.7208 against 0.7151 at IoU 0.5 and 0.5673 against 0.5160 over 0.5:0.95, the gap growing with the IoU (0.0155 against 0.0021 at 0.95). At the deployment threshold they return fewer detections (32,506 against 40,479), with fewer confusions and false positives (1,401 and 1,405 against 3,228 and 3,038) but more missed objects (38,581 against 32,241): fewer of their detections score 0.5 or more. Over the run, the averaged weights lead at iterations 2500, 4500 and 5000 and the trained weights at 3000 to 4000 (the TensorBoard values below), and both curves are still rising at 5000.
+The averaged weights reach a higher mAP than the trained ones at iteration 5000, 72.08 % against 71.51 % at IoU 0.5 and 56.73 % against 51.60 % over 0.5:0.95, the gap growing with the IoU (1.55 % against 0.21 % at 0.95). At the deployment threshold they return fewer detections (32,506 against 40,479), with fewer confusions and false positives (1,401 and 1,405 against 3,228 and 3,038) but more missed objects (38,581 against 32,241): fewer of their detections score 0.5 or more. Over the run, the averaged weights lead at iterations 2500, 4500 and 5000 and the trained weights at 3000 to 4000 (the TensorBoard values below), and both curves are still rising at 5000.
 
 **Example: TensorBoard and MLflow after the 20 evaluations**
 ```text
@@ -1243,19 +1244,19 @@ artifacts: Results.txt, configuration/training_configuration.yaml, metric_names.
   Mean Average Precision By Object Size (Area)
    Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   Small (< 32²)             184    0.0155     0.0002     0.0000           0.0040
-   Medium (32² to 96²)     33579    0.6654     0.5811     0.0007           0.4595
-   Large (>= 96²)          35919    0.7520     0.6959     0.0034           0.5600
+   Small (< 32²)             184    1.55 %     0.02 %     0.00 %           0.40 %
+   Medium (32² to 96²)     33579   66.54 %    58.11 %     0.07 %          45.95 %
+   Large (>= 96²)          35919   75.20 %    69.59 %     0.34 %          56.00 %
   COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
   ignored. — : no object of the size.
 
   Mean Average Recall
    Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
   ────────────────────────────────────────────────────────────────────────────────
-   All                     69682    0.9801     0.8893     0.0333           0.7381
-   Small (< 32²)             184    0.0860     0.0053     0.0000           0.0232
-   Medium (32² to 96²)     33579    0.9733     0.8613     0.0179           0.7073
-   Large (>= 96²)          35919    0.9897     0.9192     0.0434           0.7664
+   All                     69682   98.01 %    88.93 %     3.33 %          73.81 %
+   Small (< 32²)             184    8.60 %     0.53 %     0.00 %           2.32 %
+   Medium (32² to 96²)     33579   97.33 %    86.13 %     1.79 %          70.73 %
+   Large (>= 96²)          35919   98.97 %    91.92 %     4.34 %          76.64 %
   Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
   input pixels. — : no object of the size.
 ```
@@ -1264,10 +1265,10 @@ Tensorboard/Test: mAP@0.5 By Size/small 0.0155, mAP@[0.5:0.95] By Size/small 0.0
                   mAR@0.5/all 0.9801, mAR@0.75/all 0.8893, ..., mAR@[0.5:0.95]/large 0.7664              (6 + 16 scalars)
 MLflow: test/mAP_at_0.5 By Size/small, test/mAP_at_0.5-0.95 By Size/small, ..., test/mAR_at_0.5/all, ..., test/mAR_at_0.5-0.95/large
 ```
-The medium and large objects reach a `mAP@0.5` of 0.6654 and 0.7520, the small ones 0.0155: the anchors of 32 and 64 pixels on a grid of stride 32 give a foreground anchor to 10.3 % of the 1,254 small training objects (`anchor_recall.csv` of the run, Step 2.21). The `mAR@0.5` of all the objects is 0.9801 against a `mAP@0.5` of 0.7151: almost every object is found by a detection above 0.05, but for the weak classes these detections are ranked below false positives or detections of other classes, which lowers the precision. A size without objects would show `—` and give no scalar.
+The medium and large objects reach a `mAP@0.5` of 66.54 % and 75.20 %, the small ones 1.55 %: the anchors of 32 and 64 pixels on a grid of stride 32 give a foreground anchor to 10.3 % of the 1,254 small training objects (`anchor_recall.csv` of the run, Step 2.21). The `mAR@0.5` of all the objects is 98.01 % against a `mAP@0.5` of 71.51 %: almost every object is found by a detection above 0.05, but for the weak classes these detections are ranked below false positives or detections of other classes, which lowers the precision. A size without objects would show `—` and give no scalar.
 
 ### Step 4.15 — `accumulate_proposal_recall()` + `save_proposal_recall()`
-The anchor recall of Step 2.21 measures what the anchors allow; the proposal recall measures what the trained region proposal network gives the detection heads. `create_evaluation_accumulator()` creates its accumulator for the detection levels (`create_proposal_recall_accumulator()`), and `accumulate_evaluation_batch()` calls `accumulate_proposal_recall()` for every test image with the filtered proposals of Step 4.3: the padding copies are left out with `valid_proposal_mask`, the best IoU of every object is kept with all the proposals and with the proposals of every level alone, computed on the device of the model, and the valid proposals of every level are counted. In `compute_evaluation_results()`, `save_proposal_recall()` calls `summarise_proposal_recall()`, which gives the share of the objects whose best IoU reaches 0.5 and 0.7 (`PROPOSAL_RECALL_THRESHOLDS`) for all the objects, every size (by box area, Step 4.14) and the proposals of every block alone, with the mean number of valid proposals per image of all the blocks and of every block. A block row counts all the objects, so its recall shows how many objects that level brings to the detection heads. The table is always shown after the size table; the rows are written to `proposal_recall.csv` in the evaluation folder of the checkpoint, which is sent to MLflow, and the scalars `Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>` and `Proposals Per Image/<group>` go to TensorBoard and MLflow, a size without object having none. The instance segmentation shows the same table once, after its box size table.
+The anchor recall of Step 2.21 measures what the anchors allow; the proposal recall measures what the trained region proposal network gives the detection heads. `create_evaluation_accumulator()` creates its accumulator for the detection levels (`create_proposal_recall_accumulator()`), and `accumulate_evaluation_batch()` calls `accumulate_proposal_recall()` for every test image with the filtered proposals of Step 4.3: the padding copies are left out with `valid_proposal_mask`, the best IoU of every object is kept with all the proposals and with the proposals of every level alone, computed on the device of the model, and the valid proposals of every level are counted. In `compute_evaluation_results()`, `save_proposal_recall()` calls `summarise_proposal_recall()`, which gives the share of the objects whose best IoU reaches 0.5 and 0.7 (`PROPOSAL_RECALL_THRESHOLDS`) for all the objects, every size (by box area, Step 4.14) and the proposals of every block alone, with the mean number of valid proposals per image of all the blocks and of every block. A block row counts all the objects, so its recall shows how many objects that level brings to the detection heads. The table is always shown after the size table, its recalls written as percentages and the proposals per image as they are; the rows are written to `proposal_recall.csv` in the evaluation folder of the checkpoint, which is sent to MLflow, and the scalars `Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>` and `Proposals Per Image/<group>` go to TensorBoard and MLflow, a size without object having none. The instance segmentation shows the same table once, after its box size table.
 
 **Example output: the table of iteration 5000**
 ```text
@@ -1275,13 +1276,13 @@ The anchor recall of Step 2.21 measures what the anchors allow; the proposal rec
                                                            Proposals
    Objects               Count   Recall@0.5   Recall@0.7   Per Image
   ───────────────────────────────────────────────────────────────────
-   All Objects           69682       0.9967       0.9751    249.9534
-   Small (< 32²)           184       0.3967       0.0870           —
-   Medium (32² to 96²)   33579       0.9973       0.9680           —
-   Large (>= 96²)        35919       0.9992       0.9864           —
-   Block 5 Proposals     69682       0.8093       0.5095    166.8608
-   Block 6 Proposals     69682       0.7734       0.2626     49.9440
-   Block 7 Proposals     69682       0.6736       0.4271     33.1486
+   All Objects           69682      99.67 %      97.51 %    249.9534
+   Small (< 32²)           184      39.67 %       8.70 %           —
+   Medium (32² to 96²)   33579      99.73 %      96.80 %           —
+   Large (>= 96²)        35919      99.92 %      98.64 %           —
+   Block 5 Proposals     69682      80.93 %      50.95 %    166.8608
+   Block 6 Proposals     69682      77.34 %      26.26 %     49.9440
+   Block 7 Proposals     69682      67.36 %      42.71 %     33.1486
   Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
   area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
 ```
@@ -1299,7 +1300,7 @@ block_7,69682,0.673574,0.427054,33.148550
 MLflow: test/Proposal Recall_at_0.5/<group>, test/Proposal Recall_at_0.7/<group>, test/Proposals Per Image/<group>,
         evaluation/iteration_5000/proposal_recall.csv
 ```
-At iteration 5000, the proposals overlap 99.67 % of the test objects by 0.5 and 97.51 % by 0.7, and the non-maximum suppression leaves 249.95 valid proposals of the 250 slots per image, almost no padding copies. The region proposal network is no longer the limit: at iteration 500 its recall at 0.5 was already 0.9880, when the `mAP@0.5` was 0.0496, so the errors of Step 4.12 come from the classification and the scores of the detection heads. The small objects stay the exception, 73 of the 184 reached at 0.5. Block 5 gives 166.86 of the 250 proposals per image, blocks 6 and 7 49.94 and 33.15, and the proposals of every block alone already reach 67 to 81 % of the objects at 0.5, the levels overlapping in the sizes they cover.
+At iteration 5000, the proposals overlap 99.67 % of the test objects by 0.5 and 97.51 % by 0.7, and the non-maximum suppression leaves 249.95 valid proposals of the 250 slots per image, almost no padding copies. The region proposal network is no longer the limit: at iteration 500 its recall at 0.5 was already 98.80 %, when the `mAP@0.5` was 4.96 %, so the errors of Step 4.12 come from the classification and the scores of the detection heads. The small objects stay the exception, 73 of the 184 reached at 0.5. Block 5 gives 166.86 of the 250 proposals per image, blocks 6 and 7 49.94 and 33.15, and the proposals of every block alone already reach 67 to 81 % of the objects at 0.5, the levels overlapping in the sizes they cover.
 
 
 ---
@@ -1341,9 +1342,10 @@ MLflow Run Created In The Experiment 'object_detection' : fcc494bfb83d4bc78638fa
 --------------------------------------------------------------
 Evaluation Summary Of 20 Checkpoints : evaluation_summary.csv
 --------------------------------------------------------------
-  - Best Checkpoint : iteration 5000 (mAP@0.5/area 0.7210)
-  - Best Checkpoint (EMA Weights) : iteration 5000 (mAP@0.5/area 0.7287)
+  - Best Checkpoint : iteration 5000 (mAP@0.5/area 72.10 %)
+  - Best Checkpoint (EMA Weights) : iteration 5000 (mAP@0.5/area 72.87 %)
 ```
+The best value is written like in the report, as a percentage, since `percent_metrics` names the headline metric (Step 4.7); `evaluation_summary.csv` keeps every scalar between 0 and 1.
 
 **Example: `<run>/Checkpoint_Evaluation/evaluation_summary.csv`** (145 columns: the iteration, the 72 scalars of the trained weights, that is the 52 of Step 4.7 and the `AP@0.5` of the 20 classes, then the same 72 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
 ```text
@@ -1369,17 +1371,17 @@ Iteration 5000 · 200 Test Images · 2026-10-25 06:18 ────────�
   Confusion Matrix : score >= 0.50, IoU >= 0.5 (boxes), 335 right, 29 wrong class, 35 false positives, 345 missed
   ...
   Per Class Average Precision (Area)
-                   Ground                                                Threshold    Recall
-   Class           Truths   AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P0.99   @ P0.99
-  ──────────────────────────────────────────────────────────────────────────────────────────
-   kite                33   0.2906    0.2660    0.0000          0.1960      0.3067    0.0303
-   trapezoid           44   0.4058    0.3453    0.0003          0.2836      0.3583    0.0455
-   rhombus             42   0.4324    0.4063    0.0008          0.3032      0.3709    0.0238
-   capsule             27   0.4439    0.3928    0.0015          0.3042           —         —
+                   Ground                                                 Threshold    Recall
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P99 %   @ P99 %
+  ────────────────────────────────────────────────────────────────────────────────────────────
+   kite                33   29.06 %   26.60 %    0.00 %         19.60 %      0.3067    3.03 %
+   trapezoid           44   40.58 %   34.53 %    0.03 %         28.36 %      0.3583    4.55 %
+   rhombus             42   43.24 %   40.63 %    0.08 %         30.32 %      0.3709    2.38 %
+   capsule             27   44.39 %   39.28 %    0.15 %         30.42 %           —         —
    ...
-   annulus             31   0.9590    0.9213    0.0000          0.7573      0.6417    0.8710
-   star                31   0.9611    0.9038    0.0000          0.6685      0.7725    0.8387
-   plus_sign           36   0.9992    0.9029    0.0244          0.7671      0.7907    0.9722
-  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 0.99 is never reached.
+   annulus             31   95.90 %   92.13 %    0.00 %         75.73 %      0.6417   87.10 %
+   star                31   96.11 %   90.38 %    0.00 %         66.85 %      0.7725   83.87 %
+   plus_sign           36   99.92 %   90.29 %    2.44 %         76.71 %      0.7907   97.22 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 99 % is never reached.
 ```
-The weakest classes are those of the whole test split (Step 4.13): kite, trapezoid and rhombus, then capsule, whose detections never reach the precision 0.99 on these images, hence its `—` threshold and recall. At the score 0.5 of the confusion matrix, 345 of the 709 objects are missed, about the same share as on the whole split. A class without ground truth box would have no recall, so no average precision (`—`), would be left out of the mAP and listed last.
+The weakest classes are those of the whole test split (Step 4.13): kite, trapezoid and rhombus, then capsule, whose detections never reach the precision 99 % on these images, hence its `—` threshold and recall. At the score 0.5 of the confusion matrix, 345 of the 709 objects are missed, about the same share as on the whole split. A class without ground truth box would have no recall, so no average precision (`—`), would be left out of the mAP and listed last.

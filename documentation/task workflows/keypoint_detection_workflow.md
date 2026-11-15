@@ -33,7 +33,7 @@ inference      heatmaps averaged at stride 2 -> 30 local maxima per channel: can
 grouping       group_keypoint_candidates (NumPy): labels [D], keypoints [D, 18, 2] (NaN not found), scores [D]
 evaluation     OKS of every object with every ground truth: OKS mAP@0.5/area (headline), OKS mAR, Matched
                Objects, PCK@0.05, Mean OKS, Mean Keypoint Error, for the trained and the averaged weights; per
-               class, the OKS recall at 0.5 and 0.75 with its 95% interval
+               class, the OKS recall at 0.5 and 0.75 with its 95 % interval
 files          Evaluation/Iteration_<n>/ class_metrics.csv, keypoint_metrics.csv, Samples/, EMA/; Results.txt
 ```
 
@@ -93,8 +93,8 @@ uv run python -m vision_training.deployment.export_model
 
 ### What A Run Writes
 
-- `Results.txt`: one block per evaluated checkpoint and kind of weights, with `Matched Objects`, `PCK@0.05`, `Mean OKS` and `Mean Keypoint Error (pixels)`, then the OKS mAP tables of the methods, object sizes and recalls, and with `per_class_report` the OKS AP per class, the OKS recall per class with its 95% confidence interval (`OKS Per Class Recall`), the keypoint accuracy per class and per keypoint (Step 4.10).
-- `Evaluation/Iteration_<n>/class_metrics.csv` (one row per class: the `oks_` average precisions, the OKS recall at 0.5 and 0.75 with the bounds of its 95% confidence interval, `oks_recall_50` to `oks_recall_75_upper`, and the keypoint accuracy), `keypoint_metrics.csv` (one row per keypoint of every class: labelled, found, PCK, mean error), `Samples/<image>.png` (Ground Truth next to Prediction, 1028x560 for 512 pixel images, the objects of score >= `object_score_threshold`), and `EMA/` with the same files for the moving average of the weights. No confusion matrix and no error images: the task has no `evaluation.error_dumps`.
+- `Results.txt`: one block per evaluated checkpoint and kind of weights, with `Matched Objects`, `PCK@0.05`, `Mean OKS` and `Mean Keypoint Error (pixels)`, then the OKS mAP tables of the methods, object sizes and recalls, and with `per_class_report` the OKS AP per class, the OKS recall per class with its 95 % confidence interval (`OKS Per Class Recall`), the keypoint accuracy per class and per keypoint (Step 4.10). Every rate of the block is written as a percentage with two decimals (`94.17 %`), the counts and the pixel errors keeping their values; the files, TensorBoard and MLflow keep every rate between 0 and 1.
+- `Evaluation/Iteration_<n>/class_metrics.csv` (one row per class: the `oks_` average precisions, the OKS recall at 0.5 and 0.75 with the bounds of its 95 % confidence interval, `oks_recall_50` to `oks_recall_75_upper`, and the keypoint accuracy), `keypoint_metrics.csv` (one row per keypoint of every class: labelled, found, PCK, mean error), `Samples/<image>.png` (Ground Truth next to Prediction, 1028x560 for 512 pixel images, the objects of score >= `object_score_threshold`), and `EMA/` with the same files for the moving average of the weights. No confusion matrix and no error images: the task has no `evaluation.error_dumps`.
 - `Tensorboard/Test` and `Tensorboard/Test_EMA`: 65 scalars on the synthetic dataset, which has no small object (the 12 `OKS mAP@<threshold>/<method>`, `OKS mAP@0.5 By Size/<size>` and `OKS mAP@[0.5:0.95] By Size/<size>` of the medium and large objects, the 12 `OKS mAR@<threshold>/<all, medium or large>`, the 4 `Keypoint Accuracy/<metric>` and the 33 `OKS AP@0.5/<class>`), and the 16 sample images; `Tensorboard/Train`, and `Tensorboard/Validation` only when `validation_iteration_ratio` is above 0 (0 in this configuration): `Total Loss`, `Heatmap Loss`, `Tag Pull Loss`, `Tag Push Loss` (and `Learning Rate` in Train).
 - `Weights/Iteration_<n>/model_<n>.pt`: about 51 MB, four times the 12.50 MB of the weights (the moving average and the two Adam moments), with the source runs of `Backbone`, `HRNet` and `KeypointHead`.
 
@@ -1031,18 +1031,18 @@ object 1 rhombus     longest side 83.0, correct within 4.15    distances [0.0, 1
 ```
 With the checkpoint of iteration 60, the three objects of the image `test_000022` (a trapezoid, a plus sign and a capsule) are missed: every distance is infinite, no keypoint is correct and every similarity is 0.
 
-**Example: the whole test split at iteration 60**
+**Example: the whole test split at iteration 60** (the `metrics` returned, between 0 and 1 like the scalars and `class_metrics.csv`; the report writes the first three as percentages, Step 4.10)
 ```text
 Matched Objects 0.0111   PCK@0.05 0.0017   Mean OKS 0.0014   Mean Keypoint Error (pixels) 2.2361   labelled keypoints 589
 ```
-Only 1 of the 90 objects is matched, a hollow trapezoid, with 1 of its 8 keypoints found (bottom_left, √5 = 2.24 pixels from its ground truth) and an OKS of 0.1223. The mean error only counts the keypoints found, so its 2.24 pixels describe this single keypoint; `Matched Objects` and `PCK@0.05` show that nearly everything is missed. The same split with the checkpoint of iteration 2000 gives Matched Objects 1.0000, PCK@0.05 0.9457, Mean OKS 0.9337 and a mean error of 6.1648 pixels.
+Only 1 of the 90 objects is matched, a hollow trapezoid, with 1 of its 8 keypoints found (bottom_left, √5 = 2.24 pixels from its ground truth) and an OKS of 0.1223. The mean error only counts the keypoints found, so its 2.24 pixels describe this single keypoint; `Matched Objects` and `PCK@0.05` show that nearly everything is missed. The same split with the checkpoint of iteration 2000 gives Matched Objects 100.00 %, PCK@0.05 94.57 %, Mean OKS 93.37 % and a mean error of 6.1648 pixels.
 
 > These outputs were recorded before 2026-10-25, when a match still needed only an OKS above 0. Since then a match needs an OKS of at least 0.5 (`MINIMUM_MATCH_SIMILARITY`, `bug_standards.md` B51), so the hollow trapezoid of OKS 0.1223 is missed: at iteration 60 `Matched Objects`, `PCK@0.05` and `Mean OKS` are 0 and the mean keypoint error has no value, like the other CPU checkpoints.
 
 ### Step 4.8 — `summarise_average_precisions(overlap_type="keypoints")`
-The average precision of `object_detection_workflow.md` on the OKS overlaps instead of the box IoU, with `title_prefix="OKS"`, `name_prefix="OKS "` and `column_prefix="oks_"`: the three methods (area, 11 point, 101 point) at OKS 0.5, 0.75, 0.95 and 0.5 to 0.95, the COCO object sizes by box area, the mean average recall, the per-class APs, and the OKS recall of every class at 0.5 and 0.75 with the bounds of its exact (Clopper-Pearson) 95% confidence interval over the ground truth objects (`oks_recall_50` to `oks_recall_75_upper`, the `OKS Per Class Recall` table, `object_detection_workflow.md`, Step 4.11). As for the boxes, the objects found are taken by decreasing score, and each one is a true positive when its OKS with its best ground truth object reaches the threshold and no more confident object took that ground truth (the PASCAL VOC rule): the AP is high when the objects found are placed well and the false positives have low scores, like the objects 2 to 5 of Step 4.3.
+The average precision of `object_detection_workflow.md` on the OKS overlaps instead of the box IoU, with `title_prefix="OKS"`, `name_prefix="OKS "` and `column_prefix="oks_"`: the three methods (area, 11 point, 101 point) at OKS 0.5, 0.75, 0.95 and 0.5 to 0.95, the COCO object sizes by box area, the mean average recall, the per-class APs, and the OKS recall of every class at 0.5 and 0.75 with the bounds of its exact (Clopper-Pearson) 95 % confidence interval over the ground truth objects (`oks_recall_50` to `oks_recall_75_upper`, the `OKS Per Class Recall` table, `object_detection_workflow.md`, Step 4.11). As for the boxes, the objects found are taken by decreasing score, and each one is a true positive when its OKS with its best ground truth object reaches the threshold and no more confident object took that ground truth (the PASCAL VOC rule): the AP is high when the objects found are placed well and the false positives have low scores, like the objects 2 to 5 of Step 4.3.
 
-**Example: the 30 test images with the checkpoint of iteration 2000**
+**Example: the scalars of the 30 test images with the checkpoint of iteration 2000** (between 0 and 1, the report writing them as percentages)
 ```text
 OKS mAP@0.5/area 0.9417   OKS mAP@0.75/area 0.9099   OKS mAP@0.95/area 0.7966   OKS mAP@[0.5:0.95]/area 0.8960
 ```
@@ -1066,70 +1066,70 @@ class_index,class,keypoint,labelled,found,percentage_correct_keypoints,mean_erro
 ```
 
 ### Step 4.10 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-The headline metric is `KEYPOINT_HEADLINE_METRIC` = `OKS mAP@0.5/area`, which compares the checkpoints. The keypoint accuracy is given first, then the tables of the methods, sizes and recalls, then, with the per-class report, the per-class APs, the per-class OKS recalls with their intervals (`OKS Per Class Recall`), the accuracy per class and the accuracy per keypoint. Should you compare it with a classification report, its rates stay between 0 and 1, as in `class_metrics.csv`, TensorBoard and MLflow: the keypoint trainer gives no `percent_metrics` and its tables no `percent_columns`, which only the classification trainer and the sequence classification, labelling and comparison trainers built on it fill, to write theirs as "94.03 %" (`report_formatting.py`).
+The headline metric is `KEYPOINT_HEADLINE_METRIC` = `OKS mAP@0.5/area`, which compares the checkpoints. The keypoint accuracy is given first, then the tables of the methods, sizes and recalls, then, with the per-class report, the per-class APs, the per-class OKS recalls with their intervals (`OKS Per Class Recall`), the accuracy per class and the accuracy per keypoint. Like the classification report, it writes its rates as percentages with two decimals ("94.03 %", `report_formatting.py`): the `percent_metrics` of the results name `Matched Objects`, `PCK@0.05` and `Mean OKS` of the grid and the headline `OKS mAP@0.5/area`, written so in the best checkpoint line of Stage 5, and the `percent_columns` of the tables hold the mAPs, mARs, APs, OKS recalls with their `95 %` bounds, PCK and mean OKS. The counts of objects and keypoints and the mean keypoint error (4 decimals, in pixels) keep their values, and `class_metrics.csv`, `keypoint_metrics.csv`, `evaluation_summary.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
 
 **Example output: the report of the checkpoint of iteration 60** (the per-class and per-keypoint tables shortened)
 ```text
 Iteration 60 · 30 Test Images · 2026-10-18 00:24 ───────────────────────────────────────────────────────────────────────
-  Matched Objects   0.0111   PCK@0.05                       0.0017
-  Mean OKS          0.0014   Mean Keypoint Error (pixels)   2.2361
+  Matched Objects   1.11 %   PCK@0.05                       0.17 %
+  Mean OKS          0.14 %   Mean Keypoint Error (pixels)   2.2361
   Sample Images : 16 fixed test images
 
   OKS Mean Average Precision
    Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
   ────────────────────────────────────────────────────────────
-   Area         0.0000     0.0000     0.0000           0.0000
-   11 Point     0.0000     0.0000     0.0000           0.0000
-   101 Point    0.0000     0.0000     0.0000           0.0000
+   Area         0.00 %     0.00 %     0.00 %           0.00 %
+   11 Point     0.00 %     0.00 %     0.00 %           0.00 %
+   101 Point    0.00 %     0.00 %     0.00 %           0.00 %
   The mAP@0.5 of the area method compares the checkpoints of the run.
 
   OKS Mean Average Precision By Object Size (Area)
    Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
-  ─────────────────────────────────────────────────────────────────────────────────
+  ────────────────────────────────────────────────────────────────────────────────
    Small (< 32²)               0         —          —          —                —
-   Medium (32² to 96²)        56    0.0000     0.0000     0.0000           0.0000
-   Large (>= 96²)             34    0.0000     0.0000     0.0000           0.0000
+   Medium (32² to 96²)        56    0.00 %     0.00 %     0.00 %           0.00 %
+   Large (>= 96²)             34    0.00 %     0.00 %     0.00 %           0.00 %
   COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
   ignored. — : no object of the size.
 
   OKS Mean Average Recall
    Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
-  ─────────────────────────────────────────────────────────────────────────────────
-   All                        90    0.0000     0.0000     0.0000           0.0000
+  ────────────────────────────────────────────────────────────────────────────────
+   All                        90    0.00 %     0.00 %     0.00 %           0.00 %
    Small (< 32²)               0         —          —          —                —
-   Medium (32² to 96²)        56    0.0000     0.0000     0.0000           0.0000
-   Large (>= 96²)             34    0.0000     0.0000     0.0000           0.0000
+   Medium (32² to 96²)        56    0.00 %     0.00 %     0.00 %           0.00 %
+   Large (>= 96²)             34    0.00 %     0.00 %     0.00 %           0.00 %
   Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
   input pixels. — : no object of the size.
 
   OKS Per Class Average Precision (Area)
                           Ground
    Class                  Truths   AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]
-  ─────────────────────────────────────────────────────────────────────────────
-   square                      2   0.0000    0.0000    0.0000          0.0000
-   triangle                    2   0.0000    0.0000    0.0000          0.0000
+  ────────────────────────────────────────────────────────────────────────────
+   square                      2   0.00 %    0.00 %    0.00 %          0.00 %
+   triangle                    2   0.00 %    0.00 %    0.00 %          0.00 %
    ...                                                                          (the 31 other classes at 0)
   Worst AP@0.5 first, ties in class order. — : no ground truth box of the class.
 
   Keypoint Accuracy Per Class
                                     Matched    Labelled                Mean   Mean Error
    Class                  Objects   Objects   Keypoints   PCK@0.05      OKS     (pixels)
-  ──────────────────────────────────────────────────────────────────────────────────────
-   square                       2         0           8     0.0000   0.0000            —
-   triangle                     2         0           4     0.0000   0.0000            —
+  ───────────────────────────────────────────────────────────────────────────────────────
+   square                       2         0           8     0.00 %   0.00 %            —
+   triangle                     2         0           4     0.00 %   0.00 %            —
    ...                                                                                      (29 more classes missed)
-   house                        4         0          19     0.0000   0.0000            —
-   hollow_trapezoid             3         1          24     0.0417   0.0408       2.2361
+   house                        4         0          19     0.00 %   0.00 %            —
+   hollow_trapezoid             3         1          24     4.17 %   4.08 %       2.2361
   Worst PCK@0.05 first. PCK@0.05 : labelled keypoints within 0.05 of the longest box side, a missed object or keypoint
   counting as wrong; errors of the keypoints found, in network input pixels. — : no labelled keypoint.
 
   Keypoint Accuracy Per Keypoint
                                                                              Mean Error
    Class                            Keypoint   Labelled   Found   PCK@0.05     (pixels)
-  ────────────────────────────────────────────────────────────────────────────────────
-   square                           top_left          2       0     0.0000            —
+  ──────────────────────────────────────────────────────────────────────────────────────
+   square                           top_left          2       0     0.00 %            —
    ...                                                                                      (240 more keypoints)
-   hollow_trapezoid              bottom_left          3       1     0.3333       2.2361
+   hollow_trapezoid              bottom_left          3       1    33.33 %       2.2361
    hollow_semicircle              base_right          0       0          —            —
   Worst PCK@0.05 first, a missed keypoint counting as wrong; errors of the keypoints found, in network input pixels. — :
   keypoint never labelled or never found.
@@ -1144,15 +1144,15 @@ The base_right keypoint of the hollow semicircle comes last with no value: none 
 
 | Checkpoint | Matched Objects | PCK@0.05 | Mean OKS | Mean Error (pixels) | OKS mAP@0.5 (area) | OKS mAP@0.75 | OKS mAP@0.95 | OKS mAP@[0.5:0.95] |
 |---|---|---|---|---|---|---|---|---|
-| Iteration 30 | 0.0000 | 0.0000 | 0.0000 | — | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
-| Iteration 30, EMA Weights | 0.0000 | 0.0000 | 0.0000 | — | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
-| Iteration 60 | 0.0111 | 0.0017 | 0.0014 | 2.2361 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
-| Iteration 60, EMA Weights | 0.0000 | 0.0000 | 0.0000 | — | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
-| Iteration 2000 of the GPU run | 1.0000 | 0.9457 | 0.9337 | 6.1648 | 0.9417 | 0.9099 | 0.7966 | 0.8960 |
+| Iteration 30 | 0.00 % | 0.00 % | 0.00 % | — | 0.00 % | 0.00 % | 0.00 % | 0.00 % |
+| Iteration 30, EMA Weights | 0.00 % | 0.00 % | 0.00 % | — | 0.00 % | 0.00 % | 0.00 % | 0.00 % |
+| Iteration 60 | 1.11 % | 0.17 % | 0.14 % | 2.2361 | 0.00 % | 0.00 % | 0.00 % | 0.00 % |
+| Iteration 60, EMA Weights | 0.00 % | 0.00 % | 0.00 % | — | 0.00 % | 0.00 % | 0.00 % | 0.00 % |
+| Iteration 2000 of the GPU run | 100.00 % | 94.57 % | 93.37 % | 6.1648 | 94.17 % | 90.99 % | 79.66 % | 89.60 % |
 
 The averaged weights follow the trained weights a few iterations behind (the n-th update uses the decay min(0.999, (1 + n) / (10 + n)), 0.87 at the 60th update), so at iteration 60 they match no object yet.
 
-> Recorded before the minimum OKS of a match (2026-10-25, B51): the row of iteration 60 is now 0, 0, 0 and —, and the row of the GPU run can count fewer matched objects if some object was matched below an OKS of 0.5; the OKS mAPs are unchanged.
+> Recorded before the minimum OKS of a match (2026-10-25, B51): the row of iteration 60 is now 0.00 %, 0.00 %, 0.00 % and —, and the row of the GPU run can count fewer matched objects if some object was matched below an OKS of 0.5; the OKS mAPs are unchanged.
 
 **Example: the run folder after the training**
 ```text
@@ -1209,8 +1209,8 @@ The checkpoints are ranked on the headline metric of the task, the OKS mAP@0.5 (
 -------------------------------------------------------------
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
 -------------------------------------------------------------
-  - Best Checkpoint : iterations 60, 45, 30, 15 tie (OKS mAP@0.5/area 0.0000)
-  - Best Checkpoint (EMA Weights) : iterations 60, 45, 30, 15 tie (OKS mAP@0.5/area 0.0000)
+  - Best Checkpoint : iterations 60, 45, 30, 15 tie (OKS mAP@0.5/area 0.00 %)
+  - Best Checkpoint (EMA Weights) : iterations 60, 45, 30, 15 tie (OKS mAP@0.5/area 0.00 %)
 ```
 
 **Example: `evaluation_summary.csv`** (130 columns: iteration, the 12 OKS mAPs of the 3 methods at 0.5, 0.75, 0.95 and [0.5:0.95], the 4 OKS mAPs at 0.5 and [0.5:0.95] of the medium and large objects, the 12 OKS mARs of all, medium and large objects, the 4 keypoint accuracy metrics, the 33 OKS AP@0.5 of the classes, then the same 64 columns prefixed by `ema_`; the test split has no small object, so no small column)

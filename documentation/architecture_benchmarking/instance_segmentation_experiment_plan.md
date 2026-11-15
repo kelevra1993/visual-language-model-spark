@@ -4,6 +4,8 @@
 - **Dataset:** synthetic hard shapes for instance segmentation (`create_synthetic_dataset(task="instance_segmentation", hard_objects=True)`, generated on 2026-11-04 with the settings of the detection dataset), `/home/robert_kelevra/Data/instance_segmentation_data/synthetic_hard_shapes`: 512,000 train / 50,000 validation / 10,000 test images of 1024 pixels, 5 to 12 of the 35 shape classes per image (8.5 on average), the boxes being those of the visible part of every shape, 11.8 % of the visible parts in several pieces. The masks are compressed COCO RLE strings (a train `labels.json` of 3.8 GB, 10.9 GB at the peak of its loading). The test split was generated with 50,000 images and cut on 2026-11-13 to its first 10,000 (84,922 objects), the 40,000 others deleted, so that the dataset keeps one train, one validation and one test split (the user: "I just want one 10k dataset and that's it")
 - **Launch folders:** `hyperparameter_experiments/instance_segmentation/run_<n>` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch
 
+Suppose you hold a value of these tables against a figure: the scales differ. The tables and text of this plan, like `instance_segmentation_results.csv` from which the figures are drawn, give the mask mAP@[0.5:0.95] between 0 and 1, while the verdicts of `experiment_comparisons.yaml` and the figures of `figures/instance_segmentation/` write it as a percentage with two decimals (0.7884 as 78.84 %) and the gap between two settings in points (-0.0122 as -1.22 points).
+
 ## Table Of Content
 - [Strategy](#strategy)
 - [Fixed Settings](#fixed-settings)

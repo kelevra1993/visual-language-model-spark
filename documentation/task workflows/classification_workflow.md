@@ -32,7 +32,7 @@ ImageClassifier: InputNormalizer x / 255 - 0.5 ─► Backbone, 6 ConvolutionBlo
 loss: classification_loss = cross entropy (balanced class weights, no label smoothing) = total_loss
 batch metric: accuracy (argmax == label) ─► TensorBoard Train / Validation every iteration, console every 10
 every weight_saving_iterations: test split ─► confusion matrix, accuracy, balanced accuracy, macro F1, top-5,
-   per class precision, recall with its 95% interval, F1, ROC AUC, average precision, threshold at precision 0.99
+   per class precision, recall with its 95 % interval, F1, ROC AUC, average precision, threshold at precision 0.99
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion_matrix.csv/.png, class_metrics.csv,
       class_thresholds.json, roc_curves.png, precision_recall_curves.png, precision_recall_thresholds.png,
       temperature_explorer.html, class_logits.npz, predictions.csv, Samples/, Errors/)
@@ -114,7 +114,7 @@ Before changing the synthetic configuration, these are the keys that change the 
 
 Each time a checkpoint is evaluated, the run folder, TensorBoard and MLflow receive the following.
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95% confidence interval) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`82.73 %`), the thresholds staying between 0 and 1; the files, TensorBoard and MLflow keep every rate between 0 and 1.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95 % confidence interval) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`82.73 %`), the thresholds staying between 0 and 1; the files, TensorBoard and MLflow keep every rate between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `saved_temperature_thresholds.json` once the thresholds of a temperature are saved from the served page; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`.
 - `Exports/Iteration_<n>[_EMA]_T<temperature>/`: one Triton model repository per checkpoint, weights and temperature exported from the served temperature explorer, with `export_record.json` and `export_log.txt` (Step 4.13).
@@ -588,7 +588,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       scikit-learn computes them) and the point of its threshold; their means over the classes defining them are
 │   │       the Macro ROC AUC and Macro Average Precision headline metrics.
 │   ├── compute_recall_intervals() -> compute_clopper_pearson_intervals()
-│   │       For each class, the exact (Clopper-Pearson) 95% confidence interval of its recall, from its true positives
+│   │       For each class, the exact (Clopper-Pearson) 95 % confidence interval of its recall, from its true positives
 │   │       and its test images (recall_intervals.py), None for a class without test image.
 │   ├── build_class_metrics_rows() + write_class_metrics_file()
 │   │       Merges the per-class metrics (the recall followed by recall_lower and recall_upper), curve metrics (with
@@ -612,7 +612,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       is correct and the probability of every class.
 │   └── build_class_metrics_table() + build_recall_interval_table() + build_class_metric_scalars()
 │           Prepare what is displayed: the per-class table (columns, rows, sort by F1, legend), the per-class recall
-│           table (recall and 95% bounds, sort by recall, legend), with several target precisions the table of
+│           table (recall and 95 % bounds, sort by recall, legend), with several target precisions the table of
 │           build_class_thresholds_table (the threshold and recall of every class at each of them), and the
 │           per-class TensorBoard scalars Precision/<class>, Recall/<class>, F1/<class> (and with per_class_report
 │           ROC AUC/<class>, Average Precision/<class>).
@@ -1711,7 +1711,7 @@ So that a temperature reaches the deployment, `scripts/evaluation/serve_temperat
 ```
 
 ### Step 4.14 — `build_class_metrics_rows()` + `write_class_metrics_file()`
-Before the rows are built, `compute_recall_intervals()` gives the 95% confidence interval of the recall of every class with `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py`: the test images being independent, the interval is the exact (Clopper-Pearson) one, from the beta quantiles of the true positives and the support of the class, leaving 2.5% on each side. It covers the true recall at least 95% of the time, is wider for a class with few images, and stays within [0, 1] (lower bound 0 for a recall of 0, upper bound 1 for a recall of 1). A class without test image has no interval. In multi-label mode, the counts are those of the positive samples of the class.
+Before the rows are built, `compute_recall_intervals()` gives the 95 % confidence interval of the recall of every class with `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py`: the test images being independent, the interval is the exact (Clopper-Pearson) one, from the beta quantiles of the true positives and the support of the class, leaving 2.5 % on each side. It covers the true recall at least 95 % of the time, is wider for a class with few images, and stays within [0, 1] (lower bound 0 for a recall of 0, upper bound 1 for a recall of 1). A class without test image has no interval. In multi-label mode, the counts are those of the positive samples of the class.
 
 `build_class_metrics_rows()` merges, for every class, its support, precision, recall with the bounds of its interval (`recall_lower`, `recall_upper`), F1 and its threshold and recall at the target precision into one row, in class index order, followed by `threshold_at_precision_<p>` and `recall_at_precision_<p>` for every other target precision of a list. The per-class table of the report keeps the main target precision, and with several target precisions `build_class_thresholds_table()` adds the `Per Class Thresholds` table (class order, the threshold and recall of every target precision, the thresholds written as on `precision_recall_thresholds.png`). `write_class_metrics_file()` saves them as `class_metrics.csv`, with 6 decimals and an empty cell for a missing value. It is written at every evaluation, whatever `per_class_report`, so that the details of all the classes (a 1000 class run included) stay on the disk even when they are not displayed.
 

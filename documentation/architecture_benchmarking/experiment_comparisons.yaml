@@ -427,7 +427,7 @@ comparisons:
       - {label: "2e-3", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
       - {label: "2e-4", launches: [run_5, run_6], reference: false, trained_as_averaged: false}
     kept: "1e-3"
-    verdict: "1e-3 kept: 0.7766 at 15,000 (0.7905, 0.7628); 2e-3 tied at 0.7549 (-0.0218 within the launch gap 0.0609); 2e-4, stopped at 7500, far behind (0.4642 against 0.7010 for 1e-3 at 7500)."
+    verdict: "1e-3 kept: 77.66 % at 15,000 (79.05 %, 76.28 %); 2e-3 tied at 75.49 % (-2.18 points within the launch gap of 6.09 points); 2e-4, stopped at 7500, far behind (46.42 % against 70.10 % for 1e-3 at 7500)."
     notes: "These launches are not those of object_detection_results.csv, whose run_1 to run_6 are other launches. Searched one pair at a time against 1e-3. run_1 and run_2 trained 20,000 iterations (pair 0.7956 at 20,000) and are read at 15,000 under the constant learning rate; the plan says the 2e-3 pair was stopped at 15,000, but run_3 holds an evaluation at 15,500 (finished False); run_5 and run_6 end at 7500, where 2e-4 was compared. Augmentation of this stage: the haze alone, unlike stages 2 and later."
 
   - experiment: object_detection
@@ -442,7 +442,7 @@ comparisons:
       - {label: "0.1", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
       - {label: "0.15", launches: [run_5, run_6], reference: false, trained_as_averaged: false}
     kept: "0.1"
-    verdict: "0.1 kept: 0.7983 against 0.7789 for 0.0 (+0.0194, above the launch gap 0.0105), mostly by tighter boxes (mAP@0.95 doubled); 0.15 tied with 0.1 at 0.7956 (-0.0027 within the launch gap 0.0044), and the user dropped 0.2."
+    verdict: "0.1 kept: 79.83 % against 77.89 % for 0.0 (+1.93 points, above the launch gap of 1.05 points), mostly by tighter boxes (mAP@0.95 doubled); 0.15 tied with 0.1 at 79.56 % (-0.27 points within the launch gap of 0.44 points), and the user dropped 0.2."
     notes: "Searched one pair at a time: 0.1 against 0.0, then 0.15 against 0.1, the best value so far. run_1 and run_2 are new launches with the 1e-3 of stage 1 and the augmentation defaults of 2026-11-05, not the run_1 and run_2 of the learning rate stage file. The mAP@0.95 pair column of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
 
   - experiment: object_detection
@@ -456,7 +456,7 @@ comparisons:
       - {label: "0.0", launches: [run_3, run_4], reference: true, trained_as_averaged: false}
       - {label: "0.25", launches: [run_7, run_8], reference: false, trained_as_averaged: false}
     kept: "0.0"
-    verdict: "0.0 kept and the code reverted: 0.25 led until 4000 (+0.043 at 2000), then fell behind at every evaluation, 0.7655 against 0.7846 at 12,500 (-0.0190, above the launch gap 0.0066), its boxes loose (mAP@0.95 pair 0.0471 against 0.0970)."
+    verdict: "0.0 kept and the code reverted: 0.25 led until 4000 (+4.3 points at 2000), then fell behind at every evaluation, 76.55 % against 78.46 % at 12,500 (-1.90 points, above the launch gap of 0.66 points), its boxes loose (mAP@0.95 pair 4.71 % against 9.70 %)."
     notes: "The CSV has no easy_negative_fraction column: run_7 and run_8 carry the setting columns of run_3 and run_4 (background_iou_minimum 0.1, detector_normalization batch, neck_type none) and the four share one mean row, so the arms are told apart by launch name only. The plan says run_7 and run_8 were stopped at 12,500, but the CSV holds later evaluations: run_7 to 13,500 (trained and ema), run_8 to 13,500 (trained) and 13,000 (ema). The launch gap of 0.25 at 12,500 is 0.006661 (0.0067 rounded, the plan writes 0.0066). The Stages table calls the stage not conclusive (line 50). mAP@0.95 cannot be drawn from the CSV."
 
   - experiment: object_detection
@@ -470,7 +470,7 @@ comparisons:
       - {label: "none", launches: [run_3, run_4], reference: true, trained_as_averaged: false}
       - {label: "feature_pyramid", launches: [run_9, run_10], reference: false, trained_as_averaged: false}
     kept: "feature_pyramid"
-    verdict: "feature_pyramid kept: 0.8079 against 0.7983 for none (+0.0096, more than twice the launch gaps 0.0038 and 0.0037), gaining most on the tight boxes (mAP@0.95 pair 0.126 against 0.108); its lead peaked at +0.039 at 3500 and held at +0.0096 from 14,000 on."
+    verdict: "feature_pyramid kept: 80.79 % against 79.83 % for none (+0.96 points, more than twice the launch gaps of 0.38 and 0.37 points), gaining most on the tight boxes (mAP@0.95 pair 12.6 % against 10.8 %); its lead peaked at +3.9 points at 3500 and held at +0.96 points from 14,000 on."
     notes: "The section heading covers stages 3 and 4, stage 4 having an entry of its own (plan_lines up to the stage 3 figure here). The mAP@0.95, mAP@0.75, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
 
   - experiment: object_detection
@@ -484,7 +484,7 @@ comparisons:
       - {label: "feature_pyramid", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
       - {label: "path_aggregation", launches: [run_11, run_12], reference: false, trained_as_averaged: false}
     kept: "feature_pyramid"
-    verdict: "feature_pyramid kept (tie): path_aggregation 0.8038 against 0.8079 (-0.0042, within the launch gap 0.0094 of run_11 and run_12), behind at every evaluation (most at 3500, -0.022), ahead on the small objects (+0.020 at 15,000) and behind on the large ones (-0.021); its code stays for projects with very small objects, as the user decided."
+    verdict: "feature_pyramid kept (tie): path_aggregation 80.38 % against 80.79 % (-0.42 points, within the launch gap of 0.94 points of run_11 and run_12), behind at every evaluation (most at 3500, -2.2 points), ahead on the small objects (+2.0 points at 15,000) and behind on the large ones (-2.1 points); its code stays for projects with very small objects, as the user decided."
     notes: "run_9 and run_10, the feature pyramid kept by stage 3, are the reference, reused without training. The section heading covers stages 3 and 4 (plan_lines from it to the stage 4 figure). The object size, mAP@0.75, mAP@0.95 and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
 
   - experiment: object_detection
@@ -499,7 +499,7 @@ comparisons:
       - {label: "CIoU both stages", launches: [run_15, run_16], reference: false, trained_as_averaged: false}
       - {label: "CIoU detection heads", launches: [run_17, run_18], reference: false, trained_as_averaged: false}
     kept: "smooth_l1"
-    verdict: "smooth_l1 kept: CIoU in both stages at weight 1 0.7988 (-0.0092, beyond the launch gap 0.0048 of run_15 and run_16) and on the detection heads only 0.7974 (-0.0105, beyond the launch gap 0.0090 of run_17 and run_18) against 0.8079; at weight 6 run_13 and run_14 stalled (0.0008 and 0.0000 at 500) and were stopped; CIoU stays as the Detector.box_loss option, off in every configuration."
+    verdict: "smooth_l1 kept: CIoU in both stages at weight 1 79.88 % (-0.92 points, beyond the launch gap of 0.48 points of run_15 and run_16) and on the detection heads only 79.74 % (-1.05 points, beyond the launch gap of 0.90 points of run_17 and run_18) against 80.79 %; at weight 6 run_13 and run_14 stalled (0.08 % and 0.00 % at 500) and were stopped; CIoU stays as the Detector.box_loss option, off in every configuration."
     notes: "run_9 and run_10 are the reference, reused without training. The CSV has no region_proposal_box_loss column (RegionProposal.box_loss removed on 2026-11-10): run_15 to run_18 share their setting columns and one mean row, the arms told apart by launch name only (the run folders of run_13 to run_16 keep the RCIOU token). Both CIoU arms train at the loss weight 1; run_13 and run_14 (CIoU in both stages at the weight 6) hold only their 500 evaluation and are left out of the arms, their single point drawing nothing but a label over the legend. Stage 5b (DIoU-NMS) evaluates the 15,000 checkpoints of run_9, run_10, run_15 and run_16 again without training, so it has no entry nor figure."
 
   - experiment: object_detection
@@ -513,7 +513,7 @@ comparisons:
       - {label: "batch", launches: [run_9, run_10, run_10b], reference: true, trained_as_averaged: false}
       - {label: "layer", launches: [run_19, run_20, run_20b], reference: false, trained_as_averaged: false}
     kept: "batch"
-    verdict: "batch kept (tie): layer 0.7969 against 0.8079 at 15,000 (-0.0110, within the launch gap 0.0284 of run_19 and run_20); with a third launch of each, the best two layer launches 0.7545 against 0.7585 at 8000 (-0.0041, within the launch gap 0.0064), the three layer launches spreading 0.0814 at 3000 and 0.0338 at 8000 against 0.0139 and 0.0122 for batch; the user closed the stage at 8000 on batch for its stability, none not trained."
+    verdict: "batch kept (tie): layer 79.69 % against 80.79 % at 15,000 (-1.10 points, within the launch gap of 2.84 points of run_19 and run_20); with a third launch of each, the best two layer launches 75.45 % against 75.85 % at 8000 (-0.41 points, within the launch gap of 0.64 points), the three layer launches spreading 8.14 points at 3000 and 3.38 points at 8000 against 1.39 and 1.22 points for batch; the user closed the stage at 8000 on batch for its stability, none not trained."
     notes: "run_9 and run_10 are the reference, reused without training; run_10b and run_20b, third launches started on 2026-11-11, were stopped by the user at 15:58 the same day (iterations 8778 and 8637, evaluations up to 8500), so the stage is compared at 8000, where the figure marks it, and the mean curves of the figure end at 8500. run_10b shares the setting columns of run_9 and run_10, whose mean rows therefore average run_10b in up to 8500. The figure shows the mean of the three launches; the plan compares the mean of the best two of three (run_9 and run_10b, run_19 and run_20b at 8000). The mAP@0.75, mAP@0.95, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
 
   - experiment: object_detection
@@ -527,7 +527,7 @@ comparisons:
       - {label: "joint", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
       - {label: "per_level", launches: [run_21, run_22], reference: false, trained_as_averaged: false}
     kept: "per_level"
-    verdict: "per_level kept: 0.8183 against 0.8079 at 15,000 (+0.0104, beyond the launch gap 0.0065 of run_21 and run_22), its trained weights +0.0113, ahead on every object size (small +0.0174) and IoU threshold, a tie by the rule up to 8500 and a win at every evaluation from 9000 on; set in the object detection configurations and run-1.yaml, the instance segmentation and workflow run configurations keeping joint."
+    verdict: "per_level kept: 81.83 % against 80.79 % at 15,000 (+1.04 points, beyond the launch gap of 0.65 points of run_21 and run_22), its trained weights +1.13 points, ahead on every object size (small +1.74 points) and IoU threshold, a tie by the rule up to 8500 and a win at every evaluation from 9000 on; set in the object detection configurations and run-1.yaml, the instance segmentation and workflow run configurations keeping joint."
     notes: "run_9 and run_10 are the reference, reused without training. run_10b shares their setting columns, so the joint mean rows of the CSV average it in up to 8500, while the figure averages the launches of the arms. run_13 to run_16, trained before the setting existed, got proposal_selection 'joint' in their run folder configurations so that the results could be collected again. The object size, mAP@0.75, mAP@0.95, proposal and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
 
   - experiment: object_detection
@@ -541,7 +541,7 @@ comparisons:
       - {label: "cell_corners", launches: [run_21, run_22], reference: true, trained_as_averaged: false}
       - {label: "cell_centres", launches: [run_23, run_24], reference: false, trained_as_averaged: false}
     kept: "cell_corners"
-    verdict: "cell_corners kept (tie): cell_centres 0.7757 against 0.7765 at 8500 (-0.0008, within the launch gap 0.0160 of run_21 and run_22), the lead within 0.0016 of zero from 2500 on and negative from 4500 on; the user stopped the stage at 8500 and had RegionProposal.anchor_centres removed, the anchors staying on the cell corners."
+    verdict: "cell_corners kept (tie): cell_centres 77.57 % against 77.65 % at 8500 (-0.08 points, within the launch gap of 1.60 points of run_21 and run_22), the lead within 0.16 points of zero from 2500 on and negative from 4500 on; the user stopped the stage at 8500 and had RegionProposal.anchor_centres removed, the anchors staying on the cell corners."
     notes: "run_21 and run_22, the proposal selection per level kept by stage 7, are the reference, reused without training. run_23 and run_24 were stopped by the user on 2026-11-13 at iterations 8832 and 8719 (evaluations up to 8500), so the stage is compared at 8500, where the figure marks it. The CSV keeps the anchor_centres column of the results collected before the setting was removed, run_23 and run_24 holding cell_centres. The mAP@0.5, mAP@0.75, mAP@0.95, object size and timing figures of the plan cannot be drawn from the CSV, which holds mAP@[0.5:0.95] only."
 
   # Instance segmentation: instance_segmentation_experiment_plan.md and instance_segmentation_results.csv, mask_map_50_95_<iteration> columns.
@@ -555,7 +555,7 @@ comparisons:
     arms:
       - {label: "pool 14, resolution 28", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
     kept: "pool 14, resolution 28"
-    verdict: "Reference pair: Test_EMA mask mAP@[0.5:0.95] 0.7884 at 15,000 (0.7881, 0.7886, launch gap 0.0005), still rising (+0.0045 since 14,000); trained weights 0.7414, box mAP@[0.5:0.95] 0.8371."
+    verdict: "Reference pair: Test_EMA mask mAP@[0.5:0.95] 78.84 % at 15,000 (78.81 %, 78.86 %, launch gap 0.05 points), still rising (+0.45 points since 14,000); trained weights 74.14 %, box mAP@[0.5:0.95] 83.71 %."
     notes: "One setting, the starting values of the plan; the pair trained from 2026-11-13 10:16 to 2026-11-14 01:12, the 10,000 test images evaluated every 1000 iterations. The earlier reference launches of 2026-11-13, stopped by the user (the last pair at 500 and 474 for its slow evaluation), were deleted, so they are not in the CSV. The mask mAP@0.75, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
 
   - experiment: instance_segmentation
@@ -569,7 +569,7 @@ comparisons:
       - {label: "pool 14, resolution 28", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
       - {label: "pool 22, resolution 44", launches: [run_3, run_4], reference: false, trained_as_averaged: false}
     kept: "pool 14, resolution 28"
-    verdict: "Pool 14 kept: the pool of 22 reads 0.7761 (0.7785, 0.7738) against 0.7884 at 15,000 (-0.0122, beyond the launch gaps 0.0005 and 0.0047), behind from 2000 on, most on the large objects (-0.0202) and at mask mAP@0.95 (-0.0134)."
+    verdict: "Pool 14 kept: the pool of 22 reads 77.61 % (77.85 %, 77.38 %) against 78.84 % at 15,000 (-1.22 points, beyond the launch gaps of 0.05 and 0.47 points), behind from 2000 on, most on the large objects (-2.02 points) and at mask mAP@0.95 (-1.34 points)."
     notes: "run_1 and run_2, the reference of stage 0, are reused without training. The pool of 18 (planned as run_5 and run_6) was dropped by the user on 2026-11-14, so the stage has two arms. The mask mAP@0.75, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
 
   - experiment: instance_segmentation
@@ -583,5 +583,5 @@ comparisons:
       - {label: "pool 14, resolution 28", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
       - {label: "pool 14, resolution 56", launches: [run_5, run_6], reference: false, trained_as_averaged: false}
     kept: "pool 14, resolution 28"
-    verdict: "Resolution 28 kept: the resolution of 56 reads 0.7831 (0.7821, 0.7841) against 0.7884 at 15,000 (-0.0053, beyond the launch gaps 0.0005 and 0.0020), behind from 2000 on, most on the large objects (-0.0095); the noisier trained weights lose 0.0218 at 15,000."
+    verdict: "Resolution 28 kept: the resolution of 56 reads 78.31 % (78.21 %, 78.41 %) against 78.84 % at 15,000 (-0.53 points, beyond the launch gaps of 0.05 and 0.20 points), behind from 2000 on, most on the large objects (-0.95 points); the noisier trained weights lose 2.18 points at 15,000."
     notes: "run_1 and run_2, the reference of stage 0, are reused without training. The mask mAP@0.75, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."

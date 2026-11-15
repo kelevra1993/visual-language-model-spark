@@ -34,7 +34,7 @@ batch metrics: positive_pair_accuracy (or diagonal and off-diagonal correlations
 every weight_saving_iterations: test images encoded without views ─► representations [50000, 128] kept on the CPU
    ─► reference training images (50 per class at most, fixed) encoded with the same weights
    ─► k-NN of the labelled test images among them (20 neighbours, weights exp(cosine / 0.07)): k-NN Accuracy,
-      Balanced Accuracy, Macro F1, per class precision, recall with its 95% interval, F1; Effective Rank,
+      Balanced Accuracy, Macro F1, per class precision, recall with its 95 % interval, F1; Effective Rank,
       Representation Standard Deviation
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (class_metrics.csv, Samples/)
 export: InferenceEncoder (image_encoder), images [B, 3, 256, 256] ─► representations [B, 128], L2-normalized
@@ -109,7 +109,7 @@ Before changing the synthetic configuration, these are the keys that change the 
 
 If you are looking for an output of a run, this is where the training and every evaluated checkpoint write it.
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `k-NN Accuracy` (the headline metric), `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank` and `Representation Standard Deviation`, the notes `Labelled Test Images : <l> of <N>`, `k-NN : 20 neighbours among <M> labelled training images of <K> classes (50 per class at most)` (followed, when it applies, by a note counting the test classes without labelled training image, also printed in yellow at launch, and one counting the training classes without labelled test image) and `Sample Images : 8 fixed test images`, and with `per_class_report` the table `Per Class k-NN Metrics`, worst F1 first, then the table `Per Class k-NN Recall` (the recall of every class with its exact 95% confidence interval over its labelled test images), worst recall first. Every value keeps 4 decimals between 0 and 1, the self-supervised report not taking the percentages of the classification report. A test split without labelled image gives the two collapse metrics only, `Effective Rank` being then the headline metric.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `k-NN Accuracy` (the headline metric), `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank` and `Representation Standard Deviation`, the notes `Labelled Test Images : <l> of <N>`, `k-NN : 20 neighbours among <M> labelled training images of <K> classes (50 per class at most)` (followed, when it applies, by a note counting the test classes without labelled training image, also printed in yellow at launch, and one counting the training classes without labelled test image) and `Sample Images : 8 fixed test images`, and with `per_class_report` the table `Per Class k-NN Metrics`, worst F1 first, then the table `Per Class k-NN Recall` (the recall of every class with its exact 95 % confidence interval over its labelled test images), worst recall first. The k-NN metrics, the precisions, recalls and F1 of the per-class table and the recalls and bounds of the recall table are written as percentages with two decimals (`12.10 %`), like in the classification report, the best checkpoint line included, while `Effective Rank` and `Representation Standard Deviation` keep 4 decimals; `class_metrics.csv`, `evaluation_summary.csv`, TensorBoard and MLflow keep every rate between 0 and 1. A test split without labelled image gives the two collapse metrics only, `Effective Rank` being then the headline metric.
 - `Evaluation/Iteration_<n>/` (`Checkpoint_Evaluation/Iteration_<n>/` for the standalone evaluation, Step 5.5): `class_metrics.csv` (`class_index,class,samples,precision,recall,recall_lower,recall_upper,f1`, whatever `per_class_report`, when the k-NN is computed) and `Samples/<sample>.png` (the test image and two views drawn from a seed of the image, side by side below a 24 pixel caption bar `<class> | Views Similarity <cosine>`); `EMA/` with the moving average of the weights. There is no confusion matrix, threshold, prediction file, curve nor error image.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `InfoNCE Loss`, `Positive Pair Accuracy`, `Embedding Standard Deviation` (Barlow Twins: `Barlow Twins Loss`, `Diagonal Correlation`, `Off-Diagonal Correlation`, `Embedding Standard Deviation`), and `Learning Rate` in Train; `Tensorboard/Test`: the 5 global metrics, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>` with `per_class_report`, and the images `Samples/<sample>`.
 - `Weights/Iteration_<n>/model_<n>.pt` (e.g. `Weights/Iteration_250/model_000250.pt`): the whole model, projection head included, so that the training resumes; only the backbone initialises other runs.
@@ -120,7 +120,7 @@ If you are looking for an output of a run, this is where the training and every 
 Suppose a self-supervised run behaves unexpectedly: these behaviours of the task are the first to check.
 
 - The first checkpoints look collapsed whatever the training: the test images and the validation batches are encoded in evaluation mode, whose batch normalization uses running statistics updated at momentum 0.1 (`BATCH_NORMALIZATION_MOMENTUM`, fixed for the backbone and the projection head). After 12 iterations every test image got almost the same representation (mean pairwise cosine 1.0, against 0.774 in training mode), hence an effective rank of 1.05, a views similarity of 1.000 and a validation InfoNCE of exactly ln(2N - 1) (Step 4.9 and Step 3.20 of this document).
-- A cue shared by both views lets the loss fall without learning the content: the colour of a shape when the colour types are off, or its position when the crops are too large. A `Positive Pair Accuracy` near 1 long before the k-NN accuracy rises shows it, and the input viewer shows the views with their drawn augmentations before a training ([tasks reference, Self-Supervised Learning](../reference/tasks_reference.md#self-supervised-learning-ssl), Views and Training metrics).
+- A cue shared by both views lets the loss fall without learning the content: the colour of a shape when the colour types are off, or its position when the crops are too large. A `Positive Pair Accuracy` near 100 % (1 in TensorBoard) long before the k-NN accuracy rises shows it, and the input viewer shows the views with their drawn augmentations before a training ([tasks reference, Self-Supervised Learning](../reference/tasks_reference.md#self-supervised-learning-ssl), Views and Training metrics).
 - With crops down to a fifth of the area (`crop_area_range` of `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`), a view can miss a small object entirely: the two views the sample image of `test_000006.png` (a circle near the left border) draws with the synthetic configuration are crops of 22 % and 24 % of the area that both start to the right of the circle, so the loss pulls two backgrounds together. The input viewer (`diagnosis_modes.view_input_images`) shows how often it happens on a dataset.
 - The views, the batch size, the learning rate and the grouped batches give no run name token: a run of the same settings with stronger views or another batch size resumes the previous run folder, a run always resuming, unless `run_name_suffix` is set (`build_self_supervised_sections()` of `run_name.py`; the comment of `run_name_suffix` in the configuration).
 - Blocks 2, 4 and 6 of the synthetic configuration (16 to 32, 32 to 64 and 64 to 128 channels, 2 layers each) add no residual shortcut, so only blocks 3 and 5 list `Residual Shortcuts` in the backbone summary, and a backbone transferred to another task keeps this layout (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`).
@@ -288,7 +288,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │       ├── encode_reference_images()                 reference training images, encoded with the evaluated weights
 │       ├── compute_nearest_neighbour_predictions()   weighted k-NN vote of the reference images
 │       ├── compute_confusion_matrix() + compute_metrics_from_confusion_matrix()
-│       ├── compute_clopper_pearson_intervals()       exact 95% interval of the recall of every class
+│       ├── compute_clopper_pearson_intervals()       exact 95 % interval of the recall of every class
 │       ├── build_class_metrics_table() + build_recall_interval_table()   Per Class k-NN Metrics and Recall tables
 │       └── write_class_metrics_file()                class_metrics.csv
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
@@ -632,7 +632,7 @@ Adam, 1 parameter group, learning rate 0.0005, weight decay 0.0   exponential mo
 ```
 
 ### Step 2.18 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-The tracked metrics depend on the method (`METHOD_TRACKED_METRICS` of the trainer): the loss of the method, the batch metrics it returns and the embedding standard deviation, which watches the collapse of every method. The trainer keeps the empty list of `get_percent_tracked_metrics()` of the general trainer, so the console summary prints every value, the positive pair accuracy included, with 4 decimals between 0 and 1 instead of the percentages of the classification (Step 3.21).
+The tracked metrics depend on the method (`METHOD_TRACKED_METRICS` of the trainer): the loss of the method, the batch metrics it returns and the embedding standard deviation, which watches the collapse of every method. `get_percent_tracked_metrics()` gives the rates of the method from `METHOD_PERCENT_TRACKED_METRICS`, printed as percentages with their changes in points in the console summary (Step 3.21): the positive pair accuracy of SimCLR, and none for Barlow Twins, whose diagonal and off-diagonal correlations keep 4 decimals like the losses and the embedding standard deviation.
 
 **Example: the tracked metrics of both methods**
 ```text
@@ -640,6 +640,7 @@ simclr:       {'total_loss': 'Total Loss', 'info_nce_loss': 'InfoNCE Loss', 'pos
                'embedding_standard_deviation': 'Embedding Standard Deviation'}
 barlow_twins: {'total_loss': 'Total Loss', 'barlow_twins_loss': 'Barlow Twins Loss', 'cross_correlation_diagonal': 'Diagonal Correlation',
                'cross_correlation_off_diagonal': 'Off-Diagonal Correlation', 'embedding_standard_deviation': 'Embedding Standard Deviation'}
+get_percent_tracked_metrics(): simclr ['positive_pair_accuracy'], barlow_twins []
 ```
 
 ### Step 2.19 — `print_experiment_information()` (→ `describe_split()` → `count_split_samples()`)
@@ -964,7 +965,7 @@ MLflow, step 12: train Total Loss 2.6904, Positive Pair Accuracy 0.0781, Embeddi
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :   2.8289  +0.1261
 Moving Average of Train InfoNCE Loss                   :   2.8289  +0.1261
-Moving Average of Train Positive Pair Accuracy         :   0.0938  -0.0469
+Moving Average of Train Positive Pair Accuracy         :   9.38 % -4.69 points
 Moving Average of Train Embedding Standard Deviation   :   0.6455  -0.0723
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:11.
@@ -978,8 +979,8 @@ Moving Average of Train Total Loss                     :   2.6904  -0.1385 Best
 Moving Average of Valid Total Loss                     :   2.7081
 Moving Average of Train InfoNCE Loss                   :   2.6904  -0.1385 Best
 Moving Average of Valid InfoNCE Loss                   :   2.7081
-Moving Average of Train Positive Pair Accuracy         :   0.0781  -0.0156
-Moving Average of Valid Positive Pair Accuracy         :   0.0000
+Moving Average of Train Positive Pair Accuracy         :   7.81 % -1.56 points
+Moving Average of Valid Positive Pair Accuracy         :   0.00 %
 Moving Average of Train Embedding Standard Deviation   :   0.5425  -0.1030
 Moving Average of Valid Embedding Standard Deviation   :   0.0005
 ------------------------------------------------------------------------------------------------------------------------
@@ -987,9 +988,9 @@ Interval Of 4 Iterations Took 00:00:02.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 ```
-At iteration 8 no metric beats its best value, so no line ends with "Best"; at iteration 12 the loss beats the 2.7028 of iteration 4. The interval of iteration 8 also holds the test evaluation of iteration 6, the trackers of an interval starting at the summary before it, hence its throughput of 2.8 images per second.
+The positive pair accuracy is printed as a percentage with its change in points, the losses and the embedding standard deviation with 4 decimals. At iteration 8 no metric beats its best value, so no line ends with "Best"; at iteration 12 the loss beats the 2.7028 of iteration 4. The interval of iteration 8 also holds the test evaluation of iteration 6, the trackers of an interval starting at the summary before it, hence its throughput of 2.8 images per second.
 
-**Example output: the first interval of the Barlow Twins run** (throughput 12.2 Images Per Second)
+**Example output: the first interval of the Barlow Twins run** (throughput 12.2 Images Per Second; no rate, every value with 4 decimals)
 ```text
 Moving Average of Train Total Loss                     : 131.7183
 Moving Average of Train Barlow Twins Loss              : 131.7183
@@ -1065,7 +1066,7 @@ Concatenates the representations and the labels of the split, then computes:
 - the **effective rank** (Step 4.10) and the **representation standard deviation** (Step 3.15 applied to the representations) of every test image, labelled or not;
 - with at least one labelled test image, the **k-NN metrics** (Step 4.8), the headline metric being then the k-NN accuracy; without them, the k-NN is skipped and the headline metric is the effective rank (Step 5.6).
 
-**Example: the global metrics of both checkpoints**
+**Example: the global metrics of both checkpoints** (the `metrics` of the results, between 0 and 1)
 
 | Iteration | k-NN Accuracy | k-NN Balanced Accuracy | k-NN Macro F1 | Effective Rank | Representation Standard Deviation |
 |---|---|---|---|---|---|
@@ -1077,14 +1078,14 @@ notes:         'Labelled Test Images : 1000 of 1000', 'k-NN : 20 neighbours amon
                'Sample Images : 8 fixed test images'
 class_scalars: 27 (k-NN Precision, Recall and F1 of the 9 classes)
 ```
-With 9 classes, chance is about 0.11.
+With 9 classes, chance is about 0.11. The results list the three k-NN metrics in `percent_metrics` (only when the k-NN is computed), so that the report (Step 4.12) and the best checkpoint line write them as percentages (`12.10 %`), the effective rank and the standard deviation keeping 4 decimals; the per-class and recall tables list their rates in `percent_columns`.
 
 ### Step 4.8 — `compute_nearest_neighbour_results()` → `compute_nearest_neighbour_predictions()`
 Classifies every labelled test image by its neighbours among the reference images, then scores it like a classifier (in `vision_training/evaluation/self_supervised/representation_metrics.py`):
 - `encode_reference_images()` encodes the reference training images chosen at the start (Step 2.1, `build_reference_dataloader()`) with the weights being evaluated, trained or averaged, through `predict_batch()` like the test images. A test image is never compared with the other test images, so a test split of one image per class (ImageNet-22k) is scored like any other. Every class of the training split votes, a class without labelled test image being a possible wrong prediction, as for a classifier of every class.
 - The representations are L2-normalized and compared by cosine similarity, in chunks of `SIMILARITY_CHUNK_SIZE` (1024) test images.
 - The k = min(20, M) most similar reference images vote for their class with the weight exp(similarity / `NEAREST_NEIGHBOUR_TEMPERATURE`), the temperature being 0.07, the votes being summed per class (`scatter_add`); the class with the most votes is the prediction.
-- `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class; `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py` gives the exact (Clopper-Pearson) 95% confidence interval of every recall from the true positives and the labelled test images of the class, the images being independent (`classification_workflow.md`, Step 4.14); `write_class_metrics_file()` saves them in `class_metrics.csv`, the bounds as `recall_lower` and `recall_upper` after `recall`.
+- `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class; `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py` gives the exact (Clopper-Pearson) 95 % confidence interval of every recall from the true positives and the labelled test images of the class, the images being independent (`classification_workflow.md`, Step 4.14); `write_class_metrics_file()` saves them in `class_metrics.csv`, the bounds as `recall_lower` and `recall_upper` after `recall`.
 
 **Example: image 0 of the test split at iteration 12** (label 6, plus_sign; captured with the leave-one-out vote, its neighbours being other test images)
 ```text
@@ -1124,7 +1125,7 @@ p_1 = 9.2822 / 9.3237 = 0.99555   entropy = 0.0448   effective rank = exp(0.0448
 ```
 
 ### Step 4.11 — the per-class table and scalars
-The table "Per Class k-NN Metrics" lists the classes with their number of labelled test images, precision, recall and F1, the worst F1 first. The table "Per Class k-NN Recall" (`build_recall_interval_table()`) follows it: the number of labelled test images, the recall and the bounds of its interval (`95% Lower`, `95% Upper`) of every class, the worst recall first. Each class also gives three TensorBoard and MLflow scalars, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>`.
+The table "Per Class k-NN Metrics" lists the classes with their number of labelled test images, precision, recall and F1, the worst F1 first. The table "Per Class k-NN Recall" (`build_recall_interval_table()`) follows it: the number of labelled test images, the recall and the bounds of its interval (`95 % Lower`, `95 % Upper`) of every class, the worst recall first. Both tables write their rates as percentages (`15.32 %`), the number of labelled test images as a count. Each class also gives three TensorBoard and MLflow scalars, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>`.
 
 **Example: `Evaluation/Iteration_12/class_metrics.csv` and the scalars of one class** (the table itself is in the block of Step 4.12)
 ```text
@@ -1145,25 +1146,25 @@ The file keeps the class order of the label dictionary, while the console table 
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`; the three file names at the end are clickable links to the files)
 ```text
 Iteration 12 · 1000 Test Images · 2026-10-23 02:19 ─────────────────────────────────────────────────────────────────────
-  k-NN Accuracy                       0.1210   k-NN Balanced Accuracy   0.1165
-  k-NN Macro F1                       0.1113   Effective Rank           1.0458
+  k-NN Accuracy                       12.10 %   k-NN Balanced Accuracy   11.65 %
+  k-NN Macro F1                       11.13 %   Effective Rank           1.0458
   Representation Standard Deviation   0.0008
   Labelled Test Images : 1000 of 1000
   k-NN : 20 neighbours among the other labelled test images
   Sample Images : 8 fixed test images
 
   Per Class k-NN Metrics
-   Class       Samples   Precision   Recall       F1
-  ───────────────────────────────────────────────────
-   pentagon         99      0.0476   0.0202   0.0284
-   square           91      0.1000   0.0659   0.0795
-   octagon         114      0.0874   0.0789   0.0829
-   plus_sign       126      0.1014   0.1111   0.1061
-   rectangle        97      0.1220   0.1031   0.1117
-   hexagon         117      0.1217   0.1197   0.1207
-   star            113      0.1231   0.1416   0.1317
-   circle          118      0.1532   0.1441   0.1485
-   triangle        125      0.1507   0.2640   0.1919
+   Class       Samples   Precision    Recall        F1
+  ─────────────────────────────────────────────────────
+   pentagon         99      4.76 %    2.02 %    2.84 %
+   square           91     10.00 %    6.59 %    7.95 %
+   octagon         114      8.74 %    7.89 %    8.29 %
+   plus_sign       126     10.14 %   11.11 %   10.61 %
+   rectangle        97     12.20 %   10.31 %   11.17 %
+   hexagon         117     12.17 %   11.97 %   12.07 %
+   star            113     12.31 %   14.16 %   13.17 %
+   circle          118     15.32 %   14.41 %   14.85 %
+   triangle        125     15.07 %   26.40 %   19.19 %
   k-nearest neighbour classification (20 neighbours) of the labelled test images by the other ones. Worst F1 first, ties
   in class order. — : no labelled test image of the class.
   - Results : Results.txt
@@ -1234,7 +1235,7 @@ metrics: 33 keys, 132 rows
 **Example output**
 ```text
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv          <- a clickable link to SSL_IN-KAR-64_..._SIMCLR-T0.2/Checkpoint_Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 3 (k-NN Accuracy 0.1250)
+  - Best Checkpoint : iteration 3 (k-NN Accuracy 12.50 %)
 
 iteration,k-NN Accuracy,k-NN Balanced Accuracy,k-NN Macro F1,Effective Rank,Representation Standard Deviation, ...
 12,0.11,0.09638447971781304,0.08247118900298986,1.0432647447459944,0.0008116378448903561, ...
@@ -1260,29 +1261,29 @@ SSL_IN-KAR-64_..._SIMCLR-T0.2/Checkpoint_Evaluation/
 Evaluating : model_000012.pt
 -----------------------------
 Iteration 12 · 200 Test Images · 2026-10-23 02:19 ──────────────────────────────────────────────────────────────────────
-  k-NN Accuracy                       0.1100   k-NN Balanced Accuracy   0.0964
-  k-NN Macro F1                       0.0825   Effective Rank           1.0433
+  k-NN Accuracy                       11.00 %   k-NN Balanced Accuracy   9.64 %
+  k-NN Macro F1                       8.25 %    Effective Rank           1.0433
   Representation Standard Deviation   0.0008
   Labelled Test Images : 200 of 200
   k-NN : 20 neighbours among the other labelled test images
   Sample Images : 8 fixed test images
 
   Per Class k-NN Metrics
-   Class       Samples   Precision   Recall       F1
-  ───────────────────────────────────────────────────
-   square           16      0.0000   0.0000   0.0000
-   rectangle        14      0.0000   0.0000   0.0000
-   pentagon         23      0.0000   0.0000   0.0000
-   octagon          21      0.0435   0.0476   0.0455
-   circle           20      0.0833   0.0500   0.0625
-   hexagon          27      0.1111   0.1111   0.1111
-   plus_sign        27      0.1154   0.1111   0.1132
-   triangle         28      0.1622   0.2143   0.1846
-   star             24      0.1702   0.3333   0.2254
+   Class       Samples   Precision    Recall        F1
+  ─────────────────────────────────────────────────────
+   square           16      0.00 %    0.00 %    0.00 %
+   rectangle        14      0.00 %    0.00 %    0.00 %
+   pentagon         23      0.00 %    0.00 %    0.00 %
+   octagon          21      4.35 %    4.76 %    4.55 %
+   circle           20      8.33 %    5.00 %    6.25 %
+   hexagon          27     11.11 %   11.11 %   11.11 %
+   plus_sign        27     11.54 %   11.11 %   11.32 %
+   triangle         28     16.22 %   21.43 %   18.46 %
+   star             24     17.02 %   33.33 %   22.54 %
   ...
 ```
 
-**Example: the global metrics of the four checkpoints**
+**Example: the global metrics of the four checkpoints** (as in `evaluation_summary.csv`, between 0 and 1)
 
 | Iteration | k-NN Accuracy | k-NN Balanced Accuracy | k-NN Macro F1 | Effective Rank | Representation Standard Deviation |
 |---|---|---|---|---|---|

@@ -30,7 +30,7 @@ losses         1.0 x cross entropy + 1.0 x soft Dice (Lovász and boundary at 0)
 batch metrics  argmax -> pixel confusion matrix -> Pixel Accuracy, Mean IoU (console, TensorBoard, MLflow)
 evaluation     summed on the device over the test split: confusion [10, 10], boundary counts [10, 6], histograms
                [10, 2, 10000] -> Mean IoU (headline), Mean Dice, Mean Boundary IoU / F1, Pixel Accuracy,
-               Frequency Weighted IoU, Macro ROC AUC, Macro Average Precision, the same per class, the 95%
+               Frequency Weighted IoU, Macro ROC AUC, Macro Average Precision, the same per class, the 95 %
                interval of every recall (Korn-Graubard, bootstrap over the test images)
 files          Evaluation/Iteration_<n>/ class_metrics.csv, confusion_matrix.csv and .png, roc_curves.png,
                precision_recall_curves.png, Samples/, Predicted_Masks/; Results.txt
@@ -108,8 +108,8 @@ Before changing the synthetic configuration, these are the keys that change the 
 
 Whenever you look for a result of the run, these are the files and curves its training and the evaluations of its checkpoints write.
 
-- `Results.txt`: one block per evaluated checkpoint with `Mean IoU` (the headline metric), `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, with `per_class_report` `Macro ROC AUC` and `Macro Average Precision`, the notes (labelled pixels and their resolution, boundary tolerance, predicted masks, sample images) the per-class table sorted by IoU, worst first, and the `Per Class Recall` table (the pixel recall of every class with its 95% confidence interval, a Korn-Graubard interval from a bootstrap over the test images) sorted by recall, worst first.
-- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (pixels, IoU, Dice, boundary IoU and F1, precision, recall with the bounds of its 95% confidence interval, `recall_lower` and `recall_upper`, and with `per_class_report` ROC AUC and average precision) and `confusion_matrix.csv` (pixel counts) at every evaluation; `confusion_matrix.png` (shares of every true class), `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `Samples/<image>.png` (Input, Ground Truth, Prediction and Errors panels, 2060x560 for 512 pixel images); `Predicted_Masks/<image>.png` with `save_predicted_masks`. No `EMA/` folder: the moving average of the weights is off in this configuration.
+- `Results.txt`: one block per evaluated checkpoint with `Mean IoU` (the headline metric), `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, with `per_class_report` `Macro ROC AUC` and `Macro Average Precision`, the notes (labelled pixels and their resolution, boundary tolerance, predicted masks, sample images) the per-class table sorted by IoU, worst first, and the `Per Class Recall` table (the pixel recall of every class with its 95 % confidence interval, a Korn-Graubard interval from a bootstrap over the test images) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`7.90 %`), the pixel counts keeping their values; the files, TensorBoard and MLflow keep every rate between 0 and 1.
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (pixels, IoU, Dice, boundary IoU and F1, precision, recall with the bounds of its 95 % confidence interval, `recall_lower` and `recall_upper`, and with `per_class_report` ROC AUC and average precision) and `confusion_matrix.csv` (pixel counts) at every evaluation; `confusion_matrix.png` (shares of every true class), `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `Samples/<image>.png` (Input, Ground Truth, Prediction and Errors panels, 2060x560 for 512 pixel images); `Predicted_Masks/<image>.png` with `save_predicted_masks`. No `EMA/` folder: the moving average of the weights is off in this configuration.
 - `class_pixel_counts.json` in the run folder with `class_weighting: "balanced"`.
 - `Tensorboard/Train` and `Validation`: `Total Loss`, `Cross Entropy Loss`, `Dice Loss`, `Pixel Accuracy`, `Mean IoU` (and `Learning Rate`); `Tensorboard/Test`: 88 scalars in the run of `experiments/readme_screenshots` (the 8 headline metrics and, for each of the 10 classes, `IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`, `ROC AUC` and `Average Precision`) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
 - `Weights/Iteration_<n>/model_<n>.pt`: about 9.6 MB, the 3.15 MB of the weights and the two Adam moments, with the source runs of `Backbone` and `SegmentationDecoder`.
@@ -223,7 +223,8 @@ main()
 │       ├── build_optimizer()
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
 │       │       total loss, the losses whose weight is not 0 (cross entropy, Dice, Lovász, boundary), the deep
-│       │       supervision loss when there are heads, pixel accuracy and mean IoU.
+│       │       supervision loss when there are heads, pixel accuracy and mean IoU, these two printed as
+│       │       percentages in the console summary (get_percent_tracked_metrics).
 │       ├── print_experiment_information() -> describe_split() -> count_split_samples()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       The summary adds a decoder panel: the bottleneck, then for every level its skip connection,
@@ -295,7 +296,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── compute_histogram_score_curves() + compute_macro_curve_metrics()   (only with per_class_report)
 │   │                                        ROC AUC and average precision of the pixels of every class, their means
 │   ├── compute_bootstrap_recall_intervals()
-│   │                                        95% interval of the recall of every class, 1000 resamples of the
+│   │                                        95 % interval of the recall of every class, 1000 resamples of the
 │   │                                        test images
 │   ├── build_segmentation_class_rows() + write_class_metrics_file()           class_metrics.csv
 │   ├── save_confusion_matrix_table()                                          confusion_matrix.csv (pixel counts)
@@ -634,7 +635,7 @@ Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 ```
 
 ### Step 2.21 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.16).
+The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.16). `get_percent_tracked_metrics()` gives the keys the console summary prints as percentages with their changes in points (`['pixel_accuracy', 'mean_iou']`, the losses keeping 4 decimals); TensorBoard and MLflow keep them between 0 and 1 (Step 3.20).
 
 **Example output** (cross entropy and Dice on, Lovász and boundary off)
 ```text
@@ -903,8 +904,8 @@ MLflow, step 4: {'train/Total Loss': 2.971, 'train/Cross Entropy Loss': 2.0213, 
 Moving Average of Train Total Loss                     :   2.8497  -0.1213 Best
 Moving Average of Train Cross Entropy Loss             :   1.9076  -0.1137 Best
 Moving Average of Train Dice Loss                      :   0.9421  -0.0076 Best
-Moving Average of Train Pixel Accuracy                 :   0.4850  +0.0746 Best
-Moving Average of Train Mean IoU                       :   0.0781  +0.0120 Best
+Moving Average of Train Pixel Accuracy                 :  48.50 % +7.46 points Best
+Moving Average of Train Mean IoU                       :   7.81 % +1.20 points Best
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:10.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -919,10 +920,10 @@ Moving Average of Train Cross Entropy Loss             :   1.8413  -0.0663 Best
 Moving Average of Valid Cross Entropy Loss             :   2.0299
 Moving Average of Train Dice Loss                      :   0.9366  -0.0055 Best
 Moving Average of Valid Dice Loss                      :   0.9587
-Moving Average of Train Pixel Accuracy                 :   0.4567  -0.0284               <- red: lower than at iteration 8
-Moving Average of Valid Pixel Accuracy                 :   0.9136
-Moving Average of Train Mean IoU                       :   0.0829  +0.0048 Best
-Moving Average of Valid Mean IoU                       :   0.1126
+Moving Average of Train Pixel Accuracy                 :  45.67 % -2.84 points           <- red: lower than at iteration 8
+Moving Average of Valid Pixel Accuracy                 :  91.36 %
+Moving Average of Train Mean IoU                       :   8.29 % +0.48 points Best
+Moving Average of Valid Mean IoU                       :  11.26 %
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:01.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
@@ -985,11 +986,11 @@ Evaluation/Iteration_6/Predicted_Masks/    200 files: test_000000.png, test_0000
 ```
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()`
-For every fixed sample image found in the batch, `build_sample_image()` lays out four titled panels side by side: the input, the true mask painted over it, the predicted mask painted over it, and the error map. A caption bar above gives the pixel accuracy of the image over its labelled pixels, and a legend bar below names the classes of its true and predicted masks (background left out), then the colours of the error map: `Correct` (green, a pixel of a class given its class), `Wrong Class` (red, another class, or a class where the truth is the background) and `Missed` (yellow, a pixel of a class predicted as background), the ignored pixels being gray and the background predicted as background staying dark (`build_segmentation_error_map()` of `vision_training/utilities/visualization.py`). The panels of a large image segmented tile by tile are reduced to 1024 pixels on their longest side. The image is saved in `Samples/` and sent to TensorBoard under `Samples/<image name>`.
+For every fixed sample image found in the batch, `build_sample_image()` lays out four titled panels side by side: the input, the true mask painted over it, the predicted mask painted over it, and the error map. A caption bar above gives the pixel accuracy of the image over its labelled pixels as a percentage, and a legend bar below names the classes of its true and predicted masks (background left out), then the colours of the error map: `Correct` (green, a pixel of a class given its class), `Wrong Class` (red, another class, or a class where the truth is the background) and `Missed` (yellow, a pixel of a class predicted as background), the ignored pixels being gray and the background predicted as background staying dark (`build_segmentation_error_map()` of `vision_training/utilities/visualization.py`). The panels of a large image segmented tile by tile are reduced to 1024 pixels on their longest side. The image is saved in `Samples/` and sent to TensorBoard under `Samples/<image name>`.
 
 **Example: `Evaluation/Iteration_12/Samples/test_000028.png`** (268 x 112 pixels)
 ```text
-caption: "Pixel Accuracy 0.9006"
+caption: "Pixel Accuracy 90.06 %"
 panels:  Input | Ground Truth | Prediction | Errors      (64 x 64 each; the titles are cut at this small size: "Ground Tru")
 legend:  square (red), circle (orange), rectangle (green), ...
 ```
@@ -1060,39 +1061,40 @@ class_index,class,pixels,iou,dice,boundary_iou,boundary_f1,precision,recall
 ```
 
 ### Step 4.11 — `save_confusion_matrix_table()` + `save_confusion_matrix_image()`
-The table is the pixel confusion matrix of Step 4.8 (`confusion_matrix.csv`, written whatever `per_class_report`). With `per_class_report`, the image is drawn like the one of the classification, titled `Pixel Confusion Matrix · Iteration N · Mean IoU ... · Pixel Accuracy ...`, its cells showing only the share of every true class, since the pixel counts are too large to print (`show_counts=False`). `save_score_curve_images()` then draws the curves of Step 4.10 as for the classification (`classification_workflow.md`, Step 4.15), titled `ROC Curves · Pixels · Iteration N` and `Precision-Recall Curves · Pixels · Iteration N`, the macro mean (`Macro ROC AUC ...`, `Macro Average Precision ...`) on the second line of the title so that it stays within the image, without thresholds, and saves `roc_curves.png` and `precision_recall_curves.png`, also logged to TensorBoard and MLflow.
+The table is the pixel confusion matrix of Step 4.8 (`confusion_matrix.csv`, written whatever `per_class_report`). With `per_class_report`, the image is drawn like the one of the classification, titled `Pixel Confusion Matrix · Iteration N · Mean IoU ... · Pixel Accuracy ...` with both rates as percentages (`Mean IoU 7.90 %`), its cells showing only the share of every true class as a percentage (`74.64 %`, `in_percent=True`), since the pixel counts are too large to print (`show_counts=False`). `save_score_curve_images()` then draws the curves of Step 4.10 as for the classification (`classification_workflow.md`, Step 4.15), titled `ROC Curves · Pixels · Iteration N` and `Precision-Recall Curves · Pixels · Iteration N`, the macro mean (`Macro ROC AUC ...`, `Macro Average Precision ...`) on the second line of the title so that it stays within the image, the rates of the titles and legends as percentages and the axes from `0 %` to `100 %` (`in_percent=True`), without thresholds, and saves `roc_curves.png` and `precision_recall_curves.png`, also logged to TensorBoard and MLflow.
 
 ### Step 4.12 — the notes and the predicted masks
 The notes name what was scored: the number of labelled pixels and the resolution (`network resolution`, `original resolution of the images`, or `images scaled by <scale>, segmented tile by tile`), and the boundary tolerance. With `save_predicted_masks`, the `Predicted_Masks` folder and its number of images are added.
 
 ### Step 4.13 — `build_segmentation_class_table()` + `build_segmentation_class_scalars()`
-The per-class table sorts the classes by IoU, worst first. `build_recall_interval_table()` adds the `Per Class Recall` table after it: the true pixels, the recall and the bounds of its interval (`95% Lower`, `95% Upper`) of every class, sorted by recall, worst first. The per-class scalars are the 6 metrics of every class with pixels (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`), 60 scalars for 10 classes, written only with `per_class_report`, which also adds the `ROC AUC` and `Average Precision` columns and scalars of the classes defining them: 80 per-class scalars for 10 classes, next to the 8 headline metrics, in the 512 pixel run of `experiments/readme_screenshots`.
+The per-class table sorts the classes by IoU, worst first. `build_recall_interval_table()` adds the `Per Class Recall` table after it: the true pixels, the recall and the bounds of its interval (`95 % Lower`, `95 % Upper`, both headers on two lines) of every class, sorted by recall, worst first. Both tables write their rates as percentages (`percent_columns`), the per-class table under the headers of `CLASS_COLUMN_HEADERS` of `segmentation_report.py`, `Boundary IoU`, `Boundary F1` and `Average Precision` on two lines so that its ten columns fit in the report, and the results list every headline metric in `percent_metrics`, the best checkpoint line of Stage 5 following them. The per-class scalars are the 6 metrics of every class with pixels (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`), 60 scalars for 10 classes, written only with `per_class_report`, which also adds the `ROC AUC` and `Average Precision` columns and scalars of the classes defining them: 80 per-class scalars for 10 classes, next to the 8 headline metrics, in the 512 pixel run of `experiments/readme_screenshots`.
 
 ### Step 4.14 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
 Iteration 12 · 200 Test Images · 2026-10-09 10:04 ──────────────────────────────────────────────────────────────────────
-  Mean IoU            0.0790   Mean Dice                0.0939
-  Mean Boundary IoU   0.0195   Mean Boundary F1         0.0608
-  Pixel Accuracy      0.7222   Frequency Weighted IoU   0.6748
+  Mean IoU            7.90 %    Mean Dice                9.39 %
+  Mean Boundary IoU   1.95 %    Mean Boundary F1         6.08 %
+  Pixel Accuracy      72.22 %   Frequency Weighted IoU   67.48 %
   Labelled Pixels : 819200 at the network resolution, the padding and the unlabelled pixels being ignored
   Boundary Tolerance : 2 pixels
   Predicted Masks : 200 class index images
   Sample Images : 8 fixed test images
 
   Per Class Metrics
-   Class        Pixels      IoU     Dice   Boundary IoU   Boundary F1   Precision   Recall
-  ─────────────────────────────────────────────────────────────────────────────────────────
-   circle        10212   0.0000   0.0000         0.0000        0.0000      0.0000   0.0000
-   triangle       2221   0.0000   0.0000         0.0000        0.0000      0.0000   0.0000
-   rectangle      6571   0.0000   0.0000         0.0000        0.0000      0.0000   0.0000
-   pentagon       8031   0.0000   0.0000         0.0000        0.0000      0.0000   0.0000
-   hexagon        9485   0.0000   0.0000         0.0000        0.0000      0.0000   0.0000
-   plus_sign      9263   0.0000   0.0000         0.0000        0.0000      0.0000   0.0000
-   octagon       12074   0.0000   0.0000         0.0000        0.0000      0.0000   0.0000
-   star           5654   0.0086   0.0170         0.0075        0.0418      0.0089   0.1666
-   square        15883   0.0350   0.0676         0.0173        0.0730      0.0406   0.2020
-   background   739806   0.7464   0.8548         0.1702        0.4931      0.9255   0.7941
+                                             Boundary   Boundary
+   Class        Pixels       IoU      Dice        IoU         F1   Precision    Recall
+  ─────────────────────────────────────────────────────────────────────────────────────
+   circle        10212    0.00 %    0.00 %     0.00 %     0.00 %      0.00 %    0.00 %
+   triangle       2221    0.00 %    0.00 %     0.00 %     0.00 %      0.00 %    0.00 %
+   rectangle      6571    0.00 %    0.00 %     0.00 %     0.00 %      0.00 %    0.00 %
+   pentagon       8031    0.00 %    0.00 %     0.00 %     0.00 %      0.00 %    0.00 %
+   hexagon        9485    0.00 %    0.00 %     0.00 %     0.00 %      0.00 %    0.00 %
+   plus_sign      9263    0.00 %    0.00 %     0.00 %     0.00 %      0.00 %    0.00 %
+   octagon       12074    0.00 %    0.00 %     0.00 %     0.00 %      0.00 %    0.00 %
+   star           5654    0.86 %    1.70 %     0.75 %     4.18 %      0.89 %   16.66 %
+   square        15883    3.50 %    6.76 %     1.73 %     7.30 %      4.06 %   20.20 %
+   background   739806   74.64 %   85.48 %    17.02 %    49.31 %     92.55 %   79.41 %
   Worst IoU first, ties in class order. Boundary IoU and F1 : contours within the boundary tolerance. — : no pixel (or
   no edge for the boundary metrics) of the class in the test masks.
   - Results : Results.txt
@@ -1113,7 +1115,7 @@ Tensorboard/Test: 66 scalars (6 global + 60 per class), 9 images (8 samples + Co
 MLflow: test/Mean IoU, test/Mean Dice, ..., test/best_Mean IoU (steps 6, 12), 60 test_class/<metric>/<class>,
         artifacts evaluation/iteration_6/ and iteration_12/: class_metrics.csv, confusion_matrix.png
 ```
-The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accuracy 0.0196, square recall 0.9966); the one of iteration 12 learned that most pixels are background. With the curves, every evaluation folder also holds `roc_curves.png` and `precision_recall_curves.png`, and `Tensorboard/Test` of the 512 pixel run of `experiments/readme_screenshots` holds 88 scalars (8 headline metrics + 80 per class) and 11 images (8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
+The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accuracy 1.96 %, square recall 99.66 %); the one of iteration 12 learned that most pixels are background. With the curves, every evaluation folder also holds `roc_curves.png` and `precision_recall_curves.png`, and `Tensorboard/Test` of the 512 pixel run of `experiments/readme_screenshots` holds 88 scalars (8 headline metrics + 80 per class) and 11 images (8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
 
 
 ---
@@ -1146,7 +1148,7 @@ MLflow Run Created In The Experiment 'semantic_segmentation' : 342ebb90469341998
 -------------------------------------------------------------
 Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
 -------------------------------------------------------------
-  - Best Checkpoint : iteration 12 (Mean IoU 0.0713)
+  - Best Checkpoint : iteration 12 (Mean IoU 7.13 %)
 
 iteration,Mean IoU,Mean Dice,Mean Boundary IoU,Mean Boundary F1,Pixel Accuracy,Frequency Weighted IoU,IoU/background, ...
 12,0.07127240554791028,0.08981075670647244,0.015183896521748261,0.05434968979463565,0.642840576171875,0.5973665654951408, ...
@@ -1164,16 +1166,16 @@ Evaluating : model_000012.pt
 -----------------------------
 ...
 Iteration 12 · 40 Test Images · 2026-10-09 10:04 ───────────────────────────────────────────────────────────────────────
-  Mean IoU            0.0713   Mean Dice                0.0898
-  Mean Boundary IoU   0.0152   Mean Boundary F1         0.0543
-  Pixel Accuracy      0.6428   Frequency Weighted IoU   0.5974
+  Mean IoU            7.13 %    Mean Dice                8.98 %
+  Mean Boundary IoU   1.52 %    Mean Boundary F1         5.43 %
+  Pixel Accuracy      64.28 %   Frequency Weighted IoU   59.74 %
   Labelled Pixels : 163840 at the network resolution, the padding and the unlabelled pixels being ignored
   Boundary Tolerance : 2 pixels
   Predicted Masks : 40 class index images
   Sample Images : 8 fixed test images
   ...
-   star            569   0.0049   0.0097         0.0054        0.0360      0.0049   0.2671
-   square         5894   0.0496   0.0945         0.0203        0.0993      0.0617   0.2019
-   background   148235   0.6583   0.7939         0.1261        0.4082      0.9144   0.7015
+   star            569    0.49 %    0.97 %     0.54 %     3.60 %      0.49 %   26.71 %
+   square         5894    4.96 %    9.45 %     2.03 %     9.93 %      6.17 %   20.19 %
+   background   148235   65.83 %   79.39 %    12.61 %    40.82 %     91.44 %   70.15 %
 ```
 The sample images were chosen from the 40 images of this split, so they are not the same images as in Stage 4.

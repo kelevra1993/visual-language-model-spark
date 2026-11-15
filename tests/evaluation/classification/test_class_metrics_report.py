@@ -39,8 +39,8 @@ def test_classification_tables_list_their_rates_as_percent_columns() -> None:
     """
     Verifies the per-class tables of the classification report: every rate column (precision, recall, F1, recall at
     the target precision, recall with its bounds) is a percent column and the thresholds are not, the target precisions
-    being written "99 %" in the headers and legends, while the k-nearest neighbour report of the self-supervised task
-    keeps its columns between 0 and 1.
+    being written "99 %" in the headers and legends, while a table built without in_percent, which no trainer does any
+    more, keeps its columns between 0 and 1.
     """
     class_rows = build_class_metrics_rows(class_names=CLASS_NAMES, metrics=METRICS,
                                           class_thresholds=CLASS_THRESHOLDS * 2, target_precisions=[0.99, 0.955])
@@ -62,7 +62,7 @@ def test_classification_tables_list_their_rates_as_percent_columns() -> None:
     assert recall_table["columns"] == ["Class", "Samples", "Recall", "95 %\nLower", "95 %\nUpper"]
     assert recall_table["percent_columns"] == ["Recall", "95 %\nLower", "95 %\nUpper"]
 
-    # Tables of the tasks kept between 0 and 1, the k-nearest neighbour classification and the other tasks
+    # Tables built without in_percent, which every trainer now passes, keep their rates between 0 and 1 and "95%"
     neighbour_table = build_class_metrics_table(class_rows=class_rows, target_precision=None, support_column="Samples")
     kept_recall_table = build_recall_interval_table(class_rows=class_rows, support_key="samples",
                                                     support_column="Samples", recall_columns=[("recall", "Recall")],
