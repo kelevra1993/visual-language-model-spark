@@ -549,7 +549,7 @@ comparisons:
     results_file: instance_segmentation_results.csv
     stage: "0"
     title: Reference
-    plan_lines: "92-126"
+    plan_lines: "94-128"
     last_iteration: 15000
     compared_weights: ema
     arms:
@@ -562,7 +562,7 @@ comparisons:
     results_file: instance_segmentation_results.csv
     stage: "1"
     title: Mask RoIAlign pool size
-    plan_lines: "146-165"
+    plan_lines: "148-167"
     last_iteration: 15000
     compared_weights: ema
     arms:
@@ -576,7 +576,7 @@ comparisons:
     results_file: instance_segmentation_results.csv
     stage: "2"
     title: Mask resolution
-    plan_lines: "167-180"
+    plan_lines: "169-182"
     last_iteration: 15000
     compared_weights: ema
     arms:
