@@ -2,7 +2,7 @@
 # every change), the labels and mapping files, the class balance and the position prior, the padded batches and the
 # data settings, and the commands of a run. Coordinates of the html scenes are in pixels of the content area (1760 x
 # 740, origin at its top left corner); the figures named figures:sequence_labelling/... are made by
-# tutorials/figures/sequence_labelling from the README run of tutorials/tutorial_sources.yaml.
+# tutorials/figures/sequence_labelling from the sequence labelling run of tutorials/tutorial_sources.yaml.
 series: sequence_labelling
 series_title: "Sequence Labelling (M2M)"
 chapter: 1
@@ -83,7 +83,7 @@ scenes:
     # tutorials/figures/sequence_labelling/dataset_figures.py), read from its frames, which no file records
     literal_numbers: [zero, two, three]
     narration:
-      - "The synthetic data set of the task, synthetic changing shapes, holds {{sequence_labelling.dataset.training_sequences:,}} training sequences of {{sequence_labelling.dataset.minimum_sequence_frames:words}} to {{sequence_labelling.dataset.maximum_sequence_frames}} frames of {{sequence_labelling.dataset.image_size}} pixels, every frame showing {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LABELLING_MINIMUM_OBJECTS:words}} to {{sequence_labelling.generator.maximum_objects:words}} shapes of {{sequence_labelling.dataset.shape_class_count}} classes."
+      - "The synthetic data set of the task, synthetic changing shapes, holds {{sequence_labelling.dataset.training_sequences:,}} training sequences of {{sequence_labelling.dataset.minimum_sequence_frames:words}} to {{sequence_labelling.dataset.maximum_sequence_frames}} frames of {{sequence_labelling.dataset.frame_size}} pixels, every frame showing {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LABELLING_MINIMUM_OBJECTS:words}} to {{sequence_labelling.generator.maximum_objects:words}} shapes of {{sequence_labelling.dataset.shape_class_count}} classes."
       - "From the second frame on, a shape of a random class appears, one of the shapes disappears, or nothing changes, with the same probability among the changes the number of shapes allows."
       - "And every frame draws all its shapes again, with a new size, color, rotation and position: a change is told only by comparing the classes of the shapes with the previous frame."
       - "Here, frame zero shows one star and frame one two of them: frame one is appearing star."
@@ -128,7 +128,7 @@ scenes:
       - "Each of the {{sequence_labelling.dataset.change_class_count}} change classes holds {{sequence_labelling.dataset.change_class_minimum_frames:,}} to {{sequence_labelling.dataset.change_class_maximum_frames:,}} frames, at most {{sequence_labelling.dataset.change_class_maximum_share:.2%}} of the frames each."
       - "The first frame of every sequence is no change by construction, and on the later frames no change falls to {{sequence_labelling.dataset.prior_later_no_change_share:.0%}}."
       - "So a model that only knows the position of a frame already reaches a cross entropy of {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, against {{sequence_labelling.dataset.uniform_cross_entropy:.2f}} for a uniform guess over the {{sequence_labelling.dataset.class_count}} classes."
-      - "Keep both numbers in mind: the next chapters recognize a failed run by them."
+      - "Keep the uniform guess in mind: the next chapter reads the training loss against it, and against this prior weighted by the class weights of the run."
 
   - kind: image
     title: "Whole sequences, padded batches"
@@ -147,7 +147,7 @@ scenes:
     title: "The data settings"
     code_reference: "vision_training/configuration_processing/sequence_checks.py · check_sequence_labelling_configuration"
     source:
-      file: vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml
+      file: tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml
       keys: [ExperimentConfiguration.task, ExperimentConfiguration.batch_size, Data.image_settings,
              Data.sequence_settings, Data.label_mapping]
       comments: false
@@ -159,8 +159,8 @@ scenes:
       - {key: Data.sequence_settings.maximum_sequence_length, sentences: [2]}
       - {key: Data.label_mapping.mode, sentences: [3]}
     narration:
-      - "In the synthetic configuration, the task key selects the sequence labeling trainer, its checks at launch and the M2M code of the run name."
-      - "A batch holds {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#ExperimentConfiguration.batch_size}} sequences of frames resized to {{config:vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml#Data.image_settings.size}} pixels; keep ratio pads them to a square instead of stretching them, so that they keep their aspect ratio."
+      - "In the launch file of the run of this series, the task key selects the sequence labeling trainer, its checks at launch and the M2M code of the run name."
+      - "A batch holds {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#ExperimentConfiguration.batch_size}} sequences of frames resized to {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#Data.image_settings.size}} pixels; keep ratio pads them to a square instead of stretching them, so that they keep their aspect ratio."
       - "The maximum sequence length of the sequence settings gives the T token of the run name, and the number of learned frame positions of a transformer."
       - "And the label mapping must be multi class: one class per frame among the {{sequence_labelling.dataset.class_count}}."
 
@@ -182,7 +182,7 @@ scenes:
     narration:
       - "The data set is written by the synthetic data set script, its task set to sequence labeling in its main block."
       - "Its full test split of {{sequence_labelling.generator.test_sequences:,}} sequences took 26 minutes to evaluate at 256 pixels, so the split subset script draws test {{sequence_labelling.subset.sequence_count:words}}, a fixed subset of {{sequence_labelling.subset.sequence_count:,}} sequences drawn with the seed {{sequence_labelling.subset.seed:words}}, whose labels file links to the frames of the full split."
-      - "The training takes the synthetic configuration alone; the README run of this series trained it for {{sequence_labelling.training.last_iteration}} iterations, tested on that subset."
+      - "The training takes a configuration file alone; the run of this series took the settings kept by the experiment plan, with a pre-trained backbone, and trained {{sequence_labelling.training.last_iteration:,}} iterations, tested on that subset."
       - "And any checkpoint can be evaluated again with the evaluation script, set in its main block like the generator."
 
   - kind: summary

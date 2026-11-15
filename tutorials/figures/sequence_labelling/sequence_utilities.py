@@ -36,6 +36,9 @@ from vision_training.trainers.checkpointing import get_checkpoint_path
 # Pattern of the first line of an evaluation block of Results.txt, "Iteration 1000 · 200 Test Sequences, ..."
 RESULTS_BLOCK_HEADER_PATTERN = re.compile(pattern=r"^Iteration (\d+) · ")
 
+# Mark of the header of the evaluation block of the moving average of the weights, "Iteration 2000 · ... · EMA Weights"
+AVERAGED_WEIGHTS_HEADER = "· EMA Weights ·"
+
 # Metric of a headline line of an evaluation block: its name, then its value after at least two spaces, followed by the
 # percent sign of the reports when the value is a rate written as a percentage ("94.03 %", the reports written since
 # the percentages; "0.9403" before them and for the tasks keeping their decimals)
@@ -158,14 +161,18 @@ def count_model_parameters(model: TaskModel) -> Dict[str, int]:
             for component_name, component in model.get_size_components().items()}
 
 
-def read_results_block(results_path: Path, iteration: int) -> List[str]:
+def read_results_block(results_path: Path, iteration: int, averaged_weights: Optional[bool] = None) -> List[str]:
     """
     Reads the evaluation block of one iteration from the Results.txt of a run, from its header line to the line
-    before the next block, its trailing blank lines removed, the text the report scenes list.
+    before the next block, its trailing blank lines removed, the text the report scenes list. A run keeping a moving
+    average of its weights writes two blocks per iteration, the second one with "EMA Weights" in its header, and
+    averaged_weights chooses one of them.
 
     Args:
         results_path (Path): The Results.txt file of the run.
         iteration (int): The evaluated iteration.
+        averaged_weights (Optional[bool]): True for the block of the moving average of the weights, False for that of
+            the trained weights, None for every block of the iteration (the runs without moving average).
 
     Returns:
         List[str]: The lines of the block.
@@ -177,7 +184,9 @@ def read_results_block(results_path: Path, iteration: int) -> List[str]:
     for line in results_path.read_text(encoding="utf-8").splitlines():
         header_match = RESULTS_BLOCK_HEADER_PATTERN.match(string=line)
         if header_match is not None:
-            inside_block = int(header_match.group(1)) == iteration
+            # The block of the iteration, of the asked weights when the run writes one block per weights
+            inside_block = int(header_match.group(1)) == iteration and \
+                (averaged_weights is None or (AVERAGED_WEIGHTS_HEADER in line) == averaged_weights)
         if inside_block:
             block_lines.append(line.rstrip())
     while block_lines and not block_lines[-1].strip():
@@ -412,5 +421,39 @@ def read_complete_reused_facts(facts_path: Path, required_paths: List[Path], req
     missing_names = [fact_name for fact_name in required_fact_names if fact_name not in reused_facts]
     if missing_names:
         print(f"Making the figures of {facts_path.parent} again: {facts_path.name} lacks the facts {missing_names}")
+        return None
+    return reused_facts
+
+
+def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, fact_prefix: str, force: bool,
+                          required_fact_names: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Reuses the facts of the expensive figures of a run (its predictions file, its model rebuilt on the CPU) like
+    read_complete_reused_facts, but only when the previous build read the same run and the same files, the facts
+    holding <prefix>.run_name and <prefix>.source, so that a cache made from another run of tutorial_sources.yaml (a
+    run trained again under another name) or from another evaluation of it is made again instead of showing the
+    figures of the old one.
+
+    Args:
+        facts_path (Path): The JSON file written next to the figures by write_reused_facts.
+        run_folder (Path): The folder of the run the figures are made from.
+        source_name (str): The files the figures read within the run, e.g.
+            "Checkpoint_Evaluation/Iteration_2000/EMA" or "Weights/Iteration_2000".
+        fact_prefix (str): The prefix of the facts, e.g. "predictions".
+        force (bool): Whether the figures are made again whatever is on disk.
+        required_fact_names (Optional[List[str]]): Other facts the reused file must hold, None for none.
+
+    Returns:
+        Optional[Dict[str, Any]]: The reused facts, or None when the figures must be made again.
+    """
+    run_fact_names = [f"{fact_prefix}.run_name", f"{fact_prefix}.source"]
+    reused_facts = read_complete_reused_facts(facts_path=facts_path, required_paths=[],
+                                              required_fact_names=run_fact_names + (required_fact_names or []),
+                                              force=force)
+    if reused_facts is None:
+        return None
+    if [reused_facts[fact_name] for fact_name in run_fact_names] != [run_folder.name, source_name]:
+        print(f"Making the figures of {facts_path.parent} again: {facts_path.name} was made from "
+              f"{reused_facts[run_fact_names[0]]}/{reused_facts[run_fact_names[1]]}")
         return None
     return reused_facts

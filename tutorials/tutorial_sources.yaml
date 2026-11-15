@@ -69,8 +69,8 @@ runs:
         trained_with: "the synthetic configuration with Data.image_settings.size 512 and run_name_suffix verification, 500 iterations"
         console_log: readme_screenshots/sequence_classification_flatten_512.log
   sequence_labelling:
-    folder: readme_screenshots/M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71
-    trained_with: "vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml with experiment_folder experiments/readme_screenshots, test_data_folder synthetic_changing_shapes/test_10000, number_iterations 2000 and MLflow tracking on, trained on 2026-10-23 when the augmentation types had a probability of 0.3 (random_translation and random_hue 0.5, random_solarize 0.2) and shuffle_frames 0.5"
+    folder: tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71
+    trained_with: "tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml (the training_configuration.yaml of run_49 of the sequence labelling benchmark: balanced class weights, bidirectional LSTM 2x96, flatten pooling, head [96, 96] with layer normalization, batch 64 at 256 pixels, test_10000; backbone loaded from the averaged weights at iteration 10000 of the multi-label shape classifier of the experiment plan, trained with classification/configuration_synthetic_counted_shapes.yaml, test macro F1 0.718, kept as the shape pretrainer ~/Data/tutorial_runs/pretrained/SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32, fine-tuned at learning_rate_multiplier 1.0) with experiment_folder ~/Data/tutorial_runs/tutorials, number_iterations 2000, weight_saving_iterations 500 and intermediate_weight_saving_iterations 250, trained on 2026-11-15; checkpoint 2000 evaluated again on 2026-11-15 with the per-class report and the predictions file by scripts/evaluation/evaluate_checkpoint.py (Checkpoint_Evaluation)"
   # The synthetic comparison configuration, read by tutorials/figures/sequence_comparison
   sequence_comparison:
     folder: readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2
@@ -89,6 +89,8 @@ repository_files:
   benchmark_plan: documentation/architecture_benchmarking/experiment_plan.md
   # Results of the detection benchmark, whose stage 7 curves the proposal selection scenes draw
   object_detection_benchmark_results: documentation/architecture_benchmarking/object_detection_results.csv
+  # Results of the sequence labelling benchmark, whose pretrained launches the evaluation chapter compares with the run
+  sequence_labelling_benchmark_results: documentation/architecture_benchmarking/sequence_labelling_results.csv
   # Configuration whose learning rate schedule (warm-up, then cosine decay) the optimization figure draws
   learning_rate_schedule_configuration: vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml
   # Configuration whose data augmentation (activated types and probabilities) the data pipeline chapter shows and draws

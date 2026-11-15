@@ -1,40 +1,44 @@
-# Sequence labelling, chapter 3: the evaluation of the README run read file by file (Results.txt, predictions.csv, the
-# sample images, class_thresholds.json), which shows a degenerate solution predicting no_change on every frame; the
-# segment metrics on the example of documentation/reference/tasks_reference.md and on the run; how to recognize such a
-# run; the experiment plan on the same data and the settings it kept, shown in configuration_example.yaml; the
-# pitfalls and the export. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its
-# top left corner); the figures named figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling,
-# the sample image is read from the run folder.
+# Sequence labelling, chapter 3: the evaluation of the run of the series (pre-trained backbone, balanced class weights,
+# averaged weights), evaluated again by scripts/evaluation/evaluate_checkpoint.py with the per-class report, read file
+# by file (Results.txt and its Per Class Recall table, a sample image, predictions.csv, class_thresholds.json); every
+# metric against its value for a model predicting no_change on every frame (a degenerate solution); the run against
+# the benchmark launches trained from scratch (documentation/architecture_benchmarking/sequence_labelling_results.csv);
+# the segment metrics on the example of documentation/reference/tasks_reference.md and on the run; the settings the
+# experiment plan kept, shown in configuration_example.yaml; the pitfalls and the export. Coordinates of the html
+# scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures named
+# figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling.
 series: sequence_labelling
 series_title: "Sequence Labelling (M2M)"
 chapter: 3
-title: "Reading an evaluation: a degenerate solution"
+title: "Reading an evaluation"
 output_name: sequence_labelling_03_reading_an_evaluation
 pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [sequence_labelling]
 references:
   - "vision_training/trainers/sequence_labelling_trainer.py · SequenceLabellingTrainer.compute_segment_results"
+  - "scripts/evaluation/evaluate_checkpoint.py"
+  - "vision_training/evaluation/recall_intervals.py"
   - "vision_training/evaluation/classification/score_curves.py · compute_class_score_curves"
   - "vision_training/evaluation/classification/threshold_finder.py · find_class_thresholds"
   - "vision_training/evaluation/sequence/sequence_metrics.py · compute_sequence_exact_matches"
   - "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
+  - "documentation/architecture_benchmarking/sequence_labelling_results.csv"
   - "vision_training/deployment/input_contract.py · build_input_contract"
   - "documentation/bug_standards.md"
-  - "documentation/suggestions.md"
 scenes:
   - kind: title_card
     heading: "Reading an evaluation"
-    subheading: "A run that looks half right and learned nothing"
+    subheading: "The report, the predictions and the trivial value of every metric"
     footnote: "Sequence Labelling (M2M) · the third chapter"
     narration:
-      - "This chapter reads the evaluation of the README run, which looks acceptable at first sight and is a degenerate solution."
-      - "It shows how to recognize one from the evaluation files, what the segment metrics add, how the settings kept by the experiment plan avoid it, and the pitfalls and export of the task."
+      - "This chapter reads the evaluation of the run of this series, a pre-trained backbone fine-tuned with balanced class weights, file by file."
+      - "It compares every metric with the value of a model predicting no change on every frame, sets the run against the benchmark launches trained from scratch, then covers the segment metrics, the pitfalls and the export of the task."
 
   - kind: html
     page: diagram
     title: "The report of the last checkpoint"
-    code_reference: "vision_training/trainers/sequence_labelling_trainer.py · SequenceLabellingTrainer.compute_extra_headline_metrics"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py · point_to_checkpoint_evaluation"
     elements:
       - type: listing
         box: [24, 40, 1736, 720]
@@ -42,18 +46,54 @@ scenes:
         source: {file: "figures:sequence_labelling/listings/results_block.txt"}
         highlights:
           - {match: "^Iteration", sentences: [0]}
-          - {match: "^  Accuracy", sentences: [1, 2]}
-          - {match: "^  Macro F1", sentences: [3]}
-          - {match: "appearing_square|appearing_circle|^   no_change", sentences: [4]}
-    # The top-2 accuracy is the name of a metric of the report of this run
-    literal_numbers: [top-2]
+          - {match: "^  Accuracy", sentences: [1]}
+          - {match: "^  Macro F1", sentences: [2]}
+          - {match: "{{sequence_labelling.evaluation.results_listing_pattern}}", sentences: [3]}
+          - {match: "^   no_change ", sentences: [4]}
     narration:
-      - "Every evaluation appends its block to the results file: here iteration {{sequence_labelling.evaluation.iteration}}, {{sequence_labelling.evaluation.test_sequences:,}} test sequences of the test {{sequence_labelling.evaluation.test_sequences:words}} subset, {{sequence_labelling.predictions.frame_count:,}} labeled frames."
-      - "The accuracy is {{sequence_labelling.evaluation.accuracy:percent}}, which reads like a model right about half of the time."
-      - "The balanced accuracy, on the same line, is {{sequence_labelling.evaluation.balanced_accuracy:percent}}: one over {{sequence_labelling.dataset.class_count}}, a single class ever right."
-      - "The macro F1 is {{sequence_labelling.evaluation.macro_f1:percent}}, and the top-2 accuracy {{sequence_labelling.evaluation.top_2_accuracy:percent}}, barely above the accuracy."
-      - "The per-class rows confirm it: no change has a recall of {{sequence_labelling.evaluation.no_change_recall:percent}}, a precision of {{sequence_labelling.evaluation.no_change_precision:percent}}, and every change class a recall of {{sequence_labelling.evaluation.change_class_maximum_recall:percent}}."
-      - "Evaluations newer than this run write the rates as percentages, a top-{{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES}} accuracy instead, and a Per Class Recall table: the frame recall of every class with a {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} Korn-Graubard interval over the test sequences."
+      - "The training of this run wrote no per-class table, so the evaluation script evaluated its last checkpoint again with it: iteration {{sequence_labelling.evaluation.iteration}}, the moving average of the weights, on the {{sequence_labelling.evaluation.test_sequences:,}} sequences of the test {{sequence_labelling.subset.sequence_count:words}} subset, {{sequence_labelling.predictions.frame_count:,}} labeled frames."
+      - "The accuracy counts the frames right, {{sequence_labelling.evaluation.accuracy:percent}}; the balanced accuracy averages the recall of the {{sequence_labelling.dataset.class_count}} classes, every change counting as much as no change, {{sequence_labelling.evaluation.balanced_accuracy:percent}}."
+      - "The macro F1 is {{sequence_labelling.evaluation.macro_f1:percent}}, and the true class is among the {{sequence_labelling.evaluation.top_k:words}} most probable ones on {{sequence_labelling.evaluation.top_k_accuracy:percent}} of the frames."
+      - "The per-class table lists the worst F1 first, starting with classes found on almost none of their frames."
+      - "No change ends the excerpt, with a precision of {{sequence_labelling.evaluation.no_change_precision:percent}} but a recall of {{sequence_labelling.evaluation.no_change_recall:percent}}: the next scenes find the frames it loses."
+
+  - kind: html
+    page: diagram
+    title: "The recall of every class"
+    code_reference: "vision_training/evaluation/recall_intervals.py · compute_bootstrap_recall_intervals"
+    elements:
+      - type: listing
+        box: [24, 40, 1736, 720]
+        font: diagram_monospace_small
+        source: {file: "figures:sequence_labelling/listings/recall_table.txt"}
+        highlights:
+          - {match: "^  Per Class Recall", sentences: [0]}
+          - {match: "{{sequence_labelling.evaluation.recall_listing_best_pattern}}", sentences: [1]}
+          - {match: "{{sequence_labelling.evaluation.recall_listing_worst_pattern}}", sentences: [2]}
+          - {match: "^   no_change ", sentences: [3]}
+          - {match: "Korn-Graubard|size of the variance|holding the class", sentences: [4]}
+    narration:
+      - "The Per Class Recall table gives the share of the frames of every class found, worst first; their mean, {{sequence_labelling.evaluation.mean_class_recall:percent}}, is the balanced accuracy."
+      - "The median change class is found on {{sequence_labelling.evaluation.change_class_median_recall:percent}} of its frames, the best on {{sequence_labelling.evaluation.change_class_maximum_recall:percent}}."
+      - "But {{sequence_labelling.evaluation.change_classes_below_threshold:words}} change classes stay under {{sequence_labelling.evaluation.low_recall_threshold:percent_label}}, the lowest at {{sequence_labelling.evaluation.change_class_minimum_recall:percent}}: shapes the experiment plan reports as not learned by the classifier the backbone comes from."
+      - "No change is found on {{sequence_labelling.evaluation.no_change_recall:percent}} of its frames, between {{sequence_labelling.evaluation.no_change_recall_lower:percent}} and {{sequence_labelling.evaluation.no_change_recall_upper:percent}} with a confidence of {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}}."
+      - "The frames of one sequence are not independent, so the interval is a Korn-Graubard interval at the effective sample size given by a bootstrap of the test sequences, wider than one counting every frame apart."
+
+  - kind: image
+    title: "A sample image of the evaluation"
+    code_reference: "vision_training/trainers/sequence_labelling_trainer.py · SequenceLabellingTrainer.build_sample_image"
+    image: "figures:sequence_labelling/evaluation/sample_sequence.png"
+    views:
+      - {box: "{{sequence_labelling.sample.first_row_box}}", from_sentence: 1}
+      - {box: "{{sequence_labelling.sample.image_box}}", from_sentence: 2}
+    highlights:
+      - {box: "{{sequence_labelling.sample.header_box}}", sentences: [0]}
+      - {box: "{{sequence_labelling.sample.caption_boxes[0]}}", sentences: [1]}
+      - {box: "{{sequence_labelling.sample.caption_boxes[1]}}", sentences: [1]}
+    narration:
+      - "The {{sequence_labelling.sample.sample_count:words}} sample images follow the same test sequences at every evaluation: every frame captioned true over predicted, an X before the wrong ones, and the count of right frames in the bar above."
+      - "In {{sequence_labelling.sample.name}}, {{sequence_labelling.sample.right_frames:words}} of the {{sequence_labelling.sample.frame_count:words}} frames are right, {{sequence_labelling.sample.right_change_frames:words}} of its {{sequence_labelling.sample.change_frames:words}} changes among them."
+      - "The image is drawn from the predictions of the run, so a sample can be checked against the predictions file frame by frame."
 
   - kind: image
     title: "What the predictions file shows"
@@ -64,60 +104,82 @@ scenes:
       - {box: "{{sequence_labelling.predictions.position_panel_box}}", sentences: [3]}
     narration:
       - "The predictions file holds one row per labeled frame, its true and predicted classes and the probability of every class."
-      - "On the {{sequence_labelling.predictions.first_frame_count:,}} first frames, the probability of no change is {{sequence_labelling.predictions.first_mean:.2%}}: the model knows that a sequence opens with no change."
-      - "On the {{sequence_labelling.predictions.later_frame_count:,}} later frames, it stays between {{sequence_labelling.predictions.later_minimum:.2f}} and {{sequence_labelling.predictions.later_maximum:.2f}}, around {{sequence_labelling.predictions.later_mean:.2f}}, which is the share of no change among them."
-      - "By frame position, it follows the share of no change at that position, whatever the frame shows."
-      - "So its argmax is no change on every one of the {{sequence_labelling.predictions.frame_count:,}} frames."
-
-  - kind: image
-    title: "A sample image of the evaluation"
-    code_reference: "vision_training/trainers/sequence_labelling_trainer.py · SequenceLabellingTrainer.build_sample_image"
-    image: "runs:readme_screenshots/M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/Evaluation/Iteration_2000/Samples/test_000001.png"
-    views:
-      - {box: [0, 0, 1550, 545], from_sentence: 1}
-      - {box: [0, 0, 2068, 1060], from_sentence: 2}
-    highlights:
-      - {box: [0, 0, 250, 22], sentences: [0]}
-      - {box: [2, 26, 206, 50], sentences: [1]}
-      - {box: [516, 26, 722, 50], sentences: [1]}
-      - {box: [1033, 26, 1238, 50], sentences: [1]}
-      - {box: [1550, 26, 1946, 50], sentences: [2]}
-      - {box: [2, 541, 298, 568], sentences: [2]}
-    narration:
-      - "The sample images show the same thing: every frame captioned true over predicted, an X before the wrong ones, and the count of right frames in the bar above."
-      - "In the README sample, the first {{sequence_labelling.sample.no_change_frames:words}} frames are right only because they are no change."
-      - "Both changes, disappearing hollow heptagon and disappearing kite, are predicted no change: a sample whose right frames are all no change is the visual sign of this failure."
+      - "On the later frames, the probability of no change follows what the frame shows: {{sequence_labelling.predictions.later_no_change_frames_mean:.2f}} on average on the frames without change, {{sequence_labelling.predictions.later_change_frames_mean:.2f}} on the changes."
+      - "On the {{sequence_labelling.predictions.first_frame_count:,}} first frames, always no change, it averages only {{sequence_labelling.predictions.first_mean:.2f}}, and {{sequence_labelling.predictions.first_frame_accuracy:percent}} of them are right, against {{sequence_labelling.predictions.later_frame_accuracy:percent}} of the later frames."
+      - "With balanced weights a no change frame weighs {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} in the loss, so the model barely learned that a sequence opens with no change, while on the later frames no change is found on {{sequence_labelling.predictions.later_no_change_recall:percent}} of its frames."
+      - "Should you deploy such a model, give the first frame no change, or read no change through its threshold, as the next scene shows."
 
   - kind: html
     page: diagram
-    title: "Scores that rank by position"
-    code_reference: "vision_training/evaluation/classification/score_curves.py · compute_class_score_curves"
-    # The ROC AUC of a ranking by chance, a property of the metric, written as a percentage like the rates of the report
-    literal_numbers: ["50"]
+    title: "Scores and thresholds"
+    code_reference: "vision_training/evaluation/classification/threshold_finder.py · find_class_thresholds"
     elements:
       - {type: text, position: [40, 40], text: "Macro ROC AUC of the predictions file", font: diagram_bold}
       - type: bars
         box: [40, 100, 1000, 260]
         orientation: horizontal
         label_width: 330
-        value_width: 110
+        value_width: 130
         maximum: 1.0
         values: ["{{sequence_labelling.predictions.macro_roc_auc_all_frames}}", "{{sequence_labelling.predictions.macro_roc_auc_later_frames}}"]
         labels: ["all frames (report)", "later frames only"]
         value_labels: ["{{sequence_labelling.predictions.macro_roc_auc_all_frames:percent}}", "{{sequence_labelling.predictions.macro_roc_auc_later_frames:percent}}"]
         colours: [blue, aqua]
         highlight: [1]
-      - {type: box, box: [628, 92, 632, 270], fill: dim, outline: dim, radius: 0, width: 1}
-      - {type: text, position: [630, 300], text: "chance: 50 %", font: diagram_small, colour: dim, anchor: ma}
-      - {type: text, position: [40, 400], text: "class_thresholds.json, target precision {{sequence_labelling.thresholds.target_precision:percent_label}}", font: diagram_bold, appear: 2}
-      - {type: box, box: [40, 450, 1000, 570], text: "no_change: from p ≥ {{sequence_labelling.thresholds.no_change_threshold:.4f}}, recall {{sequence_labelling.thresholds.no_change_recall:percent}}\nabout the share of first frames among the no_change frames", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
-      - {type: box, box: [40, 600, 1000, 700], text: "{{sequence_labelling.thresholds.null_classes}} change classes: null, the precision {{sequence_labelling.thresholds.target_precision:percent_label}} never reached", font: diagram_small, outline: red, appear: 3, highlight: [3]}
-      - {type: box, box: [1080, 100, 1720, 420], text: "A change class is never\nthe first frame, and the model\ngives it almost nothing there:\nits ROC AUC over all the frames\nrewards the position alone", font: diagram_small, outline: aqua, appear: 1}
+      - {type: box, box: [1080, 100, 1720, 300], text: "A change class is never the first frame:\na model ranking by position alone\nwould only rank above chance\nthanks to the first frames", font: diagram_small, outline: aqua, appear: 1}
+      - {type: text, position: [40, 380], text: "class_thresholds.json, target precision {{sequence_labelling.thresholds.target_precision:percent_label}}", font: diagram_bold, appear: 2}
+      - {type: box, box: [40, 430, 840, 560], text: "{{sequence_labelling.thresholds.reached_classes}} classes reach it\n{{sequence_labelling.thresholds.null_classes}} get a null threshold", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [900, 430, 1720, 560], text: "no_change from p ≥ {{sequence_labelling.thresholds.no_change_threshold:.4f}}\nrecall {{sequence_labelling.thresholds.no_change_recall:percent}}", font: diagram_small, outline: blue, appear: 3, highlight: [3]}
     narration:
-      - "The macro ROC AUC of the report, {{sequence_labelling.evaluation.macro_roc_auc:percent}}, looks like a weak signal."
-      - "Computed again from the predictions file on the later frames only, it falls to {{sequence_labelling.predictions.macro_roc_auc_later_frames:percent}}, chance: a change class ranks above chance only because the model gives it almost nothing on the first frames, which are never a change."
-      - "The thresholds file tells the same story: no change reaches a precision of {{sequence_labelling.thresholds.target_precision:percent_label}} from a probability of {{sequence_labelling.thresholds.no_change_threshold:.2f}}, with a recall of {{sequence_labelling.thresholds.no_change_recall:percent}}, about the share of first frames among the no change frames."
-      - "And the {{sequence_labelling.thresholds.null_classes}} change classes get a null threshold, their precision never reaching {{sequence_labelling.thresholds.target_precision:percent_label}}."
+      - "The macro ROC AUC ranks the frames by the probability of each class: {{sequence_labelling.predictions.macro_roc_auc_all_frames:percent}} over all the frames, and {{sequence_labelling.predictions.macro_roc_auc_later_frames:percent}} on the later frames only."
+      - "Since a change class is never the first frame, a model ranking by position alone would only look good over all the frames; on the later frames, this one keeps its score."
+      - "The thresholds file gives every class the lowest probability reaching a precision of {{sequence_labelling.thresholds.target_precision:percent_label}}: {{sequence_labelling.thresholds.reached_classes}} classes reach it, and {{sequence_labelling.thresholds.null_classes}} never do."
+      - "No change reaches it from a probability of {{sequence_labelling.thresholds.no_change_threshold:.2f}}, with a recall of {{sequence_labelling.thresholds.no_change_recall:percent}}: the threshold makes up for the probabilities the weights shrank."
+
+  - kind: html
+    page: diagram
+    title: "The trivial value of every metric"
+    # The balanced accuracy of a model right on one class only, one over the number of classes
+    literal_numbers: ["1"]
+    elements:
+      # Header and one row per metric: its name, its value for a model predicting no_change on every frame, the run
+      - {type: text, position: [270, 40], text: "Metric", font: diagram_bold, anchor: mm}
+      - {type: text, position: [930, 40], text: "no_change on every frame", font: diagram_bold, anchor: mm}
+      - {type: text, position: [1500, 40], text: "this run", font: diagram_bold, anchor: mm}
+      - {type: box, box: [40, 80, 500, 170], text: "Accuracy", font: diagram_text, outline: blue, highlight: [0]}
+      - {type: box, box: [530, 80, 1330, 170], text: "{{sequence_labelling.trivial.accuracy:percent}}\nshare of no_change", font: diagram_small, outline: border, highlight: [0]}
+      - {type: box, box: [1360, 80, 1720, 170], text: "{{sequence_labelling.evaluation.accuracy:percent}}", font: diagram_bold, outline: blue, highlight: [2]}
+      - {type: box, box: [40, 188, 500, 278], text: "Balanced accuracy", font: diagram_text, outline: aqua, highlight: [0]}
+      - {type: box, box: [530, 188, 1330, 278], text: "{{sequence_labelling.trivial.balanced_accuracy:percent}}\n1 / {{sequence_labelling.trivial.class_count}}", font: diagram_small, outline: border, highlight: [0]}
+      - {type: box, box: [1360, 188, 1720, 278], text: "{{sequence_labelling.evaluation.balanced_accuracy:percent}}", font: diagram_bold, outline: aqua, highlight: [2]}
+      - {type: box, box: [40, 296, 500, 386], text: "Macro F1", font: diagram_text, outline: violet, highlight: [0]}
+      - {type: box, box: [530, 296, 1330, 386], text: "{{sequence_labelling.trivial.macro_f1:percent}}", font: diagram_small, outline: border, highlight: [0]}
+      - {type: box, box: [1360, 296, 1720, 386], text: "{{sequence_labelling.evaluation.macro_f1:percent}}", font: diagram_bold, outline: violet, highlight: [2]}
+      - {type: box, box: [40, 404, 500, 494], text: "Predicted segments", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [530, 404, 1330, 494], text: "{{sequence_labelling.trivial.predicted_segments:,}}\none per sequence", font: diagram_small, outline: border, appear: 1, highlight: [1]}
+      - {type: box, box: [1360, 404, 1720, 494], text: "{{sequence_labelling.evaluation.predicted_segments:,}}", font: diagram_bold, outline: yellow, appear: 1, highlight: [2]}
+      - {type: box, box: [40, 512, 500, 602], text: "Sequence exact match", font: diagram_text, outline: magenta, appear: 1, highlight: [1]}
+      - {type: box, box: [530, 512, 1330, 602], text: "{{sequence_labelling.trivial.sequence_exact_match:percent}}\n{{sequence_labelling.evaluation.sequences_without_change}} sequences without change", font: diagram_small, outline: border, appear: 1, highlight: [1]}
+      - {type: box, box: [1360, 512, 1720, 602], text: "{{sequence_labelling.evaluation.sequence_exact_match:percent}}", font: diagram_bold, outline: magenta, appear: 1, highlight: [2]}
+      - {type: text, position: [880, 660], text: "Read first: balanced accuracy, macro F1, segment metrics", font: diagram_bold, colour: accent, anchor: mm, appear: 3}
+    narration:
+      - "A model predicting no change on every frame would reach an accuracy of {{sequence_labelling.trivial.accuracy:percent}}, the share of no change, a balanced accuracy of one over {{sequence_labelling.trivial.class_count}}, and a macro F1 of {{sequence_labelling.trivial.macro_f1:percent}}."
+      - "For a sequence task, add one predicted segment per sequence, and an exact match on the {{sequence_labelling.evaluation.sequences_without_change}} sequences without any change."
+      - "A run sitting on these values is a degenerate solution, however fair its accuracy looks; this one is far above every one of them."
+      - "Faced with a run of your own, compute these values for your data first, and read the balanced accuracy, the macro F1 and the segment metrics before the accuracy."
+
+  - kind: image
+    title: "The run against the benchmark"
+    code_reference: "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
+    image: "figures:sequence_labelling/evaluation/benchmark_curves.png"
+    highlights:
+      - {box: "{{sequence_labelling.plan.panel_box}}", sentences: [3]}
+    narration:
+      - "The sequence labeling benchmark trained its experiment plan on the same changing shapes, {{sequence_labelling.plan.pretrained_launch_count:words}} launches per setting, and the figure reads its results file."
+      - "From scratch and without class weights, one launch never went above {{sequence_labelling.plan.collapsed_launch_maximum:percent}}, the macro F1 of predicting no change everywhere: the degenerate solution of the previous scene, caught by the same metric."
+      - "From scratch with balanced weights, the launches averaged {{sequence_labelling.plan.scratch_balanced_at_run_iterations:percent}} at iteration {{sequence_labelling.plan.run_iterations:,}} and {{sequence_labelling.plan.scratch_balanced_last:percent}} at iteration {{sequence_labelling.plan.scratch_balanced_last_iteration:,}}."
+      - "With the pre-trained backbone and the settings of this run, they averaged {{sequence_labelling.plan.pretrained_at_run_iterations:percent}} at iteration {{sequence_labelling.plan.run_iterations:,}}, and this run, the star, {{sequence_labelling.evaluation.macro_f1:percent}}."
+      - "They kept rising, to {{sequence_labelling.plan.pretrained_last:percent}} on average at iteration {{sequence_labelling.plan.pretrained_last_iteration:,}}: a longer training is the next lever of this run."
 
   - kind: html
     page: diagram
@@ -162,39 +224,14 @@ scenes:
       - {type: box, box: [40, 280, 560, 400], text: "frames right\n{{sequence_labelling.segments.readme_frame_accuracy:percent}}", font: diagram_text, outline: blue, appear: 1}
       - {type: box, box: [620, 280, 1140, 400], text: "edit score {{sequence_labelling.segments.readme_edit_score:percent}}\nA B against A B A B A B", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
       - {type: box, box: [1200, 280, 1720, 400], text: "segment F1 {{sequence_labelling.segments.readme_f1_at_10:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[0]:.0%}}\n{{sequence_labelling.segments.readme_f1_at_50:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[2]:.0%}}", font: diagram_text, outline: violet, appear: 3, highlight: [3]}
-      # The README run: one predicted segment per sequence
-      - {type: box, box: [40, 470, 1720, 700], text: "README run: {{sequence_labelling.evaluation.true_segments:,}} true segments, {{sequence_labelling.evaluation.predicted_segments:,}} predicted in {{sequence_labelling.evaluation.test_sequences:,}} sequences\nedit score {{sequence_labelling.evaluation.edit_score:percent}} · segment F1 {{sequence_labelling.evaluation.segment_f1_10:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[0]:.0%}}, {{sequence_labelling.evaluation.segment_f1_50:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[2]:.0%}}", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
+      # The run of the series
+      - {type: box, box: [40, 470, 1720, 700], text: "this run: {{sequence_labelling.evaluation.true_segments:,}} true segments, {{sequence_labelling.evaluation.predicted_segments:,}} predicted in {{sequence_labelling.evaluation.test_sequences:,}} sequences\nedit score {{sequence_labelling.evaluation.edit_score:percent}} · segment F1 {{sequence_labelling.evaluation.segment_f1_10:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[0]:.0%}}, {{sequence_labelling.evaluation.segment_f1_50:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[2]:.0%}}", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
     narration:
       - "The frame metrics do not see fragmentation, so the segment metrics score the events: a segment is a run of consecutive frames of one class, an unlabeled frame ending it."
       - "In the example of the tasks reference, the prediction gets {{sequence_labelling.segments.readme_frame_accuracy:percent}} of its frames right, but cuts the {{sequence_labelling.segments.readme_true_segments:words}} true segments into {{sequence_labelling.segments.readme_predicted_segments:words}}."
       - "The edit score, one minus the edit distance between the orders of the segment classes over the larger number of segments, is {{sequence_labelling.segments.readme_edit_score:percent}}."
       - "A predicted segment is right when it overlaps the true segment of its class by enough intersection over union, each true segment matched once: the segment F1 is {{sequence_labelling.segments.readme_f1_at_10:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[0]:.0%}}, and {{sequence_labelling.segments.readme_f1_at_50:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[2]:.0%}}."
-      - "On the README run, one predicted segment per sequence faces {{sequence_labelling.evaluation.true_segments:,}} true ones: an edit score of {{sequence_labelling.evaluation.edit_score:percent}}, and a segment F1 of {{sequence_labelling.evaluation.segment_f1_10:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[0]:.0%}} and {{sequence_labelling.evaluation.segment_f1_50:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[2]:.0%}}."
-
-  - kind: html
-    page: diagram
-    title: "Recognizing a degenerate solution"
-    # The balanced accuracy of a model right on one class only, one over the number of classes
-    literal_numbers: ["1"]
-    elements:
-      - {type: text, position: [40, 40], text: "The report", font: diagram_bold}
-      - {type: text, position: [900, 40], text: "equals", font: diagram_bold}
-      - {type: box, box: [40, 100, 820, 190], text: "Accuracy {{sequence_labelling.evaluation.accuracy:percent}}", font: diagram_text, outline: blue, highlight: [0]}
-      - {type: box, box: [900, 100, 1720, 190], text: "share of no_change test frames {{sequence_labelling.segments.no_change_test_frames:,}} / {{sequence_labelling.segments.test_frames:,}}", font: diagram_small, outline: blue, highlight: [0]}
-      - {type: box, box: [40, 210, 820, 300], text: "Balanced accuracy {{sequence_labelling.evaluation.balanced_accuracy:percent}}", font: diagram_text, outline: aqua, highlight: [0]}
-      - {type: box, box: [900, 210, 1720, 300], text: "1 / {{sequence_labelling.dataset.class_count}}: a single class right", font: diagram_small, outline: aqua, highlight: [0]}
-      - {type: box, box: [40, 320, 820, 410], text: "Training loss {{sequence_labelling.training.train_total_loss.late_mean:.2f}} after iteration {{sequence_labelling.training.late_mean_start_iteration}}", font: diagram_text, outline: violet, highlight: [0]}
-      - {type: box, box: [900, 320, 1720, 410], text: "position prior {{sequence_labelling.dataset.prior_cross_entropy:.2f}}", font: diagram_small, outline: violet, highlight: [0]}
-      - {type: box, box: [40, 430, 820, 520], text: "Predicted segments {{sequence_labelling.evaluation.predicted_segments:,}}", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
-      - {type: box, box: [900, 430, 1720, 520], text: "test sequences {{sequence_labelling.evaluation.test_sequences:,}}", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
-      - {type: box, box: [40, 540, 820, 630], text: "Sequence exact match {{sequence_labelling.evaluation.sequence_exact_match:percent}}", font: diagram_text, outline: magenta, appear: 1, highlight: [1]}
-      - {type: box, box: [900, 540, 1720, 630], text: "{{sequence_labelling.evaluation.sequences_without_change}} test sequences without any change", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
-      - {type: text, position: [880, 690], text: "Read first: balanced accuracy, macro F1, segment metrics", font: diagram_bold, colour: accent, anchor: mm, appear: 2}
-    narration:
-      - "Put together, a degenerate solution has its accuracy equal to the share of the majority class, its balanced accuracy at one over the number of classes, and its loss on the cross entropy of a prior."
-      - "For a sequence task, add one predicted segment per sequence, and an exact match equal to the share of the sequences without any change, {{sequence_labelling.evaluation.sequences_without_change}} of the {{sequence_labelling.evaluation.test_sequences:,}}."
-      - "Faced with a run of your own, read the balanced accuracy, the macro F1 and the segment metrics first, and compute the prior of your data before trusting a loss curve."
-      - "The suggestions file lists this run as left to redo, and the experiment plan shows what it lacked."
+      - "The run of this series predicts {{sequence_labelling.evaluation.predicted_segments:,}} segments against {{sequence_labelling.evaluation.true_segments:,}} true ones: an edit score of {{sequence_labelling.evaluation.edit_score:percent}}, and a segment F1 of {{sequence_labelling.evaluation.segment_f1_10:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[0]:.0%}} and {{sequence_labelling.evaluation.segment_f1_50:percent}} at {{constant:vision_training/evaluation/sequence/segment_metrics.py#SEGMENT_OVERLAP_THRESHOLDS[2]:.0%}}."
 
   # The benchmark was trained once and is not trained again: the plan holds its scores, and the configuration example
   # the settings it kept, so the scene reads no run folder and the narration quotes no score
@@ -219,11 +256,11 @@ scenes:
     # The learning rate is read with all its decimals, the value a launch copies
     exact_facts: ["config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ExperimentConfiguration.learning_rate"]
     narration:
-      - "The sequence labeling benchmark trained its experiment plan once, on the same changing shapes, one setting at a time, every score recorded in the plan."
+      - "The configuration example of the task holds the settings the experiment plan kept, one setting at a time, every score recorded in the plan: the settings of the run of this series."
       - "Its launches were compared on the test macro F1, which weighs every change as much as the frequent no change frames."
-      - "Without class weights, as in the README run, one launch stayed at the score of a model predicting no change on every frame: the same failure, caught by the same metric."
-      - "Suppose you start on sequences of your own: the configuration example holds what the plan kept, {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.class_weighting}} class weights, a learning rate of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ExperimentConfiguration.learning_rate}}, a bidirectional LSTM of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#TemporalModel.number_layers:words}} layers and {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.global_pooling}} pooling."
-      - "The {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#TemporalModel.number_layers:words}} layers and the {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.global_pooling}} pooling were kept with a pre-trained backbone: point the experiment folder of the backbone of the example at such a run to train them the same way."
+      - "Its class weighting stage kept balanced weights, the launches without them barely leaving the score of predicting no change."
+      - "Suppose you start on sequences of your own: take its {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.class_weighting}} class weights, a learning rate of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ExperimentConfiguration.learning_rate}}, a bidirectional LSTM of {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#TemporalModel.number_layers:words}} layers and {{config:vision_training/configurations/sequence_labelling/configuration_example.yaml#ClassificationHead.global_pooling}} pooling."
+      - "And point the experiment folder of its backbone at a classifier trained on images like your frames, as this run does with a multi-label classifier of the shapes."
 
   - kind: html
     page: diagram
@@ -259,16 +296,14 @@ scenes:
 
   - kind: summary
     title: "Recap"
-    # The balanced accuracy of a model right on one class only, one over the number of classes
-    literal_numbers: ["1"]
     items:
-      - {text: "Accuracy {{sequence_labelling.evaluation.accuracy:percent}} = the share of no_change frames"}
-      - {text: "Balanced accuracy {{sequence_labelling.evaluation.balanced_accuracy:percent}} = 1 / {{sequence_labelling.dataset.class_count}}: one class right"}
-      - {text: "predictions.csv: p(no_change) follows the frame position"}
-      - {text: "ROC AUC on the later frames: {{sequence_labelling.predictions.macro_roc_auc_later_frames:percent}}"}
+      - {text: "Accuracy {{sequence_labelling.evaluation.accuracy:percent}}, balanced accuracy {{sequence_labelling.evaluation.balanced_accuracy:percent}}"}
+      - {text: "Balanced accuracy = mean of the Per Class Recall column"}
+      - {text: "Recall intervals over the test sequences, not the frames"}
+      - {text: "First frames: {{sequence_labelling.predictions.first_frame_accuracy:percent}} right, the cost of the balanced weights"}
+      - {text: "Trivial values: accuracy {{sequence_labelling.trivial.accuracy:percent}}, macro F1 {{sequence_labelling.trivial.macro_f1:percent}}"}
       - {text: "Segment metrics: events, not frames"}
-      - {text: "Experiment plan: macro F1, its settings in configuration_example.yaml"}
       - {text: "Export: [B, T, {{sequence_labelling.run.input_channels}}, S, S] → [B, T, K], no mask"}
     narration:
-      - "To recap: compare every metric with its trivial value, read the predictions by frame position, and score the events with the segment metrics."
+      - "To recap: compare every metric with its trivial value, read the recall of every class and the predictions by frame position, and score the events with the segment metrics."
       - "The next series, sequence comparison, puts sequences side by side in pairs: a before and an after member, their padding and their fusion."
