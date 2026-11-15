@@ -223,7 +223,7 @@ The settings defining the layers must match, which is checked at launch. The ima
 | Transformer with positional embedding | `maximum_sequence_length` |
 | Region proposal heads | detection levels, `region_proposal` and anchors per position of every level, normalization, `Neck.type` `none` in both runs |
 | Detection heads | detection levels, `detector` of every level, normalization, modules, `Neck.type` `none` in both runs |
-| Mask heads | detection levels, `mask_head` of every level, `mask_resolution`, `upsampling`, normalization, modules, `Neck.type` `none` in both runs |
+| Mask heads | detection levels, `mask_head` of every level, `mask_resolution`, `upsampling`, `skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` (a source run written before them counting as without), normalization, modules, `Neck.type` `none` in both runs; the image branch is not transferred, so the run receiving the heads keeps it `[0, 0]` |
 | High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, and the channels of the last stem block |
 | Keypoint head | `KeypointHead.higher_resolution` and `hidden_width`, the `HRNet.base_width`, and with the higher resolution branch its `blocks_per_branch`, `modules` and `normalization` (the normalization also with a hidden width above 0) |
 

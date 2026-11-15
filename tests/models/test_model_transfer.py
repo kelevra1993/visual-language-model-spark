@@ -692,6 +692,63 @@ def test_mask_heads_initialise_an_instance_segmenter_of_more_classes(tmp_path: P
     assert "Mask Heads Initialised From The Trained Weights Of" in capsys.readouterr().out
 
 
+# Finer inputs of the mask heads read by their own layers: backbone skips at the pool size and at the mask resolution
+# with fusion convolutions, the image branch staying off since it is not transferred with the mask heads
+MASK_HEAD_SKIP_SETTINGS = {"skip_blocks_at_pool_size": [4], "image_branch_convolutions": [0, 0],
+                           "skip_blocks_at_mask_resolution": [2], "fusion_convolutions": [1, 16]}
+
+
+def test_mask_heads_with_fine_inputs_move_between_runs_of_the_same_inputs(tmp_path: Path) -> None:
+    """
+    Verifies the transfer of mask heads reading backbone skips through fusion convolutions: every tensor of the heads,
+    the fusion convolutions and the convolution blocks widened by the skips included, is copied exactly to a run of
+    the same finer inputs; a run of other finer inputs is refused with the differing settings, and a source run written
+    before the finer inputs counts as a run without them.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    configuration = copy.deepcopy(configuration)
+    configuration["MaskHead"].update(MASK_HEAD_SKIP_SETTINGS)
+    source_segmenter = build_task_model(task="instance_segmentation", configuration=configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "instance_run", configuration=configuration, model=source_segmenter)
+    target_segmenter = build_task_model(task="instance_segmentation", configuration=configuration, seed=1)
+    load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
+                              model_configuration=point_to_source_run(configuration=configuration,
+                                                                      section_name="MaskHead",
+                                                                      source_folder=tmp_path / "instance_run"),
+                              device=torch.device("cpu"))
+
+    # Every tensor copied, the fusion convolutions included
+    source_state = source_segmenter.mask_heads_dictionary.state_dict()
+    target_state = target_segmenter.mask_heads_dictionary.state_dict()
+    assert any("fusion_block" in tensor_name for tensor_name in source_state)
+    assert source_state.keys() == target_state.keys()
+    for tensor_name, tensor_value in source_state.items():
+        assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+
+    # Other finer inputs are refused, each differing setting being named
+    other_configuration = copy.deepcopy(configuration)
+    other_configuration["MaskHead"].update({"skip_blocks_at_pool_size": [3], "fusion_convolutions": [2, 16]})
+    differences = compare_component_configurations(section_name="MaskHead", source_configuration=configuration,
+                                                   target_configuration=other_configuration)
+    assert len(differences) == 2
+    assert "'MaskHead.skip_blocks_at_pool_size' is [4] in the source run and [3] in this run." in differences
+    assert "'MaskHead.fusion_convolutions' is [1, 16] in the source run and [2, 16] in this run." in differences
+
+    # A source run written before the finer inputs passes its heads to a run without them, not to a run with them
+    former_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    former_configuration = copy.deepcopy(former_configuration)
+    for key_name in MASK_HEAD_SKIP_SETTINGS:
+        former_configuration["MaskHead"].pop(key_name)
+    target_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    assert compare_component_configurations(section_name="MaskHead", source_configuration=former_configuration,
+                                            target_configuration=target_configuration) == []
+    assert len(compare_component_configurations(section_name="MaskHead", source_configuration=former_configuration,
+                                                target_configuration=configuration)) == 3
+
+
 def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the loading of the class layers of a semantic segmenter with its decoder

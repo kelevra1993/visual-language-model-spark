@@ -103,9 +103,19 @@ DETECTION_LEVEL_COMPONENTS = {"RegionProposal": "region_proposal", "Detector": "
 # Settings of the region proposal, detection and mask heads shared by every level and defining their weights. The
 # number of anchors per position of the region proposal heads, giving the size of their output layers, is compared
 # apart, the anchor scales and ratios themselves not being weights. The mask resolution and the upsampling of the
-# mask heads give their upsampling layers
+# mask heads give their upsampling layers, their backbone skips at the pool size the input of their convolution block,
+# and their fine inputs (image branch, backbone skips at the mask resolution) and fusion convolutions the layers before
+# their predictor
 DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["normalization"], "Detector": ["normalization", "modules"],
-                              "MaskHead": ["mask_resolution", "upsampling", "normalization", "modules"]}
+                              "MaskHead": ["mask_resolution", "upsampling", "normalization", "modules",
+                                           "skip_blocks_at_pool_size", "image_branch_convolutions",
+                                           "skip_blocks_at_mask_resolution", "fusion_convolutions"]}
+
+# Settings of the heads added after the first runs, with the value of the runs written before them: the mask heads of
+# a source run written before their finer inputs read the map of their level alone
+DETECTION_HEAD_DEFAULTS = {"RegionProposal": {}, "Detector": {},
+                           "MaskHead": {"skip_blocks_at_pool_size": [], "image_branch_convolutions": [0, 0],
+                                        "skip_blocks_at_mask_resolution": [], "fusion_convolutions": [0, 0]}}
 
 # Normalization layers whose scale and shift can be kept fixed, and batch normalization layers whose statistics a
 # frozen component keeps
@@ -419,7 +429,8 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     detection levels (the keys of 'DetectionLevels'), the neck whose outputs they read (both runs without neck, a
     source run written before the neck counting as none), the head of every level (DETECTION_LEVEL_COMPONENTS), the
     settings of DETECTION_HEAD_WEIGHT_KEYS (the normalization without its batch normalization momentum, which
-    changes no tensor) and, for the region proposal heads, the number of anchors per position of every level.
+    changes no tensor, and a source run written before a setting holding the value of DETECTION_HEAD_DEFAULTS) and,
+    for the region proposal heads, the number of anchors per position of every level.
     The channels of the backbone blocks they read are compared on the weights themselves, and the classes of the
     detection and mask heads (classifier, per-class box regressor, per-class mask predictor) by
     load_pretrained_component, the run receiving the heads being allowed to add classes after those of the source run.
@@ -458,8 +469,9 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
             differences.append(f"'DetectionLevels.{level_key}.{level_component}' is {source_level_value!r} in the "
                                f"source run and {target_level_value!r} in this run.")
 
-    # Settings of the layers of the heads shared by every level
-    source_section_configuration = source_configuration[section_name]
+    # Settings of the layers of the heads shared by every level, a source run written before a setting holding its
+    # former value (DETECTION_HEAD_DEFAULTS)
+    source_section_configuration = {**DETECTION_HEAD_DEFAULTS[section_name], **source_configuration[section_name]}
     target_section_configuration = target_configuration[section_name]
     for key_name in DETECTION_HEAD_WEIGHT_KEYS[section_name]:
         compared_source_value = source_section_configuration[key_name]

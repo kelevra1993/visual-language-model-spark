@@ -1,13 +1,14 @@
 """
 Tests of the intermediate outputs of the backbone of vision_training/models/backbones/backbone.py: the output of every
-block before its pooling, read by the segmentation decoder, and the outputs of the detection blocks, unchanged.
+block before its pooling, read by the segmentation decoder, the outputs of the detection blocks, unchanged, and the
+skip outputs read by the mask heads of the instance segmentation.
 """
 
 import pytest
 import torch
 
 from tests.fixtures.configuration_fixtures import get_classification_model_configuration
-from vision_training.models.backbones.backbone import build_backbone
+from vision_training.models.backbones.backbone import build_backbone, split_skip_outputs
 
 
 @pytest.mark.parametrize(argnames=("last_max_pooling", "expected_final_size"), argvalues=[(True, 4)])
@@ -60,3 +61,51 @@ def test_default_outputs_are_the_detection_blocks() -> None:
     assert list(detection_outputs) == ["2", "3"]
     assert detection_outputs["2"].shape == (2, 16, 16, 16) and detection_outputs["3"].shape == (2, 16, 8, 8)
     assert torch.equal(input=final_tensor, other=pre_pooling_final_tensor)
+
+
+def test_skip_outputs_of_the_mask_heads() -> None:
+    """
+    Verifies the skip outputs read by the mask heads of the instance segmentation: 'skip_0' is the normalized input
+    image and 'skip_<b>' the output of block b before its pooling, returned beside the unchanged detection block outputs
+    and separated from them by split_skip_outputs, the mode of the segmentation decoder returning none;
+    compute_skip_output_information gives their sizes and channels without moving the batch statistics, and skip blocks
+    beyond the last block are refused.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    backbone = build_backbone(backbone_configuration=configuration["Backbone"], input_image_size=64, device=device,
+                              dtype=dtype, detection_convolution_block_indices=[2, 3], skip_block_indices=[3, 0, 4])
+    images = torch.rand(size=(2, 3, 64, 64), device=device, dtype=dtype) * 255
+
+    # The sizes and channels come from the poolings alone, the running statistics of training mode staying as they are
+    backbone.train()
+    initial_state = {key: tensor.clone() for key, tensor in backbone.state_dict().items()}
+    skip_information = backbone.compute_skip_output_information()
+    assert all(torch.equal(input=initial_state[key], other=tensor) for key, tensor in backbone.state_dict().items())
+    assert skip_information == {"skip_0": {"feature_map_size": 64, "number_channels": 3},
+                                "skip_3": {"feature_map_size": 16, "number_channels": 16},
+                                "skip_4": {"feature_map_size": 8, "number_channels": 32}}
+
+    backbone.eval()
+    with torch.no_grad():
+        final_tensor, outputs = backbone(input_tensor=images)
+        pre_pooling_final_tensor, pre_pooling_outputs = backbone(input_tensor=images, return_pre_pooling_outputs=True)
+    level_outputs, skip_outputs = split_skip_outputs(output_tensor_dictionary=outputs)
+
+    # Detection outputs unchanged, the skip outputs under their own keys, none in the mode of the segmentation decoder
+    assert list(level_outputs) == ["2", "3"] and sorted(skip_outputs) == ["skip_0", "skip_3", "skip_4"]
+    assert list(pre_pooling_outputs) == ["1", "2", "3", "4"]
+    assert torch.equal(input=final_tensor, other=pre_pooling_final_tensor)
+
+    # The normalized input image and the outputs of the blocks before their pooling, of the announced sizes
+    assert torch.equal(input=skip_outputs["skip_0"], other=backbone.input_normalizer(input_tensor=images))
+    assert torch.equal(input=skip_outputs["skip_3"], other=pre_pooling_outputs["3"])
+    assert torch.equal(input=skip_outputs["skip_4"], other=pre_pooling_outputs["4"])
+    for skip_key, skip_tensor in skip_outputs.items():
+        feature_map_size = skip_information[skip_key]["feature_map_size"]
+        assert skip_tensor.shape == (2, skip_information[skip_key]["number_channels"], feature_map_size,
+                                     feature_map_size)
+
+    # A skip block beyond the 4 blocks of the backbone is refused
+    with pytest.raises(expected_exception=ValueError, match="must lie between 0"):
+        build_backbone(backbone_configuration=configuration["Backbone"], input_image_size=64, device=device,
+                       dtype=dtype, skip_block_indices=[5])

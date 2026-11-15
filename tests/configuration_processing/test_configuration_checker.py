@@ -1620,11 +1620,85 @@ def remove_instance_index_maps(configuration: Dict[str, Any]) -> None:
     del configuration["Data"]["instance_index_maps"]
 
 
+def use_every_mask_head_fine_input(configuration: Dict[str, Any]) -> None:
+    """
+    Turns on every finer input of the mask heads, the backbone skips including the normalized input image (block 0)
+    and the last block of the backbone (block 7).
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"].update({"skip_blocks_at_pool_size": [4, 7], "image_branch_convolutions": [5, 32],
+                                      "skip_blocks_at_mask_resolution": [0, 3], "fusion_convolutions": [1, 64]})
+
+
+def test_mask_head_fine_inputs_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that the finer inputs of the mask heads and their fusion convolutions pass the checks when consistent.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=use_every_mask_head_fine_input)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["MaskHead"]["image_branch_convolutions"] == [5, 32]
+    assert model_configuration["MaskHead"]["skip_blocks_at_mask_resolution"] == [0, 3]
+
+
+def set_invalid_mask_head_fine_inputs(configuration: Dict[str, Any]) -> None:
+    """
+    Sets fusion convolutions with layers but no channel, an image branch without channel count, a skip block listed
+    twice at the pool size and a skip block beyond the 7 blocks of the backbone at the mask resolution.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"].update({"fusion_convolutions": [1, 0], "image_branch_convolutions": [2],
+                                      "skip_blocks_at_pool_size": [4, 4], "skip_blocks_at_mask_resolution": [8]})
+
+
+def transfer_mask_heads_with_an_image_branch(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the mask heads with those of another run while turning the image branch on, which the transfer does
+    not load.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["pretrained"]["experiment_folder"] = "/runs/source"
+    configuration["MaskHead"]["image_branch_convolutions"] = [5, 32]
+
+
+def remove_mask_head_fusion_convolutions(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the fusion convolutions of the mask heads, as in the files written before the finer inputs.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    del configuration["MaskHead"]["fusion_convolutions"]
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (remove_level_mask_head, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector', "
                               "'mask_head'], got ['anchors', 'detector', 'region_proposal']."]),
     (set_invalid_instance_index_maps, ["'Data.instance_index_maps' must be True or False, got 'yes'."]),
     (remove_instance_index_maps, ["Missing configuration key 'Data.instance_index_maps'."]),
+    (set_invalid_mask_head_fine_inputs, [
+        "'MaskHead.fusion_convolutions' must be [number_layers, output_channels] with positive integers, or [0, 0] "
+        "when unused, got [1, 0].",
+        "'MaskHead.image_branch_convolutions' must be [number_layers, output_channels] with positive integers, or "
+        "[0, 0] when unused, got [2].",
+        "'MaskHead.skip_blocks_at_pool_size' must be a list of distinct backbone blocks between 0 (the normalized "
+        "input image) and 7, empty when unused, got [4, 4].",
+        "'MaskHead.skip_blocks_at_mask_resolution' must be a list of distinct backbone blocks between 0 (the "
+        "normalized input image) and 7, empty when unused, got [8]."]),
+    (transfer_mask_heads_with_an_image_branch, [
+        "'MaskHead.image_branch_convolutions' must be [0, 0] when 'MaskHead.pretrained.experiment_folder' is set: the "
+        "image branch is not transferred with the mask heads, got [5, 32]."]),
+    (remove_mask_head_fusion_convolutions, ["Missing configuration key 'MaskHead.fusion_convolutions'."]),
     (set_invalid_mask_head, ["'MaskHead.mask_resolution' must be an integer >= 1, got 0.",
                              "'MaskHead.upsampling' must be one of ['transposed', 'bilinear'], got 'nearest'.",
                              "'DetectionLevels.5.mask_head.roi_align_pool_size' must be an integer >= 1, got 0.",

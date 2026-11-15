@@ -19,7 +19,8 @@ from vision_training.models.instance_segmentation.mask_operations import (build_
 def build_mask_head(roi_align_pool_size: int, mask_resolution: int, upsampling: str) -> MaskHead:
     """
     Builds the mask head of a 16 x 16 feature map of 8 channels for a 128 pixel input and 6 classes, with the modules
-    of the mask head fixture and the given mask geometry, in evaluation mode.
+    of the mask head fixture and the given mask geometry, without skips, fine features or fusion convolutions, in
+    evaluation mode.
 
     Args:
         roi_align_pool_size (int): The RoIAlign pool size of the level.
@@ -33,8 +34,8 @@ def build_mask_head(roi_align_pool_size: int, mask_resolution: int, upsampling: 
     return MaskHead(head_configuration={"roi_align_pool_size": roi_align_pool_size, "convolutions": [2, 16]},
                     mask_resolution=mask_resolution, upsampling=upsampling, number_classes=6, input_channels=8,
                     feature_map_normalization="batch", batch_normalization_momentum=0.1, input_image_size=128,
-                    feature_map_size=16, modules=configuration["MaskHead"]["modules"], dtype=dtype,
-                    device=device).eval()
+                    feature_map_size=16, modules=configuration["MaskHead"]["modules"], skip_information={},
+                    fine_input_channels=0, fusion_convolutions=[0, 0], dtype=dtype, device=device).eval()
 
 
 @pytest.mark.parametrize(argnames=["roi_align_pool_size", "mask_resolution", "upsampling", "number_upsamplings"],
@@ -62,9 +63,10 @@ def test_mask_head_doubles_its_pooled_features_up_to_the_mask_resolution(roi_ali
 
     feature_map = torch.rand(size=(2, 8, 16, 16))
     boxes = torch.tensor(data=[[0.0, 10.0, 10.0, 60.0, 80.0], [1.0, 0.0, 0.0, 128.0, 128.0], [1.0, 5.0, 5.0, 9.0, 9.0]])
-    assert mask_head(proposal_boxes=boxes, input_tensor=feature_map).shape == (3, 6, mask_resolution, mask_resolution)
-    assert mask_head(proposal_boxes=boxes[:0], input_tensor=feature_map).shape == (0, 6, mask_resolution,
-                                                                                    mask_resolution)
+    assert mask_head(proposal_boxes=boxes, input_tensor=feature_map, skip_feature_maps={},
+                     fine_features=None).shape == (3, 6, mask_resolution, mask_resolution)
+    assert mask_head(proposal_boxes=boxes[:0], input_tensor=feature_map, skip_feature_maps={},
+                     fine_features=None).shape == (0, 6, mask_resolution, mask_resolution)
 
 
 def test_mask_targets_crop_the_matched_ground_truth_masks() -> None:

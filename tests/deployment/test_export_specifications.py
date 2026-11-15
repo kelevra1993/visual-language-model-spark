@@ -3,9 +3,9 @@ Tests of the model exports of vision_training/deployment/export_model.py and exp
 and ONNX exports of the recurrent comparison model and of the comparison model with sequence normalization match the
 eager model, a second recurrent export keeps its dynamic frames, the comparisons of the segmenter and keypoint detector
 outputs report their differences, the inference models match the training path on full sequences, the logit
-temperature of the classifier softens its probabilities in the eager model and both exports, and the exports of the
+temperature of the classifier softens its probabilities in the eager model and both exports, the exports of the
 detector keep its DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection
-of the proposals level by level.
+of the proposals level by level, and the exports of the instance segmenter keep the finer inputs of its mask heads.
 """
 
 import numpy as np
@@ -27,6 +27,7 @@ from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS
                                                               get_export_specification)
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
+from tests.models.instance_segmentation.test_instance_segmenter import MIXED_MASK_HEAD_SETTINGS
 from tests.testing_utilities import build_test_model as build_test_detector
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_keypoint_model_configuration,
@@ -264,6 +265,59 @@ def test_detector_exports_keep_the_distance_nms(tmp_path: Path) -> None:
         greedy_outputs = convert_outputs_to_numpy(outputs=inference_models["iou"](**check_inputs))
     assert specification["compare_outputs"](reference=reference_outputs, candidate=greedy_outputs,
                                             **specification["comparison_tolerances"]) != []
+
+    # TorchScript export, traced on the example batch and run on the check batch
+    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    with torch.no_grad():
+        torchscript_outputs = convert_outputs_to_numpy(outputs=torch.jit.load(str(tmp_path / "model.pt"))(
+            **check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=torchscript_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+    # Dynamo ONNX export with a dynamic batch, run by ONNX Runtime on the check batch
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+
+def test_instance_segmenter_exports_keep_the_fine_inputs_of_the_mask_heads(tmp_path: Path) -> None:
+    """
+    Verifies the TorchScript and ONNX exports of the inference instance segmenter whose mask heads read every finer
+    input (the image branch on the crop of the input image, backbone skips at the pool size and at the mask
+    resolution, fusion convolutions, and the doubled features of the pool of 5 resized to the fine features): both
+    reproduce the detections and masks of the eager inference segmenter on a batch of another size than the traced
+    one, and these masks differ from those of the same weights without fine inputs, so that the exported graphs run
+    them.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    fine_input_settings = {"MaskHead": {**MIXED_MASK_HEAD_SETTINGS["MaskHead"], "skip_blocks_at_pool_size": [4],
+                                        "image_branch_convolutions": [2, 8], "skip_blocks_at_mask_resolution": [0, 2],
+                                        "fusion_convolutions": [1, 16]},
+                           "level_mask_heads": MIXED_MASK_HEAD_SETTINGS["level_mask_heads"]}
+    inference_model = build_inference_model(task="instance_segmentation", model=build_test_detector(
+        dtype=torch.float32, instance_segmentation=True, mask_head_settings=fine_input_settings))
+    specification = get_export_specification(task="instance_segmentation", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                        generator=torch.Generator().manual_seed(2))
+
+    # Masks of the fine inputs, different from those of the same detector without them
+    plain_model = build_inference_model(task="instance_segmentation", model=build_test_detector(
+        dtype=torch.float32, instance_segmentation=True, mask_head_settings=MIXED_MASK_HEAD_SETTINGS))
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+        plain_outputs = convert_outputs_to_numpy(outputs=plain_model(**check_inputs))
+    assert not np.allclose(reference_outputs[4], plain_outputs[4], atol=1e-2)
 
     # TorchScript export, traced on the example batch and run on the check batch
     export_torchscript(inference_model=inference_model, example_inputs=example_inputs,

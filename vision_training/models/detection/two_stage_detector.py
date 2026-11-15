@@ -9,7 +9,7 @@ from torch import nn
 from rich.console import Console
 from rich.panel import Panel
 from typing import Dict, Any, Tuple, Optional, List
-from vision_training.models.backbones.backbone import build_backbone
+from vision_training.models.backbones.backbone import build_backbone, split_skip_outputs
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.task_model import TaskModel
 from vision_training.models.detection.anchors import Anchors
@@ -69,11 +69,13 @@ class TwoStageDetector(TaskModel):
         self.detection_nms_criterion = self.detector_configuration["nms_criterion"]
         self.detection_nms_distance_exponent = self.detector_configuration["nms_distance_exponent"]
 
-        # Initialize the backbone feature extractor, whose outputs are the blocks numbered by the detection levels
+        # Initialize the backbone feature extractor, whose outputs are the blocks numbered by the detection levels, and
+        # the skip outputs the mask heads of the instance segmenter read (none for the detector)
         detection_convolution_block_indices = sorted(int(level_key) for level_key in configuration["DetectionLevels"])
         self.backbone = build_backbone(backbone_configuration=self.backbone_configuration,
                                        input_image_size=self.input_image_size, device=self.device, dtype=self.dtype,
-                                       detection_convolution_block_indices=detection_convolution_block_indices)
+                                       detection_convolution_block_indices=detection_convolution_block_indices,
+                                       skip_block_indices=self.list_backbone_skip_blocks(configuration=configuration))
 
         # Pre-compute spatial dimensions and channel depths of the backbone's feature maps just once
         backbone_level_information = self.backbone.compute_detection_input_information()
@@ -642,6 +644,20 @@ class TwoStageDetector(TaskModel):
                                              ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                                              ground_truth_labels=ground_truth_labels)["model_output_dictionary"]
 
+    def list_backbone_skip_blocks(self, configuration: Dict[str, Any]) -> List[int]:
+        """
+        Lists the backbone blocks returned before their pooling for heads reading finer maps than the detection levels,
+        called before the backbone is built. The detector reads the detection levels only; the instance segmenter
+        overrides it with the blocks its mask heads read.
+
+        Args:
+            configuration (Dict[str, Any]): The complete configuration dictionary of the experiment.
+
+        Returns:
+            List[int]: The skip blocks, 0 standing for the normalized input image, empty for the detector.
+        """
+        return []
+
     def forward_detection_stages(self, input_tensor: torch.Tensor,
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
@@ -649,8 +665,8 @@ class TwoStageDetector(TaskModel):
         Runs every stage of the two-stage detector (backbone, neck, region proposals, proposal filter, target
         assignment, detection heads, postprocessing and losses) and returns its output dictionary with the
         intermediate results that the instance segmenter extends with its masks: the feature maps of the levels after
-        the neck that the mask heads pool from, and the aggregated detections holding the level and matched ground
-        truth of every sampled proposal.
+        the neck that the mask heads pool from, the skip outputs of the backbone, and the aggregated detections holding
+        the level and matched ground truth of every sampled proposal.
 
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
@@ -661,7 +677,8 @@ class TwoStageDetector(TaskModel):
 
         Returns:
             Dict[str, Any]: The 'backbone_output_tensor_dictionary' (feature maps keyed by detection level, after the
-                neck, the backbone blocks themselves without neck), the
+                neck, the backbone blocks themselves without neck), the 'backbone_skip_dictionary' (the skip outputs
+                of the backbone keyed 'skip_<block>', empty for the detector), the
                 'aggregated_detections_dictionary' (see aggregate_detection_outputs) and the
                 'model_output_dictionary', a unified dictionary containing:
                 - "classification_scores" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes].
@@ -678,8 +695,11 @@ class TwoStageDetector(TaskModel):
                 - "detection_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "detection_regression_loss" (Optional[torch.Tensor]): Scalar loss (if training).
         """
-        # Pass the raw image through the backbone to extract the multiscale feature maps
+        # Pass the raw image through the backbone to extract the multiscale feature maps, the skip outputs of the mask
+        # heads kept apart from the detection levels
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
+        backbone_output_tensor_dictionary, backbone_skip_dictionary = split_skip_outputs(
+            output_tensor_dictionary=backbone_output_tensor_dictionary)
 
         # Merge the levels through the neck, whose outputs are read by every head ('none' returns the blocks)
         backbone_output_tensor_dictionary = self.neck(feature_maps=backbone_output_tensor_dictionary)
@@ -772,6 +792,7 @@ class TwoStageDetector(TaskModel):
             model_output_dictionary["detection_regression_loss"] = detection_regression_loss
 
         return {"backbone_output_tensor_dictionary": backbone_output_tensor_dictionary,
+                "backbone_skip_dictionary": backbone_skip_dictionary,
                 "aggregated_detections_dictionary": aggregated_detections_dictionary,
                 "model_output_dictionary": model_output_dictionary}
 

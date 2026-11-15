@@ -9,6 +9,7 @@ import torch
 from torch import nn
 from typing import Any, Dict, Optional, Tuple
 
+from vision_training.models.backbones.backbone import split_skip_outputs
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.detection.postprocessing import postprocess_detections
 from vision_training.models.detection.region_proposer import select_best_proposals
@@ -88,10 +89,13 @@ class InferenceDetector(nn.Module):
 
         Returns:
             Dict[str, Any]: The 'feature_maps' after the neck keyed by level name (read by the mask heads too), the
-                'proposal_levels' [B, P] level index of every filtered proposal, and the 'detections' of
-                postprocess_detections.
+                'skip_feature_maps' of the backbone keyed 'skip_<block>' (read by the mask heads, empty for the
+                detector), the 'proposal_levels' [B, P] level index of every filtered proposal, and the 'detections'
+                of postprocess_detections.
         """
+        # Backbone outputs, the skip outputs of the mask heads kept apart from the detection levels
         _, backbone_feature_maps = self.backbone(input_tensor=images)
+        backbone_feature_maps, skip_feature_maps = split_skip_outputs(output_tensor_dictionary=backbone_feature_maps)
 
         # Merge the levels through the neck, as in training ('none' returns the backbone blocks)
         feature_maps = self.neck(feature_maps=backbone_feature_maps)
@@ -123,7 +127,8 @@ class InferenceDetector(nn.Module):
                                             nms_distance_exponent=self.detection_nms_distance_exponent,
                                             maximum_detections=self.maximum_detections,
                                             input_image_size=self.input_image_size, suppress_candidates_only=False)
-        return {"feature_maps": feature_maps, "proposal_levels": filtered_levels, "detections": detections}
+        return {"feature_maps": feature_maps, "skip_feature_maps": skip_feature_maps,
+                "proposal_levels": filtered_levels, "detections": detections}
 
     def filter_proposals(self, proposal_scores: torch.Tensor, proposal_boxes: torch.Tensor,
                          proposal_levels: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

@@ -98,6 +98,8 @@ def get_detection_model_configuration(mask_head: bool = False, neck_type: str = 
         for level_configuration in configuration['DetectionLevels'].values():
             level_configuration['mask_head'] = {'roi_align_pool_size': 7, 'convolutions': [2, 32]}
         configuration['MaskHead'] = {'mask_resolution': 14, 'upsampling': 'transposed',
+                                     'fusion_convolutions': [0, 0], 'image_branch_convolutions': [0, 0],
+                                     'skip_blocks_at_pool_size': [], 'skip_blocks_at_mask_resolution': [],
                                      'normalization': {'feature_map_normalization': 'batch'},
                                      'modules': {'squeeze_and_excite': False, 'residual_nets': True,
                                                  'inception': False},

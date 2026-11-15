@@ -335,9 +335,13 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     (build_detection_sections), with the mask heads section before the classes: the modules MSE, MRES, MINC, the
     normalization MBN, MLN or MNN, the upsampling MUTC or MUBL, then M<RoIAlign pool size>.<layers>x<channels> of the
     mask head of every level of 'DetectionLevels', written once when identical on every level, otherwise joined with
-    '+' in level order, MR<mask resolution>, and MPT, followed by MFRZ when frozen, when the mask heads are initialised
-    by those of another run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28'. The mask threshold gives
-    no token, so that it can change between two resumptions of a run.
+    '+' in level order, MR<mask resolution>, then the finer inputs of the mask heads when used, MSP<blocks> for the
+    backbone skips at the pool size, MIB<layers>x<channels> for the image branch, MSM<blocks> for the backbone skips at
+    the mask resolution and MF<layers>x<channels> for the fusion convolutions (blocks joined with '.', 0 being the
+    normalized input image), and MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of
+    another run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28' or
+    'MRES-MBN-MUTC-M14.4x64-MR28-MIB5x32-MF1x64'. The mask threshold gives no token, so that it can change between two
+    resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -368,6 +372,22 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
         f"{mask_heads[level]['roi_align_pool_size']}.{mask_heads[level]['convolutions'][0]}x"
         f"{mask_heads[level]['convolutions'][1]}" for level in level_names]))
     mask_tokens.append(f"MR{mask_head_configuration['mask_resolution']}")
+
+    # Finer inputs of the mask heads in the order of their data flow, each only when used so that the runs written
+    # before them keep their names: the backbone skips at the pool size, the image branch, the backbone skips at the
+    # mask resolution, then the fusion convolutions
+    if mask_head_configuration["skip_blocks_at_pool_size"]:
+        mask_tokens.append("MSP" + ".".join(str(block)
+                                            for block in mask_head_configuration["skip_blocks_at_pool_size"]))
+    image_branch_layers, image_branch_channels = mask_head_configuration["image_branch_convolutions"]
+    if image_branch_layers > 0:
+        mask_tokens.append(f"MIB{image_branch_layers}x{image_branch_channels}")
+    if mask_head_configuration["skip_blocks_at_mask_resolution"]:
+        mask_tokens.append("MSM" + ".".join(str(block)
+                                            for block in mask_head_configuration["skip_blocks_at_mask_resolution"]))
+    fusion_layers, fusion_channels = mask_head_configuration["fusion_convolutions"]
+    if fusion_layers > 0:
+        mask_tokens.append(f"MF{fusion_layers}x{fusion_channels}")
     mask_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="MaskHead")
 
     # The mask heads section comes before the classes section of the detection sections
