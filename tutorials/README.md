@@ -41,7 +41,7 @@ To find your way in this folder, what each file holds:
 | `animations/` | HTML pages of the animated scenes of some chapters, using the engine `common/` of the builder |
 | `figures/` | Figure scripts of every series, run with the repository environment |
 | `tutorial_sources.yaml` | Real runs read by the figure scripts, and how to train them again |
-| `run_configurations/` | Configurations of the runs trained for the tutorials only |
+| `run_configurations/` | Configurations of the runs trained for the tutorials only, and in `pretraining/` those of the shape pretrainers |
 
 ## Prerequisites
 Before the first build, the machine needs:
@@ -107,7 +107,7 @@ build after an update of the builder draws everything once.
 ## Updating The Tutorials
 Every two to four weeks, or after a change of the code they show:
 1. `tutorials/build_tutorials.sh --check-references`: every key, function, file and command the storyboards quote that no longer exists is listed, with every number typed by hand. Update the storyboards (their excerpts, configuration values and constants follow the files by themselves, only renamed keys and functions need an edit).
-2. When a run of `tutorial_sources.yaml` was trained again (or must be, after a change of its task), update its folder there.
+2. When a run of `tutorial_sources.yaml` was trained again (or must be, after a change of its task), update its folder there. So that such a run converges sooner, start its backbone from the shape pretrainer of the same blocks (`Backbone.pretrained.experiment_folder`): `~/Data/tutorial_runs/pretrained` holds one per architecture, named after its blocks (`SE-RES-BN-B…`), trained on the 35 counted synthetic shapes by the launch files of `run_configurations/pretraining/`, its `README.md` listing their scores and the configurations each one fits.
 3. Read the narration of the chapters whose code changed: an excerpt follows the file, but the sentence explaining it does not.
 4. `tutorials/build_tutorials.sh --check-drift` lists the scenes the new values change; rebuild (every series, only the changed scenes are drawn again), then read `verification_report.md` and look at the contact sheets of the chapters you edited.
 
