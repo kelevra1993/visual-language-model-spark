@@ -1,5 +1,5 @@
-# Tutorial self_supervised run (tutorial_sources.yaml): self_supervised/configuration_synthetic_shapes.yaml, 2000
-# iterations, in ~/Data/tutorial_runs, outside the repository; run with python -m vision_training.main.
+# Tutorial self_supervised run (tutorial_sources.yaml): self_supervised/configuration_synthetic_shapes.yaml, 10000
+# iterations (resumed at 2000) in ~/Data/tutorial_runs, outside the repository; python -m vision_training.main.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "self_supervised": label-free backbone training on two random
   # views per image; needs ProjectionHead, Data.data_augmentation on; initialises any task (Backbone.pretrained).
@@ -25,7 +25,7 @@ ExperimentConfiguration:
   # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
   intermediate_weight_saving_iterations: 250
   # Total training iterations.
-  number_iterations: 2000
+  number_iterations: 10000
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 5
   # Test evaluation at every weight_saving_iterations checkpoint, no classifier trained: cosine k-NN of the labelled
