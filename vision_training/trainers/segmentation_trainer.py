@@ -5,6 +5,8 @@ the pixel accuracy and mean IoU tracked on every batch, and the evaluation of th
 test images being segmented tile by tile when the run trains on tiles and scored at the network or at their original
 resolution (pixel confusion matrix, boundary counts, global and per-class metrics, with the per-class report the ROC
 and precision-recall curves of the pixels of every class, sample grids of fixed test images and the predicted masks).
+Every rate read by a person (the report, the console summary, the images and their captions) is written as a
+percentage ("94.03 %"), while class_metrics.csv, TensorBoard and the checkpoint selection keep it between 0 and 1.
 Registered for the semantic_segmentation task.
 """
 
@@ -30,6 +32,7 @@ from vision_training.evaluation.evaluation_report import write_class_metrics_fil
 from vision_training.evaluation.recall_intervals import (build_recall_interval_table,
                                                          compute_bootstrap_recall_intervals,
                                                          describe_bootstrap_interval)
+from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.evaluation.segmentation.boundary_metrics import (BOUNDARY_COUNT_COLUMNS, compute_boundary_counts,
                                                                       compute_boundary_metrics)
 from vision_training.evaluation.segmentation.segmentation_metrics import (SCORE_HISTOGRAM_BINS,
@@ -224,6 +227,16 @@ class SegmentationTrainer(BaseTrainer):
             tracked_metrics["deep_supervision_loss"] = "Deep Supervision Loss"
         tracked_metrics.update({"pixel_accuracy": "Pixel Accuracy", "mean_iou": "Mean IoU"})
         return tracked_metrics
+
+    def get_percent_tracked_metrics(self) -> List[str]:
+        """
+        Lists the tracked batch metrics written as percentages in the console summary ("94.03 %", changes in points):
+        the pixel accuracy and the mean IoU of the training and validation batches, the losses staying with 4 decimals.
+
+        Returns:
+            List[str]: The tracked keys written as percentages.
+        """
+        return ["pixel_accuracy", "mean_iou"]
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
@@ -443,8 +456,9 @@ class SegmentationTrainer(BaseTrainer):
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test image for the sample images of the evaluation: its input, its true and predicted masks and
-        its error map side by side, captioned with its pixel accuracy over its labelled pixels, the panels of a large
-        test image segmented tile by tile being reduced to SAMPLE_PANEL_MAXIMUM_SIZE pixels on their longest side.
+        its error map side by side, captioned with its pixel accuracy over its labelled pixels as a percentage
+        ("97.60 %"), the panels of a large test image segmented tile by tile being reduced to SAMPLE_PANEL_MAXIMUM_SIZE
+        pixels on their longest side.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -474,7 +488,7 @@ class SegmentationTrainer(BaseTrainer):
         return build_segmentation_sample_grid(
             image=image, mask=mask, class_map=class_map, class_names=self.class_names,
             class_colours=self.class_colours,
-            caption=f"Pixel Accuracy {pixel_accuracy:.4f}")
+            caption=f"Pixel Accuracy {format_percentage(value=pixel_accuracy)}")
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
@@ -486,10 +500,11 @@ class SegmentationTrainer(BaseTrainer):
         are saved in the evaluation folder of the checkpoint, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/',
         whatever the per-class report; the confusion matrix image only with it, also logged to TensorBoard, with the
         shares of every true class in its cells, the pixel counts being too large to print. With the per-class report,
-        the ROC and
-        precision-recall curves of the pixels of every class, one against the rest, come from the histograms of their
-        probabilities, add the macro ROC AUC and average precision to the headline metrics and the ROC AUC and average
-        precision of every class to its metrics, and are saved and logged to TensorBoard.
+        the ROC and precision-recall curves of the pixels of every class, one against the rest, come from the
+        histograms of their probabilities, add the macro ROC AUC and average precision to the headline metrics and the
+        ROC AUC and average precision of every class to its metrics, and are saved and logged to TensorBoard. Every
+        headline metric, every metric column of the tables and the rates of the images are written as percentages
+        ("94.03 %"), the files and the scalars keeping them between 0 and 1.
 
         Args:
             accumulator (Dict[str, Any]): The pixel confusion matrix, the boundary counts, with the per-class report the
@@ -535,18 +550,22 @@ class SegmentationTrainer(BaseTrainer):
                                                                        class_names=self.class_names,
                                                                        output_folder=evaluation_folder)}
 
-        # Confusion matrix image of the per-class report, saved and logged to TensorBoard
+        # Confusion matrix image of the per-class report, saved and logged to TensorBoard, its mean IoU, pixel accuracy
+        # and shares written as percentages
         images = {}
         if self.per_class_report:
+            matrix_title = (f"Pixel Confusion Matrix · Iteration {iteration} · Mean IoU "
+                            f"{format_percentage(value=metrics['mean_iou'])} · Pixel Accuracy "
+                            f"{format_percentage(value=metrics['pixel_accuracy'])}")
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
                 confusion_matrix=confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder,
-                title=f"Pixel Confusion Matrix · Iteration {iteration} · Mean IoU {metrics['mean_iou']:.4f} · Pixel "
-                      f"Accuracy {metrics['pixel_accuracy']:.4f}", show_counts=False)
+                title=matrix_title, show_counts=False, in_percent=True)
 
-            # ROC and precision-recall curves of the pixels, saved and logged to TensorBoard
+            # ROC and precision-recall curves of the pixels, saved and logged to TensorBoard, their rates written as
+            # percentages
             curve_files, curve_images = save_score_curve_images(
                 class_curves=class_curves, class_names=self.class_names, output_folder=evaluation_folder,
-                title_suffix=f" · Pixels · Iteration {iteration}")
+                title_suffix=f" · Pixels · Iteration {iteration}", in_percent=True)
             files.update(curve_files)
             images.update(curve_images)
 
@@ -564,16 +583,19 @@ class SegmentationTrainer(BaseTrainer):
             notes.append(f"Predicted Masks : {accumulator['number_images']} class index images")
             files["Predicted Masks"] = accumulator["predicted_masks_folder"]
 
-        # Per-class table, then the recall of every class with its interval in a table of its own
+        # Per-class table, then the recall of every class with its interval in a table of its own, their rates written
+        # as percentages
         tables = [build_segmentation_class_table(class_rows=class_rows),
                   build_recall_interval_table(class_rows=class_rows, support_key="pixels", support_column="Pixels",
                                               recall_columns=[("recall", "Recall")],
                                               interval_description=describe_bootstrap_interval(
-                                                  group_name="test images"))]
+                                                  group_name="test images"), in_percent=True)]
         return {"evaluated_samples": f"{accumulator['number_images']} Test {self.SAMPLE_NAME}",
                 "metrics": headline_metrics, "notes": notes, "tables": tables, "scalars": dict(headline_metrics),
                 "class_scalars": build_segmentation_class_scalars(class_rows=class_rows), "images": images,
-                "files": files, "headline_metric": "Mean IoU", "percent_metrics": []}
+                "files": files, "headline_metric": "Mean IoU",
+                # Every headline metric of the segmentation is a rate, written as a percentage
+                "percent_metrics": list(headline_metrics)}
 
     def describe_mask_classes(self, mask: torch.Tensor) -> str:
         """

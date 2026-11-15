@@ -3,7 +3,8 @@ Per-class part of the evaluation reports of the semantic segmentation task: the 
 IoU, Dice, boundary IoU, boundary F1, precision, recall with the bounds of its Korn-Graubard interval over the test
 images, and with the per-class report the ROC AUC and average precision of its pixels) as the rows of
 class_metrics.csv, as the per-class table of the report (the recall intervals in the recall table of
-recall_intervals.py) and as the per-class TensorBoard scalars. Used by the segmentation trainer.
+recall_intervals.py), its rates written as percentages ("94.03 %"), and as the per-class TensorBoard scalars, which
+keep them between 0 and 1 like class_metrics.csv. Used by the segmentation trainer.
 """
 
 from typing import Any, Dict, List, Optional
@@ -15,9 +16,15 @@ from vision_training.evaluation.classification.score_curves import CURVE_METRIC_
 CLASS_TABLE_TITLE = "Per Class Metrics"
 CLASS_TABLE_SORT_COLUMN = "IoU"
 
-# Metrics of every class, in the order of their columns, with their names in the table and in TensorBoard
+# Metrics of every class, in the order of their columns, with their names in TensorBoard
 CLASS_METRIC_NAMES = {"iou": "IoU", "dice": "Dice", "boundary_iou": "Boundary IoU", "boundary_f1": "Boundary F1",
                       "precision": "Precision", "recall": "Recall"}
+
+# Headers of the metric columns of the per-class table, the long names on two lines like in the classification table,
+# so that the ten columns of percentages ("94.03 %") stay within the width of the report without cutting any value
+CLASS_COLUMN_HEADERS = {"iou": "IoU", "dice": "Dice", "boundary_iou": "Boundary\nIoU", "boundary_f1": "Boundary\nF1",
+                        "precision": "Precision", "recall": "Recall", "roc_auc": "ROC AUC",
+                        "average_precision": "Average\nPrecision"}
 
 
 def build_segmentation_class_rows(class_names: List[str], metrics: Dict[str, Any],
@@ -66,7 +73,8 @@ def build_segmentation_class_table(class_rows: List[Dict[str, Any]]) -> Evaluati
     """
     Builds the per-class table of the report of an evaluated checkpoint, shown with the per-class report and sorted by
     ascending IoU so that the worst segmented classes come first, the classes without true pixels being listed last,
-    with the ROC AUC and average precision of every class when the rows hold them.
+    with the ROC AUC and average precision of every class when the rows hold them. Every metric column is a rate
+    written as a percentage ("94.03 %"), under the headers of CLASS_COLUMN_HEADERS.
 
     Args:
         class_rows (List[Dict[str, Any]]): The metrics of every class (build_segmentation_class_rows).
@@ -74,18 +82,22 @@ def build_segmentation_class_table(class_rows: List[Dict[str, Any]]) -> Evaluati
     Returns:
         EvaluationTable: The per-class table.
     """
-    metric_names = dict(CLASS_METRIC_NAMES)
+    metric_keys = list(CLASS_METRIC_NAMES)
     legend = ("Worst IoU first, ties in class order. Boundary IoU and F1 : contours within the boundary tolerance. — : "
               "no pixel (or no edge for the boundary metrics) of the class in the test masks")
 
     # ROC AUC and average precision columns, when the rows hold the curve metrics
     if class_rows and all(metric_key in class_rows[0] for metric_key in CURVE_METRIC_NAMES):
-        metric_names.update(CURVE_METRIC_NAMES)
+        metric_keys += list(CURVE_METRIC_NAMES)
         legend += ", or no pixel of another class for the ROC AUC"
-    rows = [[class_row["class"], class_row["pixels"]] + [class_row[metric_key] for metric_key in metric_names]
+    rows = [[class_row["class"], class_row["pixels"]] + [class_row[metric_key] for metric_key in metric_keys]
             for class_row in class_rows]
-    return {"title": CLASS_TABLE_TITLE, "columns": ["Class", "Pixels"] + list(metric_names.values()), "rows": rows,
-            "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "percent_columns": [], "legend": f"{legend}."}
+
+    # Every column after the class and its pixels is a rate, written as a percentage
+    metric_columns = [CLASS_COLUMN_HEADERS[metric_key] for metric_key in metric_keys]
+    return {"title": CLASS_TABLE_TITLE, "columns": ["Class", "Pixels"] + metric_columns, "rows": rows,
+            "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "percent_columns": metric_columns,
+            "legend": f"{legend}."}
 
 
 def build_segmentation_class_scalars(class_rows: List[Dict[str, Any]]) -> Dict[str, float]:

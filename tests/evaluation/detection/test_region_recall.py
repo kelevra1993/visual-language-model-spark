@@ -3,7 +3,8 @@ Tests of vision_training/evaluation/detection/region_recall.py, the anchor recal
 object detection and instance segmentation runs (and on every split by the anchor coverage diagnosis mode) and the
 proposal recall of every evaluated checkpoint: the boxes of an instance segmentation split read from the segmentation,
 the best anchor overlaps of every level, the rows and table of anchor_recall.csv, and the proposal recall of the valid
-proposals only, with its rows, scalars and table.
+proposals only, with its rows, scalars and table, the tables writing the recalls as percentages and the counts as they
+are.
 """
 
 import json
@@ -16,6 +17,7 @@ from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.evaluation.detection.region_recall import (
     accumulate_proposal_recall, compute_best_anchor_overlaps, create_proposal_recall_accumulator, gather_object_boxes,
     summarise_anchor_recall, summarise_proposal_recall)
+from vision_training.evaluation.report_formatting import build_table_renderables, render_report_text
 from vision_training.models.detection.anchors import Anchors
 from vision_training.models.detection.box_operations import get_intersection_over_union
 
@@ -48,7 +50,8 @@ def test_best_anchor_overlaps_of_every_level() -> None:
 def test_anchor_recall_rows_and_table() -> None:
     """
     Verifies the rows of anchor_recall.csv and the console table: the recall of every level alone, and of all the
-    levels together where an object is covered by its best anchor of any level, for all the objects and every size.
+    levels together where an object is covered by its best anchor of any level, for all the objects and every size,
+    the console table writing the recalls as percentages and the counts as integers.
     """
     anchor_recall = summarise_anchor_recall(
         best_anchor_overlaps={4: torch.tensor(data=[0.1, 0.75]), 3: torch.tensor(data=[0.8, 0.2])},
@@ -69,13 +72,20 @@ def test_anchor_recall_rows_and_table() -> None:
     assert "0.7 (ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage)" in table["legend"]
     assert not table["per_class"]
 
+    # The recalls of the console table written as percentages, the count of objects as an integer
+    assert table["percent_columns"] == ["Block 3", "Block 4", "All Levels"]
+    table_lines = render_report_text(renderables=build_table_renderables(table=table)).splitlines()
+    assert next(line for line in table_lines if line.startswith(" All Objects")).split()[2:] == [
+        "2", "50.00", "%", "50.00", "%", "100.00", "%"]
+
 
 def test_proposal_recall_of_the_valid_proposals() -> None:
     """
     Verifies the proposal recall of three test images: the padding copy of a proposal never covers an object, an
     image without any valid proposal leaves its object uncovered, an image without objects only counts its proposals,
     and the summary gives the recall at 0.5 and 0.7 of all the objects, of every size and of the proposals of every
-    level, the mean valid proposals per image, the scalars of the defined values and the table of the report.
+    level, the mean valid proposals per image, the scalars of the defined values and the table of the report, whose
+    recalls are written as percentages, the counts of objects and proposals keeping their values.
     """
     proposal_accumulator = create_proposal_recall_accumulator(levels=[4, 3])
 
@@ -122,6 +132,12 @@ def test_proposal_recall_of_the_valid_proposals() -> None:
     assert table["title"] == "Proposal Recall" and not table["per_class"]
     assert [row[0] for row in table["rows"]] == ["All Objects", "Small (< 32²)", "Medium (32² to 96²)",
                                                  "Large (>= 96²)", "Block 3 Proposals", "Block 4 Proposals"]
+
+    # The recalls of the report written as percentages, the objects and the proposals per image as counts
+    assert table["percent_columns"] == ["Recall@0.5", "Recall@0.7"]
+    table_lines = render_report_text(renderables=build_table_renderables(table=table)).splitlines()
+    assert next(line for line in table_lines if line.startswith(" All Objects")).split()[2:] == [
+        "3", "66.67", "%", "33.33", "%", "1.0000"]
 
 
 def test_instance_segmentation_object_boxes_come_from_the_segmentation(tmp_path: Path) -> None:

@@ -3,9 +3,9 @@ Drawing and saving of the confusion matrix of an evaluated checkpoint: the CSV t
 folder of the checkpoint, and the matplotlib image (with the recall of every true class, the precision of every
 predicted class and the accuracy), saved and logged to TensorBoard when the per-class report is on. Used by the
 classification trainer and the trainers inheriting from it, by the segmentation trainer for its pixels, and by the
-detection trainers for the detections matched to the objects, with a background row and column. The classification
-image writes its shares, recalls, precisions and accuracy as the percentages of the reports ("94.03 %"), with larger
-cells for their two decimals; the other tasks keep their earlier "94.0%" until they are moved to them.
+detection trainers for the detections matched to the objects, with a background row and column. Every trainer draws
+the image with in_percent, its shares, recalls, precisions and accuracy written as the percentages of the reports
+("94.03 %") in larger cells for their two decimals; without it the image keeps the earlier "94.0%".
 """
 
 import csv
@@ -74,8 +74,8 @@ def compute_text_colour(cell_colour: Tuple[float, float, float, float]) -> str:
 def format_share(share: float, in_percent: bool) -> str:
     """
     Writes a share of the confusion matrix image (the share of a cell in its true class, a recall, a precision or the
-    accuracy): as the percentages of the reports for the classification image ("94.03 %"), with one decimal and no
-    space for the tasks not yet moved to them ("94.0%").
+    accuracy): as the percentages of the reports ("94.03 %"), the form every trainer asks for, or with the earlier
+    single decimal and no space ("94.0%").
 
     Args:
         share (float): The share, between 0 and 1.
@@ -193,8 +193,9 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
     pyplot, its size growing with the number of classes (capped). The detection matrices have a background row (the
     false positives) and a background column (the missed objects): their background cell, the recall of the background
     and its precision are undefined and left blank, and the accuracy is the share of the right detections among the
-    objects, the false positives and the confusions. The classification image writes the percentages of the reports
-    ("94.03 %", colour bar "20 %") in cells of 0.65 inch per class, the other tasks keep "94.0%" and "20%".
+    objects, the false positives and the confusions. With in_percent, which every trainer passes, the image writes
+    the percentages of the reports ("94.03 %", colour bar "20 %") in cells of 0.65 inch per class; without it, the
+    earlier "94.0%" and "20%" in cells of 0.4 inch.
 
     Args:
         confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
@@ -346,8 +347,8 @@ def save_confusion_matrix_image(confusion_matrix: torch.Tensor, class_names: Lis
             True.
         background_index (Optional[int]): The index of the background row and column of the detection matrices, None
             for a matrix without background. Defaults to None.
-        in_percent (bool): Whether the image writes the percentages of the reports, True for the classification image.
-            Defaults to False.
+        in_percent (bool): Whether the image writes the percentages of the reports, True for every trainer. Defaults
+            to False.
 
     Returns:
         Tuple[Path, np.ndarray]: The path of the image and the [H, W, 3] uint8 RGB image.

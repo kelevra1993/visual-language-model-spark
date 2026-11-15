@@ -1,13 +1,15 @@
 """
 Smoke test of SegmentationTrainer of vision_training/trainers/segmentation_trainer.py on a synthetic dataset: a
 training with balanced class weights saves, evaluates and resumes, with the report, the per-class and boundary
-metrics, the pixel confusion matrix, the sample grids, the predicted masks and the cached class pixel counts checked.
+metrics, the pixel confusion matrix, the sample grids, the predicted masks and the cached class pixel counts checked,
+and the rates of the report, of the console summary, of the images and of the sample captions written as percentages.
 """
 
 import csv
 import cv2
 import numpy as np
 import pytest
+import re
 import torch
 import yaml
 
@@ -18,8 +20,12 @@ from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.evaluation.classification.confusion_matrix import save_confusion_matrix_image
+from vision_training.evaluation.classification.score_curves import save_score_curve_images
+from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 from vision_training.trainers.segmentation_trainer import CLASS_PIXEL_COUNTS_FILE_NAME, SegmentationTrainer
+from vision_training.utilities.visualization import build_segmentation_sample_grid
 from tests.fixtures.evaluation_checks import read_results_blocks
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
@@ -108,10 +114,11 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     training pixels are set in the model and their counts cached in the run folder, 5 iterations save the
     intermediate, evaluated and final checkpoints, the evaluation of the test split is reported (Results.txt block with
     its per-class table, per-class scalars, confusion matrix image and sample grids in TensorBoard) with its per-class
-    metrics, confusion matrix, sample grid and predicted mask files, and a second run with the same settings resumes
-    from the last checkpoint with exactly its weights and the cached pixel counts, and a third run with other loss
-    settings resumes in the same folder with the class weights of its configuration. No training step may fail
-    silently.
+    metrics, confusion matrix, sample grid and predicted mask files, every rate read by a person (headline metrics,
+    table columns, console summary, image titles and sample captions) written as a percentage while the files and
+    scalars stay between 0 and 1, and a second run with the same settings resumes from the last checkpoint with
+    exactly its weights and the cached pixel counts, and a third run with other loss settings resumes in the same
+    folder with the class weights of its configuration. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -130,6 +137,7 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     assert trainer.class_names == ["background"] + list(SHAPE_CATEGORIES)
     assert list(trainer.tracked_metrics_mapping) == ["total_loss", "segmentation_loss", "dice_loss", "pixel_accuracy",
                                                      "mean_iou"]
+    assert trainer.metric_tracker.percent_metric_keys == ["pixel_accuracy", "mean_iou"]
 
     # Balanced weights of the training pixels, whose counts are cached in the run folder
     class_pixel_counts = trainer.train_dataloader.dataset.count_class_pixels()
@@ -137,7 +145,14 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     assert torch.allclose(input=trainer.model.class_weights.cpu(),
                           other=compute_balanced_class_weights(class_counts=class_pixel_counts))
     assert (trainer.experiment_folder / CLASS_PIXEL_COUNTS_FILE_NAME).is_file()
-    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+    # Training loop with the images of the evaluation and the sample grids recorded, to read their texts
+    trainer_module = "vision_training.trainers.segmentation_trainer"
+    with (patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock,
+          patch(target=f"{trainer_module}.save_confusion_matrix_image",
+                wraps=save_confusion_matrix_image) as matrix_mock,
+          patch(target=f"{trainer_module}.save_score_curve_images", wraps=save_score_curve_images) as curves_mock,
+          patch(target=f"{trainer_module}.build_segmentation_sample_grid",
+                wraps=build_segmentation_sample_grid) as grid_mock):
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]
 
@@ -154,6 +169,23 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
                                         "Macro Average Precision"]
     assert all(0.0 <= metric_value <= 1.0 for metric_value in results["metrics"].values())
     assert results["headline_metric"] == "Mean IoU" and "Per Class Metrics" in results_blocks[0]["text"]
+
+    # Every headline metric and every metric column of the tables is a rate written as a percentage in Results.txt
+    assert results["percent_metrics"] == list(results["metrics"])
+    assert f"{100.0 * results['metrics']['Mean IoU']:.2f} %" in results_blocks[0]["text"].splitlines()[0]
+    assert [table["percent_columns"] for table in results["tables"]] == [
+        table["columns"][2:] for table in results["tables"]]
+    assert results["tables"][0]["columns"][4:6] == ["Boundary\nIoU", "Boundary\nF1"]
+    assert results["tables"][1]["columns"][2:] == ["Recall", "95 %\nLower", "95 %\nUpper"]
+
+    # Pixel confusion matrix, curves and sample captions with their rates as percentages
+    assert matrix_mock.call_args.kwargs["in_percent"] and curves_mock.call_args.kwargs["in_percent"]
+    assert matrix_mock.call_args.kwargs["title"].endswith(
+        f"Mean IoU {format_percentage(value=results['metrics']['Mean IoU'])} · Pixel Accuracy "
+        f"{format_percentage(value=results['metrics']['Pixel Accuracy'])}")
+    assert grid_mock.call_count == 2 and all(re.fullmatch(pattern=r"Pixel Accuracy \d{1,3}\.\d{2} %",
+                                                         string=call.kwargs["caption"])
+                                             for call in grid_mock.call_args_list)
     assert list(results["images"]) == ["Confusion Matrix", "ROC Curves", "Precision Recall Curves"]
     assert results["notes"][:2] == [f"Labelled Pixels : {NUMBER_TEST_IMAGES * SMOKE_IMAGE_SIZE * SMOKE_IMAGE_SIZE} at "
                                     f"the network resolution, the padding and the unlabelled pixels being ignored",
@@ -225,8 +257,13 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     assert "dice_loss" not in changed_loss_trainer.tracked_metrics_mapping
     changed_loss_trainer.run_training_loop()
 
-    # The pixel counts were read back, and the training loop, which catches errors and keeps going, never failed
+    # The pixel counts were read back, the console summary wrote the batch pixel accuracy and mean IoU as percentages,
+    # and the training loop, which catches errors and keeps going, never failed
     console_output = capsys.readouterr().out
     assert "Class Pixel Counts Read From" in console_output
+    for split_name in ["Train", "Valid"]:
+        for display_name in ["Pixel Accuracy", "Mean IoU"]:
+            assert re.search(pattern=rf"Moving Average of {split_name} {display_name} +: +\d{{1,3}}\.\d{{2}} %",
+                             string=console_output), (split_name, display_name)
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

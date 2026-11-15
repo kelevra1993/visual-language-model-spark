@@ -6,7 +6,8 @@ recall of the class at the target precision (class_metrics.csv, class_thresholds
 detections reaching the deployment threshold (confusion_matrix.csv) with its background row of false positives and
 column of missed objects, the listings of the tables of the report of that checkpoint (methods, object sizes, mean
 average recall), and the proposal recall of every block (proposal_recall.csv). The values the narration quotes are
-read from the same files and given as facts.
+read from the same files and given as facts, the rates of the report read back between 0 and 1 whether it wrote them as
+percentages ("78.64 %") or with decimals ("0.7864").
 """
 
 import csv
@@ -29,11 +30,15 @@ from tutorials.figures.object_detection.detection_sources import (extract_table,
                                                                   read_results_block, write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
+from vision_training.evaluation.report_formatting import PERCENT_DECIMALS, PERCENT_SIGN
 
 # Tables of the report of a checkpoint shown as listings, with the names of their files
 REPORT_TABLES = [("Mean Average Precision", "results_methods.txt"),
                  ("Mean Average Precision By Object Size (Area)", "results_sizes.txt"),
                  ("Mean Average Recall", "results_recall.txt")]
+
+# Decimals of a rate read back from its percentage, the two decimals of the percentage and the two of the division
+RATE_DECIMALS = PERCENT_DECIMALS + 2
 
 # Size of the charts: the card of an image scene
 CHART_WIDTH = 1720
@@ -242,11 +247,13 @@ def draw_confusion_matrix_figure(evaluation_folder: Path, score_threshold: float
 
 def convert_report_value(value: str) -> Any:
     """
-    Turns a value of a table of the report into a number: an integer for a count of objects, a float for an average
-    precision or recall, and the dash of a size without object kept as it is.
+    Turns a value of a table of the report into a number: an integer for a count of objects, a float between 0 and 1
+    for an average precision or recall, whether the report wrote it as a percentage ("78.64 %", read back as 0.7864) or
+    with decimals ("0.7864", the reports written before the percentages), so that the facts keep one scale whichever
+    code evaluated the run, and the dash of a size without object kept as it is.
 
     Args:
-        value (str): The value as printed in Results.txt.
+        value (str): The value as printed in Results.txt (parse_table_rows).
 
     Returns:
         Any: The integer, float or dash.
@@ -255,6 +262,9 @@ def convert_report_value(value: str) -> Any:
         return int(value)
     if value == "—":
         return value
+    # A percentage divided back to its rate, rounded to the decimals it was written with
+    if value.endswith(PERCENT_SIGN):
+        return round(float(value[:-len(PERCENT_SIGN)]) / 100.0, RATE_DECIMALS)
     return float(value)
 
 

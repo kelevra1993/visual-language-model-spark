@@ -3,8 +3,8 @@ Tests of scripts/embedding/cluster_image_embeddings.py, the embedding and cluste
 trained run to pick diverse representatives of video frames: the features of the asked layers in the row order of
 the images, the extraction continued after an interruption, the refusal of the features of another checkpoint or of
 changed images, the images kept by the clustering and by the baselines, and the clusters, mosaics and kept images
-written for a classification split with the table of the kept images printed at the end of a run. The embedding run is
-a classification run trained 2 iterations on the synthetic shapes.
+written for a classification split with the table of the kept images printed at the end of a run, its shares written
+as percentages. The embedding run is a classification run trained 2 iterations on the synthetic shapes.
 """
 
 import csv
@@ -29,7 +29,8 @@ from scripts.embedding.cluster_image_embeddings import (EXTRACTION_RECORD_FILE_N
                                                         KEPT_EVENLY_SPACED_FOLDER_NAME, KEPT_IMAGES_FILE_NAME,
                                                         MOSAIC_THUMBNAIL_HEIGHT, NO_GROUP, PREDICTIONS_OUTPUT,
                                                         TOTAL_CATEGORY, allocate_budget_over_groups,
-                                                        build_layer_requests, compute_batch_outputs,
+                                                        build_kept_images_table, build_layer_requests,
+                                                        compute_batch_outputs,
                                                         describe_source_folder, embed_and_cluster_sources,
                                                         extract_source_features, find_image_groups,
                                                         list_source_images, load_embedder, natural_sort_key,
@@ -38,6 +39,7 @@ from scripts.embedding.cluster_image_embeddings import (EXTRACTION_RECORD_FILE_N
                                                         select_kept_images_by_clustering, select_random_baseline)
 from vision_training.data.preprocessing import preprocess_image
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.evaluation.report_formatting import REPORT_WIDTH, build_table_renderables, render_report_text
 from vision_training.utilities.tensor_utilities import get_device
 from vision_training.utilities.visualization import CAPTION_BAR_HEIGHT
 from tests.trainers.test_classification_trainer import SMOKE_IMAGE_SIZE, build_trainer, write_smoke_configuration
@@ -439,6 +441,30 @@ def test_features_of_another_checkpoint_or_of_changed_images_are_refused(embeddi
     assert {path.name: path.read_bytes() for path in extraction_folder.iterdir()} == stored_files
 
 
+def test_kept_images_table_writes_its_shares_as_percentages() -> None:
+    """
+    Verifies the table of the kept images of a source: the counts with thousands separators and the isolated and kept
+    shares of the initial images written as the percentages of the reports, the total of the categories included, so
+    that the whole table fits in the width of the console next to the longest layer names (fully_connected_1).
+    """
+    category_summaries = [
+        {"layer": "fully_connected_1", "category": "empty_bin", "initial_images": 11772, "image_clusters": 54,
+         "isolated_images": 1083, "kept_representatives": 271, "kept_isolated_images": 1083, "kept_images": 1354},
+        {"layer": "fully_connected_1", "category": "not_empty", "initial_images": 31805, "image_clusters": 254,
+         "isolated_images": 2894, "kept_representatives": 1282, "kept_isolated_images": 2894, "kept_images": 4176}]
+    table = build_kept_images_table(source={"name": "videos-dataset-train", "roles": ["train"]},
+                                    clustering_name="hdbscan_pca200", category_summaries=category_summaries)
+    assert table["rows"] == [
+        ["fully_connected_1", "empty_bin", "11,772", "54", "1,083", "9.20 %", "271", "1,083", "1,354", "11.50 %"],
+        ["fully_connected_1", "not_empty", "31,805", "254", "2,894", "9.10 %", "1,282", "2,894", "4,176", "13.13 %"],
+        ["fully_connected_1", TOTAL_CATEGORY, "43,577", "308", "3,977", "9.13 %", "1,553", "3,977", "5,530", "12.69 %"]]
+
+    # Every share and layer name whole in the rendered table, within the width of the console
+    table_text = render_report_text(renderables=build_table_renderables(table=table))
+    assert "12.69 %" in table_text and "…" not in table_text
+    assert max(len(line) for line in table_text.splitlines()) <= REPORT_WIDTH
+
+
 def test_representatives_and_baselines_are_kept() -> None:
     """
     Verifies the images kept by the clustering and by the baselines: the images of every cluster ranked by their
@@ -552,8 +578,9 @@ def test_clustering_writes_clusters_links_mosaics_and_kept_images(embedding_run:
     for layer_key in ["block_4", "fully_connected_1"]:
         for category_name in category_names:
             assert re.search(pattern=rf"{layer_key} - {category_name}: 18 initial images, \d+ image clusters, \d+ "
-                                     rf"isolated images \(\d+\.\d %\), \d+ kept images, 8 dimensions \(\d+\.\d % of "
-                                     rf"the variance, PCA in \d+\.\d Seconds\), clustered in \d+\.\d Seconds",
+                                     rf"isolated images \(\d+\.\d\d %\), \d+ kept images, 8 dimensions "
+                                     rf"\(\d+\.\d\d % of the variance, PCA in \d+\.\d Seconds\), clustered in "
+                                     rf"\d+\.\d Seconds",
                              string=console_output)
 
     # The table of the kept images of the source printed once every layer is clustered, every layer with its

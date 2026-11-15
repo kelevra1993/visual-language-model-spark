@@ -4,8 +4,12 @@ views of every training and validation image drawn on the device before the forw
 the self-supervised strengths (DataAugmenter.create_views of Data.data_augmentation), the loss and batch metrics of the
 method (SimCLR or Barlow Twins) tracked on every batch, and the evaluation of the representations of the checkpoints on
 the test split (k-nearest neighbour classification of the labelled test images by a fixed sample of labelled training
-images, encoded with the evaluated weights, effective rank and standard deviation of the representations). Registered for the "self_supervised" task; the backbone it trains then initialises the other tasks
-through 'Backbone.pretrained'.
+images, encoded with the evaluated weights, effective rank and standard deviation of the representations). The rates
+read by a person (the k-NN metrics of the report and the positive pair accuracy of the SimCLR console summary) are
+written as percentages ("94.03 %"), while class_metrics.csv, TensorBoard and the checkpoint selection keep them between
+0 and 1; the effective rank, the standard deviations, the correlations of Barlow Twins and the cosine similarity of the
+sample images keep their values. Registered for the "self_supervised" task; the backbone it trains then initialises
+the other tasks through 'Backbone.pretrained'.
 """
 
 import numpy as np
@@ -54,6 +58,10 @@ METHOD_TRACKED_METRICS = {"simclr": {"total_loss": "Total Loss", "info_nce_loss"
                                            "cross_correlation_diagonal": "Diagonal Correlation",
                                            "cross_correlation_off_diagonal": "Off-Diagonal Correlation",
                                            "embedding_standard_deviation": "Embedding Standard Deviation"}}
+
+# Tracked metrics of every method written as percentages in the console summary: the positive pair accuracy of SimCLR
+# is a rate, while the correlations of Barlow Twins and the embedding standard deviation are not
+METHOD_PERCENT_TRACKED_METRICS = {"simclr": ["positive_pair_accuracy"], "barlow_twins": []}
 
 # Names of the per-class table and of the per-class recall table of the k-nearest neighbour classification, worst
 # classes first
@@ -268,6 +276,17 @@ class SelfSupervisedTrainer(BaseTrainer):
         """
         return METHOD_TRACKED_METRICS[self.method]
 
+    def get_percent_tracked_metrics(self) -> List[str]:
+        """
+        Lists the tracked batch metrics of the method of the run written as percentages in the console summary
+        ("94.03 %", changes in points): the positive pair accuracy of SimCLR, none for Barlow Twins, whose
+        correlations stay with 4 decimals like the losses and the embedding standard deviation.
+
+        Returns:
+            List[str]: The tracked keys written as percentages.
+        """
+        return METHOD_PERCENT_TRACKED_METRICS[self.method]
+
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
         Counts the images and categories of a split from its labels.json manifest.
@@ -388,7 +407,7 @@ class SelfSupervisedTrainer(BaseTrainer):
         evaluated weights (encode_reference_images), and scores the classification like a classifier: accuracy,
         balanced accuracy, macro F1, and the precision, recall (with its exact confidence interval over the labelled
         test images of the class) and F1 of every class, saved in class_metrics.csv and shown in the per-class table,
-        the per-class recall table and the scalars.
+        the per-class recall table and the scalars, the rates of both tables written as percentages ("94.03 %").
 
         Args:
             representations (torch.Tensor): The [N, F] representations of the labelled test images.
@@ -414,7 +433,8 @@ class SelfSupervisedTrainer(BaseTrainer):
                           "k-NN Macro F1": class_metrics["macro_f1"]}
 
         # Metrics of every class without thresholds, the exact interval of its recall over its labelled test images, in
-        # the file, the tables (worst F1, then worst recall first) and the TensorBoard scalars
+        # the file, the tables (worst F1, then worst recall first, their rates written as percentages) and the
+        # TensorBoard scalars
         class_metrics["recall_lower"], class_metrics["recall_upper"] = compute_clopper_pearson_intervals(
             true_positives=np.array(class_metrics["true_positives"]), trials=np.array(class_metrics["support"]))
         class_rows = build_class_metrics_rows(class_names=self.class_names, metrics=class_metrics)
@@ -423,11 +443,11 @@ class SelfSupervisedTrainer(BaseTrainer):
                                           legend_introduction=f"k-nearest neighbour classification "
                                                               f"({self.number_neighbours} neighbours) of the labelled "
                                                               f"test images by labelled training images. ",
-                                          support_description="labelled test image")
+                                          support_description="labelled test image", in_percent=True)
         recall_table = build_recall_interval_table(class_rows=class_rows, support_key="samples",
                                                    support_column="Samples", recall_columns=[("recall", "Recall")],
                                                    interval_description=CLOPPER_PEARSON_DESCRIPTION,
-                                                   title=NEAREST_NEIGHBOUR_RECALL_TABLE_TITLE)
+                                                   title=NEAREST_NEIGHBOUR_RECALL_TABLE_TITLE, in_percent=True)
         class_scalars = build_class_metric_scalars(class_names=self.class_names, metrics=class_metrics,
                                                    tag_prefix="k-NN ")
         class_metrics_path = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
@@ -441,6 +461,8 @@ class SelfSupervisedTrainer(BaseTrainer):
         accuracy, and the effective rank and standard deviation of the representations of every test image, the
         effective rank being the headline metric of a test split without labels. The per-class k-NN metrics are saved
         in class_metrics.csv in the evaluation folder of the checkpoint, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/'.
+        The k-NN metrics are rates written as percentages in the report ("94.03 %"), the effective rank and the
+        standard deviation keeping 4 decimals.
 
         Args:
             accumulator (Dict[str, Any]): The representations and labels of the test split.
@@ -462,7 +484,7 @@ class SelfSupervisedTrainer(BaseTrainer):
         # k-nearest neighbour classification of the labelled test images, first in the report when it is computed
         labelled_mask = labels != IGNORED_LABEL_INDEX
         number_labelled_images = int(labelled_mask.sum())
-        metrics, tables, class_scalars, files = {}, [], {}, {}
+        metrics, tables, class_scalars, files, percent_metrics = {}, [], {}, {}, []
         headline_metric = "Effective Rank"
         notes = [f"Labelled Test Images : {number_labelled_images} of {len(labels)}"]
         if self.reference_dataloader is not None and number_labelled_images > 0:
@@ -474,13 +496,17 @@ class SelfSupervisedTrainer(BaseTrainer):
             files["Class Metrics"] = class_outputs["class_metrics_path"]
             headline_metric = "k-NN Accuracy"
             notes.extend(self.reference_notes)
+
+            # The k-NN metrics are rates, written as percentages, only listed when computed since the report refuses a
+            # percent metric missing from the metrics
+            percent_metrics = list(metrics)
         else:
             notes.append("k-NN : skipped, no labelled test image")
         metrics.update(representation_metrics)
 
         return {"evaluated_samples": f"{len(labels)} Test {self.SAMPLE_NAME}", "metrics": metrics, "notes": notes,
                 "tables": tables, "scalars": dict(metrics), "class_scalars": class_scalars, "images": {},
-                "files": files, "headline_metric": headline_metric, "percent_metrics": []}
+                "files": files, "headline_metric": headline_metric, "percent_metrics": percent_metrics}
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """

@@ -1,16 +1,19 @@
 """
 Smoke test of DetectionTrainer of vision_training/trainers/detection_trainer.py on a synthetic dataset: training saves
-checkpoints, evaluates with its sample images and resumes.
+checkpoints, evaluates with its sample images, its rates written as percentages in the report, and resumes.
 """
 
 import csv
 import pytest
+import re
 import torch
 import yaml
 
 from pathlib import Path
+from unittest.mock import patch
 
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.evaluation.classification.confusion_matrix import save_confusion_matrix_image
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
@@ -126,7 +129,11 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
                                                                                  "Iteration_5"]
     assert (weights_directory / "full-checkpoint").read_text().splitlines()[0] == 'model_checkpoint_path: "Iteration_5"'
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
-    results, averaged_weights_results = trainer.run_test_evaluation(iteration=5)
+    # Evaluation of the last checkpoint, its confusion matrix image drawn with the percentages of the report
+    with patch(target="vision_training.trainers.detection_trainer.save_confusion_matrix_image", autospec=True,
+               side_effect=save_confusion_matrix_image) as confusion_matrix_mock:
+        results, averaged_weights_results = trainer.run_test_evaluation(iteration=5)
+    assert confusion_matrix_mock.call_args.kwargs["in_percent"] is True
     assert averaged_weights_results is None
     assert results["headline_metric"] == "mAP@0.5/area" and results["headline_metric"] in results["scalars"]
 
@@ -145,6 +152,12 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
         results["scalars"])
     assert any(scalar_name.startswith("mAP@0.5 By Size/") for scalar_name in results["scalars"])
     assert {"mAR@0.5/all", "mAR@[0.5:0.95]/all"} <= set(results["scalars"])
+
+    # The rates of every table written as percentages in Results.txt, the headline mAP@0.5 in the best checkpoint line
+    assert results["percent_metrics"] == ["mAP@0.5/area"]
+    assert all(table["percent_columns"] for table in results["tables"])
+    area_row = next(line for line in results_blocks[1]["text"].splitlines() if line.strip().startswith("Area"))
+    assert re.fullmatch(pattern=r"\s+Area(\s+\d+\.\d{2} %){4}", string=area_row)
 
     # The ground truth boxes of every class sum to the boxes of the test images, with the average precisions of every
     # object size before the thresholds
@@ -190,6 +203,11 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
                                                              for level in [5, 6, 7])
     first_run_output = capsys.readouterr().out
     assert "Anchor Recall Of The Training Objects" in first_run_output
+
+    # The anchor recall printed at launch, the first table of the console, written as percentages for every level
+    anchor_line = next(line for line in first_run_output.splitlines() if line.strip().startswith("All Objects"))
+    assert re.fullmatch(pattern=rf"\s+All Objects\s+{number_training_boxes}(\s+\d+\.\d{{2}} %){{4}}\s*",
+                        string=anchor_line)
 
     # Confusion matrix with its background row and column, class thresholds and error images of the detections
     check_detection_error_analysis(

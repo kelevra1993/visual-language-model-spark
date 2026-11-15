@@ -386,8 +386,9 @@ class BaseTrainer(ABC):
     def get_percent_tracked_metrics(self) -> List[str]:
         """
         Lists the tracked batch metrics that are rates written as percentages in the console summary ("94.03 %", their
-        changes in points), read once when the trainer is built. None by default, every tracked value keeping 4
-        decimals; the classification trainer and the sequence trainers inheriting from it give their accuracy.
+        changes in points), read once when the trainer is built. None by default, for the trainers tracking only
+        losses, every tracked value keeping 4 decimals; every trainer tracking a rate lists it, such as the accuracy of
+        the classification trainer, inherited by the sequence and frame selection trainers.
 
         Returns:
             List[str]: The tracked keys (keys of get_tracked_metrics) written as percentages.

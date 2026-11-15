@@ -6,9 +6,9 @@ list of experiment folders, the evaluation with the best value of a chosen test 
 block: the curves at that evaluation (global metrics, and per-class metrics expanded to one column per class), the
 settings of its training_configuration.yaml (the image size, the learning rate), and the totals and per-class counts of
 its splits read from its data.json (recomputed from the labels.json of the splits for the runs written before the
-classes were counted, after checking that the labels did not change since the run). The curves of the classification
-evaluations are rates written as the percentages of the reports ("94.03 %"); the curves of the tasks not yet moved to
-them keep their decimals.
+classes were counted, after checking that the labels did not change since the run). The curves that are rates, every
+test curve but the ranks, standard deviations, proposal counts and pixel errors of NON_RATE_CURVE_NAMES, are written
+as the percentages of the reports ("94.03 %"); the others keep their decimals.
 """
 
 import hashlib
@@ -41,6 +41,14 @@ AVERAGED_WEIGHTS_SUFFIX = " (EMA)"
 
 # Ways of grouping the runs into tables: one table per run, or one table for the runs sharing the same column titles
 TABLE_GROUPINGS = ["run", "columns"]
+
+# Test curves that are not rates, written with their decimals instead of as percentages, named in full or by their
+# part before the first '/' for the per-class and per-group curves: the mean rank of the true frames of the frame
+# selection ('Mean True Frame Rank/<class>'), the effective rank and standard deviation of the representations of the
+# self-supervised task, the proposals per image of the detection tasks ('Proposals Per Image/<group>') and the pixel
+# error of the keypoints
+NON_RATE_CURVE_NAMES = {"Mean True Frame Rank", "Effective Rank", "Representation Standard Deviation",
+                        "Proposals Per Image", "Keypoint Accuracy/Mean Keypoint Error (pixels)"}
 
 
 def find_run_folders(experiment_folders: List[Path]) -> List[Path]:
@@ -251,6 +259,21 @@ def format_count_value(column: str, class_name: str, class_records: List[Dict[st
     return f"{sum(counts):,}"
 
 
+def is_rate_curve(curve_name: str) -> bool:
+    """
+    Tells whether a test curve of a run is a rate between 0 and 1, written as a percentage in the comparison tables:
+    every curve of the tasks but those of NON_RATE_CURVE_NAMES, named in full or by their part before the first '/'
+    (the per-class and per-group curves, e.g. 'Mean True Frame Rank/circle'), which keep their decimals.
+
+    Args:
+        curve_name (str): The name of the test curve, e.g. 'Balanced Accuracy' or 'Mean True Frame Rank/circle'.
+
+    Returns:
+        bool: True if the curve is a rate.
+    """
+    return curve_name not in NON_RATE_CURVE_NAMES and curve_name.split("/")[0] not in NON_RATE_CURVE_NAMES
+
+
 def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: List[str],
                   column_titles: Dict[str, str], number_decimals: int, curves_in_percent: bool) -> Dict[str, str]:
     """
@@ -264,7 +287,8 @@ def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: Li
         column_titles (Dict[str, str]): The title of the columns not titled by themselves, e.g.
             {"Recall/{class}": "Recall {class}"}.
         number_decimals (int): The number of decimals of the curve values not written as percentages.
-        curves_in_percent (bool): Whether the curve values are rates written as percentages ("94.03 %").
+        curves_in_percent (bool): Whether the curves that are rates (is_rate_curve) are written as percentages
+            ("94.03 %"), the other curves keeping number_decimals decimals.
 
     Returns:
         Dict[str, str]: The formatted value of every column title.
@@ -311,7 +335,8 @@ def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: Li
             row[title] = format_count_value(column=column, class_name=class_name, class_records=class_records,
                                             data_record=data_record)
 
-        # Test curve at the best evaluation
+        # Test curve at the best evaluation, a rate as a percentage and a rank, deviation, count or error with its
+        # decimals
         else:
             curve_name = column.replace(CLASS_PLACEHOLDER, class_name)
             if curve_name not in best_evaluation["curves"]:
@@ -319,8 +344,8 @@ def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: Li
                                  f"{format_path_link(path=run_folder)}, available curves : "
                                  f"{', '.join(best_evaluation['curves'])}")
             curve_value = best_evaluation["curves"][curve_name]
-            row[title] = (format_percentage(value=curve_value) if curves_in_percent else
-                          f"{curve_value:.{number_decimals}f}")
+            row[title] = (format_percentage(value=curve_value) if curves_in_percent and
+                          is_rate_curve(curve_name=curve_name) else f"{curve_value:.{number_decimals}f}")
     return row
 
 
@@ -357,7 +382,8 @@ def compare_best_evaluations(experiment_folders: List[Path], best_metric: str, h
         column_titles (Dict[str, str]): The title of the columns not titled by themselves.
         table_grouping (str): "run" for one table per run, "columns" for one table per set of column titles.
         number_decimals (int): The number of decimals of the curve values not written as percentages.
-        curves_in_percent (bool): Whether the curve values are rates written as percentages ("94.03 %").
+        curves_in_percent (bool): Whether the curves that are rates (is_rate_curve) are written as percentages
+            ("94.03 %"), the other curves keeping number_decimals decimals.
 
     Returns:
         str: The Markdown tables, separated by an empty line.
@@ -430,8 +456,9 @@ if __name__ == "__main__":
                      "train_images/{class}": "Train {class}"}
     # "run" for one table per run, "columns" for one table gathering the runs of the same column titles (same classes)
     table_grouping = "run"
-    # Whether the curve values are written as the percentages of the reports ("94.03 %"), True for the classification
-    # curves, which are all rates, and the number of decimals of the curve values otherwise
+    # Whether the curves that are rates are written as the percentages of the reports ("94.03 %"), and the number of
+    # decimals of the other curves (the ranks, deviations, counts and errors of NON_RATE_CURVE_NAMES, or every curve
+    # when curves_in_percent is False)
     curves_in_percent = True
     number_decimals = 3
     # Markdown file receiving the tables, None to only print them

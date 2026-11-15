@@ -1,12 +1,14 @@
 """
 Smoke test of FrameSelectionTrainer of vision_training/trainers/frame_selection_trainer.py on synthetic selection
 sequences: training saves, evaluates both decodings and resumes, with the thresholds, class metrics, selections file,
-error images and sample images checked.
+error images and sample images checked, and the rates of the report, the confusion matrix image and the console
+summary written as percentages.
 """
 
 import csv
 import json
 import pytest
+import re
 import torch
 import yaml
 
@@ -16,6 +18,7 @@ from unittest.mock import patch
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import (SELECTION_CATEGORIES, SELECTION_WANTED_SHAPES,
                                                                      create_synthetic_dataset)
+from vision_training.evaluation.classification.confusion_matrix import save_confusion_matrix_image
 from vision_training.trainers.frame_selection_trainer import FrameSelectionTrainer
 from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
 
@@ -113,7 +116,9 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     data_record = json.loads(s=(trainer.experiment_folder / "data.json").read_text())
     assert [class_record["frames"]["train"] for class_record in data_record["classes"]] == \
         trainer.train_dataloader.dataset.get_class_counts()
-    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock, \
+            patch(target="vision_training.trainers.frame_selection_trainer.save_confusion_matrix_image",
+                  wraps=save_confusion_matrix_image) as matrix_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]
 
@@ -135,10 +140,27 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     assert results["headline_metric"] == "Hungarian Selection Accuracy"
     assert [row[0] for row in results["tables"][0]["rows"]] == SELECTION_WANTED_SHAPES
 
-    # The frame selection keeps its rates between 0 and 1 in the report and the console summary, unlike the
-    # classification trainer it inherits from, until it is moved to the percentages
-    assert results["percent_metrics"] == [] and all(not table["percent_columns"] for table in results["tables"])
-    assert trainer.metric_tracker.percent_metric_keys == []
+    # Every rate of the report written as a percentage, the mean rank of the true frames and the thresholds keeping
+    # their values, the target precision written "99 %" and the confidence level "95 %"
+    assert results["percent_metrics"] == [metric_name for metric_name in results["metrics"]
+                                          if metric_name != "Mean True Frame Rank"]
+    selection_table, recall_table = results["tables"]
+    assert selection_table["columns"][5:] == ["Mean\nRank", "Threshold\n@ P99 %", "Recall\n@ P99 %"]
+    assert selection_table["percent_columns"] == ["Hungarian\nAccuracy", "Greedy\nAccuracy", "Top-2\nAccuracy",
+                                                  "Recall\n@ P99 %"]
+    assert "reach the precision 99 %" in selection_table["legend"]
+    assert recall_table["columns"][2:] == ["Hungarian\nAccuracy", "95 %\nLower", "95 %\nUpper"]
+    assert recall_table["percent_columns"] == recall_table["columns"][2:]
+    block_text = results_blocks[0]["text"]
+    assert re.search(pattern=r"Hungarian Selection Accuracy +\d+\.\d\d %", string=block_text)
+    assert re.search(pattern=r"Mean True Frame Rank +\d+\.\d{4}\b", string=block_text)
+
+    # The confusion matrix image and its title in percent, and the accuracy of the console summary in percent, as for
+    # the classification trainer it inherits from
+    assert matrix_mock.call_args.kwargs["in_percent"]
+    assert re.fullmatch(pattern=r"Decoded Frames · Iteration 4 · Hungarian Selection Accuracy \d+\.\d\d %",
+                        string=matrix_mock.call_args.kwargs["title"])
+    assert trainer.metric_tracker.percent_metric_keys == ["accuracy"]
 
     # Files of the evaluation folder
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
@@ -179,8 +201,9 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
         assert torch.equal(input=parameter_value.cpu(), other=saved_model_state[parameter_name])
     resumed_trainer.run_training_loop()
 
-    # The splits are described, and no iteration failed along the way
+    # The splits are described, the batch accuracy is summarised in percent, and no iteration failed along the way
     console_output = capsys.readouterr().out
     assert "8 sequences" in console_output and "8 sequences of at most 6 frames" in console_output
+    assert re.search(pattern=r"Moving Average of Train Accuracy +: +\d+\.\d\d %", string=console_output)
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

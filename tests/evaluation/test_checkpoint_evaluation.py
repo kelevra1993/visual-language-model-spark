@@ -1,16 +1,19 @@
 """
 Tests of evaluate_checkpoints of vision_training/evaluation/checkpoint_evaluation.py on the dummy task: every checkpoint
 of the registry is evaluated, deleted checkpoints are skipped and the evaluation summary holds one row per iteration,
-with the columns and the best iteration of the averaged weights for a run keeping a moving average, and a standalone
-evaluation (scripts/evaluation/evaluate_checkpoint.py) writes only the Checkpoint_Evaluation folder of the run.
+with the columns and the best iteration of the averaged weights for a run keeping a moving average, a standalone
+evaluation (scripts/evaluation/evaluate_checkpoint.py) writes only the Checkpoint_Evaluation folder of the run, and the
+best checkpoint line writes as a percentage a headline metric kept outside the metrics grid (the keypoint detection).
 """
 
 import csv
+import functools
 import pytest
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
+from vision_training.core.contracts import EvaluationResults
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, evaluate_checkpoints
 from vision_training.trainers.checkpointing import get_checkpoint_file, get_checkpoint_iterations
 from tests.trainers.test_base_trainer import build_dummy_trainer
@@ -111,6 +114,53 @@ def test_standalone_evaluation_writes_only_its_checkpoint_evaluation_folder(tmp_
 
     # The files of the run itself untouched
     assert list_run_files(run_folder=run_folder) == run_files_before
+
+
+def move_headline_out_of_grid(original_compute: Callable[..., EvaluationResults], accumulator: Dict[str, Any],
+                              iteration: int) -> EvaluationResults:
+    """
+    Computes the results of the dummy task with its headline accuracy kept as a scalar outside the metrics grid, which
+    holds a pixel error instead, like the keypoint detection whose grid holds its keypoint accuracy while its headline
+    OKS mAP@0.5/area is a percent metric of the best checkpoint line only.
+
+    Args:
+        original_compute (Callable[..., EvaluationResults]): The compute_evaluation_results method of the dummy trainer.
+        accumulator (Dict[str, Any]): The accumulated predictions.
+        iteration (int): The training iteration of the evaluated checkpoint.
+
+    Returns:
+        EvaluationResults: The results, the accuracy in the scalars and the percent metrics but not in the grid.
+    """
+    results = original_compute(accumulator=accumulator, iteration=iteration)
+    return {**results, "metrics": {"Mean Error (pixels)": 1.5}}
+
+
+def test_headline_metric_outside_the_grid_is_written_as_a_percentage(tmp_path: Path,
+                                                                      capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a task whose headline metric is a scalar outside the metrics grid, listed among its percent metrics
+    like the OKS mAP@0.5/area of the keypoint detection, gets its report written, the grid value that is not a rate with
+    4 decimals, and its best checkpoint line written as a percentage, the summary keeping the value between 0 and 1.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+
+    # Evaluations of the last two checkpoints with the headline accuracy outside the grid
+    trainer.compute_evaluation_results = functools.partial(move_headline_out_of_grid,
+                                                           original_compute=trainer.compute_evaluation_results)
+    capsys.readouterr()
+    summary_path = evaluate_checkpoints(trainer=trainer, experiment_folder=trainer.experiment_folder, iterations=[4, 5])
+    with open(file=summary_path, mode="r", newline="") as summary_file:
+        summary_rows = list(csv.DictReader(f=summary_file))
+    console_output = capsys.readouterr().out
+    assert f"Best Checkpoint : {describe_expected_best(summary_rows=summary_rows, column_name='Accuracy')}" in (
+        console_output)
+    assert "Mean Error (pixels)   1.5000" in (trainer.experiment_folder / "Results.txt").read_text(encoding="utf-8")
 
 
 def list_run_files(run_folder: Path) -> Dict[str, Tuple[int, int]]:

@@ -310,7 +310,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         and the mask scalars under 'Mask' names. The box and mask average precisions and the thresholds of every class
         are saved together to class_metrics.csv in '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', with the proposal
         recall (proposal_recall.csv), the class thresholds, the confusion matrix and the error images of the detection
-        trainer (save_error_analysis).
+        trainer (save_error_analysis). The report writes the rates as percentages, the headline mask mAP@0.5 included
+        in the best checkpoint line of the evaluation of several checkpoints.
 
         Args:
             accumulator (Dict[str, Any]): The detections, with their mask overlaps and areas, and ground truths of the
@@ -357,7 +358,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
                 "scalars": {**box_summary["scalars"], **mask_summary["scalars"], **proposal_recall["scalars"]},
                 "class_scalars": {**box_summary["class_scalars"], **mask_summary["class_scalars"]},
                 "images": error_analysis["images"], "files": files, "headline_metric": "Mask mAP@0.5/area",
-                "percent_metrics": []}
+                "percent_metrics": ["Mask mAP@0.5/area"]}
 
     def get_sample_masks(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
                          kept_detections: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:

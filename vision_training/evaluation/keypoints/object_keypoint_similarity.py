@@ -7,7 +7,9 @@ ground truth object of the same class and image, which replaces the intersection
 mean_average_precision.py, the matching of every ground truth object to one predicted object reaching an OKS of 0.5,
 and, on the matched keypoints, the percentage of correct keypoints (PCK, a keypoint within a fraction of the longest box
 side) and the pixel errors of every class and keypoint, with their tables for the report and rows for the metrics files.
-The objects are measured by their box areas in network input pixels.
+The objects are measured by their box areas in network input pixels. The report writes the matched share, the PCK and
+the mean OKS as percentages ("94.03 %"), the counts and pixel errors keeping their values, and the metrics files and
+scalars keep them between 0 and 1.
 """
 
 import torch
@@ -286,7 +288,8 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
     counting as wrong) and the mean pixel error of the keypoints found as global metrics and TensorBoard scalars, the
     same values for every class (the per-class table and the rows of class_metrics.csv) and for every keypoint of every
     class (the per-keypoint table and the rows of keypoint_metrics.csv), telling which shapes and which keypoints the
-    detector misses or places badly.
+    detector misses or places badly. The matched share, the PCK and the mean OKS are rates, written as percentages in
+    the metrics grid and the tables, the mean pixel error keeping its 4 decimals.
 
     Args:
         objects (Dict[str, torch.Tensor]): The ground truth objects (evaluate_image_keypoints), in network input
@@ -296,8 +299,9 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
         class_names (Dict[int, str]): The name of every class index.
 
     Returns:
-        Dict[str, Any]: The global 'metrics', the 'scalars', the 'class_rows' and 'keypoint_rows', and the 'tables'
-            ('classes' and 'keypoints', both per-class tables).
+        Dict[str, Any]: The global 'metrics' with the names of those written as percentages ('percent_metrics'), the
+            'scalars', the 'class_rows' and 'keypoint_rows', and the 'tables' ('classes' and 'keypoints', both
+            per-class tables).
     """
     accuracy = measure_keypoint_accuracy(objects=objects, sigma_table=sigma_table)
     labelled, correct, distances = accuracy["labelled"], accuracy["correct"], accuracy["distances"]
@@ -310,6 +314,8 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
                CORRECT_KEYPOINTS_NAME: compute_mean_or_none(values=correct[labelled]),
                "Mean OKS": compute_mean_or_none(values=accuracy["similarities"][measured_objects]),
                "Mean Keypoint Error (pixels)": compute_mean_or_none(values=distances[measured_errors])}
+    # Rates of the grid written as percentages, the pixel error keeping its 4 decimals
+    percent_metrics = ["Matched Objects", CORRECT_KEYPOINTS_NAME, "Mean OKS"]
 
     # Accuracy of every class, in class index order, and of every keypoint of the class
     class_rows, keypoint_rows = [], []
@@ -336,7 +342,8 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
                 "mean_error_pixels": compute_mean_or_none(
                     values=distances[class_objects][:, keypoint_position][class_errors[:, keypoint_position]])})
 
-    # Tables of the classes and of the keypoints, the worst ones first
+    # Tables of the classes and of the keypoints, the worst ones first, the PCK and mean OKS written as percentages and
+    # the counts and pixel errors kept as they are
     class_table: EvaluationTable = {
         "title": "Keypoint Accuracy Per Class", "rows": [
             [row["class"], row["objects"], row["matched_objects"], row["labelled_keypoints"],
@@ -344,7 +351,8 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
             for row in class_rows],
         "columns": ["Class", "Objects", "Matched\nObjects", "Labelled\nKeypoints", CORRECT_KEYPOINTS_NAME,
                     "Mean\nOKS", "Mean Error\n(pixels)"],
-        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True, "percent_columns": [],
+        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True,
+        "percent_columns": [CORRECT_KEYPOINTS_NAME, "Mean\nOKS"],
         "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first. {CORRECT_KEYPOINTS_NAME} : labelled keypoints within "
                   f"{CORRECT_KEYPOINT_FRACTION:g} of the longest box side, a missed object or keypoint counting as "
                   f"wrong; errors of the keypoints found, in network input pixels. — : no labelled keypoint."}
@@ -353,11 +361,11 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
             [row["class"], row["keypoint"], row["labelled"], row["found"], row["percentage_correct_keypoints"],
              row["mean_error_pixels"]] for row in keypoint_rows],
         "columns": ["Class", "Keypoint", "Labelled", "Found", CORRECT_KEYPOINTS_NAME, "Mean Error\n(pixels)"],
-        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True, "percent_columns": [],
+        "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True, "percent_columns": [CORRECT_KEYPOINTS_NAME],
         "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first, a missed keypoint counting as wrong; errors of the keypoints "
                   f"found, in network input pixels. — : keypoint never labelled or never found."}
 
     # Global values as TensorBoard scalars, a split without labelled keypoint having none
     scalars = {f"Keypoint Accuracy/{metric_name}": value for metric_name, value in metrics.items() if value is not None}
-    return {"metrics": metrics, "scalars": scalars, "class_rows": class_rows, "keypoint_rows": keypoint_rows,
-            "tables": {"classes": class_table, "keypoints": keypoint_table}}
+    return {"metrics": metrics, "percent_metrics": percent_metrics, "scalars": scalars, "class_rows": class_rows,
+            "keypoint_rows": keypoint_rows, "tables": {"classes": class_table, "keypoints": keypoint_table}}
