@@ -60,6 +60,38 @@ def list_evaluated_iterations(run_folder: Path) -> List[int]:
     return iterations
 
 
+def describe_evaluation_steps(run_folder: Path) -> Dict[str, int]:
+    """
+    Gives the steps between the checkpoints the run evaluated on its test split, read from its evaluation folders, for
+    the sentence of the first chapter saying how often the run was evaluated: the run of the series evaluated a
+    checkpoint every weight_saving_iterations of its first configuration, then, its training extended with a larger
+    weight_saving_iterations, at that larger step, its saved configuration keeping only the last one.
+
+    Args:
+        run_folder (Path): The folder of the self-supervised run.
+
+    Returns:
+        Dict[str, int]: The first step, from iteration 0 ('run.early_evaluation_step'), the last iteration evaluated at
+            that step ('run.evaluation_step_change_iteration') and the step after it ('run.late_evaluation_step').
+
+    Raises:
+        ValueError: If the evaluated iterations do not follow one step and then a single other one, the two steps the
+            sentence of the first chapter describes.
+    """
+    evaluated_iterations = list_evaluated_iterations(run_folder=run_folder)
+    steps = [later - earlier for earlier, later in zip([0] + evaluated_iterations[:-1], evaluated_iterations)]
+
+    # The first step that differs from the first one, every later step being equal to it
+    change_indices = [step_index for step_index, step in enumerate(steps) if step != steps[0]]
+    if not change_indices or len(set(steps[change_indices[0]:])) != 1:
+        raise ValueError(f"The evaluated iterations of {run_folder}, {evaluated_iterations}, do not follow one step "
+                         f"then another: reword the run sentence of the first self-supervised chapter, which says they "
+                         f"do.")
+    return {"run.early_evaluation_step": steps[0],
+            "run.evaluation_step_change_iteration": evaluated_iterations[change_indices[0] - 1],
+            "run.late_evaluation_step": steps[change_indices[0]]}
+
+
 def read_test_samples(run_folder: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
     Reads the test split of the run from its labels.json manifest, in the order of the file, with the class index of
@@ -287,7 +319,8 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
     Gives the settings of the run the narration quotes, read from its saved configuration: the batch size, the input
     size, the iterations, the checkpoint and evaluation steps, the learning rate, the temperature, the number of
     neighbours of the k-NN and of its reference training images per class, and the augmentation types activated for
-    the views.
+    the views; with the steps between its evaluated checkpoints read from its evaluation folders
+    (describe_evaluation_steps), its configuration keeping only the last one.
 
     Args:
         run_folder (Path): The folder of the self-supervised run.
@@ -298,7 +331,8 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
     configuration = read_run_configuration(run_folder=run_folder)
     experiment_configuration = configuration["ExperimentConfiguration"]
     augmentation_types = configuration["Data"]["data_augmentation"]["types"]
-    return {"run.batch_size": int(experiment_configuration["batch_size"]),
+    return {**describe_evaluation_steps(run_folder=run_folder),
+            "run.batch_size": int(experiment_configuration["batch_size"]),
             "run.image_size": int(configuration["Data"]["image_settings"]["size"]),
             "run.number_iterations": int(float(experiment_configuration["number_iterations"])),
             "run.weight_saving_iterations": int(experiment_configuration["weight_saving_iterations"]),

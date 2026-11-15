@@ -160,13 +160,13 @@ scenes:
       - {type: box, box: [480, 535, 600, 585], text: "{{classification.head.final_map_channels}}", font: diagram_small, fill: aqua, appear: 1}
       - {type: text, position: [620, 560], text: "average or max: one value per channel, any image size", font: diagram_small, colour: dim, anchor: lm, appear: 1}
       - {type: arrow, points: [[1258, 165], [1330, 165]], colour: red, appear: 2}
-      - {type: box, box: [1340, 105, 1740, 225], text: "Linear {{classification.head.input_features:,}} → {{classification.head.hidden_units}}\n{{classification.head.first_linear_parameters:,}} parameters\n{{classification.head.first_linear_share:.1%}} of the model", font: diagram_small, outline: red, appear: 2, highlight: [2]}
+      - {type: box, box: [1340, 105, 1740, 225], text: "Linear {{classification.head.input_features:,}} → {{classification.head.hidden_units}}\n{{classification.head.first_linear_parameters:,}} parameters\n{{classification.head.first_linear_share:percent}} of the model", font: diagram_small, outline: red, appear: 2, highlight: [2]}
       - {type: box, box: [1340, 500, 1740, 620], text: "the same head after\nan average pooling:\n{{classification.head.average_pooling_parameters:,}} parameters", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
       - {type: box, box: [480, 300, 1250, 430], text: "at {{classification.head.half_image_size}} pixels: [B, {{classification.head.final_map_channels}}, {{classification.head.half_image_final_map_size}}, {{classification.head.half_image_final_map_size}}] → {{classification.head.flatten_features_at_half_size:,}} features\nanother first layer: the head only transfers\nat the same image size and last max pooling", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "The last block keeps its {{classification.head.final_map_size}} by {{classification.head.final_map_size}} map, its max pooling being off, and the head first turns this map of {{classification.head.final_map_channels}} channels into one vector."
       - "An average or max pooling keeps one value per channel, {{classification.head.final_map_channels}} features whatever the image size; the flatten setting of this run keeps all {{classification.head.input_features:,}} values, so the head knows where every feature lies."
-      - "The price is the first hidden layer: {{classification.head.first_linear_parameters:,}} parameters, {{classification.head.first_linear_share:.0%}} of the model, where the same head after an average pooling would hold {{classification.head.average_pooling_parameters:,}} in all."
+      - "The price is the first hidden layer: {{classification.head.first_linear_parameters:,}} parameters, {{classification.head.first_linear_share:percent}} of the model, where the same head after an average pooling would hold {{classification.head.average_pooling_parameters:,}} in all."
       - "Now, what if you transfer this head to a run at {{classification.head.half_image_size}} pixels? The vector there has {{classification.head.flatten_features_at_half_size:,}} features, so a flattened head only transfers to a run of the same image size and last max pooling."
 
   - kind: html
@@ -207,6 +207,9 @@ scenes:
     code_reference: "vision_training/losses/classification_losses.py · convert_logits_to_probabilities"
     # The sign of the logits and the sum of the softmax probabilities
     literal_numbers: [zero, "1"]
+    # The probability of pentagon is read with the four decimals of the bar labels on screen, a probability keeping its
+    # decimals: rounded to two, it would read 0.00
+    exact_facts: [classification.star_image.probabilities.pentagon]
     elements:
       - {type: image, path: "figures:classification/model/input_star.png", box: [30, 90, 330, 390], border: border, caption: "{{classification.star_image.file_name}}"}
       - {type: text, position: [1340, 62], text: "logit", font: diagram_small, colour: dim, anchor: ms}
@@ -218,7 +221,7 @@ scenes:
       - {type: text, position: [180, 520], text: "outputs:\nclass_logits\nclass_probabilities", font: diagram_monospace_small, anchor: ma, appear: 3, highlight: [3]}
     narration:
       - "The class layer gives logits, raw scores of any sign: for this test star, {{classification.star_image.logits.star:.2f}} for star and below zero for every other class."
-      - "In the multi class mode, a softmax turns them into probabilities summing to one: {{classification.star_image.probabilities.star:.1%}} for star, then {{classification.star_image.probabilities.pentagon:.1%}} for pentagon."
+      - "In the multi class mode, a softmax turns them into probabilities summing to one: {{classification.star_image.probabilities.star:.2f}} for star, then {{classification.star_image.probabilities.pentagon:.4f}} for pentagon."
       - "In the multi label mode, a sigmoid reads every logit alone, and the batch accuracy and the evaluation decide every class at a probability of {{constant:vision_training/trainers/classification_trainer.py#MULTI_LABEL_THRESHOLD}}."
       - "The model returns both the logits and the probabilities, and the exported model returns only the probabilities."
 
@@ -303,7 +306,7 @@ scenes:
       - {text: "labels.json + label_mapping.json: category → class index 0 to K − 1"}
       - {text: "multi_class: softmax, cross entropy · multi_label: sigmoids, binary cross entropy"}
       - {text: "Head tokens: {{classification.run_name.head_tokens[0]}}-{{classification.run_name.head_tokens[1]}}-{{classification.run_name.head_tokens[2]}}_{{classification.run_name.classes_token}}", monospace: true}
-      - {text: "flatten: {{classification.head.input_features:,}} features, {{classification.head.first_linear_share:.0%}} of the parameters, tied to the image size"}
+      - {text: "flatten: {{classification.head.input_features:,}} features, {{classification.head.first_linear_share:percent}} of the parameters, tied to the image size"}
       - {text: "Balanced weights N / (K · N_k), never with label smoothing"}
       - {text: "Decorrelation: no token, mind the noise floor of the batch"}
     narration:

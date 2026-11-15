@@ -7,7 +7,8 @@ them, stacked into one figure, and the probability, gain and selection matrices 
 and greedy decodings of the repository, are written as the data of the matrix animations, with the example of the
 tasks reference (documentation/reference/tasks_reference.md, formerly in the README) decoded the same way. The
 probabilities of the CPU run are checked against selections.csv of the evaluation of that iteration, so that the
-figures show what the evaluation saw.
+figures show what the evaluation saw: the standalone evaluation of the run in its Checkpoint_Evaluation folder
+(EVALUATION_FOLDER_NAME), whose report the evaluation chapter lists.
 """
 
 import csv
@@ -25,11 +26,17 @@ from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_
                                                                      count_model_parameters, load_sequence_model,
                                                                      load_thumbnail_fonts, predict_sequences)
 from tutorial_builder.layout import CARD_COLOUR, TEXT_COLOUR
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.sequence.frame_selection_decoding import (decode_frame_selection, flag_low_confidence,
                                                                       gather_frame_probabilities,
                                                                       get_wanted_class_indices)
 from vision_training.utilities.visualization import build_frame_selection_image, convert_image_to_array
+
+# Folder of the evaluations the figures read, inside the run folder: both checkpoints evaluated again with the code of
+# the percent display by scripts/evaluation/evaluate_checkpoint.py, the Results.txt of the training having been written
+# with every rate between 0 and 1
+EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
 
 # Checkpoint whose wrong picks are shown, and the test sequences where it picks a wrong frame (selections.csv)
 SELECTION_ITERATION = 1000
@@ -298,12 +305,12 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
     wanted_class_indices = get_wanted_class_indices(number_classes=outputs["class_probabilities"].shape[-1],
                                                     unselected_class_index=unselected_class_index)
     class_names = [dataset.class_names[class_index] for class_index in range(len(dataset.class_names))]
-    thresholds = json.loads((run_folder / "Evaluation" / f"Iteration_{SELECTION_ITERATION}" /
+    thresholds = json.loads((run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{SELECTION_ITERATION}" /
                              "class_thresholds.json").read_text(encoding="utf-8"))
     class_thresholds = [None if thresholds["classes"][class_names[class_index]] is None else
                         thresholds["classes"][class_names[class_index]]["threshold"]
                         for class_index in wanted_class_indices]
-    selection_rows = read_selection_rows(selections_path=run_folder / "Evaluation" /
+    selection_rows = read_selection_rows(selections_path=run_folder / EVALUATION_FOLDER_NAME /
                                          f"Iteration_{SELECTION_ITERATION}" / "selections.csv")
 
     # Every sequence decoded, checked against the evaluation and drawn by the selection image of the repository
@@ -391,7 +398,7 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
     # Agreement of the two decodings over every test sequence of the evaluations of the run
     for iteration in [SELECTION_ITERATION, 2000]:
         differences = count_decoding_differences(selection_rows=read_selection_rows(
-            selections_path=run_folder / "Evaluation" / f"Iteration_{iteration}" / "selections.csv"))
+            selections_path=run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{iteration}" / "selections.csv"))
         for key, value in differences.items():
             facts[f"decodings.iteration_{iteration}_{key}"] = value
 

@@ -6,7 +6,8 @@ every iteration, cropped from the Samples/ images of the evaluation folders; the
 TensorBoard logs, every curve smoothed like TensorBoard over its raw values; the headline metrics of every evaluated
 checkpoint with the trained weights (Test) against their moving average (Test_EMA); and the console summary of an
 iteration read from the console log of the run. Every figure gives the boxes of its panels and the values the
-narration quotes as facts.
+narration quotes as facts, the headline metrics written on the figures as the percentages of the reports of the
+repository ("72.69 %", ticks "20 %") and kept between 0 and 1 in the facts.
 """
 
 import re
@@ -14,7 +15,7 @@ import re
 import numpy
 
 from matplotlib import pyplot
-from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Tuple
@@ -27,6 +28,7 @@ from tutorials.figures.object_detection.detection_sources import (read_scalar_se
                                                                   write_listing)
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_BOLD_FONT_PATH,
                                      TEXT_COLOUR)
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Regions of a sample image of the detection evaluations (1028 x 560 pixels): the caption band above the panels, the
 # ground truth panel, the 4 pixel separator and the prediction panel, each 512 pixels, and the legend band below them
@@ -47,13 +49,18 @@ CHART_HEIGHT = 700
 # Smoothing weight of the loss curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.98
 
+# Bottom of the metric axes, below zero so that the percentage written under a point near zero stays above the ticks
+# of the iterations
+METRIC_AXIS_BOTTOM = -0.08
+
 
 def draw_sample_iterations_figure(run_folder: Path, image_name: str, iterations: List[int], metric_tag: str,
                                   metric_label: str, output_path: Path, fact_prefix: str) -> Dict[str, Any]:
     """
     Draws the ground truth panel of a sample image followed by its prediction panel at every evaluated iteration, each
     under its heading and above the headline metric of its evaluation, the panels cropped from the Samples/ images the
-    evaluation wrote, never redrawn, so that the scene shows what the run shows in TensorBoard.
+    evaluation wrote, never redrawn, so that the scene shows what the run shows in TensorBoard, the metric written as
+    the percentage of the reports.
 
     Args:
         run_folder (Path): The run folder.
@@ -88,8 +95,8 @@ def draw_sample_iterations_figure(run_folder: Path, image_name: str, iterations:
     heading_font = ImageFont.truetype(font=str(SANS_BOLD_FONT_PATH), size=38)
     note_font = ImageFont.truetype(font=str(MONOSPACE_FONT_PATH), size=28)
     panels = [("Ground truth", "", sample_paths[-1], GROUND_TRUTH_PANEL_LEFT)]
-    panels += [(f"Iteration {iteration:,}", f"{metric_label} {metric_by_iteration[iteration]:.3f}", sample_path,
-                PREDICTION_PANEL_LEFT) for iteration, sample_path in zip(iterations, sample_paths)]
+    panels += [(f"Iteration {iteration:,}", f"{metric_label} {format_percentage(value=metric_by_iteration[iteration])}",
+                sample_path, PREDICTION_PANEL_LEFT) for iteration, sample_path in zip(iterations, sample_paths)]
     facts = {}
     for panel_index, (heading, note, sample_path, crop_left) in enumerate(panels):
         left = panel_index * (SAMPLE_PANEL_SIDE + SAMPLE_PANEL_GAP)
@@ -190,8 +197,9 @@ def draw_metric_iterations_figure(run_folder: Path, panels: List[Tuple[str, str,
                                   fact_prefix: str) -> Dict[str, Any]:
     """
     Draws the headline metrics of every evaluated checkpoint of a run, the trained weights (Test folder) against
-    their moving average (Test_EMA folder), one panel per metric, every point labelled with its value, and gives the
-    values and the boxes of the panels.
+    their moving average (Test_EMA folder), one panel per metric, every point labelled with its value as the
+    percentage of the reports on an axis of percentages, and gives the values, between 0 and 1, and the boxes of the
+    panels.
 
     Args:
         run_folder (Path): The run folder.
@@ -220,14 +228,19 @@ def draw_metric_iterations_figure(run_folder: Path, panels: List[Tuple[str, str,
             for point_index, (iteration, value) in enumerate(zip(iterations, values)):
                 facts[f"{fact_prefix}.{short_name}.{folder.lower()}_{int(iteration)}"] = round_fact(value=value)
 
-                # Value of every point, above the point of the higher series and below the point of the lower one
+                # Value of every point as a percentage, above the point of the higher series and below the point of
+                # the lower one
                 vertical_offset = 12 if value >= other_values[point_index] else -24
-                axes.annotate(text=f"{value:.3f}", xy=(iteration, value), xytext=(0, vertical_offset),
+                axes.annotate(text=format_percentage(value=value), xy=(iteration, value), xytext=(0, vertical_offset),
                               textcoords="offset points", ha="center", color=colour, fontsize=16 * POINTS_PER_PIXEL)
         style_chart_panel(axes=axes, title=title, x_label="Iteration", y_label="mAP" if panel_index == 0 else None)
-        axes.set_ylim(bottom=0, top=1.0)
+        # Limits, the bottom a little below zero so that the percentage under the first point clears the iteration
+        # ticks, the iterations with thousands separators and the metric as percentages every twenty points
+        axes.set_ylim(bottom=METRIC_AXIS_BOTTOM, top=1.0)
         axes.set_xlim(left=0, right=float(iterations[-1]) * 1.06)
         axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
+        axes.yaxis.set_major_locator(locator=MultipleLocator(base=0.2))
+        axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
         axes.legend(loc="upper left", frameon=False, labelcolor=TEXT_SECONDARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
     figure.canvas.draw()
     for panel_index, axes in enumerate(numpy.atleast_1d(axes_list)):

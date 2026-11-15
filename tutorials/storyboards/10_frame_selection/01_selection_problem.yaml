@@ -69,9 +69,9 @@ scenes:
     narration:
       - "The synthetic data set, synthetic selected shapes, holds {{frame_selection.dataset.training_sequences:,}} training, {{frame_selection.dataset.validation_sequences}} validation and {{frame_selection.dataset.test_sequences}} test sequences of {{frame_selection.dataset.minimum_frames}} to {{frame_selection.dataset.maximum_frames}} frames of {{frame_selection.dataset.image_size}} pixels, one shape per frame, in a background and a color shared by the sequence."
       - "In every sequence, the largest circle, the largest triangle and the largest star are the {{frame_selection.dataset.wanted_class_count:words}} frames to select, outlined here."
-      - "The other frames show a smaller copy of a wanted shape, at most {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SELECTION_SMALLER_SIZE_RATIO:.0%}} of its size and {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SELECTION_SMALLER_AREA_RATIO:.0%}} of its area, or a square, a rectangle or a plus sign."
+      - "The other frames show a smaller copy of a wanted shape, at most {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SELECTION_SMALLER_SIZE_RATIO:percent_label}} of its size and {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SELECTION_SMALLER_AREA_RATIO:percent_label}} of its area, or a square, a rectangle or a plus sign."
       - "Picture a sequence with several triangles: whether one is to be selected depends on the other triangles of its sequence, so the model must compare the frames, which come in random order."
-      - "Each training sequence holds one frame of each wanted class: {{frame_selection.dataset.circle_training_frames:,}} frames each, against {{frame_selection.dataset.unselected_training_frames:,}} unselected ones, {{frame_selection.dataset.unselected_share:.0%}} of the {{frame_selection.dataset.training_frames:,}} frames."
+      - "Each training sequence holds one frame of each wanted class: {{frame_selection.dataset.circle_training_frames:,}} frames each, against {{frame_selection.dataset.unselected_training_frames:,}} unselected ones, {{frame_selection.dataset.unselected_share:percent}} of the {{frame_selection.dataset.training_frames:,}} frames."
 
   - kind: html
     page: diagram

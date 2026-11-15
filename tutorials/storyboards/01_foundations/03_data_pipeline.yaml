@@ -123,7 +123,7 @@ scenes:
       - {match: "crop_side_range|brightness_maximum_delta|noise_standard_deviation", sentences: [1]}
     narration:
       - "The strengths of the types are fixed in the code, so that a configuration file only switches the types on and sets their probabilities."
-      - "The supervised tasks take slight changes that keep every object recognisable: the crop keeps {{foundations.data.supervised_strengths.crop_side_minimum:.0%}} or more of each side, the brightness moves by up to {{foundations.data.supervised_strengths.brightness_maximum_delta:words}} levels, and the noise has a standard deviation of {{foundations.data.supervised_strengths.noise_standard_deviation:words}} levels."
+      - "The supervised tasks take slight changes that keep every object recognisable: the crop keeps {{foundations.data.supervised_strengths.crop_side_minimum:percent_label}} or more of each side, the brightness moves by up to {{foundations.data.supervised_strengths.brightness_maximum_delta:words}} levels, and the noise has a standard deviation of {{foundations.data.supervised_strengths.noise_standard_deviation:words}} levels."
       - "The self-supervised task takes stronger strengths of its own, the views of SimCLR toned down for the images of the project, and every augmenter takes the set of its task."
 
   - kind: html
@@ -136,17 +136,17 @@ scenes:
       - {type: image, path: "figures:foundations/augmentation_examples/random_crop.png", crop: "{{foundations.augmentation_examples.random_crop.image_1.original_box}}", box: [20, 270, 220, 470], caption: "training image", appear: 0}
       - {type: arrow, points: [[230, 370], [280, 370]], appear: 0}
       - {type: box, box: [290, 310, 520, 430], text: "augmented?\nprobability {{foundations.data.augmentation_probability}}", font: diagram_small, outline: yellow, appear: 0, highlight: [0]}
-      - {type: arrow, points: [[405, 305], [405, 120], [640, 120]], label: "no · {{foundations.data.unaugmented_probability:.0%}}", label_position: [522, 95], appear: 0}
+      - {type: arrow, points: [[405, 305], [405, 120], [640, 120]], label: "no · {{foundations.data.unaugmented_probability:percent_label}}", label_position: [522, 95], appear: 0}
       - {type: box, box: [650, 70, 990, 170], text: "unchanged", outline: border, appear: 0}
-      - {type: arrow, points: [[525, 370], [640, 370]], label: "yes · {{foundations.data.augmentation_probability:.0%}}", label_position: [582, 345], appear: 1}
+      - {type: arrow, points: [[525, 370], [640, 370]], label: "yes · {{foundations.data.augmentation_probability:percent_label}}", label_position: [582, 345], appear: 1}
       - {type: arrow, points: [[1300, 450], [1370, 450]], appear: 2}
       - {type: box, box: [1380, 380, 1740, 520], text: "augmented image:\none type, several,\nor none", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
-      - {type: text, position: [1560, 560], text: "about {{foundations.data.changed_share:.0%}} of the training\nimages change", font: diagram_small, colour: accent, anchor: ma, align: center, appear: 2}
+      - {type: text, position: [1560, 560], text: "about {{foundations.data.changed_share:percent}} of the training\nimages change", font: diagram_small, colour: accent, anchor: ma, align: center, appear: 2}
       - {type: text, position: [880, 725], text: "validation and test images: never augmented", font: diagram_small, colour: dim, anchor: md, appear: 3, highlight: [3]}
     narration:
       - "For every training image, a first draw decides whether it is augmented at all, here with a probability of {{foundations.data.augmentation_probability}}."
       - "Then every activated type is drawn on its own with its own probability, and the drawn types are applied in a fixed order, the geometric ones first, so that boxes, masks and keypoints move with the image."
-      - "An augmented image may thus get one type, several, or none: with these probabilities, about {{foundations.data.changed_share:.0%}} of the training images change."
+      - "An augmented image may thus get one type, several, or none: with these probabilities, about {{foundations.data.changed_share:percent}} of the training images change."
       - "The validation and test images are never augmented, so that their curves and metrics measure the model on the real images."
 
   - kind: html
@@ -176,7 +176,7 @@ scenes:
       - {type: text, position: [1320, 610], text: "more grid cells hidden,\nin the second view only", font: diagram_small, colour: dim, anchor: lm, appear: 2}
     narration:
       - "Here are three types applied alone to a photo of a cat, where the changes are easier to see than on a synthetic shape, with the strengths of the supervised tasks and with those of the self-supervised views."
-      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps {{foundations.data.self_supervised_strengths.crop_area_minimum:.0%}} of the area or more with another aspect ratio, so that a view can lose a large part of the object."
+      - "The supervised crop keeps the aspect ratio and most of each side, while the self-supervised one keeps {{foundations.data.self_supervised_strengths.crop_area_minimum:percent_label}} of the area or more with another aspect ratio, so that a view can lose a large part of the object."
       - "The colour changes and the black-out are stronger too, the black-out and the solarization hitting the second view only: the two views of one image must differ enough for the self-supervised loss to learn something."
 
   - kind: html

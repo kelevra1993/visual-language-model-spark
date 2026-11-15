@@ -124,9 +124,9 @@ scenes:
       - {box: "{{sequence_labelling.dataset.balance_class_panel_box}}", sentences: [0, 1]}
       - {box: "{{sequence_labelling.dataset.balance_position_panel_box}}", sentences: [2, 3]}
     narration:
-      - "The record of the run, its data json file, counts the frames of every class: {{sequence_labelling.dataset.no_change_frames:,}} of the {{sequence_labelling.dataset.training_frames:,}} training frames are no change, {{sequence_labelling.dataset.no_change_share:.1%}}."
-      - "Each of the {{sequence_labelling.dataset.change_class_count}} change classes holds {{sequence_labelling.dataset.change_class_minimum_frames:,}} to {{sequence_labelling.dataset.change_class_maximum_frames:,}} frames, at most {{sequence_labelling.dataset.change_class_maximum_share:.2%}} of the frames each."
-      - "The first frame of every sequence is no change by construction, and on the later frames no change falls to {{sequence_labelling.dataset.prior_later_no_change_share:.0%}}."
+      - "The record of the run, its data json file, counts the frames of every class: {{sequence_labelling.dataset.no_change_frames:,}} of the {{sequence_labelling.dataset.training_frames:,}} training frames are no change, {{sequence_labelling.dataset.no_change_share:percent}}."
+      - "Each of the {{sequence_labelling.dataset.change_class_count}} change classes holds {{sequence_labelling.dataset.change_class_minimum_frames:,}} to {{sequence_labelling.dataset.change_class_maximum_frames:,}} frames, at most {{sequence_labelling.dataset.change_class_maximum_share:percent}} of the frames each."
+      - "The first frame of every sequence is no change by construction, and on the later frames no change falls to {{sequence_labelling.dataset.prior_later_no_change_share:percent}}."
       - "So a model that only knows the position of a frame already reaches a cross entropy of {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, against {{sequence_labelling.dataset.uniform_cross_entropy:.2f}} for a uniform guess over the {{sequence_labelling.dataset.class_count}} classes."
       - "Keep the uniform guess in mind: the next chapter reads the training loss against it, and against this prior weighted by the class weights of the run."
 
@@ -191,7 +191,7 @@ scenes:
       - {text: "M2M: one class per frame, any number of frames per class"}
       - {text: "labels.json: frame_category_ids, one category per frame"}
       - {text: "Unmapped category → label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: no loss, no metric"}
-      - {text: "no_change: {{sequence_labelling.dataset.no_change_share:.1%}} of the frames, always the first one"}
+      - {text: "no_change: {{sequence_labelling.dataset.no_change_share:percent}} of the frames, always the first one"}
       - {text: "Position prior: cross entropy {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, uniform {{sequence_labelling.dataset.uniform_cross_entropy:.2f}}"}
       - {text: "Whole sequences, padded per batch, longer ones left out"}
     narration:

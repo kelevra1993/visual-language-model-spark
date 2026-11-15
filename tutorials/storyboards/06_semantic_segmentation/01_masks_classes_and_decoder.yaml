@@ -91,7 +91,7 @@ scenes:
     narration:
       - "The mask of test image {{semantic_segmentation.sample_image_number}} holds the values {{semantic_segmentation.mask_values}}: the background and {{semantic_segmentation.mask_shape_count:words}} shapes."
       - "The lookup table holds a class for every one of the {{constant:vision_training/data/segmentation/segmentation_dataset.py#NUMBER_MASK_VALUES}} possible values, so a whole mask converts at once: zero stays the background, {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} becomes {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}, the ignored index of the losses, and an unmapped category becomes background."
-      - "The background covers {{semantic_segmentation.mask_background_share:.1%}} of this image, a share that shapes the choice of the losses in the next chapter."
+      - "The background covers {{semantic_segmentation.mask_background_share:percent}} of this image, a share that shapes the choice of the losses in the next chapter."
 
   - kind: code
     title: "Images and masks resized together"
@@ -218,7 +218,7 @@ scenes:
       - {box: "{{semantic_segmentation.levels_row_2_box}}", sentences: [1]}
     narration:
       - "On the test image, with the weights of iteration {{semantic_segmentation.run_checkpoint_iteration}}, the first skips follow the outlines at full resolution while the deep ones only mark where the shapes are."
-      - "The decoder levels bring both back together on the way up, and the class map gets {{semantic_segmentation.levels_pixel_accuracy:.2%}} of the pixels of this image right."
+      - "The decoder levels bring both back together on the way up, and the class map gets {{semantic_segmentation.levels_pixel_accuracy:percent}} of the pixels of this image right."
 
   - kind: summary
     title: "Recap"

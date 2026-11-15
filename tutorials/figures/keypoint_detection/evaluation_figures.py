@@ -7,7 +7,9 @@ against group_keypoint_candidates), the object keypoint similarity of one keypoi
 of the image, and, from the evaluations made again with the current code in the Checkpoint_Evaluation folder of the run
 (EVALUATION_FOLDER_NAME), the metrics of every evaluated checkpoint read from its TensorBoard logs, its worst classes
 and keypoints read from its class_metrics.csv and keypoint_metrics.csv, and the boxes of the objects in its sample
-image.
+image. The rates of the metrics grid and of the worst classes and keypoints are written as the percentages of the
+reports of the repository ("94.03 %"), the facts the narration quotes keeping them between 0 and 1; the similarity of
+one object against its distance stays between 0 and 1, like the similarity thresholds it is compared with.
 """
 
 import csv
@@ -19,6 +21,7 @@ import numpy
 import torch
 
 from matplotlib import pyplot
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 from PIL import Image
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -37,6 +40,7 @@ from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.evaluation.keypoints.object_keypoint_similarity import (CORRECT_KEYPOINT_FRACTION,
                                                                              compute_object_keypoint_similarity)
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick, round_percentage
 from vision_training.models.keypoints.hrnet import BRANCH_SCALE_FACTOR
 from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE
 from vision_training.models.keypoints.keypoint_grouping import group_keypoint_candidates, match_candidates_to_objects
@@ -416,8 +420,8 @@ def read_results_header(run_folder: Path) -> Dict[str, Any]:
 def describe_metrics(run_folder: Path) -> Dict[str, Any]:
     """
     Reads the metrics of every evaluated checkpoint of the run, for the trained and the averaged weights, from its
-    Checkpoint_Evaluation/Tensorboard/Test and Test_EMA logs: the values of the metrics grid and the facts the narration
-    quotes.
+    Checkpoint_Evaluation/Tensorboard/Test and Test_EMA logs: the values of the metrics grid, every one a rate written
+    as the percentage of the reports, and the facts the narration quotes, between 0 and 1.
 
     Args:
         run_folder (Path): The folder of the keypoint run.
@@ -430,10 +434,10 @@ def describe_metrics(run_folder: Path) -> Dict[str, Any]:
     weights_values = {"trained": read_scalar_values(log_folder=log_root / "Test", tags=tags),
                       "ema": read_scalar_values(log_folder=log_root / "Test_EMA", tags=tags)}
 
-    # Grid of the metrics, one column per checkpoint and kind of weights
+    # Grid of the metrics as percentages rounded like the reports, one column per checkpoint and kind of weights
     columns = [(iteration, weights) for iteration in EVALUATED_ITERATIONS for weights in ["trained", "ema"]]
-    facts = {"metrics_grid_values": [[round(weights_values[weights][tag][iteration], 4)
-                                      for iteration, weights in columns] for tag in GRID_METRICS],
+    facts = {"metrics_grid_percentages": [[round_percentage(value=weights_values[weights][tag][iteration])
+                                           for iteration, weights in columns] for tag in GRID_METRICS],
              "metrics_grid_row_labels": list(GRID_METRICS.values()),
              "metrics_grid_column_labels": [f"{iteration}" + (" EMA" if weights == "ema" else "")
                                             for iteration, weights in columns]}
@@ -492,7 +496,7 @@ def draw_dot_plot(axes: matplotlib.axes.Axes, labels: List[str], values: List[fl
                   colour: str, title: str, x_label: str) -> None:
     """
     Draws one dot plot of the worst classes or keypoints figure: one row per entry, worst at the top, its dot at its
-    value on an axis from 0.8 to 1.0, and its value written after it.
+    value on an axis of rates from 0.8 to 1.0 labelled as percentages, and its value written after it.
 
     Args:
         axes (matplotlib.axes.Axes): The panel.
@@ -513,7 +517,10 @@ def draw_dot_plot(axes: matplotlib.axes.Axes, labels: List[str], values: List[fl
                   fontsize=17 * POINTS_PER_PIXEL)
     axes.set_yticks(ticks=rows, labels=labels)
     axes.set_ylim(bottom=len(labels) - 0.5, top=-0.5)
+    # Value axis of rates every five points, labelled as percentages
     axes.set_xlim(left=0.8, right=1.0)
+    axes.xaxis.set_major_locator(locator=MultipleLocator(base=0.05))
+    axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     axes.tick_params(axis="y", labelcolor=TEXT_PRIMARY_COLOUR, labelsize=17 * POINTS_PER_PIXEL)
     axes.grid(axis="y", visible=False)
 
@@ -521,7 +528,8 @@ def draw_dot_plot(axes: matplotlib.axes.Axes, labels: List[str], values: List[fl
 def draw_worst_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
     Draws the worst classes by OKS AP@0.5 and the worst keypoints by PCK@0.05 of the evaluation of the last checkpoint
-    of the run, from its class_metrics.csv and keypoint_metrics.csv (trained weights).
+    of the run, from its class_metrics.csv and keypoint_metrics.csv (trained weights), the rates written as
+    percentages and the mean errors in pixels.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -544,12 +552,12 @@ def draw_worst_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     keypoint_axes = figure.add_axes(rect=(0.66, 0.12, 0.30, 0.78))
     draw_dot_plot(axes=class_axes, labels=[row["class"].replace("_", " ") for row in class_rows],
                   values=[float(row["oks_average_precision_50"]) for row in class_rows],
-                  value_labels=[f"{float(row['oks_average_precision_50']):.3f}" for row in class_rows],
+                  value_labels=[format_percentage(value=float(row["oks_average_precision_50"])) for row in class_rows],
                   colour=SERIES_COLOURS[0], title=f"Worst classes, OKS AP@0.5", x_label="AP@0.5")
     draw_dot_plot(axes=keypoint_axes, labels=[f"{row['class'].replace('_', ' ')} · {row['keypoint'].replace('_', ' ')}"
                                               for row in keypoint_rows],
                   values=[float(row["percentage_correct_keypoints"]) for row in keypoint_rows],
-                  value_labels=[f"{float(row['percentage_correct_keypoints']):.3f} · "
+                  value_labels=[f"{format_percentage(value=float(row['percentage_correct_keypoints']))} · "
                                 f"{float(row['mean_error_pixels']):.1f} px" for row in keypoint_rows],
                   colour=SERIES_COLOURS[1], title="Worst key points, PCK@0.05 · mean error", x_label="PCK@0.05")
     save_figure(figure=figure, output_path=output_folder / "evaluation" / "worst_classes_and_keypoints.png")

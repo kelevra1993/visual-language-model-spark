@@ -6,7 +6,8 @@ shortened, the first and last categories) next to the label mapping file and the
 folder, which adds the background, with the classes, the image side and the most objects of an image that the
 narration quotes; the counts of the splits from the data record of the run (data.json); and the anchor recall of the
 training objects the trainer wrote at launch (anchor_recall.csv), by object size and detection level, the values of
-the grid of the anchor recall scene.
+the grid of the anchor recall scene, written in its cells as the percentages of the reports of the repository and
+kept between 0 and 1 in the facts the narration quotes.
 """
 
 import collections
@@ -21,6 +22,7 @@ from tutorials.figures.figure_utilities import read_run_configuration, round_fac
 from tutorials.figures.object_detection.detection_sources import find_test_folder, read_test_manifest, write_listing
 from vision_training.data.synthetic.create_synthetic_dataset import TASK_CATEGORIES
 from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_RANGES
+from vision_training.evaluation.report_formatting import round_percentage
 
 # Values of the run length encoding of the first annotation kept in the listing, the rest being counted
 RUN_LENGTH_VALUES_SHOWN = 6
@@ -143,13 +145,16 @@ def read_anchor_recall(run_folder: Path) -> Dict[str, Any]:
         run_folder (Path): The folder of the DET run.
 
     Returns:
-        Dict[str, Any]: The facts, named anchor_recall.*: the grid values (rows small, medium, large, all; columns
-            blocks 5, 6, 7 and all the levels), the row labels, every value by name and the large object side.
+        Dict[str, Any]: The facts, named anchor_recall.*: the grid values as percentages rounded like the reports
+            (rows small, medium, large, all; columns blocks 5, 6, 7 and all the levels), the row labels, every value
+            by name between 0 and 1 and the large object side.
     """
     with open(file=run_folder / "anchor_recall.csv", mode="r", encoding="utf-8") as file_handler:
         rows = {row["objects"]: row for row in csv.DictReader(f=file_handler)}
-    facts = {"anchor_recall.values": [[round_fact(value=float(rows[row_key][column])) for column in
-                                       ANCHOR_RECALL_COLUMNS] for row_key, _ in ANCHOR_RECALL_ROWS],
+
+    # Grid cells as the percentages of the reports, the values quoted by name staying between 0 and 1
+    facts = {"anchor_recall.percentages": [[round_percentage(value=float(rows[row_key][column])) for column in
+                                            ANCHOR_RECALL_COLUMNS] for row_key, _ in ANCHOR_RECALL_ROWS],
              "anchor_recall.row_labels": [f"{label} · {int(rows[row_key]['count']):,}" for row_key, label in
                                           ANCHOR_RECALL_ROWS],
              "anchor_recall.large_minimum_side": round(math.sqrt(OBJECT_SIZE_RANGES["large"][0]))}

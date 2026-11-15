@@ -47,7 +47,7 @@ scenes:
     literal_numbers: [two]
     narration:
       - "The accumulator holds the {{semantic_segmentation.run_number_classes:words}} by {{semantic_segmentation.run_number_classes:words}} confusion matrix of the labelled pixels and {{semantic_segmentation.evaluation_boundary_counts:words}} boundary counts per class, summed batch after batch on the device."
-      - "It also keeps, for every test image, the pixels of every class and those predicted right: the {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} Korn-Graubard interval of every recall is then taken over whole images, whose pixels are correlated."
+      - "It also keeps, for every test image, the pixels of every class and those predicted right: the {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} Korn-Graubard interval of every recall is then taken over whole images, whose pixels are correlated."
       - "The per-class report adds, for every class, two histograms of {{constant:vision_training/evaluation/segmentation/segmentation_metrics.py#SCORE_HISTOGRAM_BINS:words}} bins of the probability of that class, for its pixels and for the others: every curve and metric comes from these counts."
 
   - kind: html
@@ -59,7 +59,7 @@ scenes:
         box: [300, 70, 1300, 690]
         values: "{{semantic_segmentation.confusion_values}}"
         show_values: true
-        decimals: 1
+        decimals: 2
         font: diagram_monospace_tiny
         row_labels: "{{semantic_segmentation.confusion_labels}}"
         column_labels: "{{semantic_segmentation.confusion_labels}}"
@@ -76,8 +76,8 @@ scenes:
       - {type: text, position: [1360, 90], text: "iteration {{semantic_segmentation.run_checkpoint_iteration}}\nrows: true class\ncolumns: predicted\nshares of the row, %", font: diagram_small, colour: dim}
     narration:
       - "The confusion matrix of iteration {{semantic_segmentation.run_checkpoint_iteration}}, every row in shares of its true class, shows where the shapes go wrong."
-      - "{{semantic_segmentation.confusion_hexagon_to_pentagon:.1f}}% of the hexagon pixels are predicted pentagon, about as many as hexagon itself, {{semantic_segmentation.confusion_hexagon_to_hexagon:.1f}}%."
-      - "The octagon goes to the hexagon for {{semantic_segmentation.confusion_octagon_to_hexagon:.1f}}% of its pixels and to the circle for {{semantic_segmentation.confusion_octagon_to_circle:.1f}}%: the shapes with many sides are the ones the network confuses."
+      - "{{semantic_segmentation.confusion_hexagon_to_pentagon:percent}} of the hexagon pixels are predicted pentagon, about as many as hexagon itself, {{semantic_segmentation.confusion_hexagon_to_hexagon:percent}}."
+      - "The octagon goes to the hexagon for {{semantic_segmentation.confusion_octagon_to_hexagon:percent}} of its pixels and to the circle for {{semantic_segmentation.confusion_octagon_to_circle:percent}}: the shapes with many sides are the ones the network confuses."
 
   - kind: code
     title: "Region metrics from the confusion matrix"
@@ -94,7 +94,7 @@ scenes:
     narration:
       - "The IOU of a class is its right pixels over the union of its true and predicted pixels; its Dice is twice the right pixels over their sum."
       - "Picture a class predicted but absent from the true masks: its IOU is zero, and the means average every class with a non-empty union, present or predicted, so that false class lowers them, as in mmseg."
-      - "The frequency weighted IOU weighs every class by its pixels, so the background dominates it: {{semantic_segmentation.headline_frequency_weighted_iou_2000:.2f}} here."
+      - "The frequency weighted IOU weighs every class by its pixels, so the background dominates it: {{semantic_segmentation.headline_frequency_weighted_iou_2000:percent}} here."
 
   - kind: image
     title: "Regions and contours"
@@ -102,8 +102,8 @@ scenes:
     image: "figures:semantic_segmentation/evaluation/boundary_metrics.png"
     narration:
       - "The region metrics hardly see a contour: the boundary IOU compares only the bands within {{semantic_segmentation.run_boundary_tolerance}} pixels of the true and predicted contours, and the boundary F score the shares of each contour lying near the other."
-      - "The square has an IOU of {{semantic_segmentation.class_square_iou:.2f}} but a boundary IOU of {{semantic_segmentation.class_square_boundary_iou:.2f}}; over the classes, the means are {{semantic_segmentation.headline_mean_iou_2000:.2f}} and {{semantic_segmentation.headline_mean_boundary_iou_2000:.2f}}."
-      - "The {{semantic_segmentation.class_worst}} is the worst on both, at {{semantic_segmentation.class_hexagon_iou:.2f}} and {{semantic_segmentation.class_hexagon_boundary_iou:.2f}}."
+      - "The square has an IOU of {{semantic_segmentation.class_square_iou:percent}} but a boundary IOU of {{semantic_segmentation.class_square_boundary_iou:percent}}; over the classes, the means are {{semantic_segmentation.headline_mean_iou_2000:percent}} and {{semantic_segmentation.headline_mean_boundary_iou_2000:percent}}."
+      - "The {{semantic_segmentation.class_worst}} is the worst on both, at {{semantic_segmentation.class_hexagon_iou:percent}} and {{semantic_segmentation.class_hexagon_boundary_iou:percent}}."
 
   - kind: html
     page: diagram
@@ -114,8 +114,8 @@ scenes:
       - {type: image, path: "runs:readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/precision_recall_curves.png", box: [900, 20, 1720, 660], caption: "iteration {{semantic_segmentation.run_checkpoint_iteration}}", appear: 2}
     narration:
       - "With the per-class report, the histograms give the ROC and precision-recall curves of every class, one against the rest, exact at the edges of the {{constant:vision_training/evaluation/segmentation/segmentation_metrics.py#SCORE_HISTOGRAM_BINS:words}} bins."
-      - "The macro ROC AUC is already {{semantic_segmentation.headline_macro_roc_auc_1000:.2f}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}}, when the mean IOU is {{semantic_segmentation.headline_mean_iou_1000:.2f}}: the millions of negative pixels flatter it."
-      - "The macro average precision tells more, {{semantic_segmentation.headline_macro_average_precision_1000:.2f}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}} and {{semantic_segmentation.headline_macro_average_precision_2000:.2f}} at {{semantic_segmentation.run_checkpoint_iteration}}."
+      - "The macro ROC AUC is already {{semantic_segmentation.headline_macro_roc_auc_1000:percent}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}}, when the mean IOU is {{semantic_segmentation.headline_mean_iou_1000:percent}}: the millions of negative pixels flatter it."
+      - "The macro average precision tells more, {{semantic_segmentation.headline_macro_average_precision_1000:percent}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}} and {{semantic_segmentation.headline_macro_average_precision_2000:percent}} at {{semantic_segmentation.run_checkpoint_iteration}}."
 
   - kind: image
     title: "The sample images"
@@ -128,7 +128,7 @@ scenes:
     narration:
       - "Every evaluation draws the same {{semantic_segmentation.evaluation_samples:words}} test images: the input, the ground truth, the prediction and an error map, under the pixel accuracy of the image."
       - "At iteration {{semantic_segmentation.run_first_evaluated_iteration}} the octagon of this image is mostly taken for a circle and the rectangle for other shapes; in the error map, green is right, red a wrong class and yellow a missed pixel."
-      - "At iteration {{semantic_segmentation.run_checkpoint_iteration}} only some edges of the pentagon and of the octagon stay wrong, and the image scores {{semantic_segmentation.levels_pixel_accuracy:.2%}}."
+      - "At iteration {{semantic_segmentation.run_checkpoint_iteration}} only some edges of the pentagon and of the octagon stay wrong, and the image scores {{semantic_segmentation.levels_pixel_accuracy:percent}}."
 
   - kind: html
     page: diagram
@@ -143,12 +143,12 @@ scenes:
           - {match: "class_metrics|confusion_matrix", sentences: [0]}
           - {match: "curves|Samples", sentences: [0]}
           - {match: "class_metrics", sentences: [2]}
-      - {type: box, box: [40, 450, 1100, 670], text: "Results.txt: one block per checkpoint,\nthe classes sorted by IoU, worst first,\nand a recall table with {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} intervals\nTensorBoard Test: {{semantic_segmentation.evaluation_test_scalars}} scalars and {{semantic_segmentation.evaluation_test_images}} images per evaluation", font: diagram_text, outline: violet, appear: 1, highlight: [1, 2]}
+      - {type: box, box: [40, 450, 1100, 670], text: "Results.txt: one block per checkpoint,\nthe classes sorted by IoU, worst first,\nand a recall table with {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} intervals\nTensorBoard Test: {{semantic_segmentation.evaluation_test_scalars}} scalars and {{semantic_segmentation.evaluation_test_images}} images per evaluation", font: diagram_text, outline: violet, appear: 1, highlight: [1, 2]}
       - {type: box, box: [1160, 40, 1720, 670], text: "save_predicted_masks:\none class index PNG\nper test image\n\noriginal_resolution:\nscored against\nthe original masks", font: diagram_text, outline: aqua, appear: 3, highlight: [3]}
     narration:
       - "Every evaluation folder, here the one the standalone evaluation wrote for iteration {{semantic_segmentation.run_checkpoint_iteration}}, holds the class metrics, the confusion matrix as counts and as an image, the ROC and precision-recall curves and the sample images."
       - "The report goes to the results file, its classes sorted by IOU, worst first, and to TensorBoard with {{semantic_segmentation.evaluation_test_scalars}} scalars per evaluation, the per-class ones included."
-      - "In the report, a second table gives the recall of every class with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} interval, worst first, and the class metrics file keeps the bounds next to every recall."
+      - "In the report, a second table gives the recall of every class with its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval, worst first, and the class metrics file keeps the bounds next to every recall."
       - "If, for instance, you need the masks, save predicted masks writes one class index image per test image, and original resolution scores the predictions against the original masks, as a deployment uses them."
 
   - kind: terminal
@@ -182,7 +182,7 @@ scenes:
       - {type: box, box: [40, 290, 860, 420], text: "preprocessing.json, ONNX metadata:\nresize, size, colour order, padding", font: diagram_text, outline: blue, appear: 1, highlight: [1]}
       - {type: box, box: [900, 290, 1720, 420], text: "client: restore_prediction_to_original_image\ncuts the letterbox, resizes back to the image", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
       - {type: box, box: [40, 455, 1720, 570], text: "a run trained on tiles: one tile as input, tile scale and overlap in preprocessing.json\nthe client scales the image and tiles it with segment_image_by_tiles", font: diagram_text, outline: yellow, appear: 3, highlight: [3, 4]}
-      - {type: box, box: [40, 605, 1720, 720], text: "export check: compare_segmentations, every probability within {{semantic_segmentation.export_probability_tolerance:.0e}}\nand the same class on {{semantic_segmentation.export_minimum_equal_share:.1%}} of the pixels, a near tie may flip", font: diagram_text, outline: border, appear: 5, highlight: [5]}
+      - {type: box, box: [40, 605, 1720, 720], text: "export check: compare_segmentations, every probability within {{semantic_segmentation.export_probability_tolerance:.0e}}\nand the same class on {{semantic_segmentation.export_minimum_equal_share:percent_label}} of the pixels, a near tie may flip", font: diagram_text, outline: border, appear: 5, highlight: [5]}
     # The base of the power of ten of the probability tolerance, and the two best classes of a tie
     literal_numbers: ["10", two]
     narration:
@@ -191,7 +191,7 @@ scenes:
       - "The client brings the outputs back to its image with restore prediction to original image, which cuts the letterbox and resizes."
       - "Let's consider a run trained on tiles: it is exported with one tile as input, and the client scales and tiles its images itself, with the tile scale and overlap written in that same preprocessing file."
       - "The throughput script, by contrast, times one letterboxed image per request."
-      - "The export check wants every probability within 10 to the minus {{semantic_segmentation.export_probability_tolerance_exponent}} and the same class on {{semantic_segmentation.export_minimum_equal_share:.1%}} of the pixels, since a pixel whose two best classes are tied may flip."
+      - "The export check wants every probability within 10 to the minus {{semantic_segmentation.export_probability_tolerance_exponent}} and the same class on {{semantic_segmentation.export_minimum_equal_share:percent_label}} of the pixels, since a pixel whose two best classes are tied may flip."
 
   - kind: summary
     title: "Recap"

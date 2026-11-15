@@ -4,7 +4,9 @@ build by tutorials/figures/instance_segmentation/figures.py from the last evalua
 every class on the masks against the boxes of the same detections (class_metrics.csv, its mask_ columns against the box
 columns), where the 28 x 28 masks lose the thin parts of the shapes, and the listings and values of the mask and box
 tables of the report of that checkpoint (Results.txt): the methods, the object sizes counted on the mask areas and on
-the box areas, and the mean average recall of both.
+the box areas, and the mean average recall of both. The checkpoint is the one evaluated again with the current code
+(EVALUATION_FOLDER_NAME of detection_sources.py), whose report writes the rates as percentages ("78.64 %"), read back
+between 0 and 1 in the facts; the figure writes its average precisions on an axis of percentages.
 """
 
 import math
@@ -12,6 +14,7 @@ import math
 import numpy
 
 from matplotlib import pyplot
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict
 
@@ -21,6 +24,7 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL,
 from tutorials.figures.object_detection.detection_sources import (extract_table, parse_table_rows,
                                                                   read_results_block, write_listing)
 from tutorials.figures.object_detection.evaluation_figures import convert_report_value, read_class_metrics
+from vision_training.evaluation.report_formatting import format_percentage_tick
 
 # Tables of the report of an instance segmentation checkpoint, with the names of their listings and facts
 REPORT_TABLES = [("Mask Mean Average Precision", "mask_methods"), ("Box Mean Average Precision", "box_methods"),
@@ -57,7 +61,8 @@ def draw_mask_box_figure(evaluation_folder: Path, output_path: Path) -> Dict[str
     # Pairs of bars, the masks then the boxes, for every class
     register_fonts()
     figure, axes = pyplot.subplots(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH))
-    figure.subplots_adjust(left=0.05, right=0.99, top=0.88, bottom=0.25)
+    # Left margin leaving room for the percentage ticks and the name of the axis on their left
+    figure.subplots_adjust(left=0.07, right=0.99, top=0.88, bottom=0.25)
     positions = numpy.arange(len(rows))
     axes.bar(x=positions - 0.2, height=[row["mask_average_precision_75"] for row in rows], width=0.4,
              color=SERIES_COLOURS[3], label="mask AP@0.75")
@@ -67,6 +72,7 @@ def draw_mask_box_figure(evaluation_folder: Path, output_path: Path) -> Dict[str
     style_chart_panel(axes=axes, title="AP@0.75 of every class, masks against the boxes of the same detections",
                       x_label="", y_label="AP@0.75")
     axes.set_ylim(bottom=0, top=1.0)
+    axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     axes.set_xlim(left=-0.6, right=len(rows) - 0.4)
     axes.grid(visible=False, axis="x")
     axes.legend(loc="upper right", frameon=False, labelcolor=TEXT_SECONDARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL)
@@ -84,13 +90,14 @@ def draw_mask_box_figure(evaluation_folder: Path, output_path: Path) -> Dict[str
     return facts
 
 
-def write_mask_report_listings(run_folder: Path, iteration: int, output_folder: Path) -> Dict[str, Any]:
+def write_mask_report_listings(results_path: Path, iteration: int, output_folder: Path) -> Dict[str, Any]:
     """
     Writes the mask and box tables of the report of one checkpoint of the INS run as listings, and gives their values
     as facts for the trained weights and their moving average.
 
     Args:
-        run_folder (Path): The INS run folder.
+        results_path (Path): The Results.txt holding the report, that of the evaluation made again with the current
+            code (EVALUATION_FOLDER_NAME of detection_sources.py), whose tables write the rates as percentages.
         iteration (int): The evaluated checkpoint.
         output_folder (Path): The listings folder.
 
@@ -101,7 +108,7 @@ def write_mask_report_listings(run_folder: Path, iteration: int, output_folder: 
     """
     facts = {}
     for averaged_weights, weights_name in [(False, "trained"), (True, "averaged")]:
-        block_lines = read_results_block(results_path=run_folder / "Results.txt", iteration=iteration,
+        block_lines = read_results_block(results_path=results_path, iteration=iteration,
                                          averaged_weights=averaged_weights)
         for title, table_name in REPORT_TABLES:
             table_lines = extract_table(block_lines=block_lines, title=title)

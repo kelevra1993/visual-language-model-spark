@@ -43,7 +43,9 @@ scenes:
       - type: listing
         box: [24, 20, 1736, 720]
         font: diagram_monospace_small
-        source: {file: "figures:frame_selection/listings/results_block.txt"}
+        # The block down to the end of the Per Class Selection table: with the Per Class Recall table after it, the
+        # block holds more lines than the box shows
+        source: {file: "figures:frame_selection/listings/results_block.txt", end: "never reached"}
         highlights:
           - {match: "^Iteration", sentences: [0]}
           - {match: "Hungarian Selection Accuracy|Greedy Selection Accuracy", sentences: [1]}
@@ -53,17 +55,25 @@ scenes:
           - {match: "^   triangle", sentences: [5]}
     narration:
       - "The report gives the metrics of both decodings: here iteration {{frame_selection.evaluation.listed_iteration}}, {{frame_selection.dataset.test_sequences}} test sequences, {{frame_selection.dataset.test_frames:,}} frames."
-      - "The selection accuracy is the share of the true frames chosen for their class: {{frame_selection.evaluation.hungarian_selection_accuracy:.1%}} for both decodings, all but {{frame_selection.decodings.iteration_1000_hungarian_wrong}} of the {{frame_selection.decodings.iteration_1000_rows}} true frames."
-      - "Fully right sequences is the share of sequences with every choice right, {{frame_selection.evaluation.hungarian_fully_right_sequences:.1%}}, and the unselected precision and recall score the frames left unchosen, {{frame_selection.evaluation.hungarian_unselected_precision:.1%}} each, every decoding choosing as many frames as there are true ones."
+      - "The selection accuracy is the share of the true frames chosen for their class: {{frame_selection.evaluation.hungarian_selection_accuracy:percent}} for both decodings, all but {{frame_selection.decodings.iteration_1000_hungarian_wrong}} of the {{frame_selection.decodings.iteration_1000_rows}} true frames."
+      - "Fully right sequences is the share of sequences with every choice right, {{frame_selection.evaluation.hungarian_fully_right_sequences:percent}}, and the unselected precision and recall score the frames left unchosen, {{frame_selection.evaluation.hungarian_unselected_precision:percent}} each, every decoding choosing as many frames as there are true ones."
       - "The top-{{frame_selection.evaluation.top_k}} selection accuracy and the mean true frame rank score the probabilities before any decoding: every true frame is among the {{frame_selection.evaluation.top_k:words}} most probable of its class, and the mean rank is {{frame_selection.evaluation.mean_true_frame_rank:.3f}}."
-      - "The frame metrics take the most probable class of every frame, before decoding: a frame accuracy of {{frame_selection.evaluation.frame_accuracy:.1%}}."
-      - "The per-class table puts the worst class first, the triangle; at iteration {{frame_selection.evaluation.last_iteration}}, every selection metric is {{frame_selection.evaluation.iteration_2000.hungarian_selection_accuracy:.0f}}."
-      - "The current code adds a Per Class Recall table after it: the selection accuracy of every class with the run's decoding, and its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:.0%}} Korn-Graubard interval over the test sequences, whose frames are chosen together."
+      - "The frame metrics take the most probable class of every frame, before decoding: a frame accuracy of {{frame_selection.evaluation.frame_accuracy:percent}}."
+      - "The per-class table puts the worst class first, the triangle; at iteration {{frame_selection.evaluation.last_iteration}}, every selection accuracy is {{frame_selection.evaluation.iteration_2000.hungarian_selection_accuracy:percent}}."
+      - "Below it, the report adds a Per Class Recall table: the selection accuracy of every class with the run's decoding, and its {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} Korn-Graubard interval over the test sequences, whose frames are chosen together."
 
   - kind: image
     title: "The wrong picks of iteration {{frame_selection.picks.iteration}}"
     code_reference: "vision_training/utilities/visualization.py · build_frame_selection_image"
     image: "figures:frame_selection/selection/wrong_picks.png"
+    # The probabilities of the first two wrong picks are about a hundredth, which two decimals would read as equal:
+    # three decimals for the three picks, as in the headings of the image, the probabilities staying between 0 and 1
+    exact_facts: [frame_selection.picks.test_000004.true_probability,
+                  frame_selection.picks.test_000004.chosen_probability,
+                  frame_selection.picks.test_000134.true_probability,
+                  frame_selection.picks.test_000134.chosen_probability,
+                  frame_selection.picks.test_000052.true_probability,
+                  frame_selection.picks.test_000052.chosen_probability]
     views:
       - {box: "{{frame_selection.picks.test_000004.box}}", from_sentence: 1}
       - {box: "{{frame_selection.picks.test_000134.box}}", from_sentence: 3}
@@ -71,22 +81,24 @@ scenes:
     narration:
       - "These are the {{frame_selection.decodings.iteration_1000_hungarian_wrong}} wrong picks of iteration {{frame_selection.picks.iteration}}, drawn by the selection image of the repository from the checkpoint run again on the CPU."
       - "A solid green border marks a frame chosen for its true class, a red one a frame chosen for a class it does not hold, dashed yellow a true frame left unchosen, and the heat map below gives the probability of every frame for every wanted class."
-      - "In test sequence {{frame_selection.picks.test_000004.sequence_number:words}}, the true triangle, frame {{frame_selection.picks.test_000004.true_frame}}, has a probability of {{frame_selection.picks.test_000004.true_probability:.1%}}, and the model prefers frame {{frame_selection.picks.test_000004.chosen_frame}} at {{frame_selection.picks.test_000004.chosen_probability:.1%}}: no frame looks like a triangle to it."
-      - "In sequence {{frame_selection.picks.test_000134.sequence_number}}, the same: {{frame_selection.picks.test_000134.true_probability:.1%}} for the true frame against {{frame_selection.picks.test_000134.chosen_probability:.1%}}."
-      - "In sequence {{frame_selection.picks.test_000052.sequence_number}}, the wrong choice is confident: {{frame_selection.picks.test_000052.chosen_probability:.2f}}, against {{frame_selection.picks.test_000052.true_probability:.2f}} for the true frame."
+      - "In test sequence {{frame_selection.picks.test_000004.sequence_number:words}}, the true triangle, frame {{frame_selection.picks.test_000004.true_frame}}, has a probability of {{frame_selection.picks.test_000004.true_probability:.3f}}, and the model prefers frame {{frame_selection.picks.test_000004.chosen_frame}} at {{frame_selection.picks.test_000004.chosen_probability:.3f}}: no frame looks like a triangle to it."
+      - "In sequence {{frame_selection.picks.test_000134.sequence_number}}, the same: {{frame_selection.picks.test_000134.true_probability:.3f}} for the true frame against {{frame_selection.picks.test_000134.chosen_probability:.3f}}."
+      - "In sequence {{frame_selection.picks.test_000052.sequence_number}}, the wrong choice is confident: {{frame_selection.picks.test_000052.chosen_probability:.3f}}, against {{frame_selection.picks.test_000052.true_probability:.3f}} for the true frame."
 
   - kind: image
     title: "Confidence thresholds"
     code_reference: "vision_training/evaluation/sequence/frame_selection_metrics.py · find_selection_thresholds"
     image: "figures:frame_selection/evaluation/thresholds.png"
+    # The probability of the third wrong pick with three decimals, as in the scene of the wrong picks before this one
+    exact_facts: [frame_selection.picks.test_000052.chosen_probability]
     highlights:
       - {box: "{{frame_selection.thresholds.iteration_1000_panel_box}}", sentences: [1, 2, 3]}
       - {box: "{{frame_selection.thresholds.iteration_2000_panel_box}}", sentences: [4]}
     narration:
-      - "The confidence threshold of a class is the lowest probability from which the chosen frames of the class reach the target precision, {{frame_selection.thresholds.target_precision}}, written in the class thresholds json file with the share of the true frames kept."
-      - "At iteration {{frame_selection.thresholds.iterations[0]}}, every circle and star choice is right, so their thresholds are their lowest chosen probabilities, {{frame_selection.thresholds.iteration_1000_circle_threshold:.2f}} and {{frame_selection.thresholds.iteration_1000_star_threshold:.2f}}, with a recall of one."
-      - "Triangle gets {{frame_selection.thresholds.iteration_1000_triangle_threshold:.2f}}: from there on, its choices reach {{frame_selection.thresholds.target_precision}} with the third wrong pick still among them, a recall of {{frame_selection.thresholds.iteration_1000_triangle_recall:.1%}}."
-      - "So the {{frame_selection.thresholds.iteration_1000_triangle_flagged:words}} doubtful wrong picks fall under it and are flagged low confidence, while the third, at {{frame_selection.picks.test_000052.chosen_probability:.2f}}, goes through unflagged."
+      - "The confidence threshold of a class is the lowest probability from which the chosen frames of the class reach the target precision, {{frame_selection.thresholds.target_precision:percent_label}}, written in the class thresholds json file with the share of the true frames kept."
+      - "At iteration {{frame_selection.thresholds.iterations[0]}}, every circle and star choice is right, so their thresholds are their lowest chosen probabilities, {{frame_selection.thresholds.iteration_1000_circle_threshold:.2f}} and {{frame_selection.thresholds.iteration_1000_star_threshold:.2f}}, with a recall of {{frame_selection.thresholds.iteration_1000_circle_recall:percent}}."
+      - "Triangle gets {{frame_selection.thresholds.iteration_1000_triangle_threshold:.2f}}: from there on, its choices reach {{frame_selection.thresholds.target_precision:percent_label}} with the third wrong pick still among them, a recall of {{frame_selection.thresholds.iteration_1000_triangle_recall:percent}}."
+      - "So the {{frame_selection.thresholds.iteration_1000_triangle_flagged:words}} doubtful wrong picks fall under it and are flagged low confidence, while the third, at {{frame_selection.picks.test_000052.chosen_probability:.3f}}, goes through unflagged."
       - "At iteration {{frame_selection.thresholds.iterations[1]}}, every choice is right and the thresholds become {{frame_selection.thresholds.iteration_2000_circle_threshold:.2f}}, {{frame_selection.thresholds.iteration_2000_triangle_threshold:.2f}} and {{frame_selection.thresholds.iteration_2000_star_threshold:.2f}}; a class never reaching the target precision would get a null threshold, every frame chosen for it flagged."
       - "Unlike the classifiers, the frame selection takes a single target precision and refuses a list, its deployed decoder keeping one threshold per class."
 

@@ -5,7 +5,9 @@ Python of the repository at every build: the runs compared with the main run of 
 tutorials/tutorial_sources.yaml), the trained sequence models rebuilt on the CPU from their checkpoints, the TensorBoard
 curves, predictions and console logs of the runs, the frames of the datasets copied into the figures folder so that the
 HTML scenes can show them, the frame vectors drawn as small heat squares, the composites of the evaluation images of
-the runs, and the layout files of the animated batch scenes (animations/07_sequence_classification/frame_batches.js).
+the runs, the layout files of the animated batch scenes (animations/07_sequence_classification/frame_batches.js), and
+the probability axis of the charts drawing a rate in percent and probabilities on one scale (the truncation figure of
+this series, the frame position panel of the sequence labelling series).
 """
 
 import ast
@@ -15,6 +17,7 @@ import json
 import re
 import shutil
 
+import matplotlib
 import numpy
 import torch
 
@@ -23,7 +26,8 @@ from PIL import Image, ImageDraw, ImageFont
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict, List, Optional, Tuple
 
-from tutorials.figures.figure_utilities import read_tutorial_sources, round_fact
+from tutorials.figures.figure_utilities import (POINTS_PER_PIXEL, TEXT_SECONDARY_COLOUR, compute_pixel_box,
+                                                read_tutorial_sources, round_fact)
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, NAMED_COLOURS,
                                      SANS_BOLD_FONT_PATH, SANS_FONT_PATH, TERMINAL_COLOUR, TEXT_COLOUR)
 from tutorial_builder.figure_context import find_sources_file, read_thread_count
@@ -566,3 +570,41 @@ def add_number_words(facts: Dict[str, Any]) -> Dict[str, Any]:
     if repeated_names:
         raise ValueError(f"The word facts {repeated_names} would replace facts of the same name.")
     return {**facts, **word_facts}
+
+
+def add_probability_axis(figure: matplotlib.figure.Figure, axes: matplotlib.axes.Axes, y_label: str,
+                         margin: int) -> Tuple[matplotlib.axes.Axes, List[int]]:
+    """
+    Adds a right vertical axis to a chart panel whose left axis writes a rate as the percentages of the reports of the
+    repository ("20 %") and which also draws probabilities on the same 0 to 1 scale (the mean probability of the true
+    class next to the accuracy of the truncation figure, the mean probability of no_change next to its true share in
+    the sequence labelling series): the right axis writes that scale with the decimals every probability keeps, so that
+    every value is read in the form of its kind. It is called once the panel is drawn, and also gives the box of the
+    panel with both axes, for the highlights of the storyboards.
+
+    Args:
+        figure (matplotlib.figure.Figure): The figure of the panel, drawn to measure the box.
+        axes (matplotlib.axes.Axes): The panel, its rate axis on the left.
+        y_label (str): The name of the probability axis.
+        margin (int): The pixels added on every side of the box.
+
+    Returns:
+        Tuple[matplotlib.axes.Axes, List[int]]: The probability axis, and the box of the panel with its title and the
+            tick labels of both axes, in pixels from the top left corner of the figure.
+    """
+    # Same limits as the rate axis, the ticks of the reference charts, no line of its own
+    probability_axes = axes.twinx()
+    probability_axes.set_ylim(axes.get_ylim())
+    for spine in probability_axes.spines.values():
+        spine.set_visible(False)
+    probability_axes.tick_params(axis="y", colors=TEXT_SECONDARY_COLOUR, labelsize=18 * POINTS_PER_PIXEL, length=0,
+                                 pad=8)
+    probability_axes.set_ylabel(ylabel=y_label, color=TEXT_SECONDARY_COLOUR, fontsize=19 * POINTS_PER_PIXEL,
+                                labelpad=10)
+
+    # Box of the panel joining the boxes of both axes
+    figure.canvas.draw()
+    rate_box = compute_pixel_box(figure=figure, axes=axes, with_labels=True, margin=margin)
+    probability_box = compute_pixel_box(figure=figure, axes=probability_axes, with_labels=True, margin=margin)
+    return probability_axes, [min(rate_box[0], probability_box[0]), min(rate_box[1], probability_box[1]),
+                              max(rate_box[2], probability_box[2]), max(rate_box[3], probability_box[3])]

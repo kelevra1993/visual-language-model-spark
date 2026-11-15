@@ -315,7 +315,7 @@ scenes:
       - {type: text, position: [410, 650], text: "printed at every launch", font: diagram_small, colour: dim, anchor: mm}
     narration:
       - "Every launch prints the parameters of every part of the model, here {{foundations.listings.backbone_parameter_count:,}} in the backbone."
-      - "The weights of a layer grow with the product of its input and output channels, so {{foundations.listings.last_block_parameter_percent}} percent of the backbone sits in its last block."
+      - "The weights of a layer grow with the product of its input and output channels, so {{foundations.listings.last_block_parameter_share:percent}} of the backbone sits in its last block."
       - "The head of every task adds its own, {{foundations.listings.head_parameter_count:,}} parameters for the classification head of this run, which reads the flattened map: the classification series comes back to it."
 
   - kind: yaml

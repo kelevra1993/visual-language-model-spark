@@ -13,7 +13,8 @@ later frames only (whether the scores rank the frames by their content or by the
 metric takes for a model predicting no_change on every test frame (the signature of a degenerate solution). Also the
 segment metrics of the example of the tasks reference (documentation/reference/tasks_reference.md, formerly in the
 README) computed by the code of the repository, and the shapes, residual blocks, head layers and parameter counts of
-the trained model run on the CPU on a real padded batch.
+the trained model run on the CPU on a real padded batch. The shares of the frame position panel are written as the
+percentages of the reports of the repository (ticks "20 %"), the probabilities keeping their decimals on its right axis.
 """
 
 import cv2
@@ -27,7 +28,7 @@ import pandas
 import torch
 
 from matplotlib import pyplot
-from matplotlib.ticker import NullFormatter
+from matplotlib.ticker import FuncFormatter, NullFormatter
 from pathlib import Path
 from PIL import Image
 from scipy.stats import rankdata
@@ -37,6 +38,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, round_fact, register_fonts,
                                                 save_figure, style_chart_panel, write_reused_facts)
+from tutorials.figures.sequence_classification.sequence_figure_utilities import add_probability_axis
 from tutorials.figures.sequence_labelling.plan_figures import make_plan_figures
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
                                                                      count_model_parameters, describe_run_source,
@@ -45,6 +47,7 @@ from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_
                                                                      read_run_reused_facts, read_run_sections,
                                                                      write_listing)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.evaluation.report_formatting import format_percentage_tick
 from vision_training.evaluation.sequence.segment_metrics import compute_segment_metrics
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.trainers.checkpointing import get_checkpoint_path
@@ -384,7 +387,8 @@ def draw_no_change_probabilities(predictions: pandas.DataFrame, frame_positions:
     """
     Draws the probability of no_change given by a run to every labelled test frame: its histogram on the first frames
     and on the later frames (left), and its mean at every frame position next to the true share of no_change at that
-    position (right), and gives the boxes of the two panels.
+    position (right, the share in percent on the left axis, the probability with decimals on the right axis), and
+    gives the boxes of the two panels.
 
     Args:
         predictions (pandas.DataFrame): The rows of predictions.csv.
@@ -403,7 +407,8 @@ def draw_no_change_probabilities(predictions: pandas.DataFrame, frame_positions:
         CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH,
         gridspec_kw={"width_ratios": [1.3, 1.0]})
     figure.patch.set_facecolor(SURFACE_COLOUR)
-    figure.subplots_adjust(left=0.075, right=0.985, top=0.80, bottom=0.13, wspace=0.2)
+    # Margins leaving room for the probability axis on the right of the position panel
+    figure.subplots_adjust(left=0.075, right=0.94, top=0.80, bottom=0.13, wspace=0.2)
     figure.text(x=0.012, y=0.955, s=header, color=TEXT_SECONDARY_COLOUR, fontsize=16 * POINTS_PER_PIXEL,
                 va="center", family=MONOSPACE_FONT_FAMILY)
 
@@ -433,14 +438,18 @@ def draw_no_change_probabilities(predictions: pandas.DataFrame, frame_positions:
     position_axes.plot(positions, mean_probabilities, color=SERIES_COLOURS[0], linewidth=3 * POINTS_PER_PIXEL,
                        marker="o", markersize=7 * POINTS_PER_PIXEL, label="mean probability_no_change")
     style_chart_panel(axes=position_axes, title="By frame position", x_label="Frame position",
-                      y_label="Probability or share")
+                      y_label="Share of no_change")
     position_axes.set_ylim(bottom=0.0, top=1.08)
     position_axes.set_xticks(ticks=positions)
+    # Share ticks in percent on the left, the same scale with the decimals of the probability on the right
+    position_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     position_axes.legend(loc="upper right", frameon=False, labelcolor=TEXT_PRIMARY_COLOUR,
                          fontsize=18 * POINTS_PER_PIXEL)
+    _, position_panel_box = add_probability_axis(figure=figure, axes=position_axes, y_label="probability_no_change",
+                                                 margin=0)
     save_figure(figure=figure, output_path=output_path)
     facts = {"histogram_panel_box": compute_pixel_box(figure=figure, axes=histogram_axes, with_labels=True, margin=0),
-             "position_panel_box": compute_pixel_box(figure=figure, axes=position_axes, with_labels=True, margin=0),
+             "position_panel_box": position_panel_box,
              "mean_by_position": [round_fact(value=value) for value in mean_probabilities],
              "true_share_by_position": [round_fact(value=value) for value in true_shares]}
     pyplot.close(fig=figure)

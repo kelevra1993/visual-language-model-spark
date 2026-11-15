@@ -7,7 +7,8 @@ detections reaching the deployment threshold (confusion_matrix.csv) with its bac
 column of missed objects, the listings of the tables of the report of that checkpoint (methods, object sizes, mean
 average recall), and the proposal recall of every block (proposal_recall.csv). The values the narration quotes are
 read from the same files and given as facts, the rates of the report read back between 0 and 1 whether it wrote them as
-percentages ("78.64 %") or with decimals ("0.7864").
+percentages ("78.64 %") or with decimals ("0.7864"); the figures and bar labels write the rates as the percentages of
+the reports of the repository (the target precision "99 %"), the score thresholds keeping their decimals.
 """
 
 import csv
@@ -20,6 +21,7 @@ import numpy
 from matplotlib import pyplot
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Rectangle
+from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -29,8 +31,10 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL,
 from tutorials.figures.object_detection.detection_sources import (extract_table, parse_table_rows,
                                                                   read_results_block, write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
+from vision_training.evaluation.classification.class_metrics_report import write_target_precision
 from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
-from vision_training.evaluation.report_formatting import PERCENT_DECIMALS, PERCENT_SIGN
+from vision_training.evaluation.report_formatting import (PERCENT_DECIMALS, PERCENT_SIGN, format_percentage,
+                                                          format_percentage_tick)
 
 # Tables of the report of a checkpoint shown as listings, with the names of their files
 REPORT_TABLES = [("Mean Average Precision", "results_methods.txt"),
@@ -43,6 +47,10 @@ RATE_DECIMALS = PERCENT_DECIMALS + 2
 # Size of the charts: the card of an image scene
 CHART_WIDTH = 1720
 CHART_HEIGHT = 700
+
+# Positions of the threshold and recall columns beyond the average precision bars, in units of the AP axis, far enough
+# right that the percentage of the longest bar ("98.05 %") ends before the threshold column
+THRESHOLD_COLUMN_POSITIONS = [1.08, 1.26]
 
 # Colours of the confusion matrix: the empty cells, the cells holding the whole row, and the outline of the
 # background row and column
@@ -75,7 +83,8 @@ def draw_class_average_precision_figure(evaluation_folder: Path, output_path: Pa
     """
     Draws the AP@0.5 of every class, worst first, as horizontal bars, with the AP@0.75 of the class as a mark on its
     bar, and on the right the score threshold of the class at the target precision with the recall it keeps, read
-    from class_thresholds.json, a dash for a class whose detections never reach the precision.
+    from class_thresholds.json, a dash for a class whose detections never reach the precision; the average precisions,
+    the recall and the target precision are written as percentages, the score thresholds with their decimals.
 
     Args:
         evaluation_folder (Path): The evaluation folder of the last checkpoint.
@@ -102,22 +111,27 @@ def draw_class_average_precision_figure(evaluation_folder: Path, output_path: Pa
     style_chart_panel(axes=axes, title="Average precision of every class, iteration "
                                        f"{int(evaluation_folder.name.split('_')[-1]):,}", x_label="AP", y_label=None)
     axes.set_xlim(left=0, right=1.0)
+    axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     axes.set_ylim(bottom=-0.6, top=len(rows) - 0.4)
     axes.grid(visible=False, axis="y")
     axes.legend(loc="upper right", frameon=False, labelcolor=TEXT_SECONDARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
 
-    # Value of every bar and, beyond the chart, the threshold of the class at the target precision and its recall
+    # Value of every bar and, beyond the chart, the threshold of the class at the target precision and its recall,
+    # the target precision written like the headers of the report ("P99 %")
     target_precision = thresholds["target_precision"]
-    for column_position, column_title in [(1.04, f"threshold @ P{target_precision}"), (1.2, "recall")]:
+    target_precision_text = write_target_precision(target_precision=target_precision, in_percent=True)
+    for column_position, column_title in zip(THRESHOLD_COLUMN_POSITIONS,
+                                             [f"threshold @ P{target_precision_text}", "recall"]):
         axes.text(x=column_position, y=len(rows) - 0.1, s=column_title, transform=axes.transData,
                   color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL, va="bottom", ha="left", clip_on=False)
     for position, row in zip(positions, rows):
-        axes.text(x=row["average_precision_50"] + 0.008, y=position, s=f"{row['average_precision_50']:.3f}",
-                  color=TEXT_SECONDARY_COLOUR, fontsize=15 * POINTS_PER_PIXEL, va="center", ha="left")
+        axes.text(x=row["average_precision_50"] + 0.008, y=position,
+                  s=format_percentage(value=row["average_precision_50"]), color=TEXT_SECONDARY_COLOUR,
+                  fontsize=15 * POINTS_PER_PIXEL, va="center", ha="left")
         class_threshold = thresholds["classes"][row["class"]]
         column_texts = (["—", "—"] if class_threshold is None else
-                        [f"{class_threshold['threshold']:.3f}", f"{class_threshold['recall']:.3f}"])
-        for column_position, column_text in zip([1.04, 1.2], column_texts):
+                        [f"{class_threshold['threshold']:.3f}", format_percentage(value=class_threshold["recall"])])
+        for column_position, column_text in zip(THRESHOLD_COLUMN_POSITIONS, column_texts):
             axes.text(x=column_position, y=position, s=column_text, color=TEXT_SECONDARY_COLOUR,
                       fontsize=15 * POINTS_PER_PIXEL, va="center", ha="left", clip_on=False, family="Hack")
     figure.canvas.draw()
@@ -268,7 +282,7 @@ def convert_report_value(value: str) -> Any:
     return float(value)
 
 
-def write_report_listings(run_folder: Path, iteration: int, output_folder: Path) -> Dict[str, Any]:
+def write_report_listings(results_path: Path, iteration: int, output_folder: Path) -> Dict[str, Any]:
     """
     Writes the tables of the report of one checkpoint (Results.txt) shown by the listings of the evaluation scene,
     and gives their values as facts: the mAP of every method at every IoU with the number of methods, the objects and
@@ -276,7 +290,8 @@ def write_report_listings(run_folder: Path, iteration: int, output_folder: Path)
     average.
 
     Args:
-        run_folder (Path): The run folder.
+        results_path (Path): The Results.txt holding the report, that of the evaluation made again with the current
+            code (EVALUATION_FOLDER_NAME of detection_sources.py), whose tables write the rates as percentages.
         iteration (int): The evaluated checkpoint.
         output_folder (Path): The listings folder.
 
@@ -285,7 +300,7 @@ def write_report_listings(run_folder: Path, iteration: int, output_folder: Path)
     """
     facts = {}
     for averaged_weights, weights_name in [(False, "trained"), (True, "averaged")]:
-        block_lines = read_results_block(results_path=run_folder / "Results.txt", iteration=iteration,
+        block_lines = read_results_block(results_path=results_path, iteration=iteration,
                                          averaged_weights=averaged_weights)
         facts[f"report.{weights_name}.header"] = block_lines[0].split(" ─")[0]
         for title, file_name in REPORT_TABLES:
@@ -312,7 +327,8 @@ def read_proposal_recall(evaluation_folder: Path) -> Dict[str, Any]:
     """
     Reads the proposal recall of one checkpoint (proposal_recall.csv): the share of the test objects overlapped by a
     proposal by 0.5 and 0.7, for all the objects, every size and the proposals of every block alone, with the mean
-    number of valid proposals per image of every block, the values of the bars of the proposal recall scene.
+    number of valid proposals per image of every block, the values of the bars of the proposal recall scene, the
+    recall labels written as percentages.
 
     Args:
         evaluation_folder (Path): The evaluation folder of the checkpoint.
@@ -333,11 +349,12 @@ def read_proposal_recall(evaluation_folder: Path) -> Dict[str, Any]:
     facts["proposal_recall.proposals_per_block_labels"] = [f"{float(rows[block]['proposals_per_image']):.1f}"
                                                            for block in blocks]
     facts["proposal_recall.recall_per_block"] = [round_fact(value=float(rows[block]["recall_50"])) for block in blocks]
-    facts["proposal_recall.recall_per_block_labels"] = [f"{float(rows[block]['recall_50']):.3f}" for block in blocks]
+    facts["proposal_recall.recall_per_block_labels"] = [format_percentage(value=float(rows[block]["recall_50"]))
+                                                        for block in blocks]
     facts["proposal_recall.recall_per_size"] = [round_fact(value=float(rows[group]["recall_50"])) for group in
                                                 ["small", "medium", "large", "all"]]
-    facts["proposal_recall.recall_per_size_labels"] = [f"{float(rows[group]['recall_50']):.3f}" for group in
-                                                       ["small", "medium", "large", "all"]]
+    facts["proposal_recall.recall_per_size_labels"] = [format_percentage(value=float(rows[group]["recall_50"]))
+                                                       for group in ["small", "medium", "large", "all"]]
     return facts
 
 
