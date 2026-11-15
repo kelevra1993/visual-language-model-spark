@@ -75,7 +75,7 @@ So that the order and the cost of the benchmark are seen at once, the table list
 | 0 | Reference and preflight | the starting values | none | done, Test_EMA mask mAP 0.7884 at 15,000 (launch gap 0.0005) |
 | 0b | Mask threshold and final NMS, evaluation only | `mask_threshold` 0.4, 0.5, 0.6; greedy NMS against DIoU-NMS 0.6 | none | done, 0.5 and DIoU-NMS 0.6 kept (0.4 -0.0095, 0.6 -0.0170, greedy NMS +0.0001, a tie) |
 | 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, with `mask_resolution` twice the pool (28, 44); the pool of 18 dropped by the user on 2026-11-14 | none | done, pool 14 kept (pool 22 -0.0122, beyond the launch gaps) |
-| 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | running, resolution 56 at pool 14 (run_5) launched 2026-11-14 17:55 |
+| 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | done, resolution 28 kept (56 -0.0053, beyond the launch gaps) |
 | 3 | Mask head size | `convolutions` `[3, 32]`, `[4, 64]` | none | planned |
 | 4 | Upsampling | `transposed`, `bilinear` | none | planned |
 | 5 | One mask head shared by the levels (`suggestions.md` item 7) | per level, shared | `MaskHead.shared` | planned |
@@ -167,6 +167,17 @@ The pool of 14 is kept: the pool of 22 loses 0.0122, beyond the launch gaps (0.0
 ### Stage 2: Mask Resolution
 
 With the pool kept by stage 1, a second doubling (`mask_resolution` four times the pool, 56 for 14) gives the large objects finer borders: a 28 x 28 mask pasted on an object of 800 pixels is stretched about 29 times. The pooled features stay the same, so a gain would show on the large objects and at the high IoU thresholds (mask mAP@0.75 to @0.95). The logits take four times the memory of one doubling (1.8 GB in float32 at 56 x 56 for 4096 proposals, 4.4 GB at 88 x 88 after a pool of 22), measured before the pair.
+
+Once both launches had ended, on 2026-11-15 at 08:35 (run_5 and run_6, launched on 2026-11-14 at 17:55, 14 hours 40 minutes, both at 15,000), the resolution of 56 read, against the reference:
+
+| Pool, mask resolution | Test_EMA mask mAP@[0.5:0.95] at 15,000 | Gap | Trained weights | Mask mAP@0.5 / @0.75 / @0.95 | Small / medium / large | Box mAP@[0.5:0.95] / @0.95 |
+|---|---|---|---|---|---|---|
+| 14, 28 (run_1, run_2) | 0.7884 (0.7881, 0.7886) | reference | 0.7414 | 0.9559 / 0.9027 / 0.1500 | 0.7166 / 0.8263 / 0.8070 | 0.8371 / 0.1910 |
+| 14, 56 (run_5, run_6) | 0.7831 (0.7821, 0.7841) | -0.0053 | 0.7197 | 0.9541 / 0.8981 / 0.1452 | 0.7214 / 0.8196 / 0.7975 | 0.8305 / 0.1701 |
+
+The resolution of 28 is kept: the resolution of 56 loses 0.0053, beyond the launch gaps (0.0005 and 0.0020), and was behind from iteration 2000 on (-0.0064 at 5000 and 9000, -0.0053 at 13,000), with the trained weights by 0.0218 at 15,000 (a noisier gap, between +0.0123 and -0.0511 over the evaluations) and on the boxes by 0.0065 (box mAP@0.95 -0.0209). It loses most on the large objects (-0.0095), the objects the second doubling was meant to serve, and at mask mAP@0.75 and @0.95 (-0.0046 and -0.0048), the small objects alone gaining within their launch gaps (+0.0048, launch gaps 0.0131 and 0.0077). As with the pool of 22, a finer output does not help while the features stay those of a few cells of the level map, so `run-1.yaml` is unchanged for stage 3. Each launch held about 18.1 GB of GPU memory at the start of its training (18,093 and 18,029 MiB), as much as the reference, and the training loader worker 4.2 to 4.4 GB of private memory at iterations 3500 and 9000, the machine keeping 46 to 47 GB free.
+
+![Instance segmentation, stage 2: Mask resolution](figures/instance_segmentation/stage_2_mask_resolution.png)
 
 ### Stage 3: Mask Head Size
 
