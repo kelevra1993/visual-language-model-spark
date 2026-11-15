@@ -68,7 +68,7 @@ scenes:
       - "Here is the star of the sample images, a test image, with its nearest images among the {{self_supervised.knn.reference_count:,}} reference images of the run, encoded by the last checkpoint: every dot is a training image, farther from the centre as its cosine similarity to the star falls."
       - "Its {{self_supervised.run.number_neighbours}} nearest images fall inside the ring, from a similarity of {{self_supervised.knn.query_nearest_similarity_last:.2f}} down to {{self_supervised.knn.query_last_neighbour_similarity_last:.2f}}, and {{self_supervised.knn.query_same_class_neighbours_last}} of them are stars."
       - "Each weighs the exponential of its similarity over {{self_supervised.knn.temperature}}, so the nearest counts {{self_supervised.knn.weight_ratio:.1f}} times the farthest of them."
-      - "The vote goes to {{self_supervised.knn.query_prediction_last}}, the class of the largest total weight; the k-NN accuracy is the share of the labelled test images whose vote gives their own class."
+      - "The vote goes to the {{self_supervised.knn.query_prediction_last}}, the class of the largest total weight, right or wrong; the k-NN accuracy is the share of the labelled test images whose vote gives their own class."
 
   - kind: image
     title: "The test metrics of the run"
@@ -83,7 +83,7 @@ scenes:
     narration:
       - "Over the evaluations of the whole test split, the k-NN accuracy goes from {{self_supervised.test.knn_accuracy_first:.1%}} to {{self_supervised.test.knn_accuracy_last:.1%}}, {{self_supervised.test.knn_accuracy_last_over_chance:.1f}} times the chance of one in {{self_supervised.test.class_count}}."
       - "The effective rank goes from {{self_supervised.test.effective_rank_first:.0f}} to {{self_supervised.test.effective_rank_last:.0f}} of the {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} directions of the representation."
-      - "The spread of the representations goes from {{self_supervised.test.representation_standard_deviation_first:.2f}} to {{self_supervised.test.representation_standard_deviation_last:.2f}}: never negative after the ReLU and the pooling, the representations cover only part of the sphere, so read the spread as a trend next to the other two, a collapse driving it towards zero."
+      - "The spread of the representations goes from {{self_supervised.test.representation_standard_deviation_first:.2f}} to {{self_supervised.test.representation_standard_deviation_last:.2f}}: never negative after the ReLU and the pooling, the representations cover only part of the sphere, so read the spread next to the other two: a collapse drives it towards zero while the effective rank falls with it."
 
   - kind: code
     title: "The effective rank"
@@ -123,7 +123,7 @@ scenes:
     image: "figures:self_supervised/representations/neighbour_mosaic.png"
     narration:
       - "The {{constant:tutorials/figures/self_supervised/representation_figures.py#MOSAIC_NEIGHBOUR_COUNT:words}} nearest reference images of the star, at the first and at the last evaluation, among the same {{self_supervised.knn.reference_count:,}} training images."
-      - "The stars among them go from {{self_supervised.knn.mosaic_same_class_neighbours_first:words}} to {{self_supervised.knn.mosaic_same_class_neighbours_last:words}}; read the colours of the others too, a neighbour sharing the colour of the star rather than its shape being the colour cue of the previous chapter."
+      - "Stars among them: {{self_supervised.knn.mosaic_same_class_neighbours_first:words}} at the first evaluation, {{self_supervised.knn.mosaic_same_class_neighbours_last:words}} at the last; read the colours of the others too, a neighbour sharing the colour of the star rather than its shape being the colour cue of the previous chapter."
 
   - kind: html
     page: diagram

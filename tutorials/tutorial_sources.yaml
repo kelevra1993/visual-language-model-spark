@@ -81,7 +81,7 @@ runs:
     trained_with: "vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml on 256 pixel frames, number_iterations 2000 (checkpoint and evaluation every 1000, intermediate checkpoint every 500), MLflow tracking on, the augmentation probabilities of 2026-10-23 (0.3 for most types; see the training_configuration.yaml of the run)"
   self_supervised:
     folder: tutorials/SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2
-    trained_with: "tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml (SimCLR on the 9-class synthetic shapes, 256 px, batch 128, 2000 iterations), first trained on 2026-10-24 and deleted on 2026-11-11 to be trained again with the current code: set the date of the new training here"
+    trained_with: "tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml (SimCLR on the 9-class synthetic shapes, 256 px, batch 128, 2000 iterations, a checkpoint evaluated every 500 against 50 reference training images per class), first trained on 2026-10-24, deleted on 2026-11-11, trained again with the launch file on 2026-11-15 into the experiments folder, its console output redirected to tutorials/self_supervised_tutorial.log"
 
 # Files of the repository read by the figure scripts
 repository_files:
