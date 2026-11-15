@@ -29,11 +29,11 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 register_fonts, round_fact, save_figure,
                                                 style_chart_panel, write_reused_facts)
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
-                                                                     convert_frame_to_image, draw_captioned_frames,
-                                                                     draw_figure_header, format_sequence_entry,
-                                                                     load_thumbnail_fonts, read_complete_reused_facts,
-                                                                     read_main_block_settings, read_run_sections,
-                                                                     write_listing)
+                                                                     convert_frame_to_image, describe_run_source,
+                                                                     draw_captioned_frames, draw_figure_header,
+                                                                     format_sequence_entry, load_thumbnail_fonts,
+                                                                     read_main_block_settings, read_run_reused_facts,
+                                                                     read_run_sections, write_listing)
 from tutorial_builder.layout import ACCENT_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
 from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
@@ -94,7 +94,8 @@ def draw_sequence_strip(dataset: Any, output_path: Path) -> Dict[str, Any]:
                                                 canvas_size=(CHART_WIDTH, CHART_HEIGHT), top=110,
                                                 outlines=[None] * len(frames), fonts=fonts)
     # Side of the frames as the data set stores them, before the resize of the run
-    strip_sequence = next(sequence for sequence in dataset.sequences if sequence["sequence_name"] == STRIP_SEQUENCE_NAME)
+    strip_sequence = next(sequence for sequence in dataset.sequences
+                          if sequence["sequence_name"] == STRIP_SEQUENCE_NAME)
     first_frame_path = Path(dataset.data_directory) / strip_sequence["frames"][0]
     with Image.open(fp=first_frame_path) as first_frame:
         frame_size = first_frame.size[0]
@@ -380,8 +381,9 @@ def read_script_facts() -> Dict[str, Any]:
 def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes the data figures and listings of the sequence labelling series and gives their facts, the class balance and
-    the listings (which read the whole training labels.json) being reused from the previous build unless forced or
-    unless that build wrote fewer facts than the storyboards quote.
+    the listings (which read the whole training labels.json) being reused from the previous build unless forced,
+    unless that build wrote fewer facts than the storyboards quote, or unless it read another run or files changed
+    since (read_run_reused_facts).
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -397,22 +399,30 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
     facts.update(draw_padded_batch(dataset=test_dataset, output_path=dataset_folder / "padded_batch.png"))
     facts.update(read_script_facts())
 
-    # Class balance and listings, from the training labels.json of 250,000 sequences, reused when already made
+    # Image side the run resizes its frames to, read at every build from its configuration
+    experiment_configuration, model_configuration = read_run_sections(run_folder=run_folder)
+    facts["dataset.image_size"] = model_configuration["Data"]["image_settings"]["size"]
+
+    # Class balance and listings, from the training labels.json of 250,000 sequences, reused when made from the same
+    # run and the same unchanged labels file, record of the data and label mapping
+    training_labels_path = Path(experiment_configuration["train_data_folder"]) / "labels.json"
+    mapping_path = Path(model_configuration["Data"]["label_mapping"]["mapping_file_path"])
+    source_paths = [training_labels_path, run_folder / "data.json", mapping_path]
     balance_path = dataset_folder / "class_balance.png"
     listings_folder = output_folder / "listings"
     reused_facts_path = dataset_folder / "class_balance_facts.json"
-    reused_facts = read_complete_reused_facts(facts_path=reused_facts_path, required_paths=[
-        listings_folder / "labels_entry.txt", listings_folder / "label_mapping.txt"],
-        required_fact_names=REQUIRED_BALANCE_FACTS, force=force)
+    reused_facts = read_run_reused_facts(facts_path=reused_facts_path, run_folder=run_folder,
+                                         source_name=str(training_labels_path), source_paths=source_paths,
+                                         fact_prefix="dataset", force=force, required_fact_names=REQUIRED_BALANCE_FACTS,
+                                         required_paths=[listings_folder / "labels_entry.txt",
+                                                         listings_folder / "label_mapping.txt"])
     if reused_facts is not None:
         facts.update(reused_facts)
         return facts
-    experiment_configuration, model_configuration = read_run_sections(run_folder=run_folder)
     data_record = json.loads((run_folder / "data.json").read_text(encoding="utf-8"))
     class_frames = [record["frames"]["train"] for record in sorted(data_record["classes"],
                                                                      key=operator.itemgetter("class_index"))]
-    training_labels = json.loads((Path(experiment_configuration["train_data_folder"]) / "labels.json").read_text(
-        encoding="utf-8"))
+    training_labels = json.loads(training_labels_path.read_text(encoding="utf-8"))
     no_change_category = [category["id"] for category in training_labels["categories"]
                           if category["name"] == NO_CHANGE_CLASS_NAME][0]
     position_shares = compute_position_shares(training_labels=training_labels, no_change_category=no_change_category)
@@ -435,8 +445,7 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
                                                                 position_shares["no_change_shares"]],
                           "dataset.balanced_weight_no_change": round_fact(value=balanced_weights[0]),
                           "dataset.balanced_weight_change_minimum": round_fact(value=min(balanced_weights[1:])),
-                          "dataset.balanced_weight_change_maximum": round_fact(value=max(balanced_weights[1:])),
-                          "dataset.image_size": model_configuration["Data"]["image_settings"]["size"]})
+                          "dataset.balanced_weight_change_maximum": round_fact(value=max(balanced_weights[1:]))})
 
     # Lengths of the training sequences, the change and shape classes, and the largest share of a change class
     sequence_lengths = [len(sequence["frame_category_ids"]) for sequence in training_labels["sequences"]]
@@ -449,9 +458,12 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
                           "dataset.change_class_maximum_share": round_fact(value=max(class_frames[1:]) /
                                                                            sum(class_frames))})
     balance_facts.update(compute_prior_facts(class_frames=class_frames, sequence_count=position_shares["sequences"]))
-    balance_facts.update(write_label_listings(
-        training_labels=training_labels, mapping_path=Path(model_configuration["Data"]["label_mapping"][
-            "mapping_file_path"]), listings_folder=listings_folder))
+    balance_facts.update(write_label_listings(training_labels=training_labels, mapping_path=mapping_path,
+                                              listings_folder=listings_folder))
+
+    # The run and the files the facts were read from, with their fingerprint, for the next reuse
+    balance_facts.update(describe_run_source(run_folder=run_folder, source_name=str(training_labels_path),
+                                             source_paths=source_paths, fact_prefix="dataset"))
     write_reused_facts(facts_path=reused_facts_path, figure_paths=[balance_path], facts=balance_facts)
     facts.update(balance_facts)
     return facts

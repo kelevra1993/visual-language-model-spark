@@ -215,7 +215,8 @@ def read_results_block(results_path: Path, iteration: int, averaged_weights: boo
     """
     Reads the report of one evaluated checkpoint from the Results.txt of a run: the lines from its header
     ("Iteration <n> · ... Test Images · ...", with "EMA Weights" for the moving average of the weights) to the next
-    header, as the trainer printed them.
+    header, as the trainer printed them. The reports are appended to Results.txt, so the last block of the iteration
+    and weights is read, that of the latest evaluation when the checkpoint was evaluated again.
 
     Args:
         results_path (Path): The Results.txt of the run.
@@ -231,7 +232,9 @@ def read_results_block(results_path: Path, iteration: int, averaged_weights: boo
     lines = results_path.read_text(encoding="utf-8").splitlines()
     header_indices = [line_index for line_index, line in enumerate(lines) if re.match(pattern=r"^Iteration \d+ · ",
                                                                                          string=line)]
-    for position, header_index in enumerate(header_indices):
+
+    # The headers searched from the end of the file, the first match being the latest report of the checkpoint
+    for position, header_index in reversed(list(enumerate(header_indices))):
         header = lines[header_index]
         if header.startswith(f"Iteration {iteration} · ") and (("EMA Weights" in header) == averaged_weights):
             end_index = header_indices[position + 1] if position + 1 < len(header_indices) else len(lines)

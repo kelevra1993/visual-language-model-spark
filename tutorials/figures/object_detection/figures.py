@@ -136,8 +136,9 @@ def find_run_iterations(run_configuration: Dict[str, Any]) -> Dict[str, Any]:
         Dict[str, Any]: The 'checkpoint_iteration', the 'sample_iterations' and the 'console_iterations'.
 
     Raises:
-        ValueError: If a sample iteration is not an evaluated one (a multiple of weight_saving_iterations), or the run
-            prints no console summary.
+        ValueError: If a sample iteration is not an evaluated one (a multiple of weight_saving_iterations), if two
+            sample iterations are the same (a run of fewer than three evaluations), or the run prints no console
+            summary.
     """
     # Iterations of the run, its evaluations every weight_saving_iterations
     experiment_configuration = run_configuration["ExperimentConfiguration"]
@@ -147,6 +148,9 @@ def find_run_iterations(run_configuration: Dict[str, Any]) -> Dict[str, Any]:
     if any(iteration % evaluation_interval != 0 for iteration in sample_iterations):
         raise ValueError(f"The sample iterations {sample_iterations} of the DET run are not all evaluated ones, "
                          f"multiples of weight_saving_iterations {evaluation_interval}.")
+    if len(set(sample_iterations)) != len(sample_iterations):
+        raise ValueError(f"The sample iterations {sample_iterations} of the DET run are not three different "
+                         f"evaluations: the scenes compare the first evaluation, the middle of the run and its end.")
 
     # Console summaries printed every information_dump iterations
     information_dump = experiment_configuration["information_dump"]
@@ -172,9 +176,12 @@ def describe_iteration_aliases(facts: Dict[str, Any], iterations: Dict[str, Any]
         Dict[str, Any]: The facts samples.metrics, samples.right_detections, metrics.<metric>.test_last and
             metrics.<metric>.test_ema_last.
     """
+    # Facts of the sample images as lists in the order of the sample iterations
     sample_iterations = iterations["sample_iterations"]
     aliases = {"samples.metrics": [facts[f"samples.metric_{iteration}"] for iteration in sample_iterations],
                "samples.right_detections": [facts[f"outcomes.{iteration}.right"] for iteration in sample_iterations]}
+
+    # Every metric of the trained and of the averaged weights at the last checkpoint
     for _, _, short_name in METRIC_PANELS:
         for folder in ["test", "test_ema"]:
             aliases[f"metrics.{short_name}.{folder}_last"] = facts[
@@ -185,7 +192,7 @@ def describe_iteration_aliases(facts: Dict[str, Any], iterations: Dict[str, Any]
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes every figure of the object detection series into its output folder and gives their facts, the checkpoint
-    inference being reused from the previous build unless forced.
+    inference being reused from the previous build unless forced or unless its checkpoint file changed.
 
     Args:
         output_folder (Path): The figures folder of the series in the cache of the build.
@@ -245,8 +252,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_proposal_selection_facts(experiments_folder=experiments_folder),
         describe_box_loss_beta(), run_settings,
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),
-         "run.checkpoint_iteration": checkpoint_iteration,
-         "samples.iterations": iterations["sample_iterations"], "console.iterations": iterations["console_iterations"]}])
+         "run.checkpoint_iteration": checkpoint_iteration, "samples.iterations": iterations["sample_iterations"],
+         "console.iterations": iterations["console_iterations"]}])
 
     # Facts named by an iteration given again under names that hold none
     return merge_facts(fact_groups=[facts, describe_iteration_aliases(facts=facts, iterations=iterations)])
