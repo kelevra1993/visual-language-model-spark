@@ -21,8 +21,8 @@ runs:
       - readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.0001
     trained_with: "the classification run with learning rates of 0.001, 0.0005 and 0.0001, told apart by run_name_suffix"
   object_detection:
-    folder: readme_screenshots/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC20
-    trained_with: "vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml of 2026-10-23 (ExperimentConfiguration.learning_rate 2e-4, RegionProposal.background_iou_threshold.min 0.0, Neck.type none, RegionProposal.proposal_selection joint, Detector.nms_criterion iou) on the instance segmentation synthetic dataset, resumed from 2000 to 5000 iterations"
+    folder: tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20
+    trained_with: "tutorials/run_configurations/object_detection_synthetic_shapes_tutorial.yaml (vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml as shipped, experiment_folder ~/Data/tutorial_runs/tutorials) on the instance segmentation synthetic dataset, 2000 iterations, trained on 2026-11-15 on a GPU shared with two other trainings (its throughput is not that of a lone run), its console output saved as tutorials/object_detection.log"
   # Stage 7 of the detection benchmark, read by tutorials/figures/object_detection/proposal_selection.py: the two
   # launches of each proposal selection and the inference-only preview of the per-level selection on run_9, copied from
   # hyperparameter_experiments/ of the repository into hyperparameter_experiments/ of the experiments folder of the build
