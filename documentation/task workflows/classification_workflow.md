@@ -1376,7 +1376,7 @@ classification_loss   2.2124 (scalar torch.float32)
 ```
 
 ### Step 3.15 — `Backbone.forward()`
-The images first go through the `InputNormalizer`, which maps the pixels to [-0.5, 0.5] (`input_normalization`) and/or standardizes each image (`per_sample_normalization`). Then they go through every `ConvolutionBlock`: the height and width are halved by each pooling while the channels are set by the block. It returns the final feature map and a dictionary of intermediate maps, which only the detector and the segmentation decoder use.
+The images first go through the `InputNormalizer`, which maps the pixels to [-0.5, 0.5] (`input_normalization`) and/or standardizes each image (`per_sample_normalization`). Then they go through every `ConvolutionBlock`: the height and width are halved by each pooling while the channels are set by the block. It returns the final feature map and a dictionary of intermediate maps, which only the detector (with the skip outputs of the instance segmentation mask heads, when they read finer maps) and the segmentation decoder use; it stays empty for a classifier.
 
 **Example: shapes for a batch of 8 images of 64 pixels** (6 blocks, the pooling of the last one removed)
 ```text

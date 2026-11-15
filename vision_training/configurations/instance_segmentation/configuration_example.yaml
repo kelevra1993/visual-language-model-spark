@@ -425,8 +425,8 @@ MaskHead:
     # Mask probability from which a pixel belongs to its object, for the mask AP, the sample images and the clients
     # pasting the exported masks; within [0, 1].
     mask_threshold: 0.5
-  # Mask heads of another INS run initialising this one (image branch [0, 0]); the settings above, per-level mask_head,
-  # levels and backbone channels must match; source classes first, in order, appended ones random.
+  # Mask heads of another INS run initialising this one (image branch [0, 0]); the settings above but the threshold,
+  # per-level mask_head, levels and backbone channels must match; source classes first, in order, appended ones random.
   pretrained:
     # Run folder of the loaded mask heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
