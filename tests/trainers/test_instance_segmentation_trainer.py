@@ -1,7 +1,8 @@
 """
 Smoke test of InstanceSegmentationTrainer of vision_training/trainers/instance_segmentation_trainer.py on a synthetic
 instance segmentation dataset: training with the geometric augmentations moving the masks saves checkpoints,
-evaluates the box and mask average precisions with its sample images, and resumes. The weights of the losses in the
+evaluates the box and mask average precisions with its sample images, their rates written as percentages in the
+report, and resumes. The weights of the losses in the
 total loss (Optimization.loss_weights) are checked on a training batch, the detections and objects of a test image
 at the original resolution of the image (evaluation.original_resolution), and the instance index maps of the loaders
 (Data.instance_index_maps) expanded into the masks by prepare_batch, by augment_batch and by the input viewer.
@@ -10,6 +11,7 @@ at the original resolution of the image (evaluation.original_resolution), and th
 import csv
 import numpy as np
 import pytest
+import re
 import torch
 import yaml
 
@@ -168,6 +170,14 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert any(scalar_name.startswith("Mask mAP@0.5 By Size/") for scalar_name in results["scalars"])
     assert {"mAR@0.5/all", "Mask mAR@[0.5:0.95]/all"} <= set(results["scalars"])
     assert "Proposal Recall@0.5/all" in results["scalars"] and "Proposal Recall" in results["files"]
+
+    # The rates of every table written as percentages in Results.txt, the headline mask mAP@0.5 in the best checkpoint
+    # line
+    assert results["percent_metrics"] == ["Mask mAP@0.5/area"]
+    assert all(table["percent_columns"] for table in results["tables"])
+    area_rows = [line for line in results_blocks[1]["text"].splitlines() if line.strip().startswith("Area")]
+    assert len(area_rows) == 2 and all(re.fullmatch(pattern=r"\s+Area(\s+\d+\.\d{2} %){4}", string=area_row)
+                                       for area_row in area_rows)
 
     # Box and mask average precisions and recalls of every class, the ground truth objects summing to those of the test
     # images, counted by their labels since the test samples of the synthetic configuration carry instance index maps

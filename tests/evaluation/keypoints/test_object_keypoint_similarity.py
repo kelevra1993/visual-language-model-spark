@@ -6,7 +6,7 @@ of the ground truth objects of an image to the predicted ones by the largest tot
 the minimum similarity (a far prediction leaving its object missed), the comparison of the predicted and ground truth
 objects of every image into the detections and ground truths of the average precision and the matched objects of the
 keypoint accuracy, and the matched fraction, PCK and pixel errors of every class and keypoint, with the missed objects
-and the classes and keypoints that have no labelled keypoint.
+and the classes and keypoints that have no labelled keypoint, the rates written as percentages in the report.
 """
 
 import math
@@ -24,6 +24,7 @@ from vision_training.evaluation.keypoints.object_keypoint_similarity import (COR
                                                                              match_ground_truth_objects,
                                                                              measure_keypoint_accuracy,
                                                                              summarise_keypoint_accuracy)
+from vision_training.evaluation.report_formatting import build_table_renderables, render_report_text
 
 # Foreground classes of the keypoint task as injected in 'Data.keypoint_categories': a triangle, a rectangle, and a
 # class merging two categories that has no object in the evaluated objects below
@@ -316,7 +317,8 @@ def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values(
     Verifies the global fraction of matched objects, PCK and mean similarity over the labelled keypoints (the missed
     object counting as wrong) and mean pixel error over the keypoints found, the rows of every class and of every
     keypoint, None for a keypoint never labelled and for a class without object, the tables built from the rows, and
-    the scalars.
+    the scalars; the matched fraction, the PCK and the mean OKS are written as percentages in the grid and the tables,
+    the counts and pixel errors keeping their values.
     """
     objects = make_accuracy_objects()
     sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
@@ -374,3 +376,11 @@ def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values(
     assert keypoint_table["rows"][2] == ["triangle", "right", 0, 0, None, None]
     assert len(class_table["columns"]) == len(class_table["rows"][0])
     assert len(keypoint_table["columns"]) == len(keypoint_table["rows"][0])
+
+    # Rates of the grid and of the tables written as percentages, the counts and pixel errors as they are
+    assert summary["percent_metrics"] == ["Matched Objects", CORRECT_KEYPOINTS_NAME, "Mean OKS"]
+    assert class_table["percent_columns"] == [CORRECT_KEYPOINTS_NAME, "Mean\nOKS"]
+    assert keypoint_table["percent_columns"] == [CORRECT_KEYPOINTS_NAME]
+    class_lines = render_report_text(renderables=build_table_renderables(table=class_table)).splitlines()
+    triangle_row = next(line for line in class_lines if line.startswith(" triangle")).split()
+    assert triangle_row[1:] == ["1", "1", "2", "50.00", "%", f"{100.0 * similarities[0].item():.2f}", "%", "4.5000"]

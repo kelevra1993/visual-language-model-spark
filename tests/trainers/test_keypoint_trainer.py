@@ -2,7 +2,8 @@
 Smoke test of KeypointTrainer of vision_training/trainers/keypoint_trainer.py on a generated synthetic keypoint
 dataset, on the CPU: training on the whole images saves checkpoints, evaluates the objects found in the test images
 with the object keypoint similarity (the average precision tables, the matched objects, PCK and mean OKS, the
-per-class and per-keypoint tables, their CSV files and the sample images) and resumes from its last checkpoint.
+per-class and per-keypoint tables, their CSV files and the sample images), its rates written as percentages in the
+report, and resumes from its last checkpoint.
 """
 
 import csv
@@ -158,6 +159,15 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert all(0.0 <= results["metrics"][metric_name] <= 1.0
                for metric_name in ["Matched Objects", CORRECT_KEYPOINTS_NAME, "Mean OKS"])
     assert CORRECT_KEYPOINTS_NAME in results_blocks[1]["text"] and "Mean OKS" in results_blocks[1]["text"]
+
+    # The matched objects, PCK and mean OKS of the grid written as percentages, like the rates of every table, and the
+    # headline OKS mAP@0.5 in the best checkpoint line, the values staying between 0 and 1
+    assert results["percent_metrics"] == ["Matched Objects", CORRECT_KEYPOINTS_NAME, "Mean OKS", "OKS mAP@0.5/area"]
+    assert all(table["percent_columns"] for table in results["tables"])
+    grid_lines = results_blocks[1]["text"].splitlines()[:2]
+    assert f"{100.0 * results['metrics']['Matched Objects']:.2f} %" in grid_lines[0]
+    assert f"{100.0 * results['metrics'][CORRECT_KEYPOINTS_NAME]:.2f} %" in grid_lines[0]
+    assert f"{100.0 * results['metrics']['Mean OKS']:.2f} %" in grid_lines[1]
     assert {f"Keypoint Accuracy/{CORRECT_KEYPOINTS_NAME}", "Keypoint Accuracy/Mean OKS"} <= set(results["scalars"])
     assert all(scalar_name.startswith("OKS AP@0.5/") for scalar_name in results["class_scalars"])
 

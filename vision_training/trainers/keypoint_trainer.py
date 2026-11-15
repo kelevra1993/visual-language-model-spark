@@ -256,7 +256,10 @@ class KeypointTrainer(CocoSplitTrainer):
         of all the keypoints, of every class and of every keypoint of every class. The tables of the methods, object
         sizes and recalls are always shown, the per-class and per-keypoint tables with the per-class report. The class
         rows of both are saved to class_metrics.csv and the keypoint rows to keypoint_metrics.csv in the evaluation
-        folder of the checkpoint, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/'.
+        folder of the checkpoint, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/'. The report writes the rates as
+        percentages (the matched objects, PCK and mean OKS of the grid, the average precisions, recalls and keypoint
+        accuracies of the tables, and the headline OKS mAP@0.5 in the best checkpoint line of the evaluation of several
+        checkpoints), the mean pixel error keeping its 4 decimals.
 
         Args:
             accumulator (Dict[str, Any]): The evaluated test images.
@@ -306,7 +309,8 @@ class KeypointTrainer(CocoSplitTrainer):
                 "metrics": accuracy_summary["metrics"], "notes": [], "tables": tables,
                 "scalars": {**average_precision_summary["scalars"], **accuracy_summary["scalars"]},
                 "class_scalars": average_precision_summary["class_scalars"], "images": {}, "files": files,
-                "headline_metric": KEYPOINT_HEADLINE_METRIC, "percent_metrics": []}
+                "headline_metric": KEYPOINT_HEADLINE_METRIC,
+                "percent_metrics": accuracy_summary["percent_metrics"] + [KEYPOINT_HEADLINE_METRIC]}
 
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """

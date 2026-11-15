@@ -8,7 +8,9 @@ that single best anchor as foreground. The proposal recall is measured at every 
 from the proposals the region proposal network gives the detection heads with its inference settings: an object no
 proposal overlaps cannot be detected whatever the detection heads learn. Used by the detection trainer
 (analyse_training_data, diagnose_data_splits and the evaluation of the checkpoints), whose tables, scalars and files
-(anchor_recall.csv in the run folder, proposal_recall.csv in the evaluation folder) are built here.
+(anchor_recall.csv in the run folder, proposal_recall.csv in the evaluation folder) are built here. The tables write the
+recalls as percentages ("94.03 %"), the counts of objects and proposals keeping their values, and the files and scalars
+keep the recalls between 0 and 1.
 """
 
 import numpy as np
@@ -120,7 +122,7 @@ def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], objec
     'compute_anchor_coverage' diagnosis mode: the share of the objects with an anchor overlapping them by at least the
     threshold in every level and in all the levels together (the region proposal network assigns the objects to the
     anchors of all the levels at once), for all the objects and every object size, as the rows of anchor_recall.csv and
-    as the table printed in the console.
+    as the table printed in the console, its recalls written as percentages.
 
     Args:
         best_anchor_overlaps (Dict[int, torch.Tensor]): The [N] best anchor overlap of every object in every level
@@ -155,10 +157,11 @@ def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], objec
         table_rows.append([group_name, rows[-1]["count"]] + [recalls[group]["recall"]
                                                             for recalls in level_recalls.values()])
 
+    # The recall of every level and of all of them written as percentages, the objects of every group as a count
+    columns = ["Objects", "Count"] + [f"Block {level}" for level in levels] + ["All Levels"]
     table: EvaluationTable = {
-        "title": f"Anchor Recall Of The {split_name} Objects",
-        "columns": ["Objects", "Count"] + [f"Block {level}" for level in levels] + ["All Levels"], "rows": table_rows,
-        "sort_column": None, "per_class": False, "percent_columns": [],
+        "title": f"Anchor Recall Of The {split_name} Objects", "columns": columns, "rows": table_rows,
+        "sort_column": None, "per_class": False, "percent_columns": columns[2:],
         "legend": f"Share of the objects whose best anchor overlaps them by at least "
                   f"{intersection_over_union_threshold:g} ({threshold_setting}), sizes by box area in network input "
                   f"pixels. An object under RegionProposal.foreground_iou_threshold.min in every level only gets its "
@@ -222,8 +225,8 @@ def summarise_proposal_recall(proposal_accumulator: Dict[str, Any]) -> Dict[str,
     """
     Organises the proposal recall of an evaluated checkpoint for its report: the share of the test objects overlapped
     by a proposal by at least 0.5 and 0.7, for all the objects, every object size and the proposals of every level
-    alone, with the mean number of proposals per image, as the table of the report, the TensorBoard scalars and the
-    rows of proposal_recall.csv.
+    alone, with the mean number of proposals per image, as the table of the report (its recalls written as
+    percentages), the TensorBoard scalars and the rows of proposal_recall.csv.
 
     Args:
         proposal_accumulator (Dict[str, Any]): The filled accumulator (accumulate_proposal_recall).
@@ -269,11 +272,12 @@ def summarise_proposal_recall(proposal_accumulator: Dict[str, Any]) -> Dict[str,
             if row[column_name] is not None:
                 scalars[f"{scalar_name}/{row['group']}"] = row[column_name]
 
+    # The recalls written as percentages, the objects and the proposals per image as counts
     table: EvaluationTable = {
         "title": "Proposal Recall", "columns": ["Objects", "Count", "Recall@0.5", "Recall@0.7", "Proposals\nPer Image"],
         "rows": [[row_name, row["objects"], row["recall_50"], row["recall_70"], row["proposals_per_image"]]
                  for row_name, row in zip(row_names, rows, strict=True)],
-        "sort_column": None, "per_class": False, "percent_columns": [],
+        "sort_column": None, "per_class": False, "percent_columns": ["Recall@0.5", "Recall@0.7"],
         "legend": "Share of the test objects overlapped by a proposal of the region proposal network by at least the "
                   "IoU, sizes by box area in network input pixels. A block row keeps the proposals of that block "
                   "only. — : no object of the size."}

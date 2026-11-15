@@ -4,9 +4,10 @@ Sources shared by the figure families of the object detection and instance segme
 models of the DET and INS runs of tutorials/tutorial_sources.yaml rebuilt on the CPU from their run folders, the test
 image both series follow (test_014285.png, six shapes of the synthetic shapes test split, one of the eight sample
 images of both runs) with its objects read from the test labels.json, the TensorBoard scalars, the blocks of
-Results.txt, the console logs of the runs stripped of their terminal codes, and the drawing of boxes and listings in
-the palette of the videos. Both runs train on the same instance segmentation data set, so that the two series show the
-same image and objects.
+Results.txt (their table values read whether the report wrote the rates as percentages, "78.64 %", or with the
+decimals of the reports written before, "0.7864"), the console logs of the runs stripped of their terminal codes, and
+the drawing of boxes and listings in the palette of the videos. Both runs train on the same instance segmentation data
+set, so that the two series show the same image and objects.
 """
 
 import functools
@@ -24,6 +25,7 @@ from typing import Any, Dict, List, Tuple
 from tutorial_builder.layout import MONOSPACE_FONT_PATH, SANS_SEMIBOLD_FONT_PATH
 from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.preprocessing import read_image
+from vision_training.evaluation.report_formatting import PERCENT_SIGN
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_checkpoint_path
@@ -37,6 +39,13 @@ SAMPLE_IMAGE_NAME = "test_014285.png"
 # read those of the DET run from its saved configuration (find_run_iterations of object_detection/figures.py)
 CHECKPOINT_ITERATION = 5000
 SAMPLE_ITERATIONS = [1000, 2000, 5000]
+
+# Value of a row of a Results.txt table: a number, followed by the percent sign of the reports when it is a rate written
+# as a percentage ("78.64 %", the reports written since the percentages; "0.7864" before them), or the dash of a missing
+# value; and a row of a table, its label then its values after at least two spaces
+REPORT_VALUE_PATTERN = r"[\d.,]+(?:" + re.escape(PERCENT_SIGN) + r")?|—"
+REPORT_ROW_PATTERN = re.compile(pattern=rf"^\s*(.+?)\s{{2,}}((?:{REPORT_VALUE_PATTERN})"
+                                        rf"(?:\s+(?:{REPORT_VALUE_PATTERN}))*)\s*$")
 
 # Terminal codes of the console logs: colours and styles, and the hyperlinks of the file paths, whose text is kept
 TERMINAL_COLOUR_PATTERN = re.compile(pattern=r"\x1b\[[0-9;]*m")
@@ -272,22 +281,25 @@ def extract_table(block_lines: List[str], title: str) -> List[str]:
 def parse_table_rows(table_lines: List[str]) -> Dict[str, List[str]]:
     """
     Splits the rows of a Results.txt table into the label of every row (the text before its first number) and its
-    values, the table being read below its rule line.
+    values, the table being read below its rule line. A rate written as a percentage stays one value with its sign
+    ("78.64 %"), for convert_report_value of the evaluation figures.
 
     Args:
         table_lines (List[str]): The lines of a table (extract_table).
 
     Returns:
-        Dict[str, List[str]]: The values of every row, keyed by its label, e.g. {"Small (< 32²)": ["184", "0.0147"]}.
+        Dict[str, List[str]]: The values of every row, keyed by its label, e.g. {"Small (< 32²)": ["184", "1.47 %"]},
+            or {"Small (< 32²)": ["184", "0.0147"]} for a report written before the percentages.
     """
     rows = {}
     rule_indices = [line_index for line_index, line in enumerate(table_lines) if line.strip().startswith("─")]
     for line in table_lines[rule_indices[0] + 1:] if rule_indices else []:
-        # Rows of the table end at its footnote, the first line that is not label then numbers or dashes
-        match = re.match(pattern=r"^\s*(.+?)\s{2,}((?:[\d.,]+|—)(?:\s+(?:[\d.,]+|—))*)\s*$", string=line)
+        # Rows of the table end at its footnote, the first line that is not label then numbers, percentages or dashes
+        match = REPORT_ROW_PATTERN.match(string=line)
         if match is None:
             break
-        rows[match.group(1).strip()] = match.group(2).split()
+        # Values found one by one, so that the space before the percent sign does not split a percentage in two
+        rows[match.group(1).strip()] = re.findall(pattern=REPORT_VALUE_PATTERN, string=match.group(2))
     return rows
 
 

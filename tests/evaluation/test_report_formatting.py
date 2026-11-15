@@ -2,7 +2,8 @@
 Tests of vision_training/evaluation/report_formatting.py: the formatting of the per-class metrics files, the
 percentages of the texts read by a person ("94.03 %", "99 %", "+0.52 points"), and the block of the report rendered as
 plain text for Results.txt (header, metrics, notes, the per-class table worst first with its legend, width, class
-names kept as text, the rates listed by the task written as percentages and the other values with 4 decimals).
+names kept as text, the rates listed by the task written as percentages and the other values with 4 decimals, the
+headline metric outside the grid allowed among the percent metrics).
 """
 
 import math
@@ -160,6 +161,23 @@ def test_wide_tables_cut_the_names_rather_than_the_values() -> None:
     header_text = "\n".join(lines[:12])
     assert "…" not in header_text.replace(name_row, "") and "Precision" in header_text and "@ P99 %" in header_text
     assert all(len(line) <= REPORT_WIDTH for line in lines)
+
+
+def test_headline_metric_outside_the_grid_may_be_a_percent_metric() -> None:
+    """
+    Verifies that the percent metrics may name the headline metric when it is a scalar outside the grid, like the
+    OKS mAP@0.5/area of the keypoint detection written as a percentage in the best checkpoint line, the grid writing
+    its own percent metrics as percentages and the others with 4 decimals, while another scalar outside the grid is
+    still refused.
+    """
+    results = {**build_results(tables=[], percent_metrics=["Accuracy", "OKS mAP@0.5/area"]),
+               "headline_metric": "OKS mAP@0.5/area"}
+    lines = render_block(results=results)
+    assert "83.33 %" in lines[1] and "0.7500" in lines[1] and "OKS mAP@0.5/area" not in "\n".join(lines)
+
+    # A scalar outside the grid that is not the headline metric stops the report
+    with pytest.raises(ValueError, match="headline metric 'OKS mAP@0.5/area'"):
+        render_block(results={**results, "percent_metrics": ["Accuracy", "OKS mAP@0.75/area"]})
 
 
 @pytest.mark.parametrize(argnames="percent_metrics, percent_columns",

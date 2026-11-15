@@ -480,7 +480,9 @@ class DetectionTrainer(CocoSplitTrainer):
         report). The average precisions and thresholds of every class are saved to class_metrics.csv, the proposal
         recall to proposal_recall.csv, the thresholds to class_thresholds.json and the confusion matrix to
         confusion_matrix.csv in the evaluation folder of the checkpoint,
-        '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', whatever the per-class report (save_error_analysis).
+        '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', whatever the per-class report (save_error_analysis). The
+        report writes the rates as percentages, the headline mAP@0.5 included in the best checkpoint line of the
+        evaluation of several checkpoints, while the files and scalars keep them between 0 and 1.
 
         Args:
             accumulator (Dict[str, Any]): The detections and ground truths of the test split, with the confusion matrix,
@@ -516,7 +518,7 @@ class DetectionTrainer(CocoSplitTrainer):
                 "notes": error_analysis["notes"], "tables": tables,
                 "scalars": {**summary["scalars"], **proposal_recall["scalars"]},
                 "class_scalars": summary["class_scalars"], "images": error_analysis["images"], "files": files,
-                "headline_metric": "mAP@0.5/area", "percent_metrics": []}
+                "headline_metric": "mAP@0.5/area", "percent_metrics": ["mAP@0.5/area"]}
 
     def save_proposal_recall(self, accumulator: Dict[str, Any], iteration: int) -> Dict[str, Any]:
         """
@@ -545,8 +547,8 @@ class DetectionTrainer(CocoSplitTrainer):
         folder, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', for compute_evaluation_results: the score threshold
         of every class reaching the target precision in class_thresholds.json (the format of the classification tasks,
         for the deployment), and the confusion matrix of the detections the deployed detector returns in
-        confusion_matrix.csv, both whatever the per-class report, the confusion matrix image only with it, also logged
-        to TensorBoard. The
+        confusion_matrix.csv, both whatever the per-class report, the confusion matrix image only with it, its shares
+        written as percentages, also logged to TensorBoard. The
         report gets a note counting the outcomes of the detections and, when the error images are on, a note counting
         them with their folder.
 
@@ -583,7 +585,8 @@ class DetectionTrainer(CocoSplitTrainer):
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
                 confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder,
                 title=f"Confusion Matrix · Iteration {iteration} · Score >= {self.deployment_score_threshold:.2f} · "
-                      f"IoU >= {MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g}", background_index=BACKGROUND_CLASS_INDEX)
+                      f"IoU >= {MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g}", background_index=BACKGROUND_CLASS_INDEX,
+                in_percent=True)
 
         # Outcomes of the detections of the deployed detector
         outcomes = summarise_confusion_matrix(confusion_matrix=confusion_matrix)

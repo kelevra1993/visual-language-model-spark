@@ -284,25 +284,29 @@ def build_report_header(iteration: int, evaluated_samples: str, timestamp: str) 
     return HEADER_SEPARATOR.join([f"Iteration {iteration}", evaluated_samples, timestamp])
 
 
-def build_metrics_grid(metrics: Dict[str, float], percent_metrics: List[str]) -> Table:
+def build_metrics_grid(metrics: Dict[str, float], percent_metrics: List[str], headline_metric: str) -> Table:
     """
     Lays out the global metrics of an evaluated checkpoint as a grid of name and value pairs, two pairs per line, the
-    rates listed by the task written as percentages ("94.03 %") and the other values with 4 decimals.
+    rates listed by the task written as percentages ("94.03 %") and the other values with 4 decimals. The percent
+    metrics may also name the headline metric when it is a scalar outside the grid (the OKS mAP@0.5/area of the
+    keypoint detection), written as a percentage in the best checkpoint line of the evaluation of several checkpoints.
 
     Args:
         metrics (Dict[str, float]): The global metrics, in display order.
         percent_metrics (List[str]): The names of the metrics written as percentages, e.g. ['Accuracy', 'Macro F1'].
+        headline_metric (str): The name of the scalar comparing the checkpoints, e.g. 'OKS mAP@0.5/area'.
 
     Returns:
         Table: The grid of the metrics.
 
     Raises:
-        ValueError: If a percent metric is not one of the metrics.
+        ValueError: If a percent metric is neither one of the metrics nor the headline metric.
     """
-    unknown_metrics = [metric_name for metric_name in percent_metrics if metric_name not in metrics]
+    unknown_metrics = [metric_name for metric_name in percent_metrics
+                       if metric_name not in metrics and metric_name != headline_metric]
     if unknown_metrics:
-        raise ValueError(f"Expected the percent metrics to be among the metrics {list(metrics)}, got "
-                         f"{unknown_metrics}.")
+        raise ValueError(f"Expected the percent metrics to be among the metrics {list(metrics)} or the headline metric "
+                         f"{headline_metric!r}, got {unknown_metrics}.")
     grid = Table.grid(padding=(0, 3))
     for _ in range(2 * METRICS_PER_ROW):
         grid.add_column()
@@ -426,7 +430,8 @@ def build_report_renderables(results: EvaluationResults, iteration: int, timesta
 
     # Global metrics and notes
     if results["metrics"]:
-        content.append(build_metrics_grid(metrics=results["metrics"], percent_metrics=results["percent_metrics"]))
+        content.append(build_metrics_grid(metrics=results["metrics"], percent_metrics=results["percent_metrics"],
+                                          headline_metric=results["headline_metric"]))
     content += [Text(text=note, style=NOTE_STYLE) for note in results["notes"]]
 
     # Tables, separated from what comes before them by an empty line, each with its title above it and its legend
