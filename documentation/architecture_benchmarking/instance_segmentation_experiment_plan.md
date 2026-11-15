@@ -16,6 +16,7 @@
   - [Stage 1: Mask RoIAlign Pool Size](#stage-1-mask-roialign-pool-size)
   - [Stage 2: Mask Resolution](#stage-2-mask-resolution)
   - [Stage 3: Mask Head Size](#stage-3-mask-head-size)
+  - [Stage 3b: Finer Inputs Of The Mask Heads](#stage-3b-finer-inputs-of-the-mask-heads)
   - [Stage 4: Upsampling](#stage-4-upsampling)
   - [Stage 5: One Mask Head Shared By The Levels](#stage-5-one-mask-head-shared-by-the-levels)
   - [Stage 6: Mask Level Chosen By The Box Size](#stage-6-mask-level-chosen-by-the-box-size)
@@ -76,18 +77,19 @@ So that the order and the cost of the benchmark are seen at once, the table list
 | 0b | Mask threshold and final NMS, evaluation only | `mask_threshold` 0.4, 0.5, 0.6; greedy NMS against DIoU-NMS 0.6 | none | done, 0.5 and DIoU-NMS 0.6 kept (0.4 -0.0095, 0.6 -0.0170, greedy NMS +0.0001, a tie) |
 | 1 | Mask RoIAlign pool size (the user's stage) | 14, 22, with `mask_resolution` twice the pool (28, 44); the pool of 18 dropped by the user on 2026-11-14 | none | done, pool 14 kept (pool 22 -0.0122, beyond the launch gaps) |
 | 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | done, resolution 28 kept (56 -0.0053, beyond the launch gaps) |
-| 3 | Mask head size | `convolutions` `[3, 32]`, `[4, 64]` | none | planned |
+| 3 | Mask head size | `convolutions` `[3, 32]`, `[4, 64]` | none | next: launch file ready (run_7, run_8), not launched |
+| 3b | Finer inputs of the mask heads (the user's designs A and B) | on the `[4, 64]` heads of stage 3: A, an image branch; B, U-Net skips from the backbone; the control, the fusion convolution alone | `MaskHead.image_branch_convolutions`, `skip_blocks_at_pool_size`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` (main 0ef5cbd) | code merged, launch files ready (A run_9, run_10; B run_11, run_12; control run_13, run_14), not launched |
 | 4 | Upsampling | `transposed`, `bilinear` | none | planned |
 | 5 | One mask head shared by the levels (`suggestions.md` item 7) | per level, shared | `MaskHead.shared` | planned |
 | 6 | Mask level chosen by the box size (`suggestions.md` item 2) | level of the proposal, level of the box size | level rule | planned |
 | 7 | A finer map for the masks (`suggestions.md` item 5) | the levels of the detection, a level 3 of the feature pyramid (stride 8) for the masks | neck level | planned |
 | 8 | Mask scoring (Mask Scoring R-CNN) | class score, class score times the predicted mask IoU | mask IoU head | planned |
 
-Stages 0 to 4 change settings only; stages 5 to 8 need code, merged right before their pair. Every training pair is expected to take at least the 14 hours of a detection pair, the mask heads and targets adding a share that stage 0 measures. On 2026-11-12 the user kept every stage of the table (stage 4 trains both upsamplings, the transposed convolution as the reference), the pools of 18 and 22 for stage 1 (on 2026-11-14, with the pool of 22 behind the reference by 0.0155 at iteration 9000, the user dropped the pool of 18 to save its 15 hours), and the launch of stage 0 as soon as stage 8 of the detection benchmark ends.
+Stages 0 to 4 change settings only; stage 3b needs the finer inputs of the mask heads, merged on 2026-11-15 and off by default; stages 5 to 8 need code, merged right before their pair. Every training pair is expected to take at least the 14 hours of a detection pair, the mask heads and targets adding a share that stage 0 measures. On 2026-11-12 the user kept every stage of the table (stage 4 trains both upsamplings, the transposed convolution as the reference), the pools of 18 and 22 for stage 1 (on 2026-11-14, with the pool of 22 behind the reference by 0.0155 at iteration 9000, the user dropped the pool of 18 to save its 15 hours), and the launch of stage 0 as soon as stage 8 of the detection benchmark ends.
 
 ## The Stages
 
-For a stage to be read without the git-ignored run folders, the copy of the driver gathers the test mask mAP of every launch at every evaluation, trained and averaged weights, in `hyperparameter_experiments/instance_segmentation/results.csv` (`refresh_results`, one column per swept setting). A copy is kept next to this plan and committed after every stage, `instance_segmentation_results.csv`, from which `scripts/evaluation/plot_experiment_comparisons.py` draws the figure of every stage of `experiment_comparisons.yaml` (`figures/instance_segmentation/`): the launches and pair means of the trained and averaged weights, and the gap of every value to the reference below.
+For a stage to be read without the git-ignored run folders, the copy of the driver gathers the test mask mAP of every launch at every evaluation, trained and averaged weights, in `hyperparameter_experiments/instance_segmentation/results.csv` (`refresh_results`, one column per swept setting, from stage 3 on also the convolutions of the mask heads and the four settings of their finer inputs, lists that `collect_experiment_results.py` groups by their values). A copy is kept next to this plan and committed after every stage, `instance_segmentation_results.csv`, from which `scripts/evaluation/plot_experiment_comparisons.py` draws the figure of every stage of `experiment_comparisons.yaml` (`figures/instance_segmentation/`): the launches and pair means of the trained and averaged weights, and the gap of every value to the reference below.
 
 ### Stage 0: Reference And Preflight
 
@@ -182,6 +184,54 @@ The resolution of 28 is kept: the resolution of 56 loses 0.0053, beyond the laun
 ### Stage 3: Mask Head Size
 
 To find out whether small heads limit the masks, a larger head is trained: the mask heads of the synthetic configuration have three convolutions of 32 channels, those of `configuration_example.yaml` four of 64, and those of Mask R-CNN four of 256 (Detectron2 `configs/Base-RCNN-FPN.yaml`: `ROI_MASK_HEAD.NUM_CONV: 4`, `POOLER_RESOLUTION: 14`, with `CONV_DIM = 256` of `detectron2/config/defaults.py`). The stage trains `[4, 64]` against `[3, 32]`.
+
+The pair is run_7 and run_8, written and started by `launch_stage_3_mask_head_size.py 7 8` next to the driver: the mask head of every level is `{ roi_align_pool_size: 14, convolutions: [4, 64] }`, every other setting that of `run-1.yaml`, the run name ending `M14.4x64-MR28_MC35`. Since the block goes from 32 to 64 channels, its first convolution changes the channels without a shortcut, the second and third form a residual pair and the fourth is plain (`residual_parity` of `ConvolutionBlock`). Counted on its layers, the mask branch of a box takes 30.3 M multiply-accumulates instead of 7.1 M, and the mask heads of the four levels hold 594,320 parameters instead of 133,008, yet a training step costs only 2 % more (the costs of stage 3b below), the backbone and the detection dominating the step. Whatever its result, the pair is the reference of stage 3b, whose designs the user asked on heads of four convolutions ("i feel like there were too little convolutions before the mask").
+
+### Stage 3b: Finer Inputs Of The Mask Heads
+
+Faced with borders that can only follow the few cells a box covers on its level map, a finer grid (stage 1) and a finer output (stage 2) having both lost, the user asked on 2026-11-15 for mask heads that read finer inputs, both on the heads of stage 3: design A runs RoIAlign on the input image itself ("is it possible to run roialign on the imange itself ? Then concatenate, then run 5 convolution layers to then concatenate with our roi align then we proceed as usal"), design B adds U-Net skips from the early backbone blocks. A variant of A with residual convolutions on the image (A2) was dropped by the user. Each arm is a pair compared with run_7 and run_8:
+
+| Arm | Finer inputs | `MaskHead` settings | Run name | Launches |
+|---|---|---|---|---|
+| A | the box crop of the normalized input image at 28 x 28 (RoIAlign at stride 1), five plain 3 x 3 convolutions of 32 channels, concatenated after the doubling, then one fusion convolution from 96 to 64 channels | `image_branch_convolutions: [5, 32]`, `fusion_convolutions: [1, 64]` | `...-MR28-MIB5x32-MF1x64_MC35` | run_9, run_10 |
+| B | block 4 before its pooling (stride 8, 32 channels) pooled at 14 and concatenated to the level features before the four convolutions; block 3 before its pooling (stride 4, 16 channels) pooled at 28 and concatenated after the doubling; one fusion convolution from 80 to 64 channels | `skip_blocks_at_pool_size: [4]`, `skip_blocks_at_mask_resolution: [3]`, `fusion_convolutions: [1, 64]` | `...-MR28-MSP4-MSM3-MF1x64_MC35` | run_11, run_12 |
+| Control | none, one fusion convolution from 64 to 64 channels at 28 | `fusion_convolutions: [1, 64]` | `...-MR28-MF1x64_MC35` | run_13, run_14 |
+
+![Instance segmentation, stage 3b: Mask head designs](figures/instance_segmentation/mask_head_designs.png)
+
+`scripts/models/instance_segmentation/draw_mask_head_designs.py` draws the figure from the layers the code builds for every design (`run-1.yaml` with the settings of the design), counting their multiply-accumulates for one box with forward hooks. The predictor has 36 maps, the 35 shapes and the background.
+
+The code (main 0ef5cbd, every setting off by default) works as follows. The backbone returns the normalized input image (block 0) and the listed blocks before their pooling under `skip_<block>` keys, which the detector separates from the levels before the neck. `MaskFineInputs`, shared by the levels, computes the image branch and the skips at the mask resolution once for all the positive proposals of a batch, so that the batch statistics of the image branch cover every box, and gives every level the rows of its own proposals. Every `MaskHead` concatenates the skips at the pool size to its pooled features before its convolutions and the fine features after its doublings, then runs its fusion convolutions before the predictor. The TorchScript and ONNX exports carry them, tested equal to the eager model.
+
+B takes every block before its pooling, as U-Net copies its encoder maps before their max pooling. Block 4 before its pooling has the stride 8 of block 3 after it, with 32 channels and three more convolutions instead of 16 channels; block 3 before its pooling has the stride 4 and the 16 channels of block 2 after it, with two more convolutions. Its first convolution then reads 64 channels (32 of the level, 32 of the skip), as many as it writes, so its block has two residual pairs where the block of stage 3 has one pair between two plain layers: B changes the shortcuts as well as the inputs.
+
+The image is cropped at 28 because of what the test objects need, measured on the 84,922 of them on 2026-11-15:
+
+- a box covers few cells of its level map: a ring of 250 pixels covers 3.9 x 3.9 cells of its stride 64 map, spread by RoIAlign over the 14 x 14 grid, where its crop of the image at 28 holds about 9 pixels per cell;
+- 84.5 % of the objects are shrunk by the crop at 28, the median object (107 pixels long) at 3.82 pixels per cell, and the smallest are enlarged (5 % are under 19 pixels long);
+- the crop squeezes every box into a square (8.9 % of the objects stretched more than twice, 0.3 % more than three times, a median of 1.16), as the 28 x 28 mask target is squeezed, so that every image cell stays aligned with its mask cell;
+- the image alone cannot tell which of two overlapping shapes a pixel belongs to: the features of the level map, concatenated with it, carry the instance.
+
+Since A and B both add a convolution at 28, the control tells the gain of the finer inputs from the gain of that convolution: a gain of A or B over run_7 and run_8 is credited to the finer inputs only if it also beats the control. To save its hours, the control is trained only if A or B beats the reference. The shapes of this dataset are flat colours with sharp edges, which the image branch reads directly: on photographs, where colour edges and object borders part more often, A would gain less than here, B reading learned features instead of colours.
+
+The costs were counted on the layers for one box, and measured on 2026-11-15 on a batch of 64 test images with the trained weights of run_1 at 15,000 (the new layers random), so that the proposals are those of a trained detector (1,704 positive proposals reach the mask heads, against about 600 for an untrained one): a training step in bfloat16 (forward and backward of the five losses), its peak GPU memory, and an evaluation pass of the 64 images.
+
+| Design | Multiply-accumulates per box | Parameters of the 4 heads and the fine inputs | Training step | Peak GPU memory | Evaluation of 64 images |
+|---|---|---|---|---|---|
+| Reference `[3, 32]` | 7.1 M | 133,008 | 1.317 s | 17.18 GB | 0.444 s |
+| Stage 3 `[4, 64]` | 30.3 M | 594,320 | 1.345 s (+2.1 %) | 17.18 GB | 0.383 s |
+| A | 103.2 M | 854,480 | 1.493 s (+13.4 %) | 18.96 GB | 0.402 s |
+| B | 70.0 M | 853,136 | 1.439 s (+9.3 %) | 17.35 GB | 0.397 s |
+| Control | 59.2 M | 742,544 | 1.372 s (+4.2 %) | 17.18 GB | 0.390 s |
+
+If the whole training scales like the step, from the 14 hours 40 minutes of the stage 2 pair, a pair takes about 15 hours for stage 3, 16 hours 40 minutes for A, 16 hours for B and 15 hours 20 minutes for the control; the evaluations cost the same for every design. A keeps 1.8 GB more GPU memory per launch, well within the 46 GB the machine kept free during stage 2. The arms are started by `launch_stage_3b_mask_fine_inputs.py A 9 10` (B 11 12, control 13 14) next to the driver, after stage 3.
+
+The designs follow the published refinements of the Mask R-CNN mask head:
+
+- Mask R-CNN (He et al., ICCV 2017, https://arxiv.org/abs/1703.06870), Figure 4: "All convs are 3×3, except the output conv which is 1×1, deconvs are 2×2 with stride 2", "'×4' denotes a stack of four consecutive convs" (the FPN head, four convolutions of 256 channels at 14 x 14, a deconvolution to 28 x 28). Detectron2 builds the same head in `MaskRCNNConvUpsampleHead` (`detectron2/modeling/roi_heads/mask_head.py` of the main branch, lines 214 to 290: the 3 x 3 convolutions line 245, the transposed convolution of kernel 2 and stride 2 lines 256 and 257, the 1 x 1 predictor line 262).
+- PointRend (Kirillov et al., CVPR 2020, https://arxiv.org/abs/1912.08193) refines the coarse masks with "fine-grained features" (section 3.2) read from "the P2 level of the FPN. This level has a stride of 4 w.r.t. the input image" (section 4), the stride of the skip of B at 28.
+- RefineMask (Zhang et al., CVPR 2021, https://arxiv.org/abs/2104.08569), the closest to B, attaches a semantic head "to P2 (the highest resolution feature map of FPN)" (section 3.1), whose features join the mask head at 28, 56 and 112 after "the 14×14 RoIAlign operation" and "two 3×3 convolutional layers" (section 3.2), and reports "gains of 2.6, 3.4, 3.8 AP over Mask R-CNN on COCO, LVIS, and Cityscapes" (abstract).
+- BPR (Tang et al., CVPR 2021, https://arxiv.org/abs/2104.05239), the closest to A, refines the masks of a trained model with a separate network reading RGB patches along their borders with the mask patches ("modifying the input channels to 4 (3 for the RGB image patch and 1 for the binary mask patch)", section 3.2), and found that "the model trained with image patches solely yielded a terrible result, even worse than the segmentation results before refinement. However, together with mask patches, we achieved a significant improvement (+3.4% in AP, +11.9% in AF)" (section 4.2). A reads the pixels inside the mask head, trained with it, always next to the features of the instance.
 
 ### Stage 4: Upsampling
 
