@@ -4,11 +4,11 @@ tutorials/figures/sequence_labelling/figures.py from the TensorBoard logs of the
 loss and the frame accuracy of the training batches (and validation batches when the run ran some), drawn with the
 references a run of this task is read against, the cross entropy of a uniform guess over the classes, the cross
 entropy of the position prior of the training split (weighted by the balanced class weights when the run was trained
-with them, its loss being the weighted mean of the cross entropy) and the share of no_change frames. Two PNG files are written, the empty panels with the
-references (the base image of the scene) and the whole chart (its overlay, whose curves the scene uncovers), with the
-boxes of the panels and the values of the curves as facts. The accuracy ticks and the share of no_change frames of its
-reference line are written as the percentages of the reports of the repository ("20 %", "46.82 %"), the facts keeping
-every value between 0 and 1.
+with them, its loss being the weighted mean of the cross entropy) and the share of no_change frames. Two PNG files are
+written, the empty panels with the references (the base image of the scene) and the whole chart (its overlay, whose
+curves the scene uncovers), with the boxes of the panels and the values of the curves as facts. The accuracy ticks
+and the share of no_change frames of its reference line are written as the percentages of the reports of the
+repository ("20 %", "46.82 %"), the facts keeping every value between 0 and 1.
 """
 
 import matplotlib

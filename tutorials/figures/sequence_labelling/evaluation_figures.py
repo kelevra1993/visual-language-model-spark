@@ -39,13 +39,15 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 save_figure, style_chart_panel, write_reused_facts)
 from tutorials.figures.sequence_labelling.plan_figures import make_plan_figures
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
-                                                                     count_model_parameters, load_sequence_model,
-                                                                     parse_block_metrics, predict_sequences,
-                                                                     read_results_block, read_run_reused_facts,
-                                                                     read_run_sections, write_listing)
+                                                                     count_model_parameters, describe_run_source,
+                                                                     load_sequence_model, parse_block_metrics,
+                                                                     predict_sequences, read_results_block,
+                                                                     read_run_reused_facts, read_run_sections,
+                                                                     write_listing)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.sequence.segment_metrics import compute_segment_metrics
 from vision_training.models.sequence.frame_encoder import encode_frames
+from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.trainers.sequence_classification_trainer import FRAME_GRID_COLUMNS
 from vision_training.utilities.visualization import CAPTION_BAR_HEIGHT
 
@@ -121,8 +123,10 @@ def find_evaluation_source(run_folder: Path) -> Dict[str, Any]:
 
     Returns:
         Dict[str, Any]: The 'iteration', whether its weights are 'averaged', the 'results_path' of its Results.txt, the
-            'evaluation_folder' and the 'files_folder' holding its class_metrics.csv, class_thresholds.json,
-            predictions.csv and Samples/.
+            'evaluation_folder', the 'files_folder' holding its class_metrics.csv, class_thresholds.json,
+            predictions.csv and Samples/, and the 'configuration_folder' holding the training_configuration.yaml and
+            data.json of the evaluation (Checkpoint_Evaluation/ keeping those the evaluation script ran with, its test
+            split included, the run folder for an evaluation of the training).
 
     Raises:
         FileNotFoundError: If the run holds no finished evaluation.
@@ -141,26 +145,45 @@ def find_evaluation_source(run_folder: Path) -> Dict[str, Any]:
                 iterations.append(int(match.group(1)))
         if iterations:
             iteration_folder = evaluation_folder / f"Iteration_{max(iterations)}"
+            reevaluated = evaluation_folder.name == CHECKPOINT_EVALUATION_FOLDER_NAME
             return {"iteration": max(iterations), "averaged": averaged, "results_path": results_path,
                     "evaluation_folder": evaluation_folder,
-                    "files_folder": iteration_folder / AVERAGED_WEIGHTS_FOLDER_NAME if averaged else iteration_folder}
+                    "files_folder": iteration_folder / AVERAGED_WEIGHTS_FOLDER_NAME if averaged else iteration_folder,
+                    "configuration_folder": evaluation_folder if reevaluated else run_folder}
     raise FileNotFoundError(f"No finished evaluation (Iteration_<n>/class_metrics.csv) in {run_folder}/"
                             f"{CHECKPOINT_EVALUATION_FOLDER_NAME} or {run_folder}/Evaluation.")
 
 
-def read_test_split_name(run_folder: Path) -> str:
+def read_test_split_name(configuration_folder: Path) -> str:
     """
-    Reads the name of the test split a run was evaluated on (the last folder of its test_data_folder, "test" for the
+    Reads the name of the test split an evaluation ran on (the last folder of its test_data_folder, "test" for the
     whole split, "test_10000" for the fixed subset), which the figure headers and the narration name.
 
     Args:
-        run_folder (Path): The folder of the run.
+        configuration_folder (Path): The folder holding the training_configuration.yaml of the evaluation
+            (find_evaluation_source).
 
     Returns:
         str: The name of the test folder.
     """
-    experiment_configuration, _ = read_run_sections(run_folder=run_folder)
+    experiment_configuration, _ = read_run_sections(run_folder=configuration_folder)
     return Path(experiment_configuration["test_data_folder"]).name
+
+
+def read_test_labels(configuration_folder: Path) -> Dict[str, Any]:
+    """
+    Reads the labels.json of the test split an evaluation ran on, whose sequences give the frames of the sample images
+    and the sequences without change of the trivial values.
+
+    Args:
+        configuration_folder (Path): The folder holding the training_configuration.yaml of the evaluation
+            (find_evaluation_source).
+
+    Returns:
+        Dict[str, Any]: The labels file, with its 'categories' and 'sequences'.
+    """
+    experiment_configuration, _ = read_run_sections(run_folder=configuration_folder)
+    return json.loads((Path(experiment_configuration["test_data_folder"]) / "labels.json").read_text(encoding="utf-8"))
 
 
 def read_block_facts(block_lines: List[str], fact_prefix: str) -> Dict[str, Any]:
@@ -179,6 +202,7 @@ def read_block_facts(block_lines: List[str], fact_prefix: str) -> Dict[str, Any]
     Raises:
         ValueError: If the block holds no note of its segments or no top-k accuracy.
     """
+    # Headline metrics of the block, then the top-k accuracy and the note of the segments the report adds to them
     facts: Dict[str, Any] = dict(parse_block_metrics(block_lines=block_lines, fact_prefix=fact_prefix))
     top_k_names = [fact_name for fact_name in facts if TOP_K_FACT_PATTERN.search(string=fact_name) is not None]
     segment_match = SEGMENT_NOTE_PATTERN.search(string="\n".join(block_lines))
@@ -292,21 +316,18 @@ def write_recall_listing(block_lines: List[str], listing_path: Path) -> Dict[str
             "evaluation.recall_table_classes": len(table["rows"])}
 
 
-def count_sequences_without_change(run_folder: Path, fact_prefix: str) -> Dict[str, Any]:
+def count_sequences_without_change(test_labels: Dict[str, Any], fact_prefix: str) -> Dict[str, Any]:
     """
-    Counts the test sequences of a run whose frames are all no_change, the sequences a model giving no_change to every
-    frame gets fully right, so that the sequence exact match of a degenerate solution can be read against it.
+    Counts the test sequences of an evaluation whose frames are all no_change, the sequences a model giving no_change
+    to every frame gets fully right, so that the sequence exact match of a degenerate solution can be read against it.
 
     Args:
-        run_folder (Path): The folder of the run.
+        test_labels (Dict[str, Any]): The labels file of the test split of the evaluation (read_test_labels).
         fact_prefix (str): The prefix of the fact names, e.g. "evaluation".
 
     Returns:
         Dict[str, Any]: The facts, named <prefix>.sequences_without_change and <prefix>.test_sequences.
     """
-    experiment_configuration, _ = read_run_sections(run_folder=run_folder)
-    test_labels = json.loads((Path(experiment_configuration["test_data_folder"]) / "labels.json").read_text(
-        encoding="utf-8"))
     no_change_category = next(category["id"] for category in test_labels["categories"]
                               if category["name"] == NO_CHANGE_CLASS_NAME)
     return {f"{fact_prefix}.sequences_without_change": sum(all(category == no_change_category
@@ -454,8 +475,10 @@ def compute_prediction_facts(predictions: pandas.DataFrame, frame_positions: num
             "later_minimum": round_fact(value=no_change_probabilities[~first_frames].min()),
             "later_maximum": round_fact(value=no_change_probabilities[~first_frames].max()),
             "later_true_no_change_share": round_fact(value=later_no_change.mean()),
-            "later_no_change_frames_mean": round_fact(value=no_change_probabilities[~first_frames][later_no_change].mean()),
-            "later_change_frames_mean": round_fact(value=no_change_probabilities[~first_frames][~later_no_change].mean()),
+            "later_no_change_frames_mean": round_fact(
+                value=no_change_probabilities[~first_frames][later_no_change].mean()),
+            "later_change_frames_mean": round_fact(
+                value=no_change_probabilities[~first_frames][~later_no_change].mean()),
             "later_true_no_change_count": int(later_no_change.sum()),
             "predicted_no_change_frames": int((predicted_classes == NO_CHANGE_CLASS_NAME).sum()),
             "predicted_no_change_share": round_fact(value=(predicted_classes == NO_CHANGE_CLASS_NAME).mean()),
@@ -476,7 +499,7 @@ def make_prediction_facts(run_folder: Path, source: Dict[str, Any], output_folde
     """
     Reads predictions.csv of the evaluation of the run (a row of probabilities per labelled test frame), draws the
     probability of no_change and gives the facts of the predictions. Reused from the previous build unless forced or
-    unless that build read another run or another evaluation.
+    unless that build read another run, another evaluation or a predictions file replaced since.
 
     Args:
         run_folder (Path): The folder of the run.
@@ -490,21 +513,23 @@ def make_prediction_facts(run_folder: Path, source: Dict[str, Any], output_folde
     figure_path = output_folder / "evaluation" / "no_change_probabilities.png"
     reused_facts_path = output_folder / "evaluation" / "no_change_probabilities_facts.json"
     source_name = str(source["files_folder"].relative_to(run_folder))
+    predictions_path = source["files_folder"] / "predictions.csv"
     reused_facts = read_run_reused_facts(facts_path=reused_facts_path, run_folder=run_folder, source_name=source_name,
-                                         fact_prefix="predictions", force=force)
+                                         source_paths=[predictions_path], fact_prefix="predictions", force=force)
     if reused_facts is not None:
         return reused_facts
-    predictions = pandas.read_csv(filepath_or_buffer=source["files_folder"] / "predictions.csv")
+    predictions = pandas.read_csv(filepath_or_buffer=predictions_path)
     frame_positions = predictions["frame"].str.extract(pat=r"/(\d+)\.png$")[0].astype(int).to_numpy()
     header = (f"{source_name}/predictions.csv · {len(predictions):,} labelled frames of "
-              f"{read_test_split_name(run_folder=run_folder)}")
+              f"{read_test_split_name(configuration_folder=source['configuration_folder'])}")
     facts = draw_no_change_probabilities(predictions=predictions, frame_positions=frame_positions, header=header,
                                          output_path=figure_path)
     facts.update(compute_prediction_facts(predictions=predictions, frame_positions=frame_positions))
 
-    # Facts under their prefix, with the run and the files they were read from for the next reuse
+    # Facts under their prefix, with the run, the files they were read from and their fingerprint for the next reuse
     prefixed_facts = {f"predictions.{fact_name}": value for fact_name, value in facts.items()}
-    prefixed_facts.update({"predictions.run_name": run_folder.name, "predictions.source": source_name})
+    prefixed_facts.update(describe_run_source(run_folder=run_folder, source_name=source_name,
+                                              source_paths=[predictions_path], fact_prefix="predictions"))
     write_reused_facts(facts_path=reused_facts_path, figure_paths=[figure_path], facts=prefixed_facts)
     return prefixed_facts
 
@@ -562,7 +587,7 @@ def compute_sample_boxes(image_size: List[int], captions: List[str], header: str
             "image_box": [0, 0, image_size[0], image_size[1]]}
 
 
-def make_sample_facts(source: Dict[str, Any], output_folder: Path) -> Dict[str, Any]:
+def make_sample_facts(source: Dict[str, Any], test_labels: Dict[str, Any], output_folder: Path) -> Dict[str, Any]:
     """
     Chooses the sample image of the evaluation scene among the fixed test sequences of the last evaluation
     (Samples/ of the evaluation read): the one with the most change frames predicted right, then the most change
@@ -571,6 +596,7 @@ def make_sample_facts(source: Dict[str, Any], output_folder: Path) -> Dict[str, 
 
     Args:
         source (Dict[str, Any]): The evaluation read (find_evaluation_source).
+        test_labels (Dict[str, Any]): The labels file of the test split of the evaluation (read_test_labels).
         output_folder (Path): The figures folder of the series.
 
     Returns:
@@ -578,17 +604,24 @@ def make_sample_facts(source: Dict[str, Any], output_folder: Path) -> Dict[str, 
 
     Raises:
         FileNotFoundError: If the evaluation holds no sample image.
+        ValueError: If the rows of a sample sequence in predictions.csv are not the frames of that sequence in the
+            test labels file, in their order, the captions being numbered over those rows and the frame grid of the
+            image over every frame.
     """
     sample_paths = sorted((source["files_folder"] / "Samples").glob("*.png"))
     if not sample_paths:
         raise FileNotFoundError(f"No sample image in {source['files_folder']}/Samples.")
     predictions = pandas.read_csv(filepath_or_buffer=source["files_folder"] / "predictions.csv")
     sample_rows = predictions[predictions["sequence"].isin([path.stem for path in sample_paths])]
+    sequence_frames = {sequence["name"]: sequence["frames"] for sequence in test_labels["sequences"]}
 
     # Change frames of every sample and those predicted right, the first frames being always no_change
     candidates = []
     for sample_path in sample_paths:
         rows = sample_rows[sample_rows["sequence"] == sample_path.stem].sort_values(by="frame")
+        if rows["frame"].tolist() != sequence_frames.get(sample_path.stem):
+            raise ValueError(f"The {len(rows)} rows of the sample {sample_path.name} in predictions.csv are not the "
+                             f"frames of its sequence in the test labels file, in their order.")
         is_change = (rows["true_class"] != NO_CHANGE_CLASS_NAME).to_numpy()
         is_right = (rows["true_class"] == rows["predicted_class"]).to_numpy()
         right_changes, changes = int((is_change & is_right).sum()), int(is_change.sum())
@@ -620,14 +653,14 @@ def make_sample_facts(source: Dict[str, Any], output_folder: Path) -> Dict[str, 
     return facts
 
 
-def compute_segment_facts(run_folder: Path) -> Dict[str, Any]:
+def compute_segment_facts(configuration_folder: Path) -> Dict[str, Any]:
     """
     Computes with compute_segment_metrics of the repository the segment metrics of the example of the tasks reference
     (its frame accuracy, edit score and segment F1 at every overlap), and reads the test frames of no_change of the
-    run, the accuracy of a model giving no_change to every frame.
+    evaluation, the accuracy of a model giving no_change to every frame.
 
     Args:
-        run_folder (Path): The folder of the sequence labelling run.
+        configuration_folder (Path): The folder holding the data.json of the evaluation (find_evaluation_source).
 
     Returns:
         Dict[str, Any]: The facts, named segments.*.
@@ -642,24 +675,24 @@ def compute_segment_facts(run_folder: Path) -> Dict[str, Any]:
              "segments.readme_predicted_segments": metrics["number_predicted_segments"]}
     for overlap_threshold, segment_f1 in metrics["segment_f1"].items():
         facts[f"segments.readme_f1_at_{round(overlap_threshold * 100)}"] = round_fact(value=segment_f1)
-    facts.update(read_test_frame_facts(run_folder=run_folder, fact_prefix="segments"))
+    facts.update(read_test_frame_facts(configuration_folder=configuration_folder, fact_prefix="segments"))
     return facts
 
 
-def read_test_frame_facts(run_folder: Path, fact_prefix: str) -> Dict[str, Any]:
+def read_test_frame_facts(configuration_folder: Path, fact_prefix: str) -> Dict[str, Any]:
     """
-    Reads the test frames of no_change and of every class from the record of a run (data.json), whose share is the
-    frame accuracy of a model giving no_change to every frame of its test split.
+    Reads the test frames of no_change and of every class from the record of the data of an evaluation (data.json),
+    whose share is the frame accuracy of a model giving no_change to every frame of its test split.
 
     Args:
-        run_folder (Path): The folder of the run.
+        configuration_folder (Path): The folder holding the data.json of the evaluation (find_evaluation_source).
         fact_prefix (str): The prefix of the fact names, e.g. "segments".
 
     Returns:
         Dict[str, Any]: The facts, named <prefix>.no_change_test_frames, <prefix>.test_frames and
             <prefix>.no_change_test_share.
     """
-    data_record = json.loads((run_folder / "data.json").read_text(encoding="utf-8"))
+    data_record = json.loads((configuration_folder / "data.json").read_text(encoding="utf-8"))
     no_change_record = next(record for record in data_record["classes"] if record["class_name"] == NO_CHANGE_CLASS_NAME)
     test_frames = sum(record["frames"]["test"] for record in data_record["classes"])
     return {f"{fact_prefix}.no_change_test_frames": no_change_record["frames"]["test"],
@@ -890,31 +923,39 @@ def make_evaluation_facts(output_folder: Path, run_folder: Path, force: bool) ->
                                       listing_path=output_folder / "listings" / "recall_table.txt"))
     facts.update(make_prediction_facts(run_folder=run_folder, source=source, output_folder=output_folder, force=force))
 
-    # Thresholds, per-class metrics, sample image, segment metrics and the sequences without change of the run
+    # Thresholds, per-class metrics, sample image, segment metrics and the sequences without change of the test split
+    # of the evaluation
+    test_labels = read_test_labels(configuration_folder=source["configuration_folder"])
     facts.update(read_threshold_facts(files_folder=source["files_folder"]))
     facts.update(read_class_metric_facts(files_folder=source["files_folder"]))
     check_low_recall_classes(class_names=facts["evaluation.change_classes_below_threshold_names"])
-    facts.update(make_sample_facts(source=source, output_folder=output_folder))
-    facts.update(compute_segment_facts(run_folder=run_folder))
-    facts.update(count_sequences_without_change(run_folder=run_folder, fact_prefix="evaluation"))
+    facts.update(make_sample_facts(source=source, test_labels=test_labels, output_folder=output_folder))
+    facts.update(compute_segment_facts(configuration_folder=source["configuration_folder"]))
+    facts.update(count_sequences_without_change(test_labels=test_labels, fact_prefix="evaluation"))
     facts.update({"evaluation.iteration": source["iteration"], "evaluation.averaged_weights": source["averaged"],
                   "evaluation.source": str(source["files_folder"].relative_to(run_folder)),
                   "evaluation.reevaluated": source["evaluation_folder"].name == CHECKPOINT_EVALUATION_FOLDER_NAME,
-                  "evaluation.test_split": read_test_split_name(run_folder=run_folder)})
+                  "evaluation.test_split": read_test_split_name(configuration_folder=source["configuration_folder"])})
 
     # Values of a model predicting no_change everywhere, and the benchmark launches read against them
     facts.update(compute_trivial_facts(facts=facts))
-    facts.update(make_plan_figures(output_folder=output_folder, trivial_macro_f1=facts["trivial.macro_f1"],
-                                   run_iterations=source["iteration"], run_macro_f1=facts["evaluation.macro_f1"]))
+    facts.update(make_plan_figures(output_folder=output_folder, run_folder=run_folder,
+                                   trivial_macro_f1=facts["trivial.macro_f1"], run_iterations=source["iteration"],
+                                   run_macro_f1=facts["evaluation.macro_f1"], averaged_weights=source["averaged"],
+                                   test_split=facts["evaluation.test_split"]))
 
-    # Shapes and parameters of the trained model, run on the CPU, reused from the previous build unless forced
+    # Shapes and parameters of the trained model, run on the CPU, reused from the previous build unless forced or
+    # unless its checkpoint file changed since
     model_facts_path = output_folder / "evaluation" / "model_facts.json"
     checkpoint_name = f"Weights/Iteration_{source['iteration']}"
+    checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=source["iteration"])
     model_facts = read_run_reused_facts(facts_path=model_facts_path, run_folder=run_folder, source_name=checkpoint_name,
-                                        fact_prefix="model", force=force, required_fact_names=REQUIRED_MODEL_FACTS)
+                                        source_paths=[checkpoint_path], fact_prefix="model", force=force,
+                                        required_fact_names=REQUIRED_MODEL_FACTS)
     if model_facts is None:
         model_facts = compute_model_facts(run_folder=run_folder, iteration=source["iteration"])
-        model_facts.update({"model.run_name": run_folder.name, "model.source": checkpoint_name})
+        model_facts.update(describe_run_source(run_folder=run_folder, source_name=checkpoint_name,
+                                               source_paths=[checkpoint_path], fact_prefix="model"))
         write_reused_facts(facts_path=model_facts_path, figure_paths=[], facts=model_facts)
     facts.update(model_facts)
     return facts

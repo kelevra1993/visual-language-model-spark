@@ -3,13 +3,14 @@ Inference figures of the object detection tutorials (the chapters on the anchors
 targets), made by tutorials/figures/object_detection/figures.py from the trained detector of the DET run of
 tutorials/tutorial_sources.yaml, run on the CPU on the test image the series follows (test_014285.png): the anchors of
 one cell of every detection level and the best anchor of every object (the data of the animated page
-animations/03_object_detection/anchor_grid.html), the proposals of the image before and after the non-maximum suppression
-of the proposal filter with the final detections, the labels the anchors of the image get for the region proposal loss,
-and the proposals the detection heads are trained on, every count by level, with the objects the final detections find
-and the layers of the region proposal heads the diagrams draw. The functions of the repository do the
+animations/03_object_detection/anchor_grid.html), the proposals of the image before and after the non-maximum
+suppression of the proposal filter with the final detections, the labels the anchors of the image get for the region
+proposal loss, and the proposals the detection heads are trained on, every count by level, with the objects the final
+detections find and the layers of the region proposal heads the diagrams draw. The functions of the repository do the
 work (forward_detection_stages, select_best_proposals, batch_assign_targets_to_anchors, add_ground_truth_proposals,
 batch_assign_targets_to_proposals, sample_positive_and_negative_training_targets), so that the figures show what the
-code computes. The inference is reused from the previous build unless forced.
+code computes. The inference is reused from the previous build unless forced, or unless that build ran another run,
+another checkpoint or a checkpoint file replaced since.
 """
 
 import json
@@ -21,8 +22,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 from typing import Any, Dict, List, Tuple
 
-from tutorials.figures.figure_utilities import (SERIES_COLOURS, read_reused_facts, read_run_configuration,
-                                                round_fact, write_reused_facts)
+from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fingerprint, read_reused_facts,
+                                                read_run_configuration, round_fact, write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, SAMPLE_IMAGE_NAME, draw_box,
                                                                   find_test_folder,
                                                                   hexadecimal_to_rgb, load_caption_fonts,
@@ -40,6 +41,7 @@ from vision_training.models.detection.target_assignment import (add_ground_truth
                                                                 batch_assign_targets_to_proposals,
                                                                 sample_positive_and_negative_training_targets)
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.trainers.checkpointing import get_checkpoint_path
 
 # Object whose best anchor of every level gives the cell whose anchors the animated page draws, the star in the middle
 # of the image
@@ -522,12 +524,16 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     figure_folder = output_folder / "inference"
     facts_path = figure_folder / "inference_facts.json"
 
-    # An inference left by a build writing an older version of the facts, or made from another run or checkpoint, is
-    # made again, as when forced
+    # An inference left by a build writing an older version of the facts, or made from another run, another checkpoint
+    # or a checkpoint file replaced since (a run trained again under the same name), is made again, as when forced
     checkpoint_name = f"{run_folder.name}/Iteration_{iteration}"
+    checkpoint_fingerprint = compute_file_fingerprint(file_paths=[get_checkpoint_path(experiment_folder=run_folder,
+                                                                                      iteration=iteration)])
+    inference_key = {"inference.facts_version": INFERENCE_FACTS_VERSION, "inference.checkpoint_name": checkpoint_name,
+                     "inference.checkpoint_fingerprint": checkpoint_fingerprint}
     previous_facts = json.loads(facts_path.read_text(encoding="utf-8"))["facts"] if facts_path.exists() else {}
-    outdated = facts_path.exists() and (previous_facts.get("inference.facts_version") != INFERENCE_FACTS_VERSION or
-                                        previous_facts.get("inference.checkpoint_name") != checkpoint_name)
+    outdated = facts_path.exists() and any(previous_facts.get(fact_name) != value
+                                           for fact_name, value in inference_key.items())
     reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force or outdated)
     if reused_facts is not None:
         return reused_facts
@@ -654,8 +660,7 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
              "inference.proposal_filter.panel_boxes": proposal_panel_boxes,
              "inference.anchor_labels.panel_boxes": label_panel_boxes,
              "inference.detection_count": detection_count, "inference.found_object_count": found_object_count,
-             "inference.level_count": len(level_descriptions), "inference.facts_version": INFERENCE_FACTS_VERSION,
-             "inference.checkpoint_name": checkpoint_name}
+             "inference.level_count": len(level_descriptions), **inference_key}
     facts["inference.fallback_count"] = len(facts["inference.fallback_objects"])
     facts["inference.overlap_object_count"] = len(object_descriptions) - facts["inference.fallback_count"]
     for panel_index, (proposal_box, label_box) in enumerate(zip(proposal_panel_boxes, label_panel_boxes)):

@@ -313,6 +313,29 @@ def merge_facts(fact_groups: List[Dict[str, Any]]) -> Dict[str, Any]:
     return merged_facts
 
 
+def compute_file_fingerprint(file_paths: List[Path]) -> str:
+    """
+    Describes the files an expensive figure family reads (a predictions file, a checkpoint, a labels file) by their
+    name, size in bytes and modification time in nanoseconds, the key a reused family is compared on, so that a run
+    trained or evaluated again under the same name and the same paths makes its figures again instead of reusing those
+    of the files it replaced.
+
+    Args:
+        file_paths (List[Path]): The files read by the family.
+
+    Returns:
+        str: The fingerprint, one "name:size:modification time" entry per file, joined by semicolons.
+
+    Raises:
+        FileNotFoundError: If one of the files is missing.
+    """
+    entries = []
+    for file_path in file_paths:
+        file_status = file_path.stat()
+        entries.append(f"{file_path.name}:{file_status.st_size}:{file_status.st_mtime_ns}")
+    return ";".join(entries)
+
+
 def read_reused_facts(facts_path: Path, required_paths: List[Path], force: bool) -> Optional[Dict[str, Any]]:
     """
     Decides whether the expensive figures of a family (a checkpoint inference, the augmentation examples) are reused

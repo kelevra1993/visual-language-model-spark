@@ -3,12 +3,13 @@ Helpers shared by the figure scripts of the sequence labelling (M2M) and frame s
 (tutorials/figures/sequence_labelling and tutorials/figures/frame_selection), which make_figures.py runs with the Python
 of the repository at every build: the test sequences of a real run read by the SequenceDataset of the repository and
 batched by its collate function, its checkpoint rebuilt on the CPU, the parameter count of every component of the model,
-the evaluation block of an iteration read from Results.txt for the listings of the report scenes (its headline metrics
-read back between 0 and 1, whether the report wrote them as percentages or with decimals), and the frames of a
+the last evaluation block of an iteration read from Results.txt for the listings of the report scenes (its headline
+metrics read back between 0 and 1, whether the report wrote them as percentages or with decimals), and the frames of a
 sequence drawn as captioned thumbnails on the card colour of the videos, so that every figure shows the files and the
 code of the repository as they are. The settings typed in the main block of a script of the repository (the synthetic
 dataset generator, the split subset script) are read from its source, so that the narration quoting them follows the
-script, and the facts of the expensive figures are reused only when the previous build wrote every fact a series needs.
+script, and the facts of the expensive figures are reused only when the previous build wrote every fact a series needs
+from the same run and the same unchanged files.
 """
 
 import ast
@@ -25,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_FONT_PATH,
                                      SANS_SEMIBOLD_FONT_PATH)
 from tutorial_builder.figure_context import find_repository_root, read_thread_count
-from tutorials.figures.figure_utilities import read_reused_facts
+from tutorials.figures.figure_utilities import compute_file_fingerprint, read_reused_facts
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.evaluation.report_formatting import PERCENT_DECIMALS, PERCENT_SIGN
@@ -166,13 +167,16 @@ def read_results_block(results_path: Path, iteration: int, averaged_weights: Opt
     Reads the evaluation block of one iteration from the Results.txt of a run, from its header line to the line
     before the next block, its trailing blank lines removed, the text the report scenes list. A run keeping a moving
     average of its weights writes two blocks per iteration, the second one with "EMA Weights" in its header, and
-    averaged_weights chooses one of them.
+    averaged_weights chooses one of them. The reports are appended to Results.txt, so a checkpoint evaluated again
+    adds a second block of the same iteration while its files (class_metrics.csv, predictions.csv) are replaced: the
+    last matching block is kept, the one those files belong to.
 
     Args:
         results_path (Path): The Results.txt file of the run.
         iteration (int): The evaluated iteration.
         averaged_weights (Optional[bool]): True for the block of the moving average of the weights, False for that of
-            the trained weights, None for every block of the iteration (the runs without moving average).
+            the trained weights, None for the last block of the iteration whatever its weights (the runs without
+            moving average).
 
     Returns:
         List[str]: The lines of the block.
@@ -184,9 +188,12 @@ def read_results_block(results_path: Path, iteration: int, averaged_weights: Opt
     for line in results_path.read_text(encoding="utf-8").splitlines():
         header_match = RESULTS_BLOCK_HEADER_PATTERN.match(string=line)
         if header_match is not None:
-            # The block of the iteration, of the asked weights when the run writes one block per weights
+            # The block of the iteration, of the asked weights when the run writes one block per weights, a later
+            # block of the same iteration and weights replacing the one read before it
             inside_block = int(header_match.group(1)) == iteration and \
                 (averaged_weights is None or (AVERAGED_WEIGHTS_HEADER in line) == averaged_weights)
+            if inside_block:
+                block_lines = []
         if inside_block:
             block_lines.append(line.rstrip())
     while block_lines and not block_lines[-1].strip():
@@ -425,35 +432,63 @@ def read_complete_reused_facts(facts_path: Path, required_paths: List[Path], req
     return reused_facts
 
 
-def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, fact_prefix: str, force: bool,
-                          required_fact_names: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+def describe_run_source(run_folder: Path, source_name: str, source_paths: List[Path],
+                        fact_prefix: str) -> Dict[str, str]:
     """
-    Reuses the facts of the expensive figures of a run (its predictions file, its model rebuilt on the CPU) like
-    read_complete_reused_facts, but only when the previous build read the same run and the same files, the facts
-    holding <prefix>.run_name and <prefix>.source, so that a cache made from another run of tutorial_sources.yaml (a
-    run trained again under another name) or from another evaluation of it is made again instead of showing the
-    figures of the old one.
+    Gives the facts naming what the expensive figures of a run were made from, written with them and compared by
+    read_run_reused_facts at the next build: the run, the files read within it, and the fingerprint of those files
+    (their sizes and modification times), which changes when the run is trained or evaluated again under the same
+    name.
+
+    Args:
+        run_folder (Path): The folder of the run the figures are made from.
+        source_name (str): The files the figures read, e.g. "Checkpoint_Evaluation/Iteration_2000/EMA".
+        source_paths (List[Path]): The files whose fingerprint is kept, e.g. the predictions.csv read.
+        fact_prefix (str): The prefix of the facts, e.g. "predictions".
+
+    Returns:
+        Dict[str, str]: The facts <prefix>.run_name, <prefix>.source and <prefix>.source_fingerprint.
+    """
+    return {f"{fact_prefix}.run_name": run_folder.name, f"{fact_prefix}.source": source_name,
+            f"{fact_prefix}.source_fingerprint": compute_file_fingerprint(file_paths=source_paths)}
+
+
+def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, source_paths: List[Path],
+                          fact_prefix: str, force: bool, required_fact_names: Optional[List[str]] = None,
+                          required_paths: Optional[List[Path]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Reuses the facts of the expensive figures of a run (its predictions file, its model rebuilt on the CPU, the class
+    balance of its training labels) like read_complete_reused_facts, but only when the previous build read the same
+    run and the same unchanged files (describe_run_source), so that a cache made from another run of
+    tutorial_sources.yaml, from another evaluation of it, or from files replaced since by a training or an evaluation
+    under the same name is made again instead of showing the figures of the old files.
 
     Args:
         facts_path (Path): The JSON file written next to the figures by write_reused_facts.
         run_folder (Path): The folder of the run the figures are made from.
-        source_name (str): The files the figures read within the run, e.g.
-            "Checkpoint_Evaluation/Iteration_2000/EMA" or "Weights/Iteration_2000".
+        source_name (str): The files the figures read, e.g. "Checkpoint_Evaluation/Iteration_2000/EMA" or
+            "Weights/Iteration_2000".
+        source_paths (List[Path]): The files whose fingerprint must not have changed, e.g. the predictions.csv read.
         fact_prefix (str): The prefix of the facts, e.g. "predictions".
         force (bool): Whether the figures are made again whatever is on disk.
         required_fact_names (Optional[List[str]]): Other facts the reused file must hold, None for none.
+        required_paths (Optional[List[Path]]): Other files that must exist besides the listed figures, None for none.
 
     Returns:
         Optional[Dict[str, Any]]: The reused facts, or None when the figures must be made again.
     """
-    run_fact_names = [f"{fact_prefix}.run_name", f"{fact_prefix}.source"]
-    reused_facts = read_complete_reused_facts(facts_path=facts_path, required_paths=[],
-                                              required_fact_names=run_fact_names + (required_fact_names or []),
+    current_source = describe_run_source(run_folder=run_folder, source_name=source_name, source_paths=source_paths,
+                                         fact_prefix=fact_prefix)
+    reused_facts = read_complete_reused_facts(facts_path=facts_path, required_paths=required_paths or [],
+                                              required_fact_names=list(current_source) + (required_fact_names or []),
                                               force=force)
     if reused_facts is None:
         return None
-    if [reused_facts[fact_name] for fact_name in run_fact_names] != [run_folder.name, source_name]:
-        print(f"Making the figures of {facts_path.parent} again: {facts_path.name} was made from "
-              f"{reused_facts[run_fact_names[0]]}/{reused_facts[run_fact_names[1]]}")
+
+    # The cache is made again when the run, the files read or their fingerprint differ from those of the last build
+    changed_names = [fact_name for fact_name, value in current_source.items() if reused_facts[fact_name] != value]
+    if changed_names:
+        print(f"Making the figures of {facts_path.parent} again: {facts_path.name} was made from other files "
+              f"({', '.join(f'{name} {reused_facts[name]}' for name in changed_names)})")
         return None
     return reused_facts
