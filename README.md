@@ -3,6 +3,7 @@
 <p align="center">
   <img src="README/tasks_overview.png" width="100%" />
 </p>
+<p align="center"><em>One evaluation sample image of every supervised task, from short runs on the synthetic datasets.</em></p>
 
 ## Table Of Content
 - [Description](#description)
@@ -55,6 +56,12 @@ If you are new to the repository, start from its tasks: it trains, evaluates and
   <img src="README/architectures.png" width="100%" />
 </p>
 
+Should you need to change what a task computes, the code splits the same way: `base_trainer.py` runs the loop of every task, and the trainer of the task, picked from `ExperimentConfiguration.task` by `vision_training/core/task_registry.py`, fills its hooks.
+
+<p align="center">
+  <img src="README/shared_and_task_code.png" width="100%" />
+</p>
+
 This README gives the commands and the settings that matter most. The details are in `documentation/`:
 - [Training reference](documentation/reference/training_reference.md): run folder, console output, resuming, augmentation strengths, input viewer, moving average of the weights, transfer between runs.
 - [Tasks reference](documentation/reference/tasks_reference.md): synthetic datasets, data format, converters, losses and metrics of every task.
@@ -73,8 +80,16 @@ uv sync
 
 Every script runs as a module from the repository root. The training takes `--configuration_path`, the task being read from the file; the other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
 
+<p align="center">
+  <img src="README/scripts_and_requirements.png" width="100%" />
+</p>
+
 ### Data Requirements
 For a task to train, it needs a train, a validation and a test split folder, each holding its images in `data/` and a `labels.json` manifest, and a `label_mapping.json` file giving the class of every category ([Tasks](#tasks)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
+
+<p align="center">
+  <img src="README/data_folder_layout.png" width="100%" />
+</p>
 
 ### ImageNet-22k
 Should you need the pre-trained backbones of the classification configurations (`configuration_example.yaml` and the `*_model.yaml` files of `vision_training/configurations/classification/`) or of the self-supervised example, download ImageNet-22k with `vision_training/data/classification/imagenet_download.py`. It reads `timm/imagenet-22k-wds` from Hugging Face at a pinned revision (fall11 release, 21,841 classes, 4,608 shards of about 0.29 GB).
@@ -86,7 +101,11 @@ Should you need the pre-trained backbones of the classification configurations (
 uv run python -m vision_training.data.classification.imagenet_download
 ```
 
-The script then holds out one image per class of at least 50 images (18,846 images) as the test split, which is also the validation split, and writes `manifests/` and `label_mapping.json`. A setting chosen on the validation curves is therefore chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](documentation/reference/tasks_reference.md#classification-cls).
+<p align="center">
+  <img src="README/imagenet_22k_download.png" width="100%" />
+</p>
+
+The held-out images (18,846) are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](documentation/reference/tasks_reference.md#classification-cls).
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
@@ -111,6 +130,11 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 | CMP | a before and an after member, the after one having lost a shape or not | `sequence_comparison/configuration_synthetic_pairs.yaml` |
 | SEL | one shape per frame, the largest circle, triangle and star to select | `frame_selection/configuration_synthetic_sequences.yaml` |
 | SSL | the CLS dataset, or 5 to 10 counted shapes per image | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
+
+<p align="center">
+  <img src="README/synthetic_datasets.gif" width="100%" />
+</p>
+<p align="center"><em>Samples written by <code>create_synthetic_dataset.py</code>, drawn with their <code>labels.json</code> labels; the sequence tiles play their frames.</em></p>
 
 ## Training
 
