@@ -271,6 +271,11 @@ Faced with a dataset of video frames, many of them nearly identical, `scripts/em
 uv run python -m scripts.embedding.cluster_image_embeddings
 ```
 
+<p align="center">
+  <img src="README/embedding_clusters.png" width="100%" />
+</p>
+<p align="center"><em>A run on 720 synthetic shapes, one folder per shape: the clusters follow what the layer of the classifier separates, squares with rectangles and the four round shapes together.</em></p>
+
 Its settings and outputs: [tools reference](documentation/reference/tools_reference.md#clustering-image-embeddings).
 
 ## Deployment
@@ -442,10 +447,27 @@ Once the GPU is free of trainings, fill this table with the protocol of the [TOD
 | INT8 or FP8 | not implemented | | | | | |
 
 ## Configurations
-Before writing a configuration of your own, start from a copy of the files of its task: every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` in `vision_training/configurations/<task>/`, holding only, and all, the keys the task reads, each explained by its comment. `Data.image_settings.size` must be even and a multiple of 2 to the power of the number of max poolings of `Backbone`, so that no pooling drops a row or a column: with 5 poolings, 96, 224, 384 and 512 are accepted. The keys and values of every task are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
+Before writing a configuration of your own, start from a copy of the files of its task: every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` in `vision_training/configurations/<task>/`, holding only, and all, the keys the task reads, each explained by its comment. Four sections are shared by every task, the others belong to the task:
+
+<p align="center">
+  <img src="README/configuration_sections.png" width="100%" />
+</p>
+
+`Data.image_settings.size` must be even and a multiple of 2 to the power of the number of max poolings of `Backbone`, so that no pooling drops a row or a column: with 5 poolings, 96, 224, 384 and 512 are accepted. Should a file break such a rule, the launch prints every problem at once and stops, here for a negative learning rate and a size of 500:
+
+<p align="center">
+  <img src="README/configuration_rejected.png" width="100%" />
+</p>
+
+The keys and values of every task are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
 
 ## Run Names
-To keep runs of different settings apart, `vision_training/configuration_processing/run_name.py` builds the run name from the configuration, so that the same settings resume in the same folder and changed settings start a new one. Sections are joined with `_` and their tokens with `-`; the settings that may change between resumptions give no token, and `ExperimentConfiguration.run_name_suffix` (letters, digits, `-` and `.`) ends the name to start a run of its own with the same settings.
+To keep runs of different settings apart, `vision_training/configuration_processing/run_name.py` builds the run name from the configuration, so that the same settings resume in the same folder and changed settings start a new one. Sections are joined with `_` and their tokens with `-`; `ExperimentConfiguration.run_name_suffix` accepts letters, digits, `-` and `.`.
+
+<p align="center">
+  <img src="README/run_name_decoded.png" width="100%" />
+</p>
+<p align="center"><em>A classification run whose backbone starts from another run, decoded token by token with the setting each token comes from.</em></p>
 
 | Task | Run name |
 |---|---|
@@ -462,6 +484,16 @@ If you are looking for one table of every run, sorted and filtered by any settin
 uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db
 ```
 
+<p align="center">
+  <img src="README/mlflow_runs.png" width="100%" />
+</p>
+
+Whenever a result needs explaining, open its run: the page keeps the last value of every metric and the tags of the run, among them its folder, its transferred components, the git commit, whether the tree held uncommitted changes and the best iteration.
+
+<p align="center">
+  <img src="README/mlflow_run_page.png" width="100%" />
+</p>
+
 The per-iteration curves stay in TensorBoard, and the checkpoints and images are not sent. The metrics and files of every task are in the [configuration reference](documentation/reference/configuration_reference.md#mlflow-tracking).
 
 ## Tests
@@ -471,8 +503,21 @@ After a change to the code, run the tests of `tests/`, whose folders mirror `vis
 uv run pytest tests
 ```
 
+In case you changed a single folder, run its mirror alone, e.g. `uv run pytest tests/configuration_processing`:
+
+<p align="center">
+  <img src="README/tests_layout.png" width="100%" />
+</p>
+
 ## Tutorials
-If you would rather watch than read, narrated tutorial videos (an overview, a foundations series, then one series per task) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default). `tutorials/README.md` describes the build and how to write a chapter:
+If you would rather watch than read, narrated tutorial videos (an overview, a foundations series, then one series per task) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default).
+
+<p align="center">
+  <img src="README/tutorial_scenes.gif" width="100%" />
+</p>
+<p align="center"><em>Three scenes of the built videos: the receptive field of the backbone (Foundations), the anchors of two detection levels (Object Detection) and the Hungarian decoding (Frame Selection), each naming the file and function it shows.</em></p>
+
+`tutorials/README.md` describes the build and how to write a chapter:
 
 ```bash
 # Rebuild every series, or one, or only check the storyboards against the repository
@@ -481,8 +526,18 @@ tutorials/build_tutorials.sh --series object_detection
 tutorials/build_tutorials.sh --check-references
 ```
 
+Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
+
+<p align="center">
+  <img src="README/tutorial_index_page.png" width="100%" />
+</p>
+
 ## Repository Structure
-To find your way in the code, here is where each part lives:
+To find your way in the code, the diagram follows the packages along the path of a training and the tools reading its run folder, and the tree lists where each part lives:
+
+<p align="center">
+  <img src="README/repository_layout.png" width="100%" />
+</p>
 
 ```text
 .
