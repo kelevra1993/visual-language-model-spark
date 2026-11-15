@@ -728,6 +728,8 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
     for level_configuration in model_configuration["DetectionLevels"].values():
         level_configuration["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
     model_configuration["MaskHead"] = {"mask_resolution": 28, "upsampling": "transposed",
+                                       "skip_blocks_at_pool_size": [], "image_branch_convolutions": [0, 0],
+                                       "skip_blocks_at_mask_resolution": [], "fusion_convolutions": [0, 0],
                                        "normalization": {"feature_map_normalization": "batch"},
                                        "modules": {"squeeze_and_excite": False, "residual_nets": True,
                                                    "inception": False},
@@ -752,6 +754,34 @@ def change_mask_heads(experiment_configuration: Dict[str, Any], model_configurat
     model_configuration["DetectionLevels"]["7"]["mask_head"] = {"roi_align_pool_size": 7, "convolutions": [2, 128]}
 
 
+def use_every_mask_head_fine_input(experiment_configuration: Dict[str, Any],
+                                   model_configuration: Dict[str, Any]) -> None:
+    """
+    Turns on every finer input of the mask heads, listed out of the order of the tokens: the fusion convolutions, the
+    backbone skips of blocks 4 and 5 at the pool size, the image branch and the skips of the normalized input image
+    and block 3 at the mask resolution.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["MaskHead"].update({"fusion_convolutions": [1, 64], "skip_blocks_at_pool_size": [4, 5],
+                                            "image_branch_convolutions": [5, 32],
+                                            "skip_blocks_at_mask_resolution": [0, 3]})
+
+
+def use_mask_head_fusion_convolutions(experiment_configuration: Dict[str, Any],
+                                      model_configuration: Dict[str, Any]) -> None:
+    """
+    Adds two fusion convolutions of 32 channels to the mask heads, without finer input.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["MaskHead"]["fusion_convolutions"] = [2, 32]
+
+
 # Run name of the instance segmentation reference settings: the detection sections with the mask heads before the
 # classes
 INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "INS_").replace(
@@ -760,13 +790,16 @@ INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "I
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (change_mask_heads, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
-        "_MRES-MBN-MUTC-M14.4x64-MR28_", "_MSE-MRES-MINC-MLN-MUBL-M14.4x64+14.4x64+7.2x128-MR56_"))])
+        "_MRES-MBN-MUTC-M14.4x64-MR28_", "_MSE-MRES-MINC-MLN-MUBL-M14.4x64+14.4x64+7.2x128-MR56_")),
+    (use_every_mask_head_fine_input, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
+        "-MR28_", "-MR28-MSP4.5-MIB5x32-MSM0.3-MF1x64_")),
+    (use_mask_head_fusion_convolutions, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace("-MR28_", "-MR28-MF2x32_"))])
 def test_instance_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                          expected_run_name: str) -> None:
     """
     Verifies the run names of the instance segmentation: the INS code, the detection sections, and the mask heads
-    section (modules, normalization, upsampling, pool size and convolutions of every level, mask resolution) before
-    the classes.
+    section (modules, normalization, upsampling, pool size and convolutions of every level, mask resolution, then the
+    finer inputs and fusion convolutions in the order of their data flow when used) before the classes.
 
     Args:
         modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the reference

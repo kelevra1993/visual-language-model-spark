@@ -1,8 +1,9 @@
 """
 Shared convolutional feature extractor of every task model: the Backbone class (stacked ConvolutionBlocks, input
-normalization, detection block outputs, block outputs before pooling for the segmentation decoder, summaries and
-receptive field) and build_backbone, called by the detector, the image classifier, the sequence models and the
-semantic segmenter so that a backbone trained for one task can initialise another one.
+normalization, detection block outputs, block outputs before pooling for the segmentation decoder, skip outputs for the
+mask heads of the instance segmentation, summaries and receptive field), build_backbone, called by the detector, the
+image classifier, the sequence models and the semantic segmenter so that a backbone trained for one task can initialise
+another one, and split_skip_outputs, which separates the skip outputs from the detection block outputs before the neck.
 """
 
 import torch
@@ -19,6 +20,10 @@ from vision_training.utilities.os_utilities import print_color
 # Convolution block (1-indexed) from which inception modules replace the plain convolutions of a backbone using them
 INCEPTION_STARTING_BLOCK = 3
 
+# Prefix of the keys of the skip outputs among the backbone outputs, 'skip_0' being the normalized input image and
+# 'skip_<b>' the output of block b before its pooling, so that they never mix with the detection block keys
+SKIP_OUTPUT_PREFIX = "skip_"
+
 
 class Backbone(nn.Module):
     """
@@ -33,7 +38,8 @@ class Backbone(nn.Module):
 
     def __init__(self, input_channels: int, convolutions: Dict[str, List[int]], modules: Dict[str, Any],
                  last_max_pooling: bool, normalization: Dict[str, Any], detection_convolution_block_indices: List[int],
-                 input_image_size: int, device: torch.device, dtype: torch.dtype) -> None:
+                 input_image_size: int, device: torch.device, dtype: torch.dtype,
+                 skip_block_indices: Optional[List[int]] = None) -> None:
         """
         Initializes the Backbone with the specified convolution blocks and structural parameters.
         
@@ -53,6 +59,9 @@ class Backbone(nn.Module):
                 dynamically compute downstream tensor sizes.
             device (torch.device): The device on which to allocate the parameters.
             dtype (torch.dtype): The desired data type of returned parameters.
+            skip_block_indices (Optional[List[int]]): The blocks whose output before pooling is also returned, under
+                the key 'skip_<block>', 0 standing for the normalized input image, for the mask heads of the instance
+                segmentation reading finer maps than the detection levels. None or empty for none.
         """
         super(Backbone, self).__init__()
 
@@ -68,6 +77,12 @@ class Backbone(nn.Module):
 
         # Set detection convolution indices
         self.detection_convolution_block_indices = detection_convolution_block_indices
+
+        # Blocks also returned before their pooling for the mask heads, 0 for the normalized input image
+        self.skip_block_indices = sorted(skip_block_indices or [])
+        if any(block_index < 0 or block_index > len(convolutions) for block_index in self.skip_block_indices):
+            raise ValueError(f"The skip blocks {self.skip_block_indices} must lie between 0 (the input image) and "
+                             f"the last block {len(convolutions)}.")
 
         # Keep the number of image channels for dummy tensor generation in summaries
         self.input_channels = input_channels
@@ -129,9 +144,10 @@ class Backbone(nn.Module):
                 return_pre_pooling_outputs: bool = False) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Processes the input tensor through the sequence of convolution blocks, keeping the intermediate feature maps
-        read by the task heads: the outputs of the detection blocks (after their pooling) for the detector, or the
-        output of every block before its pooling for the segmentation decoder, whose skip connections start at the
-        input resolution.
+        read by the task heads: the outputs of the detection blocks (after their pooling) for the detector, with the
+        skip outputs of the mask heads ('skip_0' the normalized input image, 'skip_<b>' block b before its pooling),
+        or the output of every block before its pooling for the segmentation decoder, whose skip connections start at
+        the input resolution.
 
         Args:
             input_tensor (torch.Tensor): The input image tensor to be processed of shape [Batch, Channels, Height,
@@ -144,13 +160,16 @@ class Backbone(nn.Module):
         Returns:
             Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing:
                 - The final resulting feature map of shape [Batch, Out_Channels, Final_Height, Final_Width]
-                - A dictionary mapping block indices to intermediate feature maps of shape [Batch, Channels, H, W].
+                - A dictionary mapping block indices to intermediate feature maps of shape [Batch, Channels, H, W],
+                  with the skip outputs under their 'skip_' keys (split_skip_outputs separates them).
         """
         # Normalize the raw input images, then use them as the starting tensor of the feature extraction path
         current_tensor = self.input_normalizer(input_tensor=input_tensor)
 
-        # Creation of output tensor dictionary
+        # Creation of output tensor dictionary, with the normalized input image when a mask head reads it
         output_tensor_dictionary = {}
+        if not return_pre_pooling_outputs and 0 in self.skip_block_indices:
+            output_tensor_dictionary[f"{SKIP_OUTPUT_PREFIX}0"] = current_tensor
 
         # Iterate through each convolution block and sequentially process the feature map, its layers then its pooling
         for block_index, block in enumerate(self.convolution_blocks, start=1):
@@ -162,6 +181,10 @@ class Backbone(nn.Module):
                 output_tensor_dictionary[str(block_index)] = pre_pooling_tensor
             elif block_index in self.detection_convolution_block_indices:
                 output_tensor_dictionary[str(block_index)] = current_tensor
+
+            # Outputs before pooling read by the mask heads, under their own keys
+            if not return_pre_pooling_outputs and block_index in self.skip_block_indices:
+                output_tensor_dictionary[f"{SKIP_OUTPUT_PREFIX}{block_index}"] = pre_pooling_tensor
 
         return current_tensor, output_tensor_dictionary
 
@@ -259,6 +282,33 @@ class Backbone(nn.Module):
 
         return detection_information
 
+    def compute_skip_output_information(self) -> Dict[str, Dict[str, int]]:
+        """
+        Gives the size and channels of every skip output (skip_block_indices), so that the mask heads of the instance
+        segmentation set the spatial scale of their RoIAlign on it and the channels of the layers reading it. The sizes
+        come from the poolings of the blocks alone, applied to a one-channel map, so that no batch normalization
+        statistic moves, and the channels from the blocks.
+
+        Returns:
+            Dict[str, Dict[str, int]]: The 'feature_map_size' and 'number_channels' of every skip output, keyed by its
+                'skip_<block>' key, empty without skip blocks.
+        """
+        # The normalized input image keeps the size and channels of the input
+        skip_information = {}
+        if 0 in self.skip_block_indices:
+            skip_information[f"{SKIP_OUTPUT_PREFIX}0"] = {"feature_map_size": self.input_image_size,
+                                                          "number_channels": self.input_channels}
+
+        # Size of the input of every block, halved by the pooling of the blocks before it
+        size_tensor = torch.zeros(size=(1, 1, self.input_image_size, self.input_image_size), device=self.device,
+                                  dtype=self.dtype)
+        for block_index, block in enumerate(self.convolution_blocks, start=1):
+            if block_index in self.skip_block_indices:
+                skip_information[f"{SKIP_OUTPUT_PREFIX}{block_index}"] = {"feature_map_size": size_tensor.shape[2],
+                                                                          "number_channels": block.output_channels}
+            size_tensor = block.apply_pooling(input_tensor=size_tensor)
+        return skip_information
+
     def compute_receptive_field_information(self) -> List[Dict[str, Any]]:
         """
         Computes the output size, cumulative stride and receptive field of every spatial layer of the Backbone.
@@ -303,13 +353,15 @@ class Backbone(nn.Module):
 
 
 def build_backbone(backbone_configuration: Dict[str, Any], input_image_size: int, device: torch.device,
-                   dtype: torch.dtype, detection_convolution_block_indices: Optional[List[int]] = None) -> Backbone:
+                   dtype: torch.dtype, detection_convolution_block_indices: Optional[List[int]] = None,
+                   skip_block_indices: Optional[List[int]] = None) -> Backbone:
     """
     Builds the Backbone of a task model from the 'Backbone' configuration section. Every task model (detector,
     classifiers, sequence models) builds its feature extractor through this function, so that their backbones are
     identical for identical settings and a backbone trained for one task can initialise another one. Only the
     two-stage detector of the object detection and instance segmentation gives the blocks feeding its heads, the
-    levels of its 'DetectionLevels' section; the other tasks read the final feature map or every block.
+    levels of its 'DetectionLevels' section, and the instance segmenter the skip blocks of its mask heads; the other
+    tasks read the final feature map or every block.
 
     Args:
         backbone_configuration (Dict[str, Any]): The 'Backbone' configuration section (blocks, modules and
@@ -319,6 +371,8 @@ def build_backbone(backbone_configuration: Dict[str, Any], input_image_size: int
         dtype (torch.dtype): The precision of the parameters.
         detection_convolution_block_indices (Optional[List[int]]): The increasing block numbers whose feature maps
             feed the detection heads, None for the tasks without detection heads.
+        skip_block_indices (Optional[List[int]]): The blocks also returned before their pooling for the mask heads,
+            0 for the normalized input image, None for none.
 
     Returns:
         Backbone: The feature extractor.
@@ -328,4 +382,26 @@ def build_backbone(backbone_configuration: Dict[str, Any], input_image_size: int
                     last_max_pooling=backbone_configuration["last_max_pooling"],
                     normalization=backbone_configuration["normalization"],
                     detection_convolution_block_indices=detection_convolution_block_indices or [],
-                    input_image_size=input_image_size, device=device, dtype=dtype)
+                    input_image_size=input_image_size, device=device, dtype=dtype,
+                    skip_block_indices=skip_block_indices)
+
+
+def split_skip_outputs(output_tensor_dictionary: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Tensor],
+                                                                                   Dict[str, torch.Tensor]]:
+    """
+    Separates the skip outputs of the backbone ('skip_<block>' keys) from the outputs of the detection blocks, so that
+    the neck and the detection heads of the two-stage detector only see the detection levels and the mask heads of
+    the instance segmentation receive the skip outputs.
+
+    Args:
+        output_tensor_dictionary (Dict[str, torch.Tensor]): The intermediate outputs returned by Backbone.forward.
+
+    Returns:
+        Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]: The detection block outputs keyed by block, then the
+            skip outputs keyed by their 'skip_<block>' key, empty without skip blocks.
+    """
+    level_outputs = {key: tensor for key, tensor in output_tensor_dictionary.items()
+                     if not key.startswith(SKIP_OUTPUT_PREFIX)}
+    skip_outputs = {key: tensor for key, tensor in output_tensor_dictionary.items()
+                    if key.startswith(SKIP_OUTPUT_PREFIX)}
+    return level_outputs, skip_outputs

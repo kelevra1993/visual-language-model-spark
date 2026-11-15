@@ -6,7 +6,8 @@ section removed (a CIoU one leaving the file as it is), the turned off gradient 
 left as it is), the final NMS settings added to their detector section, the proposal selection added to their region
 proposal section, the anchors centred on the cell corners removed (a file centring them on the cell centres left as
 it is), the instance index maps (one mask per object) added to the data section of the instance segmentation files,
-and the refusals of a conversion changing another setting or the backbone.
+the finer inputs of the mask heads (none) added to their mask heads section, and the refusals of a conversion changing
+another setting or the backbone.
 """
 
 import pytest
@@ -276,11 +277,53 @@ INSTANCE_INDEX_MAPS_TEXT = (
     '  # GPU); needs run length encodings whose masks never overlap (synthetic datasets), False for COCO (polygons).\n'
     '  instance_index_maps: False\n')
 
+# Mask heads section ending the instance segmentation texts, and the lines the conversion writes after its upsampling
+# in the files written before the finer inputs of the mask heads, whose heads read the map of their level alone
+MASK_HEAD_UPSAMPLING_TEXT = '  upsampling: "transposed"\n'
+MASK_HEAD_TEXT = (f'MaskHead:\n  mask_resolution: 28\n{MASK_HEAD_UPSAMPLING_TEXT}  normalization:\n'
+                  f'    feature_map_normalization: "batch"\n')
+MASK_HEAD_FINE_INPUTS_TEXT = (
+    '  # Backbone blocks (before their pooling, 0 the normalized input image) pooled at the pool size of every level '
+    'and\n'
+    '  # concatenated to its pooled features (U-Net skips), e.g. [4] (stride 8); [] for none.\n'
+    '  skip_blocks_at_pool_size: []\n'
+    '  # Image branch: [layers, channels] of plain 3x3 convolutions on the box crop of the normalized input image at '
+    'M,\n'
+    '  # shared by the levels and concatenated after the doublings, e.g. [5, 32]; [0, 0] for none.\n'
+    '  image_branch_convolutions: [0, 0]\n'
+    '  # Backbone blocks (before their pooling) pooled at M and concatenated after the doublings, e.g. [3] (stride '
+    '4);\n'
+    '  # [] for none.\n'
+    '  skip_blocks_at_mask_resolution: []\n'
+    '  # [layers, channels] of plain 3x3 convolutions at M before the predictor, mixing the concatenated features, '
+    'e.g.\n'
+    '  # [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.\n'
+    '  fusion_convolutions: [0, 0]\n')
+
+
+def write_original_task_text(configuration_text: str, task: str) -> str:
+    """
+    Writes a detection text for a task as the files written before the instance index maps hold it: its task name,
+    and for the instance segmentation its mask heads section, without their finer inputs.
+
+    Args:
+        configuration_text (str): The detection text.
+        task (str): "object_detection" or "instance_segmentation".
+
+    Returns:
+        str: The text of the task.
+    """
+    task_text = configuration_text.replace("task: object_detection", f"task: {task}")
+    if task == "instance_segmentation":
+        task_text += MASK_HEAD_TEXT
+    return task_text
+
 
 def write_task_text(configuration_text: str, task: str) -> str:
     """
     Writes a detection text for a task: its task name, and for the instance segmentation the instance index maps after
-    the image settings, as the conversion writes them, for the instance segmentation texts converted after 2026-11-13.
+    the image settings and its mask heads section with their finer inputs after the upsampling, as the conversion
+    writes them, for the instance segmentation texts converted after 2026-11-15.
 
     Args:
         configuration_text (str): The detection text, holding the data section of the texts above.
@@ -292,6 +335,8 @@ def write_task_text(configuration_text: str, task: str) -> str:
     task_text = configuration_text.replace("task: object_detection", f"task: {task}")
     if task == "instance_segmentation":
         task_text = task_text.replace(DATA_START_TEXT, f"{DATA_START_TEXT}{INSTANCE_INDEX_MAPS_TEXT}")
+        task_text += MASK_HEAD_TEXT.replace(MASK_HEAD_UPSAMPLING_TEXT,
+                                            f"{MASK_HEAD_UPSAMPLING_TEXT}{MASK_HEAD_FINE_INPUTS_TEXT}")
     return task_text
 
 
@@ -314,7 +359,8 @@ def test_conversion_adds_the_box_loss_to_the_detection_files(tmp_path: Path) -> 
     """
     configuration_path = tmp_path / "configuration.yaml"
     for task in ["object_detection", "instance_segmentation"]:
-        original_text = CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS.replace("task: object_detection", f"task: {task}")
+        original_text = write_original_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS,
+                                                 task=task)
         converted_text = add_required_settings(configuration_text=original_text, task=task,
                                                configuration_path=configuration_path)
         assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
@@ -476,7 +522,7 @@ def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path:
     """
     configuration_path = tmp_path / "configuration.yaml"
     for task in ["object_detection", "instance_segmentation"]:
-        original_text = CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS.replace("task: object_detection", f"task: {task}")
+        original_text = write_original_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, task=task)
         converted_text = add_required_settings(configuration_text=original_text, task=task,
                                                configuration_path=configuration_path)
         assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
@@ -523,7 +569,7 @@ def test_conversion_adds_the_proposal_selection_to_the_detection_files(tmp_path:
     """
     configuration_path = tmp_path / "configuration.yaml"
     for task in ["object_detection", "instance_segmentation"]:
-        original_text = CONVERTED_DETECTION_TEXT_WITH_NMS.replace("task: object_detection", f"task: {task}")
+        original_text = write_original_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_NMS, task=task)
         converted_text = add_required_settings(configuration_text=original_text, task=task,
                                                configuration_path=configuration_path)
         assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
@@ -641,12 +687,11 @@ def test_conversion_adds_the_instance_index_maps_to_the_instance_segmentation_fi
         tmp_path (Path): The pytest temporary directory.
     """
     configuration_path = tmp_path / "configuration.yaml"
-    original_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("task: object_detection",
-                                                                         "task: instance_segmentation")
-    converted_text = add_required_settings(configuration_text=original_text, task="instance_segmentation",
-                                           configuration_path=configuration_path)
     expected_text = write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
                                     task="instance_segmentation")
+    original_text = expected_text.replace(INSTANCE_INDEX_MAPS_TEXT, "")
+    converted_text = add_required_settings(configuration_text=original_text, task="instance_segmentation",
+                                           configuration_path=configuration_path)
     assert converted_text == expected_text and INSTANCE_INDEX_MAPS_TEXT in converted_text
     assert check_conversion(original_text=original_text, converted_text=converted_text, task="instance_segmentation",
                             configuration_path=configuration_path) == []
@@ -679,4 +724,61 @@ def test_conversion_adds_the_instance_index_maps_to_the_instance_segmentation_fi
     assert converted_paths == [configuration_folder / "run-1.yaml"]
     assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
     assert (configuration_folder / "previous_configurations" / "run-1_before_instance_index_maps.yaml").read_text(
+        encoding="utf-8") == original_text
+
+
+def test_conversion_adds_the_mask_head_fine_inputs_to_the_instance_segmentation_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the finer inputs of the mask heads turned off, no backbone skip, no image branch
+    and no fusion convolution with their comment lines, right after the upsampling of the mask heads section of the
+    instance segmentation files written before them, in the order of their data flow, and only there: an object
+    detection file and an instance segmentation file holding an image branch are left as they are, a mask heads section
+    without upsampling is refused, the check refuses a converted file lacking the settings or turning one on, and
+    convert_fixed_settings converts a launch file with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    expected_text = write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                    task="instance_segmentation")
+    original_text = expected_text.replace(MASK_HEAD_FINE_INPUTS_TEXT, "")
+    converted_text = add_required_settings(configuration_text=original_text, task="instance_segmentation",
+                                           configuration_path=configuration_path)
+    assert converted_text == expected_text and MASK_HEAD_FINE_INPUTS_TEXT in converted_text
+    assert check_conversion(original_text=original_text, converted_text=converted_text, task="instance_segmentation",
+                            configuration_path=configuration_path) == []
+
+    # An object detection file, and an instance segmentation file holding an image branch, are left as they are
+    assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                 task="object_detection", configuration_path=configuration_path) == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    image_branch_text = expected_text.replace("image_branch_convolutions: [0, 0]", "image_branch_convolutions: [5, 32]")
+    assert add_required_settings(configuration_text=image_branch_text, task="instance_segmentation",
+                                 configuration_path=configuration_path) == image_branch_text
+
+    # A mask heads section without upsampling, and conversions without the settings or turning the image branch on
+    with pytest.raises(expected_exception=ValueError, match="has no 'MaskHead.upsampling' setting"):
+        add_required_settings(configuration_text=original_text.replace(MASK_HEAD_UPSAMPLING_TEXT, ""),
+                              task="instance_segmentation", configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: MaskHead\.fusion_convolutions, "
+                             r"MaskHead\.image_branch_convolutions, MaskHead\.skip_blocks_at_mask_resolution, "
+                             r"MaskHead\.skip_blocks_at_pool_size\.$"):
+        check_conversion(original_text=original_text, converted_text=original_text, task="instance_segmentation",
+                         configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: MaskHead\.image_branch_convolutions\.$"):
+        check_conversion(original_text=original_text, converted_text=image_branch_text, task="instance_segmentation",
+                         configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=original_text, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_mask_fine_inputs")
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
+    assert (configuration_folder / "previous_configurations" / "run-1_before_mask_fine_inputs.yaml").read_text(
         encoding="utf-8") == original_text

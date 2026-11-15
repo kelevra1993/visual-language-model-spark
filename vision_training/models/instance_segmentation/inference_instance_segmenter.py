@@ -1,7 +1,8 @@
 """
 Inference-only version of the trained InstanceSegmenter: the fixed-shape detection of the InferenceDetector followed by
-the mask head of every level on the fixed number of detections of every image, returning a fifth output with the mask
-of every detection. Built by vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports.
+the mask head of every level (with the fine inputs they share, when configured) on the fixed number of detections of
+every image, returning a fifth output with the mask of every detection. Built by
+vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports.
 """
 
 import torch
@@ -29,6 +30,7 @@ class InferenceInstanceSegmenter(InferenceDetector):
         """
         super(InferenceInstanceSegmenter, self).__init__(model=model)
         self.mask_heads_dictionary = model.mask_heads_dictionary
+        self.mask_fine_inputs = model.mask_fine_inputs
 
         # Side of the exported masks, stored as a plain number for the export specification
         self.mask_size = model.mask_size
@@ -55,6 +57,7 @@ class InferenceInstanceSegmenter(InferenceDetector):
         detection_levels = torch.gather(input=detected_objects["proposal_levels"], dim=1,
                                         index=detections["final_detection_proposal_indices"])
         detection_masks = self.predict_masks(feature_maps=detected_objects["feature_maps"],
+                                             skip_feature_maps=detected_objects["skip_feature_maps"],
                                              detection_boxes=detections["final_detection_boxes"],
                                              detection_labels=detections["final_detection_labels"],
                                              detection_levels=detection_levels,
@@ -62,16 +65,19 @@ class InferenceInstanceSegmenter(InferenceDetector):
         return (detections["final_detection_boxes"], detections["final_detection_scores"],
                 detections["final_detection_labels"], detections["number_detections"], detection_masks)
 
-    def predict_masks(self, feature_maps: Dict[str, torch.Tensor], detection_boxes: torch.Tensor,
-                      detection_labels: torch.Tensor, detection_levels: torch.Tensor,
+    def predict_masks(self, feature_maps: Dict[str, torch.Tensor], skip_feature_maps: Dict[str, torch.Tensor],
+                      detection_boxes: torch.Tensor, detection_labels: torch.Tensor, detection_levels: torch.Tensor,
                       number_detections: torch.Tensor) -> torch.Tensor:
         """
         Predicts the mask of every detection with the mask head of its own level. Every head processes all the
         detections and each detection keeps the output of its own level, since selecting the detections of each level
-        would give data-dependent tensor sizes that the ONNX export cannot handle, as in InferenceDetector.detect.
+        would give data-dependent tensor sizes that the ONNX export cannot handle, as in InferenceDetector.detect. The
+        fine features shared by the levels are computed once on all the detections.
 
         Args:
             feature_maps (Dict[str, torch.Tensor]): The backbone feature maps, keyed by level name.
+            skip_feature_maps (Dict[str, torch.Tensor]): The skip outputs of the backbone keyed 'skip_<block>', empty
+                without fine inputs.
             detection_boxes (torch.Tensor): The [B, K, 4] detection boxes.
             detection_labels (torch.Tensor): The [B, K] int64 detected classes.
             detection_levels (torch.Tensor): The [B, K] level index of every detection.
@@ -91,10 +97,15 @@ class InferenceInstanceSegmenter(InferenceDetector):
 
         detection_masks: Optional[torch.Tensor] = None
 
+        # Fine features of all the detections, read by the head of every level, None without fine inputs
+        fine_features = self.mask_fine_inputs(proposal_boxes=region_boxes, skip_feature_maps=skip_feature_maps)
+
         # Run every level's head on all the detections and keep, for each detection, the mask of its own level
         for level_index, level_name in enumerate(self.level_names):
             level_logits = self.mask_heads_dictionary[level_name](proposal_boxes=region_boxes,
-                                                                  input_tensor=feature_maps[level_name])
+                                                                  input_tensor=feature_maps[level_name],
+                                                                  skip_feature_maps=skip_feature_maps,
+                                                                  fine_features=fine_features)
             mask_size = level_logits.shape[-1]
             level_masks = torch.sigmoid(input=torch.gather(input=level_logits, dim=1,
                                                            index=class_indices.expand(-1, 1, mask_size, mask_size)))

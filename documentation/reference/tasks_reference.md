@@ -174,6 +174,7 @@ The detector of DET with one mask head per detection level, as in Mask R-CNN ([H
 - The mask head of a level pools every box with RoI Align (`mask_head.roi_align_pool_size`, 14 by default) and refines it with convolutions.
 - It doubles the resolution up to `MaskHead.mask_resolution` (28 by default), with transposed convolutions or bilinear upsamplings (`MaskHead.upsampling`), and gives one mask per class, the detected class being kept.
 - It trains on the positive proposals, and runs on the final detections at inference.
+- Should the masks need finer detail than the map of their level, the heads can read finer inputs, all off by default: backbone blocks before their pooling pooled at the pool size and concatenated before the convolutions (`MaskHead.skip_blocks_at_pool_size`, U-Net skips), and at the mask resolution, after the doublings, an image branch of plain 3x3 convolutions on the RoI Align crop of the normalized input image (`MaskHead.image_branch_convolutions`) and backbone blocks pooled at the mask resolution (`MaskHead.skip_blocks_at_mask_resolution`), mixed by plain 3x3 fusion convolutions before the predictor (`MaskHead.fusion_convolutions`). The image branch and the skips at the mask resolution are computed once per box for every level (`MaskFineInputs` of `vision_training/models/instance_segmentation/mask_head.py`).
 
 **Data.** The COCO `labels.json` of DET, every object having a `segmentation`: polygons (flat `[x1, y1, x2, y2, ...]` lists in pixels of the original image) or a run length encoding `{"size": [height, width], "counts": ...}`, compressed or not.
 
@@ -188,7 +189,7 @@ The detector of DET with one mask head per detection level, as in Mask R-CNN ([H
 
 **Configuration.** The keys of DET, and:
 - a `mask_head` in every level, e.g. `mask_head: { roi_align_pool_size: 14, convolutions: [4, 64] }`;
-- `MaskHead`: mask resolution, upsampling, normalization, modules, and `inference.mask_threshold`, the probability from which a pixel belongs to its object;
+- `MaskHead`: mask resolution, upsampling, the finer inputs (`skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`) and `fusion_convolutions`, normalization, modules, and `inference.mask_threshold`, the probability from which a pixel belongs to its object;
 - the weight of the `mask_loss` in `Optimization.loss_weights`, raised when the masks lag behind the boxes;
 - `Data.instance_index_maps`;
 - `evaluation.original_resolution`.

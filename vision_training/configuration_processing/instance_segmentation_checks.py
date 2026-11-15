@@ -1,7 +1,8 @@
 """
 Checks of the configuration sections specific to the instance segmentation task: every check of the object detection
-task, whose two-stage detector the instance segmenter extends, its mask heads (the 'MaskHead' section and the mask
-head of every detection level), the instance index maps of the loaders and the evaluation at the original resolution.
+task, whose two-stage detector the instance segmenter extends, its mask heads (the 'MaskHead' section, with the finer
+inputs of the heads, and the mask head of every detection level), the instance index maps of the loaders and the
+evaluation at the original resolution.
 Run by configuration_checker.py for the instance_segmentation task.
 """
 
@@ -25,9 +26,9 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     level in the 'MaskHead' section, the RoIAlign pool size of every level in 'DetectionLevels.<level>.mask_head' (at
     most the mask resolution, the pooled features being only enlarged) and its [number_layers, output_channels]
     convolutions (a multiple of 8 channels with inception modules), the normalization and the momentum of its batch
-    statistics, the module flags, the mask threshold of the inference and the 'pretrained' settings initialising the
-    mask heads with those of another run. The presence of the mask head of every level is checked by
-    check_detection_levels.
+    statistics, the module flags, the mask threshold of the inference, the 'pretrained' settings initialising the
+    mask heads with those of another run and their finer inputs (check_mask_head_fine_inputs). The presence of the
+    mask head of every level is checked by check_detection_levels.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' section.
@@ -81,6 +82,65 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
 
     # Mask heads initialised by those of another run
     errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="MaskHead")
+
+    # Finer inputs of the mask heads than the map of their level, and the fusion convolutions before their predictor
+    errors += check_mask_head_fine_inputs(model_configuration=model_configuration)
+    return errors
+
+
+def check_mask_head_fine_inputs(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the finer inputs of the mask heads (stage 3b of the instance segmentation benchmark), all off by default:
+    the [number_layers, output_channels] of the fusion convolutions before the predictor
+    ('MaskHead.fusion_convolutions') and of the image branch on the crop of the input image
+    ('MaskHead.image_branch_convolutions'), [0, 0] when unused, and the backbone blocks whose outputs before pooling
+    are pooled at the pool size or at the mask resolution
+    ('MaskHead.skip_blocks_at_pool_size', 'MaskHead.skip_blocks_at_mask_resolution'), distinct block numbers of
+    'Backbone.convolutions' or 0 for the normalized input image. The image branch is not part of the transferred mask
+    heads, so it is refused with mask heads initialised by another run, whose heads were trained on another branch.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' and 'Backbone'
+            sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+
+    # Plain convolutions given as [number_layers, output_channels], both zero when unused or both positive
+    valid_convolutions = {}
+    for key_name in ["fusion_convolutions", "image_branch_convolutions"]:
+        key_path = f"MaskHead.{key_name}"
+        convolutions = get_configuration_value(configuration=model_configuration, key_path=key_path)
+        if isinstance(convolutions, list) and len(convolutions) == 2 and \
+                all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in convolutions) \
+                and (convolutions[0] == 0) == (convolutions[1] == 0):
+            valid_convolutions[key_name] = convolutions
+        else:
+            errors.append(f"'{key_path}' must be [number_layers, output_channels] with positive integers, or [0, 0] "
+                          f"when unused, got {convolutions!r}.")
+
+    # Backbone blocks read before their pooling, 0 standing for the normalized input image
+    number_blocks = len(get_configuration_value(configuration=model_configuration, key_path="Backbone.convolutions"))
+    for key_name in ["skip_blocks_at_pool_size", "skip_blocks_at_mask_resolution"]:
+        key_path = f"MaskHead.{key_name}"
+        skip_blocks = get_configuration_value(configuration=model_configuration, key_path=key_path)
+        valid_blocks = isinstance(skip_blocks, list) and \
+            all(isinstance(block, int) and not isinstance(block, bool) and 0 <= block <= number_blocks
+                for block in skip_blocks)
+        if not valid_blocks or len(set(skip_blocks)) != len(skip_blocks):
+            errors.append(f"'{key_path}' must be a list of distinct backbone blocks between 0 (the normalized input "
+                          f"image) and {number_blocks}, empty when unused, got {skip_blocks!r}.")
+
+    # The image branch is not transferred with the mask heads, which would read an untrained branch
+    experiment_folder = get_configuration_value(configuration=model_configuration,
+                                                key_path="MaskHead.pretrained.experiment_folder")
+    if experiment_folder is not None and "image_branch_convolutions" in valid_convolutions and \
+            valid_convolutions["image_branch_convolutions"][0] > 0:
+        errors.append(f"'MaskHead.image_branch_convolutions' must be [0, 0] when "
+                      f"'MaskHead.pretrained.experiment_folder' is set: the image branch is not transferred with the "
+                      f"mask heads, got {valid_convolutions['image_branch_convolutions']!r}.")
     return errors
 
 

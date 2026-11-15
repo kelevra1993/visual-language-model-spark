@@ -83,6 +83,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `MaskHead.mask_resolution` | 28 | side of the masks of every level, the `MR28` token of the run name and the `[D, 28, 28]` of the exported `detection_masks` |
 | `DetectionLevels.<5, 6, 7>.mask_head` | `roi_align_pool_size: 14`, `convolutions: [3, 32]` | RoIAlign and convolution block of the mask head of every level (`M14.3x32`), the pool doubled once to 28 (`count_mask_upsamplings()`); the pool size must not exceed the mask resolution |
 | `MaskHead.upsampling` | `"transposed"` | a 2 x 2 transposed convolution of stride 2 per doubling (`MUTC`), or `"bilinear"`, a bilinear doubling followed by a 3 x 3 convolution (`MUBL`) |
+| `MaskHead.skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` | `[]`, `[0, 0]`, `[]`, `[0, 0]` (off; this document runs without them) | finer inputs of the mask heads (stage 3b of the instance segmentation benchmark): backbone blocks before their pooling pooled at the pool size (`MSP`), an image branch of plain 3 x 3 convolutions on the RoIAlign crop of the normalized input image (`MIB`) and blocks pooled at the mask resolution (`MSM`), both concatenated after the doublings, and plain 3 x 3 fusion convolutions before the predictor (`MF`) |
 | `MaskHead.modules`, `MaskHead.normalization` | residual shortcuts on, squeeze-and-excitation and inception off; batch normalization | the convolution blocks of the mask heads (`MRES-MBN`) |
 | `MaskHead.inference.mask_threshold` | 0.5 | pixels of a pasted mask kept for the mask IoU, the confusion matrix and the sample and error images; the exported model returns the probabilities without it |
 | `Optimization.loss_weights.mask_loss` | 1.0 (1.0 for the four detection losses too) | weight of the mask loss in the total loss, the losses being tracked unweighted |
@@ -140,7 +141,8 @@ main()
 │           │                                                    loss weights include mask_loss
 │           ├── check_mask_head_configuration()                  mask_resolution, upsampling, pool size <= resolution,
 │           │                                                    convolutions, normalization, modules, mask_threshold,
-│           │                                                    pretrained
+│           │                                                    pretrained, and the finer inputs
+│           │                                                    (check_mask_head_fine_inputs)
 │           └── check_boolean_flags()                            evaluation.original_resolution
 │
 ├── get_trainer_class(task)  -> InstanceSegmentationTrainer
@@ -175,6 +177,8 @@ main()
 │           │   └── InstanceSegmenter.__init__()
 │           │       ├── TwoStageDetector.__init__()                  backbone, FeatureNeck, RegionProposal and DetectionHead
 │           │       │                                                per level, anchors, RegionProposalFilter
+│           │       ├── MaskFineInputs()                             image branch and skips at the mask resolution shared by
+│           │       │                                                the levels, none by default
 │           │       └── _build_mask_heads_dictionary()
 │           │           └── MaskHead() for every level -> count_mask_upsamplings()
 │           │                   RoIAlign -> ConvolutionBlock -> doublings (ConvTranspose2d, or bilinear + Conv2d) ->
@@ -802,7 +806,7 @@ total                                 5.5602
 The forward pass of the detector (`two_stage_detector.py`), unchanged: backbone, region proposals of every level, aggregation with the anchors, proposal filter (one selection over all the levels, `RegionProposal.proposal_selection: "joint"`), target assignment and sampling of 128 proposals per image, detection heads, and the four detection losses (see `object_detection_workflow.md`, Steps 3.10 to 3.18). It also returns what the mask branch needs: the feature maps of the detection blocks and the sampled proposals with their labels, levels and matched ground truths.
 
 ### Step 3.11 — `compute_proposal_mask_loss()`
-As in Mask R-CNN, the masks are learned on the positive sampled proposals only (label > 0), the proposals the detector learns to classify as an object. Each level runs its mask head on its own positive proposals, read with `sliced_origins` (the level of every proposal), even when it has none, so that every mask head stays in the graph. The logits of all the levels, their labels, proposals and matched ground truth indices are concatenated, `build_mask_targets()` crops the targets (Step 3.12) and `compute_mask_loss()` compares them (Step 3.13).
+As in Mask R-CNN, the masks are learned on the positive sampled proposals only (label > 0), the proposals the detector learns to classify as an object. Each level runs its mask head on its own positive proposals, read with `sliced_origins` (the level of every proposal), even when it has none, so that every mask head stays in the graph. With finer inputs (`MaskHead.image_branch_convolutions` or `skip_blocks_at_mask_resolution`), `MaskFineInputs` first computes the fine features of the positive proposals of all the levels at once, so that the batch statistics of the image branch cover every box, and every level receives the rows of its own proposals. The logits of all the levels, their labels, proposals and matched ground truth indices are concatenated, `build_mask_targets()` crops the targets (Step 3.12) and `compute_mask_loss()` compares them (Step 3.13).
 
 **Example: the first iteration of the CPU run**
 ```text
@@ -967,7 +971,7 @@ The accumulator of the detection (see `object_detection_workflow.md`, Step 4.2);
 ```
 
 ### Step 4.3 — `prepare_batch()` + `predict_batch()` → `predict_detection_masks()`
-`prepare_batch()` prepares the test batch as in training (Step 3.7): with `Data.instance_index_maps`, the maps of the test loader are expanded on the device into `instance_masks`, which the evaluation reads; the test loader of `evaluation.original_resolution` has no maps and gives one mask per object at both resolutions (Step 2.8). `predict_batch()` runs the model without the ground truth, as in deployment. After the post-processing of the detections (see `object_detection_workflow.md`, Step 4.4), `predict_detection_masks()` runs the mask heads on the **final boxes**, refined by the detection head, as in Mask R-CNN where the masks follow the refined boxes: the level of every detection is the level of its proposal (`sliced_origins` read at `final_detection_proposal_indices`), every level runs its mask head on its own valid detections, and the sigmoid of the channel of the detected class is kept. The padding detections get a mask of 0. The masks are 28 x 28 in the frame of their box; they are pasted into the image only for the evaluation (Step 4.5) and the sample images (Step 4.6).
+`prepare_batch()` prepares the test batch as in training (Step 3.7): with `Data.instance_index_maps`, the maps of the test loader are expanded on the device into `instance_masks`, which the evaluation reads; the test loader of `evaluation.original_resolution` has no maps and gives one mask per object at both resolutions (Step 2.8). `predict_batch()` runs the model without the ground truth, as in deployment. After the post-processing of the detections (see `object_detection_workflow.md`, Step 4.4), `predict_detection_masks()` runs the mask heads on the **final boxes**, refined by the detection head, as in Mask R-CNN where the masks follow the refined boxes: the level of every detection is the level of its proposal (`sliced_origins` read at `final_detection_proposal_indices`), every level runs its mask head on its own valid detections, and the sigmoid of the channel of the detected class is kept; with finer inputs, their fine features are computed once on the valid detections of all the levels. The padding detections get a mask of 0. The masks are 28 x 28 in the frame of their box; they are pasted into the image only for the evaluation (Step 4.5) and the sample images (Step 4.6).
 
 **Example: the predictions of the test batch of the CPU run** (recorded with one mask per object, before `Data.instance_index_maps`; with the maps the loader batch holds `instance_index_maps (2, 512, 512) uint8`, expanded by `prepare_batch()` into the same `instance_masks`)
 ```text

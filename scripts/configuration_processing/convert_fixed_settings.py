@@ -7,8 +7,9 @@ of the region proposal network of the detection tasks, then the gradient clippin
 detection tasks), and adds the sections and the settings a task now requires with the values reproducing the runs
 written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss' of
 their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section,
-the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, and the
-'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object), so that
+the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, the
+'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object, and the finer inputs and
+fusion convolutions of its 'MaskHead' section, none), so that
 the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
@@ -125,6 +126,24 @@ DATA_INSTANCE_INDEX_MAPS_LINES = [
     '# GPU); needs run length encodings whose masks never overlap (synthetic datasets), False for COCO (polygons).',
     'instance_index_maps: False']
 
+# Lines of the finer inputs of the mask heads added to the 'MaskHead' section of the instance segmentation runs written
+# before them, whose mask heads read the map of their level alone: the comment lines, then the setting
+MASK_HEAD_SKIP_BLOCKS_AT_POOL_SIZE_LINES = [
+    '# Backbone blocks (before their pooling, 0 the normalized input image) pooled at the pool size of every level and',
+    '# concatenated to its pooled features (U-Net skips), e.g. [4] (stride 8); [] for none.',
+    'skip_blocks_at_pool_size: []']
+MASK_HEAD_IMAGE_BRANCH_CONVOLUTIONS_LINES = [
+    '# Image branch: [layers, channels] of plain 3x3 convolutions on the box crop of the normalized input image at M,',
+    '# shared by the levels and concatenated after the doublings, e.g. [5, 32]; [0, 0] for none.',
+    'image_branch_convolutions: [0, 0]']
+MASK_HEAD_SKIP_BLOCKS_AT_MASK_RESOLUTION_LINES = [
+    '# Backbone blocks (before their pooling) pooled at M and concatenated after the doublings, e.g. [3] (stride 4);',
+    '# [] for none.', 'skip_blocks_at_mask_resolution: []']
+MASK_HEAD_FUSION_CONVOLUTIONS_LINES = [
+    '# [layers, channels] of plain 3x3 convolutions at M before the predictor, mixing the concatenated features, e.g.',
+    '# [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.',
+    'fusion_convolutions: [0, 0]']
+
 # Settings a task now requires inside sections its files hold, added to the files of its runs written before them: the
 # tasks holding the setting, the setting it is written after (at its indentation), and its lines, whose value
 # reproduces those runs. They are added in this order, so that a setting can follow one added before it
@@ -140,7 +159,19 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                                                         "after": "RegionProposal.normalization",
                                                         "lines": REGION_PROPOSAL_SELECTION_LINES},
                   "Data.instance_index_maps": {"tasks": ["instance_segmentation"], "after": "Data.image_settings",
-                                               "lines": DATA_INSTANCE_INDEX_MAPS_LINES}}
+                                               "lines": DATA_INSTANCE_INDEX_MAPS_LINES},
+                  "MaskHead.skip_blocks_at_pool_size": {"tasks": ["instance_segmentation"],
+                                                        "after": "MaskHead.upsampling",
+                                                        "lines": MASK_HEAD_SKIP_BLOCKS_AT_POOL_SIZE_LINES},
+                  "MaskHead.image_branch_convolutions": {"tasks": ["instance_segmentation"],
+                                                         "after": "MaskHead.skip_blocks_at_pool_size",
+                                                         "lines": MASK_HEAD_IMAGE_BRANCH_CONVOLUTIONS_LINES},
+                  "MaskHead.skip_blocks_at_mask_resolution": {"tasks": ["instance_segmentation"],
+                                                              "after": "MaskHead.image_branch_convolutions",
+                                                              "lines": MASK_HEAD_SKIP_BLOCKS_AT_MASK_RESOLUTION_LINES},
+                  "MaskHead.fusion_convolutions": {"tasks": ["instance_segmentation"],
+                                                   "after": "MaskHead.skip_blocks_at_mask_resolution",
+                                                   "lines": MASK_HEAD_FUSION_CONVOLUTIONS_LINES}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -620,9 +651,10 @@ if __name__ == "__main__":
     # '_before_gradient_clipping_norm' for the 'Optimization.gradient_clipping_norm' removed on 2026-11-11,
     # '_before_proposal_selection' for the 'RegionProposal.proposal_selection' added on 2026-11-11,
     # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12,
-    # '_before_anchor_centres_removal' for its removal on 2026-11-13, then '_before_instance_index_maps' for the
-    # 'Data.instance_index_maps' added on 2026-11-13
-    backup_suffix = "_before_instance_index_maps"
+    # '_before_anchor_centres_removal' for its removal on 2026-11-13, '_before_instance_index_maps' for the
+    # 'Data.instance_index_maps' added on 2026-11-13, then '_before_mask_fine_inputs' for the finer inputs and fusion
+    # convolutions of the 'MaskHead' section added on 2026-11-15
+    backup_suffix = "_before_mask_fine_inputs"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)
