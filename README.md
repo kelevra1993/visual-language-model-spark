@@ -3,6 +3,7 @@
 <p align="center">
   <img src="README/tasks_overview.png" width="100%" />
 </p>
+<p align="center"><em>One evaluation sample image of every supervised task, from short runs on the synthetic datasets.</em></p>
 
 ## Table Of Content
 - [Description](#description)
@@ -55,6 +56,12 @@ If you are new to the repository, start from its tasks: it trains, evaluates and
   <img src="README/architectures.png" width="100%" />
 </p>
 
+Should you need to change what a task computes, the code splits the same way: `base_trainer.py` runs the loop of every task, and the trainer of the task, picked from `ExperimentConfiguration.task` by `vision_training/core/task_registry.py`, fills its hooks.
+
+<p align="center">
+  <img src="README/shared_and_task_code.png" width="100%" />
+</p>
+
 This README gives the commands and the settings that matter most. The details are in `documentation/`:
 - [Training reference](documentation/reference/training_reference.md): run folder, console output, resuming, augmentation strengths, input viewer, moving average of the weights, transfer between runs.
 - [Tasks reference](documentation/reference/tasks_reference.md): synthetic datasets, data format, converters, losses and metrics of every task.
@@ -73,8 +80,16 @@ uv sync
 
 Every script runs as a module from the repository root. The training takes `--configuration_path`, the task being read from the file; the other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
 
+<p align="center">
+  <img src="README/scripts_and_requirements.png" width="100%" />
+</p>
+
 ### Data Requirements
 For a task to train, it needs a train, a validation and a test split folder, each holding its images in `data/` and a `labels.json` manifest, and a `label_mapping.json` file giving the class of every category ([Tasks](#tasks)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
+
+<p align="center">
+  <img src="README/data_folder_layout.png" width="100%" />
+</p>
 
 ### ImageNet-22k
 Should you need the pre-trained backbones of the classification configurations (`configuration_example.yaml` and the `*_model.yaml` files of `vision_training/configurations/classification/`) or of the self-supervised example, download ImageNet-22k with `vision_training/data/classification/imagenet_download.py`. It reads `timm/imagenet-22k-wds` from Hugging Face at a pinned revision (fall11 release, 21,841 classes, 4,608 shards of about 0.29 GB).
@@ -86,7 +101,11 @@ Should you need the pre-trained backbones of the classification configurations (
 uv run python -m vision_training.data.classification.imagenet_download
 ```
 
-The script then holds out one image per class of at least 50 images (18,846 images) as the test split, which is also the validation split, and writes `manifests/` and `label_mapping.json`. A setting chosen on the validation curves is therefore chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](documentation/reference/tasks_reference.md#classification-cls).
+<p align="center">
+  <img src="README/imagenet_22k_download.png" width="100%" />
+</p>
+
+The held-out images (18,846) are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](documentation/reference/tasks_reference.md#classification-cls).
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
@@ -112,6 +131,11 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 | SEL | one shape per frame, the largest circle, triangle and star to select | `frame_selection/configuration_synthetic_sequences.yaml` |
 | SSL | the CLS dataset, or 5 to 10 counted shapes per image | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
 
+<p align="center">
+  <img src="README/synthetic_datasets.gif" width="100%" />
+</p>
+<p align="center"><em>Samples written by <code>create_synthetic_dataset.py</code>, drawn with their <code>labels.json</code> labels; the sequence tiles play their frames.</em></p>
+
 ## Training
 
 ### Launching A Run
@@ -122,6 +146,11 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 ```
 
 The configuration is checked before anything starts: a missing key, an unusable value, an inconsistent combination or a removed setting (such as `resume_training`) stops the program with the list of every problem found.
+
+<p align="center">
+  <img src="README/launch_flow.png" width="100%" />
+</p>
+<p align="center"><em>The run name decides the folder, and the last checkpoint of that folder decides between a new run and a resume.</em></p>
 
 ### Run Folder
 Whenever a training starts, it writes to `<experiment_folder>/<run name>/`, the name being built from its settings ([Run Names](#run-names)):
@@ -140,22 +169,39 @@ Whenever a training starts, it writes to `<experiment_folder>/<run name>/`, the 
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
-A checkpoint is saved every `intermediate_weight_saving_iterations` iterations (0 saves none), and a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations.
+A checkpoint is saved every `intermediate_weight_saving_iterations` iterations (0 saves none), a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations and a console summary printed every `information_dump` iterations, here with the settings of the classification run of the README images:
+
+<p align="center">
+  <img src="README/run_folder_schedule.png" width="100%" />
+</p>
 
 ### Stopping And Resuming
 In case a training has to stop, Ctrl+C saves a checkpoint of the last step, and launching the same configuration again resumes from the last checkpoint of its run folder with its optimizer state.
+
+<p align="center">
+  <img src="README/resume_rules.png" width="100%" />
+</p>
+
 - `number_iterations` is the total of the run, not the iterations left.
-- The settings without a run name token (augmentation, batch size, learning rate and schedule, moving average of the weights, dropout rates) may change between resumptions: the changes are printed and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
+- The settings without a run name token (left box above) may change between resumptions: the changes are printed and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
 - Changed labels (another SHA-256 of a `labels.json`) stop the resume, unless `ExperimentConfiguration.allow_data_change_on_resume` is true.
 - To train the same settings from scratch, give the run another `run_name_suffix` or `experiment_folder`, or move its run folder away.
 - A failing iteration is reported in yellow, with the traceback of its error the first time that error occurs in the run, and skipped, as is an unreadable batch; more than 5 failing iterations in a row stop the training, saving a checkpoint.
 
 ### Console And TensorBoard
-So that a run can be followed live, the trainer prints at launch the run name, its folders as clickable links, the settings and data changed since the last start, the transferred components, the splits and the model summary. Every `information_dump` iterations it prints the averages of the interval, and at every evaluation the report appended to `Results.txt` (with `evaluation.per_class_report`, the classes worst first and their recall with its 95 % confidence interval). CLS, M2O, M2M and CMP print their rates as percentages ("94.03 %"), the other tasks between 0 and 1; the files, TensorBoard and MLflow always keep 0 to 1.
+So that a run can be followed live, the trainer prints at launch the run name, its folders as clickable links, the settings and data changed since the last start, the transferred components, the splits and the model summary.
 
 <p align="center">
   <img src="README/experiment_launch_information.png" width="100%" />
 </p>
+
+Every `information_dump` iterations it prints the averages of the interval for both splits, each with its change since the previous summary (green when better) and `Best` when it is the best of the run for its split.
+
+<p align="center">
+  <img src="README/interval_summary.png" width="100%" />
+</p>
+
+At every evaluation it prints the report appended to `Results.txt` (with `evaluation.per_class_report`, the classes worst first and their recall with its 95 % confidence interval). CLS, M2O, M2M and CMP print their rates as percentages ("94.03 %"), the other tasks between 0 and 1; the files, TensorBoard and MLflow always keep 0 to 1.
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
@@ -167,23 +213,47 @@ TensorBoard holds `Train` and `Validation` (every iteration), `Test` (scalars an
 uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard
 ```
 
+<p align="center">
+  <img src="README/tensorboard.png" width="100%" />
+</p>
+
 ### Augmentation And Diagnosis Modes
 Suppose a run learns nothing: look at what the network receives before blaming the model.
-- `Data.data_augmentation` augments the training images on the device right before the forward pass (`vision_training/data/augmentations.py`): a global `probability`, then 28 types with their own `activated` and `probability`. The strengths are hard-coded in `SUPERVISED_AUGMENTATION_STRENGTHS` (`SELF_SUPERVISED_AUGMENTATION_STRENGTHS` for the SSL views). The geometric types move the boxes, masks and keypoints with the image; `random_perspective` and `random_jigsaw` are refused for DET, INS, SEG and KPT. `uv run python -m scripts.data.visualize_augmentation_strengths` draws one figure per type.
-- `ExperimentConfiguration.diagnosis_modes.view_input_images: True` shows the training and validation samples as the network receives them, with their targets and drawn augmentations (SPACE for the next samples, ENTER to exit; needs a display).
-- `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, per split, level and object size, the share of the objects whose best anchor overlaps them by at least `iou_threshold`.
 
-Both modes exit without training and create no run folder.
+`Data.data_augmentation` augments the training images on the device right before the forward pass (`vision_training/data/augmentations.py`): a global `probability`, then 28 types with their own `activated` and `probability`. The strengths are hard-coded in `SUPERVISED_AUGMENTATION_STRENGTHS` (`SELF_SUPERVISED_AUGMENTATION_STRENGTHS` for the SSL views). The geometric types move the boxes, masks and keypoints with the image; `random_perspective` and `random_jigsaw` are refused for DET, INS, SEG and KPT. `uv run python -m scripts.data.visualize_augmentation_strengths` draws one figure per type.
+
+<p align="center">
+  <img src="README/augmentation_types.jpg" width="100%" />
+</p>
+<p align="center"><em>Every type applied alone, at the strengths of the supervised tasks.</em></p>
+
+Before a long training, `ExperimentConfiguration.diagnosis_modes.view_input_images: True` shows the training and validation samples as the network receives them, with their targets and drawn augmentations (SPACE for the next samples, ENTER to exit; needs a display).
 
 <p align="center">
   <img src="README/input_viewer.png" width="100%" />
 </p>
 
+<p align="center">
+  <img src="README/augmented_detection_samples.gif" width="100%" />
+</p>
+<p align="center"><em>Draws of the augmentation of <code>object_detection/configuration_example.yaml</code> on one image, as the input viewer draws them: the boxes follow the flips, rotations and zoom-outs (unchanged draws skipped).</em></p>
+
+`diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, per split, level and object size, the share of the objects whose best anchor overlaps them by at least `iou_threshold`. Both diagnosis modes exit without training and create no run folder.
+
 ### Moving Average Of The Weights
-If one wishes to score a smoothed model, `Optimization.exponential_moving_average` keeps a second copy of the weights, moved towards the trained ones after every optimizer step (about the last 1,000 iterations at a decay of 0.999). Every test evaluation then scores both (`EMA Weights` report, `Evaluation/Iteration_<n>/EMA/`, `Test_EMA`). It gives no run name token, so it can be switched on or off when a run resumes.
+If one wishes to score a smoothed model, `Optimization.exponential_moving_average` keeps a second copy of the weights, moved towards the trained ones after every optimizer step (about the last 1,000 iterations at a decay of 0.999). The n-th update uses the decay min(decay, (1 + n) / (10 + n)), so a short run averages fewer iterations than its decay says. Every test evaluation then scores both (`EMA Weights` report, `Evaluation/Iteration_<n>/EMA/`, `Test_EMA`). It gives no run name token, so it can be switched on or off when a run resumes.
+
+<p align="center">
+  <img src="README/moving_average_of_the_weights.png" width="100%" />
+</p>
+<p align="center"><em>Right: the two launches of stage 13 of the classification benchmark, scored with their trained and their averaged weights.</em></p>
 
 ## Tasks
-Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts. In `{"1": 0, "2": 1, "3": 1}`, categories 2 and 3 are merged into class 1, and a category missing from the mapping is left out. CLS, M2O, M2M, CMP and SEL predict 0 to K-1; DET, INS, KPT and SEG predict 1 to K, class 0 being their background. Each task starts from the `configuration_example.yaml` of its folder.
+Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts (from 1 for DET, INS, KPT and SEG, whose class 0 is the background), merging categories or leaving out those it does not name. Each task starts from the `configuration_example.yaml` of its folder.
+
+<p align="center">
+  <img src="README/tasks_dataset_layout.png" width="100%" />
+</p>
 
 | Task | Labels | Own sections | Evaluation | Details |
 |---|---|---|---|---|
@@ -203,6 +273,16 @@ A few behaviours are easy to miss:
 - Sequences are fed whole: one longer than `Data.sequence_settings.maximum_sequence_length` is left out with a warning, and the batches are padded with masked frames. The `mean_pooling`, `max_pooling` and `attention_pooling` temporal modules ignore the frame order; `gru`, `lstm`, `transformer` and `temporal_convolution` follow it and are the only ones of M2M and SEL.
 - M2O: a class given by a motion needs `ClassificationHead.global_pooling: flatten`, the other poolings removing the position of the objects.
 
+<p align="center">
+  <img src="README/sequence_padded_batch.gif" width="100%" />
+</p>
+<p align="center"><em>Four synthetic moving-shape sequences padded to the longest one by <code>collate_padded_sequences</code>, and the <code>sequence_mask</code> of their real frames.</em></p>
+
+<p align="center">
+  <img src="README/sequence_pooling_similarity.png" width="100%" />
+</p>
+<p align="center"><em>Similarity of the frame vectors of one moving-shape sequence: after average pooling every frame looks the same, flatten keeps where the shape is.</em></p>
+
 ## Transfer Between Runs
 To be able to start from a trained component, such as a backbone trained on ImageNet for a detector, give its run in the `pretrained` block of the section, the source run being of the same task or of another one:
 
@@ -216,6 +296,10 @@ To be able to start from a trained component, such as a backbone trained on Imag
 | `Detector` | detection heads of every detection level, with their classification and box regression layers | DET, INS |
 | `MaskHead` | mask heads of every detection level, with their mask prediction layers | INS |
 | `HRNet`, `KeypointHead` | high resolution network, heatmap and tag head | KPT |
+
+<p align="center">
+  <img src="README/transfer_between_runs.png" width="100%" />
+</p>
 
 ```yaml
 Backbone:
@@ -232,7 +316,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (checked before the training; the image size may differ), and the averaged weights of the source are loaded when both runs keep a moving average. A component with class layers can initialise a run with more classes, the classes of the source coming first in the same order. The detection heads read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
+The settings defining the layers of the component must be identical in both runs (checked before the training; the image size may differ), a backbone also loading the first blocks of a deeper source backbone (the stem of a keypoint detector), and the averaged weights of the source are loaded when both runs keep a moving average. A component with class layers can initialise a run with more classes, the classes of the source coming first in the same order. The detection heads read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
 
 ## Evaluating Checkpoints
 Each time the checkpoints of a trained run must be scored again (another labelled split, another batch size, or for DET and INS another final NMS), set the variables of the main block of `scripts/evaluation/evaluate_checkpoint.py` (`run_name`, `experiment_folder`, `iteration` as `None` for the last checkpoint, a number or `"all"`, `test_data_folder`, ...), then run:
@@ -241,7 +325,22 @@ Each time the checkpoints of a trained run must be scored again (another labelle
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-It writes `Results.txt`, `Tensorboard/Test`, `evaluation_summary.csv` and one `Iteration_<n>/` folder per checkpoint into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` for another NMS), leaving the files of the training untouched; with `"all"`, the summary compares every checkpoint and the best one is printed. A classifier evaluation also keeps `class_logits.npz` for its temperature explorer ([Export](#export)), and `save_predictions = True` writes the `predictions.csv` of every evaluated sample. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+It writes into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` for another NMS), leaving the files of the training untouched; with `"all"`, `evaluation_summary.csv` compares every checkpoint and the best one is printed. A classifier evaluation also keeps `class_logits.npz` for its temperature explorer ([Export](#export)), and `save_predictions = True` writes the `predictions.csv` of every evaluated sample. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
+
+<p align="center">
+  <img src="README/checkpoint_evaluation_folder.png" width="100%" />
+</p>
+
+To find where a classifier fails, read its confusion matrix (percent of every true class, precision and recall in the margins), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
+
+<p align="center">
+  <img src="README/confusion_matrix.png" width="80%" />
+</p>
+
+<p align="center">
+  <img src="README/evaluation_error_images.png" width="100%" />
+</p>
+<p align="center"><em>The confusion matrix and three error folders of the synthetic shapes classifier of the README screenshots, evaluated at iteration 1500.</em></p>
 
 Should a research report need the figures of its kept classifier again, set the run, iteration and weights of the main block of `scripts/evaluation/draw_report_figures.py`, then run the command below. It writes into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` the confusion matrix, the precision-recall curves at the temperature saved from the temperature explorer with the threshold of every target precision, the training curves with the kept checkpoint and, given a manifest of the truck of every image and the `predictions.csv` of the evaluation, the balanced accuracy on the trucks seen and never seen in training, with `report_values.json`, the numbers they show. Details: [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report).
 
@@ -255,11 +354,21 @@ After the launches of a hyperparameter stage have trained, three scripts of `scr
 - `compare_best_evaluations.py` prints Markdown tables of the best test evaluation of runs, over the trained and the averaged weights.
 - `plot_experiment_comparisons.py` draws one figure per stage of the plans of `documentation/architecture_benchmarking`, from the stages of `experiment_comparisons.yaml`.
 
+<p align="center">
+  <img src="README/comparing_launches_flow.png" width="100%" />
+</p>
+
 ```bash
 uv run python -m scripts.evaluation.collect_experiment_results
 uv run python -m scripts.evaluation.compare_best_evaluations
 uv run python -m scripts.evaluation.plot_experiment_comparisons
 ```
+
+Before trusting a gap between two settings, compare it with the spread of the launches of each: in the repeated squeeze-and-excitation stage below, six launches per setting overlap, and the means differ by 0.21 points for a standard error of 1.11 points.
+
+<p align="center">
+  <img src="README/launch_comparison_stage_figure.png" width="80%" />
+</p>
 
 Their settings: [tools reference](documentation/reference/tools_reference.md#comparing-launches).
 
