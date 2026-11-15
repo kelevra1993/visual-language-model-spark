@@ -3,9 +3,10 @@ Metric tracking of the general trainer: the averages of the training and validat
 every console interval, divided by the number of batches the interval really ran (fewer than information_dump in the
 first interval of a resumed run), the throughput of the interval, the console summary printed at every information
 dump (with the change of every value since the previous summary) and the TensorBoard curves. The interval averages and
-the throughput are also sent to the MLflow run of the training by the general trainer. The rates listed by the task
-(the accuracy of the classification-like tasks) are printed as the percentages of the reports, "94.03 %" with their
-changes in points, the other values with 4 decimals; TensorBoard and MLflow keep every value between 0 and 1.
+the throughput are also sent to the MLflow run of the training by the general trainer. The rates listed by every task
+(get_percent_tracked_metrics of its trainer, such as the batch accuracy of the classification-like tasks) are printed
+as the percentages of the reports, "94.03 %" with their changes in points, the losses and other values with 4
+decimals; TensorBoard and MLflow keep every value between 0 and 1.
 """
 
 import time

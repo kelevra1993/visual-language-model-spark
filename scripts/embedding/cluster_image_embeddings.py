@@ -81,7 +81,7 @@ from vision_training.core.contracts import EvaluationTable
 from vision_training.data.data_record import list_manifest_images
 from vision_training.data.loaders import build_native_loader
 from vision_training.data.preprocessing import preprocess_image
-from vision_training.evaluation.report_formatting import build_table_renderables, print_report
+from vision_training.evaluation.report_formatting import build_table_renderables, format_percentage, print_report
 from vision_training.losses.classification_losses import convert_logits_to_probabilities
 from vision_training.models.components.sequence_normalization import SequenceBatchNormalization
 from vision_training.models.model_loading import load_trained_model
@@ -1635,13 +1635,15 @@ def print_category_summaries(category_summaries: List[Dict[str, Any]], clusterin
     for summary in category_summaries:
         variance_text = " not reduced by the PCA (no more dimensions or images than asked)" \
             if summary["kept_variance"] is None else \
-            f" ({100 * summary['kept_variance']:.1f} % of the variance, PCA in {summary['pca_seconds']:.1f} Seconds)"
+            f" ({format_percentage(value=summary['kept_variance'])} of the variance, PCA in " \
+            f"{summary['pca_seconds']:.1f} Seconds)"
         zero_text = "" if summary["zero_vectors"] == 0 else f", {summary['zero_vectors']} zero vectors"
-        isolated_share = 100 * summary["isolated_images"] / summary["initial_images"]
+        # Shares written as the percentages of the reports
+        isolated_share = format_percentage(value=summary["isolated_images"] / summary["initial_images"])
         print_color(color="blue", indent=1,
                     output=f"{summary['layer']} - {summary['category']}: {summary['initial_images']} initial images, "
                            f"{summary['image_clusters']} image clusters, {summary['isolated_images']} isolated "
-                           f"images ({isolated_share:.1f} %), {summary['kept_images']} kept images, "
+                           f"images ({isolated_share}), {summary['kept_images']} kept images, "
                            f"{summary['dimensions']} dimensions{variance_text}{zero_text}, clustered in "
                            f"{summary['clustering_seconds']:.1f} Seconds")
 
@@ -1653,7 +1655,8 @@ def build_kept_images_table(source: Dict[str, Any], clustering_name: str,
     for the training of the smaller model is read at once: for every layer and category, the initial images, the
     image clusters, the isolated images (in no cluster) with their share of the initial images, the kept
     representatives and kept isolated images, and the kept images with their share of the initial images, a layer
-    with several categories ending with their total.
+    with several categories ending with their total. The shares are written as the percentages of the reports
+    ("9.20 %").
 
     Args:
         source (Dict[str, Any]): The data source, its name and roles titling the table.
@@ -1673,22 +1676,26 @@ def build_kept_images_table(source: Dict[str, Any], clustering_name: str,
             layer_summaries.append({"layer": layer_key, "category": TOTAL_CATEGORY,
                                     **{key: sum(summary[key] for summary in layer_summaries) for key in count_keys}})
 
-        # Counts with thousands separators and shares of the initial images, every category having images
+        # Counts with thousands separators and shares of the initial images as the percentages of the reports, every
+        # category having images
         for summary in layer_summaries:
             initial_images = summary["initial_images"]
             rows.append([summary["layer"], summary["category"], f"{initial_images:,}",
                          f"{summary['image_clusters']:,}", f"{summary['isolated_images']:,}",
-                         f"{100 * summary['isolated_images'] / initial_images:.1f} %",
+                         format_percentage(value=summary["isolated_images"] / initial_images),
                          f"{summary['kept_representatives']:,}", f"{summary['kept_isolated_images']:,}",
-                         f"{summary['kept_images']:,}", f"{100 * summary['kept_images'] / initial_images:.1f} %"])
+                         f"{summary['kept_images']:,}",
+                         format_percentage(value=summary["kept_images"] / initial_images)])
+    # Headers of the kept images of the clusters and of the isolated images on two short lines, so that the shares
+    # written with two decimals fit in the width of the console next to the longest layer names (fully_connected_1)
     return {"title": f"Kept Images · {source['name']} ({', '.join(source['roles'])})\nClustering {clustering_name}",
             "columns": ["Layer", "Category", "Initial\nImages", "Image\nClusters", "Isolated\nImages",
-                        "Isolated\nShare", "Kept\nRepresentatives", "Kept Isolated\nImages", "Kept\nImages",
-                        "Kept\nShare"],
+                        "Isolated\nShare", "Kept Cluster\nImages", "Kept\nIsolated", "Kept\nImages", "Kept\nShare"],
             "rows": rows, "sort_column": None, "per_class": False, "percent_columns": [],
-            "legend": "Isolated images: in no cluster, too far from every other image. Kept images: the "
-                      "representatives closest to the centre of every cluster and the kept isolated images, as many "
-                      "being kept at random and evenly spaced per group. Shares of the initial images."}
+            "legend": "Isolated images: in no cluster, too far from every other image. Kept cluster images: the "
+                      "representatives closest to the centre of every cluster. Kept images: the kept cluster images "
+                      "and the kept isolated images, as many being kept at random and evenly spaced per group. Shares "
+                      "of the initial images."}
 
 
 def print_kept_images_tables(source_tables: List[EvaluationTable]) -> None:

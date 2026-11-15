@@ -8,10 +8,10 @@ detection driver write them in the git-ignored hyperparameter_experiments folder
 segmentation results giving the test mask mAP). Each figure shows, for the trained and the averaged weights, every
 launch as a thin line and the mean of the launches of each setting as a thick one, with the gap of every setting to the
 reference setting of the stage below; the figures are written to
-documentation/architecture_benchmarking/figures/<experiment>/ and linked from the experiment plans. The accuracy of
-the classification and the macro F1 of the sequence labelling are written as the percentages of the reports (labels
-"85.81 %", gaps "+0.95 points", axes "86 %"); the detection mAP and the mask mAP of the instance segmentation keep 4
-decimals until the detection is moved to them.
+documentation/architecture_benchmarking/figures/<experiment>/ and linked from the experiment plans. Every compared
+metric is a rate written as the percentages of the reports (labels "85.81 %", gaps "+0.95 points", axes "86 %"): the
+accuracy of the classification, the macro F1 of the sequence labelling, the mAP of the detection and the mask mAP of
+the instance segmentation.
 """
 
 import csv
@@ -41,9 +41,9 @@ EXPERIMENT_TITLES = {"classification": "Classification", "sequence_labelling": "
 METRIC_TITLES = {"accuracy": "accuracy", "macro_f1": "Macro F1", "map_50_95": "mAP@[0.5:0.95]",
                  "mask_map_50_95": "Mask mAP@[0.5:0.95]"}
 
-# Metric prefixes written as the percentages of the reports, their gaps in points: the classification and sequence
-# labelling rates, the detection and mask mAP keeping 4 decimals
-PERCENT_METRICS = ["accuracy", "macro_f1"]
+# Metric prefixes written as the percentages of the reports, their gaps in points: every metric of METRIC_TITLES, the
+# classification and sequence labelling rates and the detection and mask mAP
+PERCENT_METRICS = ["accuracy", "macro_f1", "map_50_95", "mask_map_50_95"]
 WEIGHTS_TITLES = {"trained": "Trained weights", "ema": "Averaged weights (EMA)"}
 
 # Metric column of a results file, the metric prefix followed by the evaluated iteration (map_50_95_15000)

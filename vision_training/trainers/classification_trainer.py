@@ -197,8 +197,7 @@ class ClassificationTrainer(BaseTrainer):
         """
         Lists the tracked batch metrics written as percentages in the console summary ("94.03 %", changes in points):
         the accuracy of the training and validation batches, the losses and the correlation of the decorrelated
-        hidden features staying with 4 decimals. The sequence trainers inherit it; the frame selection trainer gives
-        none until it is moved to the percentages.
+        hidden features staying with 4 decimals. The sequence trainers and the frame selection trainer inherit it.
 
         Returns:
             List[str]: The tracked keys written as percentages.

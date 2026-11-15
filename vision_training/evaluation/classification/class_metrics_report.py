@@ -23,8 +23,9 @@ CLASS_THRESHOLDS_TABLE_TITLE = "Per Class Thresholds"
 
 def write_target_precision(target_precision: float, in_percent: bool) -> str:
     """
-    Writes a target precision of the configuration in the headers and legends of the per-class tables: "99 %" with the
-    percentages of the classification report, "0.99" for the reports kept between 0 and 1.
+    Writes a target precision of the configuration in the headers and legends of the per-class tables of the reports
+    (classification-like tasks, frame selection, detection tasks): "99 %" with the percentages of the reports, "0.99"
+    without them.
 
     Args:
         target_precision (float): The target precision, e.g. 0.99.
@@ -123,9 +124,9 @@ def build_class_metrics_table(class_rows: List[Dict[str, Any]], target_precision
     'Samples', 'Positives' in multi-label mode, 'Frames' for sequence labelling), its precision, recall and F1, its ROC
     AUC and average precision when the rows hold them (with the per-class report), and, with a target precision, the
     threshold reaching it with the recall it keeps. A class without evaluated samples has no precision, recall nor F1
-    in the table, like in the macro averages, and is listed last. The classification report writes the rates as
-    percentages ("94.03 %") and the target precision as "99 %", the thresholds staying between 0 and 1; the k-nearest
-    neighbour report of the self-supervised task keeps 4 decimals.
+    in the table, like in the macro averages, and is listed last. The classification report and the k-nearest
+    neighbour report of the self-supervised task write the rates as percentages ("94.03 %") and the target precision
+    as "99 %", the thresholds staying between 0 and 1.
 
     Args:
         class_rows (List[Dict[str, Any]]): The metrics of every class (build_class_metrics_rows), with or without the
@@ -160,8 +161,7 @@ def build_class_metrics_table(class_rows: List[Dict[str, Any]], target_precision
         rows.append(row)
 
     # Columns and legend, the curve and threshold columns and their part of the legend only when they are given, the
-    # rates listed as percent columns for the classification report (every column but the class, its samples and the
-    # threshold)
+    # rates listed as percent columns with in_percent (every column but the class, its samples and the threshold)
     columns = ["Class", support_column, "Precision", "Recall", CLASS_TABLE_SORT_COLUMN]
     legend = (f"{legend_introduction}Worst F1 first, ties in class order. — : no "
               f"{support_column.lower() if support_description is None else support_description} of the class")

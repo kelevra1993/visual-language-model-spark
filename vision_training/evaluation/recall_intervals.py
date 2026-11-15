@@ -232,9 +232,9 @@ def build_recall_interval_table(class_rows: List[Dict[str, Any]], support_key: s
     to the per-class table (kept within the width of the report) and sorted by ascending first recall so that the
     classes the model misses most come first: the true samples of every class and, for every recall, its value with
     the bounds of its confidence interval, read from the rows of class_metrics.csv ('<recall>', '<recall>_lower' and
-    '<recall>_upper'). A class without true samples has no recall nor interval and is listed last. The tasks moved to
-    the percentages (classification and the sequence trainers) write the recalls and their bounds as percentages
-    ("94.03 %") and the confidence level as "95 %", the others keep 4 decimals and "95%".
+    '<recall>_upper'). A class without true samples has no recall nor interval and is listed last. With in_percent,
+    which every trainer passes, the recalls and their bounds are written as percentages ("94.03 %") and the
+    confidence level as "95 %"; without it they keep the earlier 4 decimals and "95%".
 
     Args:
         class_rows (List[Dict[str, Any]]): The metrics of every class, keyed like class_metrics.csv, in class order.

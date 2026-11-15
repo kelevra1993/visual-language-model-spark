@@ -70,7 +70,8 @@ class EvaluationTable(TypedDict):
     order. The rows are shown by ascending value of the sort column, the worst classes first (None last, ties in
     stored order), or in stored order without one. A per-class table is only shown with the per-class report, and its
     legend is written below it. The percent columns hold rates between 0 and 1 written as percentages ("94.03 %"),
-    their cells staying raw so that the sort is unchanged; the tasks not yet moved to the percentages give none.
+    their cells staying raw so that the sort is unchanged; the columns of counts, ranks, thresholds or errors are left
+    out of them and keep their values.
     """
     title: str
     columns: List[str]
@@ -94,8 +95,9 @@ class EvaluationResults(TypedDict):
     TensorBoard at every evaluation, whatever the per-class report. Every image is an [H, W, 3] uint8 RGB array. The
     headline metric is the name of the scalar comparing the checkpoints of a run, the higher the better. The percent
     metrics are the global metrics that are rates written as percentages in the report and in the best checkpoint line
-    ("94.03 %"), the metrics and scalars themselves staying between 0 and 1; the tasks not yet moved to the
-    percentages give none.
+    ("94.03 %"), with the headline metric when it is a rate outside the global metrics (the mAP of the detection
+    tasks, the OKS mAP of the keypoint detection), the metrics and scalars themselves staying between 0 and 1; the
+    other global metrics (ranks, effective rank, standard deviations, pixel errors) keep 4 decimals.
     """
     evaluated_samples: str
     metrics: Dict[str, float]

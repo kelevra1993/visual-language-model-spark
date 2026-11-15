@@ -1,7 +1,8 @@
 """
 Tests of scripts/evaluation/compare_best_evaluations.py, the Markdown tables comparing the best test evaluation of
 several trained runs: the best evaluation over the trained and averaged weights, the columns expanded per class and
-titled, the curves written as percentages ("90.00 %") or with their decimals, and the counts of data.json.
+titled, the curves that are rates written as percentages ("90.00 %") and the others (ranks) with their decimals, and
+the counts of data.json.
 """
 
 import hashlib
@@ -152,7 +153,29 @@ def test_best_evaluation_over_trained_and_averaged_weights(tmp_path: Path) -> No
                                    evaluated_weights=["trained"])
     assert trained_table.splitlines()[-1] == "| 400 | 85.00 % |"
 
-    # Curves of a task not moved to the percentages, with their decimals
+    # Every curve with its decimals when the percentages are turned off
     decimal_table = run_comparison(experiment_folders=[run_folder], columns=["best_iteration", "Balanced Accuracy"],
                                    evaluated_weights=["trained"], curves_in_percent=False)
     assert decimal_table.splitlines()[-1] == "| 400 | 0.850 |"
+
+
+def test_curves_that_are_not_rates_keep_their_decimals(tmp_path: Path) -> None:
+    """
+    Verifies that the curves that are not rates keep their decimals next to the rates written as percentages: the mean
+    rank of the true frames of the frame selection, global and per class, and the effective rank of the
+    self-supervised task, whose values above 1 would otherwise be written "125.00 %".
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    run_folder = tmp_path / "experiments" / "run_256"
+    trained_curves = {**build_curves(balanced_accuracies={200: 0.8, 400: 0.85}),
+                      "Mean True Frame Rank": {200: 1.5, 400: 1.25}, "Mean True Frame Rank/cat": {200: 1.0, 400: 1.0},
+                      "Mean True Frame Rank/dog": {200: 2.0, 400: 1.5}, "Effective Rank": {200: 10.5, 400: 12.34}}
+    write_fake_run(run_folder=run_folder, data_folder=tmp_path / "data", image_size=256, trained_curves=trained_curves,
+                   averaged_curves=None, counted_classes=True)
+
+    table = run_comparison(experiment_folders=[run_folder], evaluated_weights=["trained"],
+                           columns=["best_iteration", "Balanced Accuracy", "Recall/{class}", "Mean True Frame Rank",
+                                    "Mean True Frame Rank/{class}", "Effective Rank"])
+    assert table.splitlines()[-1] == "| 400 | 85.00 % | 90.00 % | 80.00 % | 1.250 | 1.000 | 1.500 | 12.340 |"

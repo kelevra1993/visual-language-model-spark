@@ -8,9 +8,9 @@ probabilities of the test samples, exactly, and by the segmentation trainer from
 of the labelled test pixels (segmentation_metrics.py), exactly at the edges of their bins. With the thresholds of the
 classifiers at their target precisions, every threshold is marked on the precision-recall curves, and
 precision_recall_thresholds.png zooms on them with every threshold written in the colour of its curve, so that a
-threshold can be chosen from the image. The classification images write their rates as the percentages of the reports
-(axes "20 %", ROC AUC and average precision "98.58 %", target precisions "99 %"), the thresholds staying between 0 and
-1; the segmentation images keep 4 decimals and axes from 0 to 1 until the segmentation is moved to them.
+threshold can be chosen from the image. The classification and segmentation images write their rates as the
+percentages of the reports (axes "20 %", ROC AUC and average precision "98.58 %", target precisions "99 %"), the
+thresholds staying between 0 and 1; without in_percent the images keep the earlier 4 decimals and axes from 0 to 1.
 """
 
 import cv2
@@ -450,7 +450,7 @@ def format_axes(axes: Axes, font_size: int, in_percent: bool,
     """
     Sets the range, the aspect, the grid and the tick size of a plot of curves: the [0, 1] square, or the zoom of the
     thresholds image starting at the given lower ends, the ticks written as percentages ("20 %") for the classification
-    images.
+    and segmentation images.
 
     Args:
         axes (Axes): The axes of the plot.
@@ -494,7 +494,7 @@ def draw_score_curves(class_curves: List[ScoreCurves], class_names: List[str], i
         target_precisions (Optional[List[float]]): The precisions targeted by the thresholds, or None for an
             evaluation without thresholds (the segmentation). Defaults to None.
         in_percent (bool): Whether the axes, the metric of every class and the target precisions are written as
-            percentages, True for the classification images. Defaults to False.
+            percentages, True for the classification and segmentation images. Defaults to False.
 
     Returns:
         np.ndarray: The [H, W, 3] uint8 RGB image.
@@ -604,8 +604,8 @@ def save_score_curve_images(class_curves: List[ScoreCurves], class_names: List[s
         title_suffix (str): The text put after the name of the curves in the titles, e.g. ' · Iteration 4000'.
         target_precisions (Optional[List[float]]): The precisions targeted by the thresholds, or None for an
             evaluation without thresholds. Defaults to None.
-        in_percent (bool): Whether the images write their rates as percentages, True for the classification images.
-            Defaults to False.
+        in_percent (bool): Whether the images write their rates as percentages, True for the classification and
+            segmentation images. Defaults to False.
 
     Returns:
         Tuple[Dict[str, Path], Dict[str, np.ndarray]]: The paths of the images keyed by '<name> Image', for the files

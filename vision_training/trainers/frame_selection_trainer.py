@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, EvaluationResults, EvaluationTable
+from vision_training.evaluation.classification.class_metrics_report import write_target_precision
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.recall_intervals import build_recall_interval_table, compute_bootstrap_recall_intervals
+from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.evaluation.sequence.frame_selection_metrics import (compute_ranking_metrics,
                                                                          compute_selection_metrics,
                                                                          find_selection_thresholds)
@@ -37,6 +39,10 @@ from vision_training.utilities.visualization import build_frame_selection_image,
 
 # Title of the per-class table of the report
 SELECTION_TABLE_TITLE = "Per Class Selection"
+
+# Name of the mean rank of the true frames in the report and the scalars, the only headline metric that is not a rate
+# written as a percentage
+MEAN_RANK_METRIC = "Mean True Frame Rank"
 
 
 class FrameSelectionTrainer(SequenceLabellingTrainer):
@@ -142,24 +148,14 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """
-        Lists the losses and the frame accuracy tracked on every training and validation batch.
+        Lists the losses and the frame accuracy tracked on every training and validation batch, the accuracy being
+        written as a percentage in the console summary (get_percent_tracked_metrics of the classification trainer).
 
         Returns:
             Dict[str, str]: The display name of every tracked metric.
         """
         return {"total_loss": "Total Loss", "classification_loss": "Classification Loss",
                 "selection_loss": "Selection Loss", "accuracy": "Accuracy"}
-
-    def get_percent_tracked_metrics(self) -> List[str]:
-        """
-        Keeps every tracked value of the frame selection with 4 decimals in the console summary, its accuracy included,
-        instead of the percentages of the classification trainer it inherits from, until the frame selection is moved
-        to the percentages of the reports.
-
-        Returns:
-            List[str]: No tracked key written as a percentage.
-        """
-        return []
 
     def get_sequence_predictions(self, batch: Dict[str, Any], predictions: Dict[str, Any],
                                  sample_index: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -344,7 +340,9 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         Builds the per-class table of the report, shown with the per-class report and sorted by ascending selection
         accuracy of the decoding of the run so that the worst classes come first: the true frames of every wanted
         class, the selection accuracy of both decodings, the top-k accuracy and mean rank of the true frames, and the
-        confidence threshold with the share of the true frames it keeps.
+        confidence threshold with the share of the true frames it keeps. The accuracies and the recall at the target
+        precision are written as percentages ("94.03 %") and the target precision as "99 %", the mean rank and the
+        threshold keeping 4 decimals.
 
         Args:
             class_rows (List[Dict[str, Any]]): The metrics of every wanted class, as saved in class_metrics.csv.
@@ -357,15 +355,20 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                  class_row["greedy_accuracy"], class_row["top_k_accuracy"], class_row["mean_rank"],
                  class_row["threshold_at_target_precision"], class_row["recall_at_target_precision"]]
                 for class_row in class_rows]
+
+        # Rate columns written as percentages, the rank and the probability threshold kept as they are
+        written_precision = write_target_precision(target_precision=self.target_precision, in_percent=True)
+        accuracy_columns = ["Hungarian\nAccuracy", "Greedy\nAccuracy", f"Top-{self.top_k}\nAccuracy"]
+        recall_column = f"Recall\n@ P{written_precision}"
         return {"title": SELECTION_TABLE_TITLE,
-                "columns": ["Class", self.CLASS_SUPPORT_COLUMN, "Hungarian\nAccuracy", "Greedy\nAccuracy",
-                            f"Top-{self.top_k}\nAccuracy", "Mean\nRank", f"Threshold\n@ P{self.target_precision:g}",
-                            f"Recall\n@ P{self.target_precision:g}"],
-                "rows": rows, "sort_column": sort_column, "per_class": True, "percent_columns": [],
+                "columns": ["Class", self.CLASS_SUPPORT_COLUMN, *accuracy_columns, "Mean\nRank",
+                            f"Threshold\n@ P{written_precision}", recall_column],
+                "rows": rows, "sort_column": sort_column, "per_class": True,
+                "percent_columns": [*accuracy_columns, recall_column],
                 "legend": f"Worst {self.decoding} accuracy first, ties in class order. Accuracy : share of the true "
                           f"frames of the class chosen for it. Rank : mean rank of the true frames among the frames "
                           f"ordered by their probability for the class, 1 being the best. Threshold : probability "
-                          f"from which the {self.decoding} choices reach the precision {self.target_precision:g}, "
+                          f"from which the {self.decoding} choices reach the precision {written_precision}, "
                           f"with the share of the true frames kept. — : never reached."}
 
     def write_selections_file(self, accumulator: Dict[str, Any], selections: Dict[str, List[np.ndarray]],
@@ -444,7 +447,9 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         recall table and in class_metrics.csv. The confidence thresholds of the decoding of the run, the metrics of
         every wanted class, the decoded confusion matrix table and, when asked, the selections of every sequence are
         saved in the evaluation folder of the checkpoint whatever the per-class report; the confusion matrix image only
-        with it, also logged to TensorBoard.
+        with it, also logged to TensorBoard. The report, the confusion matrix image and the best checkpoint line write
+        every rate as a percentage ("94.03 %"), the mean rank of the true frames and the thresholds keeping their
+        values; the scalars and the saved files keep the rates between 0 and 1.
 
         Args:
             accumulator (Dict[str, Any]): The probabilities, true classes and identifiers of the test sequences.
@@ -493,7 +498,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
             predicted_labels=torch.from_numpy(np.concatenate(probabilities)).argmax(dim=1), labels=all_labels,
             number_classes=number_classes))
         headline_metrics.update({f"Top-{self.top_k} Selection Accuracy": ranking_metrics["top_k_accuracy"],
-                                 "Mean True Frame Rank": ranking_metrics["mean_rank"],
+                                 MEAN_RANK_METRIC: ranking_metrics["mean_rank"],
                                  "Frame Accuracy": frame_metrics["accuracy"],
                                  "Frame Balanced Accuracy": frame_metrics["balanced_accuracy"],
                                  "Frame Macro F1": frame_metrics["macro_f1"]})
@@ -539,7 +544,8 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
             class_rows.append(class_row)
         files["Class Metrics"] = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
 
-        # Confusion matrix of the decoded classes of the frames, the image only with the per-class report
+        # Confusion matrix of the decoded classes of the frames, the image only with the per-class report, its title
+        # and shares written as percentages
         decoded_confusion_matrix = compute_confusion_matrix(
             predicted_labels=torch.from_numpy(np.concatenate(decoded_frame_labels[self.decoding])), labels=all_labels,
             number_classes=number_classes)
@@ -547,11 +553,12 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                                                                       class_names=self.class_names,
                                                                       output_folder=evaluation_folder)
         if self.per_class_report:
+            selection_accuracy_text = format_percentage(value=selection_metrics[self.decoding]["selection_accuracy"])
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
                 confusion_matrix=decoded_confusion_matrix, class_names=self.class_names,
                 output_folder=evaluation_folder,
                 title=f"Decoded Frames · Iteration {iteration} · {self.decoding.capitalize()} Selection Accuracy "
-                      f"{selection_metrics[self.decoding]['selection_accuracy']:.4f}")
+                      f"{selection_accuracy_text}", in_percent=True)
 
         # Selections of every evaluated sequence, when asked
         if self.save_predictions:
@@ -574,12 +581,12 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         for class_row in class_rows:
             for scalar_name, column_name in [("Hungarian Selection Accuracy", "hungarian_accuracy"),
                                              ("Greedy Selection Accuracy", "greedy_accuracy"),
-                                             ("Mean True Frame Rank", "mean_rank")]:
+                                             (MEAN_RANK_METRIC, "mean_rank")]:
                 if class_row[column_name] is not None:
                     class_scalars[f"{scalar_name}/{class_row['class']}"] = class_row[column_name]
 
         # Per-class selection table, then the selection accuracy of the decoding of the run with its interval in a
-        # table of its own
+        # table of its own, their rates written as percentages
         decoding_name = self.decoding.capitalize()
         tables = [self.build_selection_table(class_rows=class_rows),
                   build_recall_interval_table(class_rows=class_rows, support_key="true_frames",
@@ -589,11 +596,13 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                                               interval_description=self.RECALL_INTERVAL_DESCRIPTION,
                                               legend_introduction=f"{decoding_name} selection accuracy of every "
                                                                   f"wanted class: the share of its true frames chosen "
-                                                                  f"for it, its recall. ")]
+                                                                  f"for it, its recall. ", in_percent=True)]
         return {"evaluated_samples": self.describe_evaluated_samples(accumulator=accumulator),
                 "metrics": headline_metrics, "notes": notes, "tables": tables, "scalars": dict(headline_metrics),
                 "class_scalars": class_scalars, "images": images, "files": files,
-                "headline_metric": f"{self.decoding.capitalize()} Selection Accuracy", "percent_metrics": []}
+                "headline_metric": f"{self.decoding.capitalize()} Selection Accuracy",
+                # Every headline metric is a rate written as a percentage, except the mean rank of the true frames
+                "percent_metrics": [metric_name for metric_name in headline_metrics if metric_name != MEAN_RANK_METRIC]}
 
     def get_frame_captions(self, label: torch.Tensor, sequence_mask: torch.Tensor) -> Optional[List[str]]:
         """

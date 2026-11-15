@@ -1,8 +1,8 @@
 """
-Tests of the percentages written on the figures of the classification evaluation: the confusion matrix image of
+Tests of the percentages written on the figures of the evaluations: the confusion matrix image of
 vision_training/evaluation/classification/confusion_matrix.py (cells, recall column, precision row, accuracy corner and
 colour bar) and the ROC and precision-recall images of score_curves.py (title, legend, target precisions, axis ticks),
-written as the percentages of the reports for the classification and kept as before for the other tasks.
+written as the percentages of the reports with in_percent, which every trainer passes, and kept as before without it.
 """
 
 import pytest
@@ -87,11 +87,10 @@ def test_classification_figures_write_the_percentages_of_the_reports() -> None:
     assert texts["curve_ticks"] == ["90 %", "95 %"]
 
 
-def test_other_tasks_keep_their_figures() -> None:
+def test_figures_drawn_without_percentages_keep_their_earlier_style() -> None:
     """
-    Verifies that the figures drawn without the percentages, for the tasks not yet moved to them (detection,
-    segmentation, frame selection), keep "87.5%", the colour bar "20%", the average precisions with 4 decimals and the
-    target precisions "0.99 · 0.9".
+    Verifies that the figures drawn without in_percent, which no trainer asks for any more, keep their earlier style:
+    "87.5%", the colour bar "20%", the average precisions with 4 decimals and the target precisions "0.99 · 0.9".
     """
     texts = record_figure_texts(in_percent=False)
     assert texts["matrix"] == ["7\n87.5%", "1\n12.5%", "2\n66.7%", "1\n33.3%", "0", "87.5%", "33.3%", "77.8%", "50.0%",
@@ -105,8 +104,8 @@ def test_other_tasks_keep_their_figures() -> None:
                          argvalues=[(0.875, True, "87.50 %"), (0.875, False, "87.5%"), (1.0, True, "100.00 %")])
 def test_matrix_shares_are_written_by_their_task(share: float, in_percent: bool, expected_text: str) -> None:
     """
-    Verifies the writing of one share of the confusion matrix image, as the percentage of the reports for the
-    classification and with one decimal for the other tasks.
+    Verifies the writing of one share of the confusion matrix image, as the percentage of the reports with in_percent
+    and with the earlier single decimal without it.
 
     Args:
         share (float): The share, between 0 and 1.

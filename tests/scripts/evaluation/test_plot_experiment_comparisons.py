@@ -4,8 +4,9 @@ the launch curves read from a results file (mean rows left out, unlabelled weigh
 launches of a setting on the iterations they all evaluated, the gap to the reference setting, the trained weights of a
 setting without moving average standing in the averaged-weights column, and the figures written for the stages of a
 registry, with one column per kind of weights evaluated for every launch of the stage, whatever its number of launches,
-the rates of the classification and sequence labelling written as percentages with their gaps in points, and the
-reference stage of the instance segmentation experiment drawn from its test mask mAP.
+every compared metric (the classification accuracy, the sequence labelling macro F1, the detection and mask mAP)
+written as a percentage with its gaps in points, and the reference stage of the instance segmentation experiment drawn
+from its test mask mAP.
 """
 
 import csv
@@ -16,6 +17,7 @@ from matplotlib.figure import Figure
 from pathlib import Path
 from PIL import Image
 from typing import Any, Dict, List
+from unittest.mock import patch
 
 from scripts.evaluation.plot_experiment_comparisons import (LAUNCH_LINE_STYLES, collect_setting_curves,
                                                             compute_gap_curve, compute_mean_curve, draw_weights_column,
@@ -232,8 +234,8 @@ def test_plot_registry_draws_a_setting_of_more_launches_than_line_styles(tmp_pat
 def test_draw_weights_column_writes_rates_as_percentages(in_percent: bool, expected_labels: List[str],
                                                          expected_gaps: List[str], expected_ticks: List[str]) -> None:
     """
-    Verifies the labels of a column of a comparison figure: the classification accuracy and the sequence labelling macro
-    F1 written as percentages with their gaps in points and percent axes, the detection mAP with 4 decimals.
+    Verifies the labels of a column of a comparison figure: a rate written as a percentage with its gaps in points and
+    percent axes, the column drawn without the percentages keeping 4 decimals.
 
     Args:
         in_percent (bool): Whether the metric is written as a percentage.
@@ -258,6 +260,36 @@ def test_draw_weights_column_writes_rates_as_percentages(in_percent: bool, expec
     if in_percent:
         assert tick_labels == expected_ticks
         assert gap_axis.get_ylabel() == "Gap to 1e-3\n(points)"
+
+
+@pytest.mark.parametrize(argnames="experiment, metric_prefix",
+                         argvalues=[("classification", "accuracy"), ("sequence_labelling", "macro_f1"),
+                                    ("object_detection", "map_50_95"), ("instance_segmentation", "mask_map_50_95")])
+def test_every_compared_metric_is_drawn_as_a_percentage(tmp_path: Path, experiment: str, metric_prefix: str) -> None:
+    """
+    Verifies that the figure of a stage writes its metric as a percentage whatever the experiment, the detection mAP
+    and the mask mAP of the instance segmentation included: the direct labels of the settings "40.00 %" and their gap
+    "+20.00 points".
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        experiment (str): The experiment of the stage.
+        metric_prefix (str): The prefix of the metric columns of its results file.
+    """
+    columns = ["launch", "evaluated_weights", f"{metric_prefix}_250", "finished", "run_folder"]
+    rows = [{"launch": launch, "evaluated_weights": "ema", f"{metric_prefix}_250": value}
+            for launch, value in [("run_1", "0.5"), ("run_2", "0.3"), ("run_3", "0.7"), ("run_4", "0.5")]]
+    write_results_file(results_path=tmp_path / "results.csv", rows=rows, columns=columns)
+    write_registry(registry_path=tmp_path / "experiment_comparisons.yaml",
+                   comparisons=[{**TWO_SETTING_COMPARISON, "experiment": experiment, "last_iteration": 250}])
+
+    # Labels of the column of the averaged weights and of its gap panel, read from the axes the figure was drawn on
+    with patch(target="scripts.evaluation.plot_experiment_comparisons.draw_weights_column",
+               wraps=draw_weights_column) as column_mock:
+        plot_registry(registry_path=tmp_path / "experiment_comparisons.yaml", output_folder=tmp_path / "figures")
+    curve_axis, gap_axis = column_mock.call_args.kwargs["curve_axis"], column_mock.call_args.kwargs["gap_axis"]
+    assert [annotation.get_text() for annotation in curve_axis.texts] == ["1e-3 40.00 %", "2e-3 60.00 %"]
+    assert [annotation.get_text() for annotation in gap_axis.texts] == ["+20.00 points"]
 
 
 def test_verdict_lines_keep_every_number_with_its_unit() -> None:
