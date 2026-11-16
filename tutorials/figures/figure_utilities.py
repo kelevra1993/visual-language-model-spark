@@ -6,12 +6,16 @@ in tutorials/tutorial_sources.yaml; the palette, the chart size and the Inter an
 path), so that a chart sits on the card of an image scene like the text around
 it; the PNG files written at their exact pixel size and the pixel boxes of their panels, which the storyboards use as
 highlight boxes and reveal regions through the facts; the trained model of the classification run, read on the CPU with
-its input images, for the model figures of the foundations and classification series; and the reuse of the expensive
-figures between builds unless forced, their facts kept in a small JSON file next to them.
+its input images, for the model figures of the foundations and classification series; the metric lines of a console
+summary cut from the log of a run written again by the console formatter of the current code with their logged values,
+for the console summary scenes; and the reuse of the expensive figures between builds unless forced, their facts kept
+in a small JSON file next to them.
 """
 
 import functools
 import json
+import math
+import re
 
 import cv2
 import matplotlib
@@ -22,7 +26,7 @@ import yaml
 from matplotlib import font_manager, pyplot
 from pathlib import Path
 from PIL import Image
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 from tutorial_builder.layout import (CARD_BORDER_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR,
                                      MONOSPACE_BOLD_FONT_PATH, MONOSPACE_FONT_PATH, NAMED_COLOURS,
@@ -33,7 +37,9 @@ from vision_training.configuration_processing.configuration_loader import load_c
 from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
+from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.trainers.checkpointing import get_checkpoint_path, get_last_checkpoint_iteration
+from vision_training.trainers.metric_tracking import BEST_MARKER, MetricTracker
 
 # Charts drawn without a window: the figure scripts run in a subprocess of the build, a display being there or not
 matplotlib.use(backend="Agg")
@@ -71,6 +77,19 @@ STAR_IMAGE_NAME = "test_005452.png"
 # Significant digits kept in the facts, so that a change of a fact shows in a diff of facts.json without the noise of
 # the last digits of a float
 FACT_SIGNIFICANT_DIGITS = 6
+
+# Prefix of the metric lines of a console summary, and their pattern once their colours are removed, whatever code
+# printed the log: the split, the display name, the value (a rate between 0 and 1 in the runs trained before
+# 2026-11-12, with its percent sign since), its change since the previous summary (that of a rate between 0 and 1, then
+# in "points", then with the percent sign) and the best marker
+CONSOLE_METRIC_LINE_PREFIX = "Moving Average of "
+CONSOLE_METRIC_LINE_PATTERN = re.compile(
+    pattern=rf"^{CONSOLE_METRIC_LINE_PREFIX}(?P<split_name>Train|Valid) (?P<display_name>.+?) +: +"
+            rf"(?P<value>-?\d+\.\d+)(?P<value_percent> ?%)?(?: +(?P<change>[+-]\d+\.\d+)(?P<change_unit> ?%| points)?)?"
+            rf"(?: +(?P<best_marker>{BEST_MARKER}))?$")
+
+# Colour codes of the console, removed from the metric lines the current formatter writes again
+CONSOLE_COLOUR_PATTERN = re.compile(pattern=r"\x1b\[[0-9;]*m")
 
 
 def read_tutorial_sources() -> Dict[str, Any]:
@@ -153,6 +172,115 @@ def read_run_configuration(run_folder: Path) -> Dict[str, Any]:
         Dict[str, Any]: The configuration, with its ExperimentConfiguration, Optimization, Data and model sections.
     """
     return load_configuration(configuration_path=run_folder / "training_configuration.yaml")
+
+
+def build_console_metric_tracker(run_folder: Path, trainer_class: Type[BaseTrainer],
+                                 trainer_attributes: Dict[str, Any]) -> MetricTracker:
+    """
+    Builds the console metric tracker of a run as its trainer builds it, with the tracked metrics and rates of the
+    current code, so that the console summary scenes of the series show a summary cut from the log of an older run in
+    the columns and units a run trained today prints (reformat_console_summary). The trainer is made without its
+    constructor, which would build the loaders and the model, and receives the attributes its metric lists read.
+
+    Args:
+        run_folder (Path): The run, whose saved configuration gives the batch size and the validation ratio.
+        trainer_class (Type[BaseTrainer]): The trainer of the run, e.g. DetectionTrainer.
+        trainer_attributes (Dict[str, Any]): The attributes read by get_tracked_metrics and get_percent_tracked_metrics
+            of the trainer, e.g. {"method": "simclr"} for the self-supervised trainer,
+            {"decorrelation_activated": False} for the sequence trainers, {} for the detection trainers.
+
+    Returns:
+        MetricTracker: The tracker, without previous or best values.
+    """
+    # Trainer holding only the attributes its metric lists read
+    trainer = object.__new__(trainer_class)
+    for attribute_name, attribute_value in trainer_attributes.items():
+        setattr(trainer, attribute_name, attribute_value)
+
+    # Tracker set up with the settings of the run, as BaseTrainer sets it up
+    experiment_configuration = read_run_configuration(run_folder=run_folder)["ExperimentConfiguration"]
+    return MetricTracker(tracked_metrics_mapping=trainer.get_tracked_metrics(),
+                         batch_size=int(experiment_configuration["batch_size"]),
+                         validation_iteration_ratio=int(experiment_configuration["validation_iteration_ratio"]),
+                         sample_name=trainer_class.SAMPLE_NAME, counts_frames=trainer_class.COUNTS_FRAMES,
+                         percent_metric_keys=trainer.get_percent_tracked_metrics())
+
+
+def reformat_console_metric_line(line: str, metric_tracker: MetricTracker) -> str:
+    """
+    Writes a metric line of a console summary read from the log of a run again with the console formatter of the
+    current code (MetricTracker.format_metric_line), keeping its logged value, change and best marker, so that a scene
+    shows the columns and units a run trained today prints even from a log of an older code: rates logged between 0
+    and 1 or with their percent sign, their changes between 0 and 1, in "points" or with the percent sign.
+
+    Args:
+        line (str): The metric line of the log, its colours and links removed.
+        metric_tracker (MetricTracker): The tracker of the run (build_console_metric_tracker), whose previous and best
+            values of the metric of the line are set from the log before it writes the line.
+
+    Returns:
+        str: The line as the current formatter prints it, its colours removed.
+
+    Raises:
+        ValueError: If the line is not a metric line, names a metric the trainer does not track, writes a value the
+            trainer does not track as a rate with a percent sign, writes a change in another unit than its value, or
+            holds a best marker without a change.
+    """
+    line_match = CONSOLE_METRIC_LINE_PATTERN.match(string=line.rstrip())
+    if line_match is None:
+        raise ValueError(f"Expected a console summary metric line matching {CONSOLE_METRIC_LINE_PATTERN.pattern!r}, "
+                         f"got {line!r}.")
+    split_name, display_name = line_match.group("split_name"), line_match.group("display_name")
+    metric_keys = {name: metric_key for metric_key, name in metric_tracker.tracked_metrics_mapping.items()}
+    if display_name not in metric_keys:
+        raise ValueError(f"Expected one of the tracked metrics {list(metric_keys)} in the console line {line!r}.")
+    metric_key = metric_keys[display_name]
+
+    # A logged percent sign only on a rate, and a change in the unit of its value
+    logged_in_percent = line_match.group("value_percent") is not None
+    change_text = line_match.group("change")
+    if logged_in_percent and metric_key not in metric_tracker.percent_metric_keys:
+        raise ValueError(f"Expected {display_name} without a percent sign, as the trainer does not track it as a rate, "
+                         f"in the console line {line!r}.")
+    if change_text is not None and (line_match.group("change_unit") is not None) != logged_in_percent:
+        raise ValueError(f"Expected the change of {display_name} in the unit of its value in the console line "
+                         f"{line!r}.")
+    if change_text is None and line_match.group("best_marker") is not None:
+        raise ValueError(f"Expected a change before the best marker in the console line {line!r}.")
+
+    # The tracker receives the rates between 0 and 1, a log written in percent giving them and their changes times 100
+    scale = 100.0 if logged_in_percent else 1.0
+    current_value = float(line_match.group("value")) / scale
+
+    # A logged change comes back from a previous value set that far from the value, and a logged best marker from a
+    # best value any value beats, the value itself standing as the best when the log marked none
+    if change_text is None:
+        metric_tracker.previous_values[split_name].pop(metric_key, None)
+    else:
+        metric_tracker.previous_values[split_name][metric_key] = current_value - float(change_text) / scale
+        unbeaten_value = math.inf if metric_tracker.is_lower_better(metric_key=metric_key) else -math.inf
+        metric_tracker.best_values[split_name][metric_key] = (unbeaten_value if line_match.group("best_marker") else
+                                                              current_value)
+    formatted_line = metric_tracker.format_metric_line(split_name=split_name, metric_key=metric_key,
+                                                       display_name=display_name, current_value=current_value)
+    return CONSOLE_COLOUR_PATTERN.sub(repl="", string=formatted_line)
+
+
+def reformat_console_summary(lines: List[str], metric_tracker: MetricTracker) -> List[str]:
+    """
+    Writes the metric lines of a console summary read from the log of a run again with the console formatter of the
+    current code (reformat_console_metric_line), the header, rules and interval lines kept as logged since the current
+    code prints them the same way, for the console summary scenes of the series.
+
+    Args:
+        lines (List[str]): The lines of the summary, their colours and links removed.
+        metric_tracker (MetricTracker): The tracker of the run (build_console_metric_tracker).
+
+    Returns:
+        List[str]: The lines of the summary, its metric lines as the current formatter prints them.
+    """
+    return [reformat_console_metric_line(line=line, metric_tracker=metric_tracker)
+            if line.startswith(CONSOLE_METRIC_LINE_PREFIX) else line for line in lines]
 
 
 @functools.lru_cache(maxsize=1)

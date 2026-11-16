@@ -4,9 +4,11 @@ the batch normalization pitfall), made by tutorials/figures/self_supervised/figu
 training log of the SimCLR run: the InfoNCE loss against ln(2N - 1), the positive pair accuracy against its chance
 1 / (2N - 1) and the embedding standard deviation against 1, for the training batches and the validation batches (an
 empty-axes base image and its overlay, whose curves the scene uncovers); the first iterations of the validation, whose
-running statistics of the batch normalization had not settled yet; and the last console summary of the run, a listing.
-The positive pair accuracy is drawn on an axis of the percentages of the reports of the repository (ticks "20 %"), the
-facts keeping it between 0 and 1, and the labelled iteration ticks are spaced for the length of the run.
+running statistics of the batch normalization had not settled yet; and the last console summary of the run, a listing
+whose metric lines are written again with their logged values by the console formatter of the current code
+(reformat_console_summary of figure_utilities.py), so that the scene shows the columns and units a run trained today
+prints. The positive pair accuracy is drawn on an axis of the percentages of the reports of the repository (ticks
+"20 %"), the facts keeping it between 0 and 1, and the labelled iteration ticks are spaced for the length of the run.
 """
 
 import math
@@ -22,11 +24,13 @@ from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                TEXT_SECONDARY_COLOUR, compute_pixel_box, format_thousands,
-                                                read_run_configuration, register_fonts, round_fact, save_figure,
-                                                style_chart_panel)
+                                                TEXT_SECONDARY_COLOUR, CONSOLE_METRIC_LINE_PREFIX,
+                                                build_console_metric_tracker, compute_pixel_box, format_thousands,
+                                                read_run_configuration, reformat_console_summary, register_fonts,
+                                                round_fact, save_figure, style_chart_panel)
 from tutorials.figures.self_supervised.ssl_sources import LOG_FILE_NAME
 from vision_training.evaluation.report_formatting import format_percentage_tick
+from vision_training.trainers.self_supervised_trainer import SelfSupervisedTrainer
 
 # Smoothing weight of the training curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.95
@@ -351,8 +355,9 @@ def read_last_console_summary(output_folder: Path, run_folder: Path) -> Dict[str
     """
     Copies the last console summary of the training log of the run in which a metric reached its best value (the
     "Best" marker the console summary scene of the second self-supervised chapter points at, which the very last
-    summary may lack), its colours and links removed, as a listing of the scenes, and gives the throughputs of the
-    summaries of the log.
+    summary may lack), its colours and links removed and its metric lines written again with their logged values by
+    the console formatter of the current code (reformat_console_summary), as a listing of the scenes, and gives the
+    throughputs of the summaries of the log.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -363,7 +368,8 @@ def read_last_console_summary(output_folder: Path, run_folder: Path) -> Dict[str
 
     Raises:
         FileNotFoundError: If the training log is missing.
-        ValueError: If the log holds no console summary, or none with a metric at its best value.
+        ValueError: If the log holds no console summary, or none with a metric at its best value, or if a metric line
+            of the chosen summary cannot be written again (reformat_console_metric_line).
     """
     log_path = run_folder.parent / LOG_FILE_NAME
     if not log_path.exists():
@@ -386,8 +392,16 @@ def read_last_console_summary(output_folder: Path, run_folder: Path) -> Dict[str
         raise ValueError(f"No console summary of {log_path} holds a metric at its best value: reword the console "
                          f"summary scene of the second self-supervised chapter, which highlights one.")
     last_start, last_end = best_ranges[-1]
-    summary_lines: List[str] = [line.replace("Moving Average of ", "") for line in
-                                log_lines[last_start:last_end + 1] if not line.startswith("---")]
+
+    # Tracker of the metrics of the method of the run, set up as the trainer sets it up, for the current formatter
+    method = read_run_configuration(run_folder=run_folder)["ProjectionHead"]["method"]
+    metric_tracker = build_console_metric_tracker(run_folder=run_folder, trainer_class=SelfSupervisedTrainer,
+                                                  trainer_attributes={"method": method})
+
+    # Lines of the summary without its rules and the prefix of its metric lines, written again by the current formatter
+    logged_lines = [line for line in log_lines[last_start:last_end + 1] if not line.startswith("---")]
+    summary_lines: List[str] = [line.replace(CONSOLE_METRIC_LINE_PREFIX, "") for line in
+                                reformat_console_summary(lines=logged_lines, metric_tracker=metric_tracker)]
     listing_path = output_folder / "listings" / "last_console_summary.txt"
     listing_path.parent.mkdir(parents=True, exist_ok=True)
     listing_path.write_text(data="\n".join(summary_lines) + "\n", encoding="utf-8")

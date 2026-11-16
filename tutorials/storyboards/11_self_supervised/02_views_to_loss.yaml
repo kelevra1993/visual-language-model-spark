@@ -247,6 +247,8 @@ scenes:
     title: "The console summary"
     code_reference: "vision_training/trainers/metric_tracking.py · MetricTracker.print_interval_summary"
     elements:
+      # The last summary of the log with a Best marker, its metric lines written again with their logged values by the
+      # current formatter (read_last_console_summary of training_figures.py), the run predating the 10-character columns
       - type: listing
         box: [20, 60, 1740, 420]
         font: diagram_monospace_small

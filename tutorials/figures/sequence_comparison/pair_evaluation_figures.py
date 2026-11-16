@@ -1,7 +1,10 @@
 """
 Training and evaluation figures of the sequence comparison tutorials (chapter 3), made by
-tutorials/figures/sequence_comparison/figures.py from the README run of the task: its launch information and console
-summary, its training and validation curves (an empty-axes base and its overlay, uncovered one panel at a time), and,
+tutorials/figures/sequence_comparison/figures.py from the README run of the task: its launch information and the first
+console summary, whose metric lines are written again with their logged values by the console formatter of the current
+code (reformat_console_summary of figure_utilities.py) so that the scene shows the columns and units a run trained
+today prints, its training and validation curves (an empty-axes base and its overlay, uncovered one panel at a time),
+and,
 from the evaluations of both checkpoints made again with the current code in its Checkpoint_Evaluation folder, its
 Results.txt, the confusion matrix, ROC and precision-recall curves and the precision-recall curves zoomed on the
 thresholds of its last evaluation side by side, the probability of same_number_of_objects of every test pair with the
@@ -24,7 +27,8 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                TEXT_SECONDARY_COLOUR, compute_pixel_box, format_thousands,
+                                                TEXT_SECONDARY_COLOUR, build_console_metric_tracker,
+                                                compute_pixel_box, format_thousands, reformat_console_summary,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.foundations.training_curves import smooth_values
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (compose_image_grid,
@@ -37,6 +41,7 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.report_formatting import (format_percentage, format_percentage_label,
                                                           format_percentage_tick)
+from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 
 # Smoothing of the training curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.95
@@ -221,13 +226,18 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     """
     facts = {}
 
-    # Launch information and the console summary of the first interval, with the throughputs of every interval
+    # Launch information and the console summary of the first interval, its metric lines written by the current
+    # formatter, with the throughputs of every interval
     launch_lines = extract_launch_block(log_path=log_path, last_line_start="- Batch Size")
     launch_boxes = draw_console_figure(lines=launch_lines, output_path=output_folder / "evaluation" /
                                        "launch_console.png", font_size=17,
                                        highlight_patterns={"splits": r"Data Folder", "epoch": r"Iterations Per Epoch"})
     facts.update({f"launch.{name}": box for name, box in launch_boxes.items()})
-    console_lines = extract_interval_block(log_path=log_path, iteration=information_dump)
+    metric_tracker = build_console_metric_tracker(run_folder=run_folder, trainer_class=SequenceComparisonTrainer,
+                                                  trainer_attributes={"decorrelation_activated": False})
+    console_lines = reformat_console_summary(lines=extract_interval_block(log_path=log_path,
+                                                                          iteration=information_dump),
+                                             metric_tracker=metric_tracker)
     console_boxes = draw_console_figure(lines=console_lines, output_path=output_folder / "evaluation" /
                                         "training_console.png", font_size=17,
                                         highlight_patterns={"header": rf"Iteration:\s+{information_dump}\b",

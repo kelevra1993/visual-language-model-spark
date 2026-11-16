@@ -16,7 +16,8 @@ values the narration derives from them (describe_quoted_facts). The facts are qu
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_run_folder, merge_facts, read_run_configuration
+from tutorials.figures.figure_utilities import (build_console_metric_tracker, find_run_folder, merge_facts,
+                                                read_run_configuration)
 from tutorials.figures.instance_segmentation.evaluation_figures import (draw_mask_box_figure,
                                                                         write_mask_report_listings)
 from tutorials.figures.instance_segmentation.mask_figures import describe_mask_geometry, make_mask_figures
@@ -28,6 +29,7 @@ from tutorials.figures.object_detection.run_figures import (draw_loss_curves_fig
                                                             draw_sample_iterations_figure,
                                                             read_console_summary_facts,
                                                             write_console_summary_listing)
+from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 
 # Console logs of the run, next to its folder: the first 2000 iterations, then the resume to 5000, and the iteration
 # of the summary read from each
@@ -92,11 +94,15 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}"
     listings_folder = output_folder / "listings"
 
-    # Console summaries of the first evaluation and of the last iteration, read from the logs next to the run folder
+    # Console summaries of the first evaluation and of the last iteration, read from the logs next to the run folder,
+    # their metric lines written again by the console tracker of the current instance segmentation trainer
     console_facts = {}
+    metric_tracker = build_console_metric_tracker(run_folder=run_folder,
+                                                  trainer_class=InstanceSegmentationTrainer, trainer_attributes={})
     for log_name, iteration in CONSOLE_SUMMARIES:
         summary_lines = write_console_summary_listing(log_path=run_folder.parent / log_name, iteration=iteration,
-                                                      output_path=listings_folder / f"console_{iteration}.txt")
+                                                      output_path=listings_folder / f"console_{iteration}.txt",
+                                                      metric_tracker=metric_tracker)
         console_facts.update(read_console_summary_facts(summary_lines=summary_lines,
                                                         fact_prefix=f"console.{iteration}"))
     facts = merge_facts(fact_groups=[
