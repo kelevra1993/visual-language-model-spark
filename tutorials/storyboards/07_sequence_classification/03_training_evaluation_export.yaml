@@ -45,7 +45,7 @@ scenes:
       - "Every {{sequence_classification.console.flatten_128.interval_iterations}} iterations, the summary gives the sequences per second, and the frames per second without the padding."
       - "At the first interval of this run: {{sequence_classification.console.flatten_128.first_throughput}} sequences and {{sequence_classification.console.flatten_128.first_frame_throughput}} frames per second, a training loss of {{sequence_classification.console.flatten_128.first_interval_loss:.2f}}, and {{sequence_classification.console.flatten_128.validation_batches:words}} validation batches, one every {{sequence_classification.console.flatten_128.validation_ratio}} iterations."
       - "The same task at {{sequence_classification.image_sizes.average_512}} pixels ran at {{sequence_classification.console.average_512.first_throughput}} sequences per second: the frame size sets the cost of a sequence run."
-      - "This run predates the percentages: the summary now writes its accuracies as percentages, and their changes in points."
+      - "This run predates the percentages: the summary now writes its accuracies as percentages, and their changes in percentage points."
 
   - kind: image
     title: "Flatten learns, average does not"

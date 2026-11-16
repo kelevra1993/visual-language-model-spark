@@ -634,7 +634,7 @@ Adam, 1 parameter group, learning rate 0.0005, weight decay 0.0   exponential mo
 ```
 
 ### Step 2.18 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-The tracked metrics depend on the method (`METHOD_TRACKED_METRICS` of the trainer): the loss of the method, the batch metrics it returns and the embedding standard deviation, which watches the collapse of every method. `get_percent_tracked_metrics()` gives the rates of the method from `METHOD_PERCENT_TRACKED_METRICS`, printed as percentages with their changes in points in the console summary (Step 3.21): the positive pair accuracy of SimCLR, and none for Barlow Twins, whose diagonal and off-diagonal correlations keep 4 decimals like the losses and the embedding standard deviation.
+The tracked metrics depend on the method (`METHOD_TRACKED_METRICS` of the trainer): the loss of the method, the batch metrics it returns and the embedding standard deviation, which watches the collapse of every method. `get_percent_tracked_metrics()` gives the rates of the method from `METHOD_PERCENT_TRACKED_METRICS`, printed as percentages with their changes in percentage points (`+0.52 %`) in the console summary (Step 3.21): the positive pair accuracy of SimCLR, and none for Barlow Twins, whose diagonal and off-diagonal correlations keep 4 decimals like the losses and the embedding standard deviation.
 
 **Example: the tracked metrics of both methods**
 ```text
@@ -965,10 +965,10 @@ MLflow, step 12: train Total Loss 2.6904, Positive Pair Accuracy 0.0781, Embeddi
 ========================================================================================================================
 |     Iteration: 8     |      Total Images: 64     |    Interval Images: 32     |  Throughput: 2.8 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.8289  +0.1261
-Moving Average of Train InfoNCE Loss                   :   2.8289  +0.1261
-Moving Average of Train Positive Pair Accuracy         :   9.38 % -4.69 points
-Moving Average of Train Embedding Standard Deviation   :   0.6455  -0.0723
+Moving Average of Train Total Loss                     :     2.8289    +0.1261
+Moving Average of Train InfoNCE Loss                   :     2.8289    +0.1261
+Moving Average of Train Positive Pair Accuracy         :     9.38 %    -4.69 %
+Moving Average of Train Embedding Standard Deviation   :     0.6455    -0.0723
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:11.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -977,28 +977,28 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 |    Iteration: 12     |      Total Images: 96     |    Interval Images: 32     |  Throughput: 11.3 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.6904  -0.1385 Best
-Moving Average of Valid Total Loss                     :   2.7081
-Moving Average of Train InfoNCE Loss                   :   2.6904  -0.1385 Best
-Moving Average of Valid InfoNCE Loss                   :   2.7081
-Moving Average of Train Positive Pair Accuracy         :   7.81 % -1.56 points
-Moving Average of Valid Positive Pair Accuracy         :   0.00 %
-Moving Average of Train Embedding Standard Deviation   :   0.5425  -0.1030
-Moving Average of Valid Embedding Standard Deviation   :   0.0005
+Moving Average of Train Total Loss                     :     2.6904    -0.1385 Best
+Moving Average of Valid Total Loss                     :     2.7081
+Moving Average of Train InfoNCE Loss                   :     2.6904    -0.1385 Best
+Moving Average of Valid InfoNCE Loss                   :     2.7081
+Moving Average of Train Positive Pair Accuracy         :     7.81 %    -1.56 %
+Moving Average of Valid Positive Pair Accuracy         :     0.00 %
+Moving Average of Train Embedding Standard Deviation   :     0.5425    -0.1030
+Moving Average of Valid Embedding Standard Deviation   :     0.0005
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:02.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 ```
-The positive pair accuracy is printed as a percentage with its change in points, the losses and the embedding standard deviation with 4 decimals. At iteration 8 no metric beats its best value, so no line ends with "Best"; at iteration 12 the loss beats the 2.7028 of iteration 4. The interval of iteration 8 also holds the test evaluation of iteration 6, the trackers of an interval starting at the summary before it, hence its throughput of 2.8 images per second.
+The positive pair accuracy is printed as a percentage with its change in percentage points, the losses and the embedding standard deviation with 4 decimals. At iteration 8 no metric beats its best value, so no line ends with "Best"; at iteration 12 the loss beats the 2.7028 of iteration 4. The interval of iteration 8 also holds the test evaluation of iteration 6, the trackers of an interval starting at the summary before it, hence its throughput of 2.8 images per second.
 
 **Example output: the first interval of the Barlow Twins run** (throughput 12.2 Images Per Second; no rate, every value with 4 decimals)
 ```text
-Moving Average of Train Total Loss                     : 131.7183
-Moving Average of Train Barlow Twins Loss              : 131.7183
-Moving Average of Train Diagonal Correlation           :   0.1465
-Moving Average of Train Off-Diagonal Correlation       :   0.3666
-Moving Average of Train Embedding Standard Deviation   :   0.7479
+Moving Average of Train Total Loss                     :   131.7183
+Moving Average of Train Barlow Twins Loss              :   131.7183
+Moving Average of Train Diagonal Correlation           :     0.1465
+Moving Average of Train Off-Diagonal Correlation       :     0.3666
+Moving Average of Train Embedding Standard Deviation   :     0.7479
 ```
 
 ### Step 3.22 — end of the loop

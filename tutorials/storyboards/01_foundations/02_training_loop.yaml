@@ -108,7 +108,7 @@ scenes:
       - {box: [496, 336, 724, 456], sentences: [2]}
     narration:
       - "Every summary opens with the iteration, the images seen, and the throughput of the interval."
-      - "Then the moving averages of the interval, training in blue and validation in yellow, each with its change since the previous summary, in points for an accuracy."
+      - "Then the moving averages of the interval, training in blue and validation in yellow, each with its change since the previous summary, in percentage points for an accuracy."
       - "Green marks an improvement, red a degradation, and Best a value at its best so far; the summary ends with the duration of the interval and its validation batches."
 
   - kind: image

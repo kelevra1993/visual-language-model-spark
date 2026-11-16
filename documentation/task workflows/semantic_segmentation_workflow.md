@@ -637,7 +637,7 @@ Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 ```
 
 ### Step 2.21 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.16). `get_percent_tracked_metrics()` gives the keys the console summary prints as percentages with their changes in points (`['pixel_accuracy', 'mean_iou']`, the losses keeping 4 decimals); TensorBoard and MLflow keep them between 0 and 1 (Step 3.20).
+The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.16). `get_percent_tracked_metrics()` gives the keys the console summary prints as percentages with their changes in percentage points (`+0.52 %`) (`['pixel_accuracy', 'mean_iou']`, the losses keeping 4 decimals); TensorBoard and MLflow keep them between 0 and 1 (Step 3.20).
 
 **Example output** (cross entropy and Dice on, Lovász and boundary off)
 ```text
@@ -903,11 +903,11 @@ MLflow, step 4: {'train/Total Loss': 2.971, 'train/Cross Entropy Loss': 2.0213, 
 ========================================================================================================================
 |     Iteration: 8     |      Total Images: 32     |    Interval Images: 16     |  Throughput: 1.5 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.8497  -0.1213 Best
-Moving Average of Train Cross Entropy Loss             :   1.9076  -0.1137 Best
-Moving Average of Train Dice Loss                      :   0.9421  -0.0076 Best
-Moving Average of Train Pixel Accuracy                 :  48.50 % +7.46 points Best
-Moving Average of Train Mean IoU                       :   7.81 % +1.20 points Best
+Moving Average of Train Total Loss                     :     2.8497    -0.1213 Best
+Moving Average of Train Cross Entropy Loss             :     1.9076    -0.1137 Best
+Moving Average of Train Dice Loss                      :     0.9421    -0.0076 Best
+Moving Average of Train Pixel Accuracy                 :    48.50 %    +7.46 % Best
+Moving Average of Train Mean IoU                       :     7.81 %    +1.20 % Best
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:10.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -916,16 +916,16 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 |    Iteration: 12     |      Total Images: 48     |    Interval Images: 16     |  Throughput: 8.1 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.7779  -0.0718 Best
-Moving Average of Valid Total Loss                     :   2.9886
-Moving Average of Train Cross Entropy Loss             :   1.8413  -0.0663 Best
-Moving Average of Valid Cross Entropy Loss             :   2.0299
-Moving Average of Train Dice Loss                      :   0.9366  -0.0055 Best
-Moving Average of Valid Dice Loss                      :   0.9587
-Moving Average of Train Pixel Accuracy                 :  45.67 % -2.84 points           <- red: lower than at iteration 8
-Moving Average of Valid Pixel Accuracy                 :  91.36 %
-Moving Average of Train Mean IoU                       :   8.29 % +0.48 points Best
-Moving Average of Valid Mean IoU                       :  11.26 %
+Moving Average of Train Total Loss                     :     2.7779    -0.0718 Best
+Moving Average of Valid Total Loss                     :     2.9886
+Moving Average of Train Cross Entropy Loss             :     1.8413    -0.0663 Best
+Moving Average of Valid Cross Entropy Loss             :     2.0299
+Moving Average of Train Dice Loss                      :     0.9366    -0.0055 Best
+Moving Average of Valid Dice Loss                      :     0.9587
+Moving Average of Train Pixel Accuracy                 :    45.67 %    -2.84 %           <- red: lower than at iteration 8
+Moving Average of Valid Pixel Accuracy                 :    91.36 %
+Moving Average of Train Mean IoU                       :     8.29 %    +0.48 % Best
+Moving Average of Valid Mean IoU                       :    11.26 %
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:01.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).

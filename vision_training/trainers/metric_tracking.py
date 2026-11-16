@@ -5,8 +5,9 @@ first interval of a resumed run), the throughput of the interval, the console su
 dump (with the change of every value since the previous summary) and the TensorBoard curves. The interval averages and
 the throughput are also sent to the MLflow run of the training by the general trainer. The rates listed by every task
 (get_percent_tracked_metrics of its trainer, such as the batch accuracy of the classification-like tasks) are printed
-as the percentages of the reports, "94.03 %" with their changes in points, the losses and other values with 4
-decimals; TensorBoard and MLflow keep every value between 0 and 1.
+as the percentages of the reports, "94.03 %", their changes in percentage points written "+0.52 %", the losses and
+other values with 4 decimals, their decimal points and best markers aligned in columns; TensorBoard and MLflow keep
+every value between 0 and 1.
 """
 
 import time
@@ -15,7 +16,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing import Any, Dict, List, Optional, Tuple
 
-from vision_training.evaluation.report_formatting import format_percentage, format_points, round_percentage
+from vision_training.evaluation.report_formatting import (PERCENT_DECIMALS, PERCENT_SIGN, format_percentage,
+                                                          round_percentage)
 from vision_training.utilities.os_utilities import color_text
 
 # Smallest width of the console summary, whose header spans the separator lines from end to end
@@ -38,9 +40,12 @@ SPLIT_COLORS = {"Train": "blue", "Valid": "yellow"}
 LOWER_IS_BETTER_SUFFIX = "_loss"
 LOWER_IS_BETTER_KEYS = {"cross_correlation_off_diagonal", "hidden_feature_correlation"}
 
-# Number of decimals of the metric values and of their changes, and width of a value or change column
+# Number of decimals of the metric values and of their changes, and width of a value or change column, room for the
+# losses in the thousands of Barlow Twins ("-1234.5678"). A value with 4 decimals and a percentage with 2 decimals and
+# its sign ("2.3456", "94.03 %", "-0.1111", "+0.52 %") have as many characters after their decimal point, so that
+# right-aligned in the column their decimal points fall in the same column, and so do the best markers after them
 METRIC_DECIMALS = 4
-METRIC_COLUMN_WIDTH = 8
+METRIC_COLUMN_WIDTH = 10
 
 # Text of the marker of a value that is the best of the run for its split
 BEST_MARKER = "Best"
@@ -79,7 +84,7 @@ class MetricTracker:
             counts_frames (bool): Whether to count the real frames of the training batches (sequence tasks), to also
                 print the frame throughput, False for the image tasks.
             percent_metric_keys (List[str]): The tracked keys that are rates printed as percentages with their changes
-                in points, e.g. ['accuracy'], the others printed with 4 decimals.
+                in percentage points, e.g. ['accuracy'], the others printed with 4 decimals.
 
         Raises:
             ValueError: If a percent key is not a tracked key.
@@ -219,24 +224,27 @@ class MetricTracker:
         Formats the signed change of a console summary value since the previous summary, so that the progress of the
         training reads at a glance: green when it goes in the improving direction, red when it goes in the other one,
         and in the colour of its line when it rounds to zero at the printed decimals. The change of a rate printed as a
-        percentage is written in points ("+0.52 points").
+        percentage is its difference in percentage points, written with the percent sign ("+0.52 %"), right-aligned in
+        METRIC_COLUMN_WIDTH like the 4-decimal changes, so that their decimal points fall in the same column.
 
         Args:
             change (float): The current value minus the previous one.
             lower_is_better (bool): True when the value improves by decreasing (losses, off-diagonal correlations),
                 False otherwise.
             neutral_color (str): The colour of a change rounding to zero, the colour of its line.
-            in_percent (bool): Whether the value is a rate printed as a percentage, its change written in points.
+            in_percent (bool): Whether the value is a rate printed as a percentage, its change written "+0.52 %".
 
         Returns:
             str: The coloured signed change.
         """
         # A change rounding to zero is neither an improvement nor a degradation, and is printed as +0 rather than -0
         if in_percent:
-            rounds_to_zero, change_text = round_percentage(value=change) == 0, format_points(difference=change)
+            rounds_to_zero = round_percentage(value=change) == 0
+            change_text = f"{round_percentage(value=change):+.{PERCENT_DECIMALS}f}{PERCENT_SIGN}"
         else:
             rounds_to_zero = round(change, METRIC_DECIMALS) == 0
-            change_text = f"{0.0 if rounds_to_zero else change:>+{METRIC_COLUMN_WIDTH}.{METRIC_DECIMALS}f}"
+            change_text = f"{0.0 if rounds_to_zero else change:+.{METRIC_DECIMALS}f}"
+        change_text = f"{change_text:>{METRIC_COLUMN_WIDTH}}"
         if rounds_to_zero:
             return color_text(color=neutral_color, text=change_text)
 
@@ -247,8 +255,9 @@ class MetricTracker:
         """
         Builds one metric line of the console summary, the main training feedback read at every information dump: the
         interval mean, its change since the last summary that printed this split, and the best marker when it is the
-        best value of the run, a rate listed in the percent keys printed as "94.03 %" with its change in points. Keeps
-        the values for the next summary.
+        best value of the run, a rate listed in the percent keys printed as "94.03 %" with its change "+0.52 %". The
+        values, the changes and the best markers are aligned in columns over the lines of a summary. Keeps the values
+        for the next summary.
 
         Args:
             split_name (str): "Train" or "Valid".
