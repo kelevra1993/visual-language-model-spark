@@ -4,8 +4,9 @@
 <h2 class="title">Every task plugs its head onto one shared backbone</h2>
 </div>
 <div class="figure">
-<img src="/_blob/553c72b93db01c4c09d5bbd3074535b8" alt="Diagram: images and sequences enter one shared backbone; each of the ten tasks attaches its own head, from global pooling for classification to region proposals for detection and temporal modules for sequences" style="width:1614px; height:506px; object-fit:contain">
+<img src="/_blob/553c72b93db01c4c09d5bbd3074535b8" alt="Diagram: images and sequences enter one shared backbone; each of the ten tasks attaches its own head, from global pooling for classification to region proposals for detection and temporal modules for sequences" style="width:1614px; height:428px; object-fit:contain">
 </div>
-<p class="caption">Convolution blocks with optional residual, squeeze-and-excitation and inception modules; a backbone pre-trained by SSL loads into any other task.</p>
-<aside>The backbone is configurable block by block. Image tasks read one or several of its levels; sequence tasks run it on every frame and add a temporal module (GRU, LSTM, transformer, temporal convolution or pooling). Because the backbone is shared, a backbone trained on one task, or on ImageNet, or by self-supervision, can initialise any other.</aside>
+<p class="takeaway"><b>Shared</b> means the same classic CNN design for every task, <b>not</b> the same weights: each task trains its own.</p>
+<p class="caption">Convolution blocks with optional residual, squeeze-and-excitation and inception modules; pre-trained weights load into any task.</p>
+<aside>Shared refers to the design, not to the weights: every task starts from the same classic convolutional backbone, configured block by block, and trains its own parameters; two tasks never update one set of weights. Image tasks read one or several of its levels; sequence tasks run it on every frame and add a temporal module (GRU, LSTM, transformer, temporal convolution or pooling). Because the design is the same everywhere, weights trained on one task, on ImageNet or by self-supervision can initialise the backbone of any other through the transfer settings; without them, a task trains its backbone from scratch.</aside>
 </section>
