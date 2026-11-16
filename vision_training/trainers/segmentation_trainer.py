@@ -230,7 +230,7 @@ class SegmentationTrainer(BaseTrainer):
 
     def get_percent_tracked_metrics(self) -> List[str]:
         """
-        Lists the tracked batch metrics written as percentages in the console summary ("94.03 %", changes in points):
+        Lists the tracked batch metrics written as percentages in the console summary ("94.03 %", changes "+0.52 %"):
         the pixel accuracy and the mean IoU of the training and validation batches, the losses staying with 4 decimals.
 
         Returns:

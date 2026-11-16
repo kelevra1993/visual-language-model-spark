@@ -563,7 +563,7 @@ Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 ```
 
 ### Step 2.19 — `get_tracked_metrics()` + `get_percent_tracked_metrics()` + `MetricTracker.__init__()`
-The metrics of the classification: the total loss, the classification loss and the accuracy of every batch. The tracker is created with `counts_frames=True`, so that it also counts the real frames of every interval (Step 3.8), and with the accuracy as its only rate (`get_percent_tracked_metrics()`, inherited from `ClassificationTrainer`), printed as a percentage with its change in points in the console summary (Step 3.21), the losses keeping 4 decimals.
+The metrics of the classification: the total loss, the classification loss and the accuracy of every batch. The tracker is created with `counts_frames=True`, so that it also counts the real frames of every interval (Step 3.8), and with the accuracy as its only rate (`get_percent_tracked_metrics()`, inherited from `ClassificationTrainer`), printed as a percentage with its change in percentage points (`+0.52 %`) in the console summary (Step 3.21), the losses keeping 4 decimals.
 
 **Example output**
 ```text
@@ -854,9 +854,9 @@ MLflow, step 4: {'train/Total Loss': 1.4036, 'train/Classification Loss': 1.4036
 ===========================================================================================================================================================
 |     Iteration: 4    |     Total Sequences: 16     |    Interval Sequences: 16    |   Throughput: 1.4 Sequences Per Second  |   9.7 Frames Per Second    |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   1.4036
-Moving Average of Train Classification Loss            :   1.4036
-Moving Average of Train Accuracy                       :  12.50 %
+Moving Average of Train Total Loss                     :     1.4036
+Moving Average of Train Classification Loss            :     1.4036
+Moving Average of Train Accuracy                       :    12.50 %
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:11.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -865,12 +865,12 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ===========================================================================================================================================================
 |    Iteration: 12    |     Total Sequences: 48     |    Interval Sequences: 16    |   Throughput: 1.4 Sequences Per Second  |   9.5 Frames Per Second    |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   1.3814  -0.0102 Best          <- green: lower than at iteration 8
-Moving Average of Valid Total Loss                     :   1.3548
-Moving Average of Train Classification Loss            :   1.3814  -0.0102 Best
-Moving Average of Valid Classification Loss            :   1.3548
-Moving Average of Train Accuracy                       :  31.25 % -6.25 points
-Moving Average of Valid Accuracy                       :  25.00 %
+Moving Average of Train Total Loss                     :     1.3814    -0.0102 Best       <- green: lower than at iteration 8
+Moving Average of Valid Total Loss                     :     1.3548
+Moving Average of Train Classification Loss            :     1.3814    -0.0102 Best
+Moving Average of Valid Classification Loss            :     1.3548
+Moving Average of Train Accuracy                       :    31.25 %    -6.25 %
+Moving Average of Valid Accuracy                       :    25.00 %
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:11.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).

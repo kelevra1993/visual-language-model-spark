@@ -744,9 +744,9 @@ MLflow, step 4: {'train/Total Loss': 0.6882, 'train/Classification Loss': 0.6882
 ===============================================================================================================================================
 |     Iteration: 4    |     Total Pairs: 16     |    Interval Pairs: 16    |   Throughput: 6.0 Pairs Per Second  |   46.0 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   0.6882
-Moving Average of Train Classification Loss            :   0.6882
-Moving Average of Train Accuracy                       :  56.25 %
+Moving Average of Train Total Loss                     :     0.6882
+Moving Average of Train Classification Loss            :     0.6882
+Moving Average of Train Accuracy                       :    56.25 %
 -----------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:02.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -755,12 +755,12 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ===============================================================================================================================================
 |    Iteration: 12    |     Total Pairs: 48     |    Interval Pairs: 16    |  Throughput: 12.2 Pairs Per Second  |   96.8 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   0.5920  -0.0947 Best
-Moving Average of Valid Total Loss                     :   0.6939
-Moving Average of Train Classification Loss            :   0.5920  -0.0947 Best
-Moving Average of Valid Classification Loss            :   0.6939
-Moving Average of Train Accuracy                       :  87.50 % +31.25 points Best
-Moving Average of Valid Accuracy                       :  50.00 %
+Moving Average of Train Total Loss                     :     0.5920    -0.0947 Best
+Moving Average of Valid Total Loss                     :     0.6939
+Moving Average of Train Classification Loss            :     0.5920    -0.0947 Best
+Moving Average of Valid Classification Loss            :     0.6939
+Moving Average of Train Accuracy                       :    87.50 %   +31.25 % Best
+Moving Average of Valid Accuracy                       :    50.00 %
 -----------------------------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:01.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).

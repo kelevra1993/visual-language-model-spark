@@ -2,8 +2,11 @@
 Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics over the
 batches really accumulated, the real frames counted for the frame throughput, the validation changes of the interval
 summary compared with the last interval that ran validation, the off-diagonal correlations improving when they fall,
-and the rates of the task printed as percentages with their changes in points.
+the rates of the task printed as percentages with their changes in percent, and the values, changes and best markers
+of a summary aligned in columns.
 """
+
+import re
 
 import pytest
 import torch
@@ -107,7 +110,7 @@ def test_valid_changes_skip_intervals_without_validation(capsys: pytest.CaptureF
 
     console_output = capsys.readouterr().out
     assert console_output.count("Moving Average of Valid Total Loss") == 2
-    assert color_text(color="green", text=" -0.2000") in console_output
+    assert color_text(color="green", text="   -0.2000") in console_output
 
 
 @pytest.mark.parametrize("metric_key", ["cross_correlation_off_diagonal", "hidden_feature_correlation"])
@@ -129,17 +132,17 @@ def test_correlations_improve_when_they_decrease(metric_key: str) -> None:
                                               current_value=0.1)
     rising_line = tracker.format_metric_line(split_name="Train", metric_key=metric_key, display_name="Correlation",
                                              current_value=0.3)
-    assert color_text(color="green", text=" -0.1000") in falling_line
+    assert color_text(color="green", text="   -0.1000") in falling_line
     assert color_text(color="blue", text="Best") in falling_line
-    assert color_text(color="red", text=" +0.2000") in rising_line
+    assert color_text(color="red", text="   +0.2000") in rising_line
     assert color_text(color="blue", text="Best") not in rising_line
 
 
-def test_rates_are_printed_as_percentages_with_changes_in_points() -> None:
+def test_rates_are_printed_as_percentages_with_changes_in_percent() -> None:
     """
     Verifies the lines of a rate listed in the percent keys (the accuracy of the classification-like tasks): its value
-    written "50.00 %", its change in points, green when it rises, neutral "+0.00 points" when it rounds to zero, while
-    the loss keeps 4 decimals; a percent key that is not tracked is refused.
+    written "50.00 %", its change in percentage points written "+10.00 %", green when it rises, neutral "+0.00 %" when
+    it rounds to zero, while the loss keeps 4 decimals; a percent key that is not tracked is refused.
     """
     tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
     first_line = tracker.format_metric_line(split_name="Train", metric_key="accuracy", display_name="Accuracy",
@@ -151,14 +154,52 @@ def test_rates_are_printed_as_percentages_with_changes_in_points() -> None:
     loss_line = tracker.format_metric_line(split_name="Train", metric_key="total_loss", display_name="Total Loss",
                                            current_value=0.25)
 
-    # Value in percent, its change in points coloured by its direction, the loss with 4 decimals
-    assert first_line == color_text(color="blue", text=f"Moving Average of Train {'Accuracy':30} :  50.00 %")
-    assert color_text(color="green", text="+10.00 points") in rising_line
+    # Value in percent, its change in percent coloured by its direction, the loss with 4 decimals
+    assert first_line == color_text(color="blue", text=f"Moving Average of Train {'Accuracy':30} :    50.00 %")
+    assert color_text(color="green", text="  +10.00 %") in rising_line
     assert color_text(color="blue", text="Best") in rising_line
-    assert color_text(color="blue", text="+0.00 points") in still_line
-    assert "  0.2500" in loss_line and "%" not in loss_line
+    assert color_text(color="blue", text="   +0.00 %") in still_line
+    assert "  0.2500" in loss_line and "%" not in loss_line and "points" not in rising_line
 
     # A percent key must be one of the tracked keys
     with pytest.raises(ValueError, match="percent keys"):
         MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss"}, batch_size=2, validation_iteration_ratio=0,
                       sample_name="Images", counts_frames=False, percent_metric_keys=["accuracy"])
+
+
+def test_values_changes_and_best_markers_are_aligned_in_columns() -> None:
+    """
+    Verifies the columns of the console summary of a task printing rates: the decimal points of the 4-decimal values
+    (up to the thousands of a Barlow Twins loss) and of the percentages fall in one column, so do the ones of the
+    4-decimal changes and of the changes in percent of one or two digits, and every best marker starts in one column,
+    one space after its change, while a line without a best marker ends with its change.
+    """
+    tracker = MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss", "accuracy": "Accuracy",
+                                                     "top_five_accuracy": "Top-5 Accuracy",
+                                                     "barlow_twins_loss": "Barlow Twins Loss"},
+                            batch_size=2, validation_iteration_ratio=0, sample_name="Images", counts_frames=False,
+                            percent_metric_keys=["accuracy", "top_five_accuracy"])
+
+    # Two summaries where every value improves, the second lines holding a change and a best marker
+    for values in [{"total_loss": 2.4567, "accuracy": 0.0412, "top_five_accuracy": 0.80,
+                    "barlow_twins_loss": 2345.6789},
+                   {"total_loss": 2.3456, "accuracy": 0.0512, "top_five_accuracy": 0.9403,
+                    "barlow_twins_loss": 1234.5678}]:
+        lines = [re.sub(pattern=r"\x1b\[[0-9;]*m", repl="", string=tracker.format_metric_line(
+            split_name="Train", metric_key=metric_key, display_name=display_name, current_value=values[metric_key]))
+            for metric_key, display_name in tracker.tracked_metrics_mapping.items()]
+    assert lines[0].endswith(":     2.3456    -0.1111 Best")
+    assert lines[1].endswith(":     5.12 %    +1.00 % Best")
+    assert lines[2].endswith(":    94.03 %   +14.03 % Best")
+    assert lines[3].endswith(":  1234.5678 -1111.1111 Best")
+
+    # One column for the decimal points of the values, one for those of the changes, one for the best markers
+    value_columns = {line.index(".") for line in lines}
+    change_columns = {line.index(".", line.index(".") + 1) for line in lines}
+    assert len(value_columns) == 1 and len(change_columns) == 1
+    assert len({line.index("Best") for line in lines}) == 1
+
+    # A change that is not the best value ends its line
+    worse_line = tracker.format_metric_line(split_name="Train", metric_key="total_loss", display_name="Total Loss",
+                                            current_value=2.5)
+    assert worse_line.endswith(color_text(color="red", text="   +0.1544"))

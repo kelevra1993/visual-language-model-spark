@@ -195,7 +195,7 @@ class ClassificationTrainer(BaseTrainer):
 
     def get_percent_tracked_metrics(self) -> List[str]:
         """
-        Lists the tracked batch metrics written as percentages in the console summary ("94.03 %", changes in points):
+        Lists the tracked batch metrics written as percentages in the console summary ("94.03 %", changes "+0.52 %"):
         the accuracy of the training and validation batches, the losses and the correlation of the decorrelated
         hidden features staying with 4 decimals. The sequence trainers and the frame selection trainer inherit it.
 

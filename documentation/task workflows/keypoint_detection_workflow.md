@@ -846,14 +846,14 @@ The summary counts images.
 ========================================================================================================================
 |    Iteration: 10     |      Total Images: 80     |    Interval Images: 80     |  Throughput: 0.6 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   9.8927
-Moving Average of Valid Total Loss                     :  10.0279
-Moving Average of Train Heatmap Loss                   :   9.8744
-Moving Average of Valid Heatmap Loss                   :  10.0152
-Moving Average of Train Tag Pull Loss                  :   0.0021
-Moving Average of Valid Tag Pull Loss                  :   0.0003
-Moving Average of Train Tag Push Loss                  :   0.0162
-Moving Average of Valid Tag Push Loss                  :   0.0125
+Moving Average of Train Total Loss                     :     9.8927
+Moving Average of Valid Total Loss                     :    10.0279
+Moving Average of Train Heatmap Loss                   :     9.8744
+Moving Average of Valid Heatmap Loss                   :    10.0152
+Moving Average of Train Tag Pull Loss                  :     0.0021
+Moving Average of Valid Tag Pull Loss                  :     0.0003
+Moving Average of Train Tag Push Loss                  :     0.0162
+Moving Average of Valid Tag Push Loss                  :     0.0125
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 10 Iterations Took 00:02:24.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
@@ -862,14 +862,14 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 |    Iteration: 60     |     Total Images: 480     |    Interval Images: 80     |  Throughput: 0.5 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   7.9859  -0.0256 Best
-Moving Average of Valid Total Loss                     :   8.0162  -0.0787 Best
-Moving Average of Train Heatmap Loss                   :   7.9735  -0.0195 Best
-Moving Average of Valid Heatmap Loss                   :   7.9893  -0.0782 Best
-Moving Average of Train Tag Pull Loss                  :   0.0026  -0.0011
-Moving Average of Valid Tag Pull Loss                  :   0.0019  -0.0005
-Moving Average of Train Tag Push Loss                  :   0.0098  -0.0050 Best
-Moving Average of Valid Tag Push Loss                  :   0.0250  +0.0000
+Moving Average of Train Total Loss                     :     7.9859    -0.0256 Best
+Moving Average of Valid Total Loss                     :     8.0162    -0.0787 Best
+Moving Average of Train Heatmap Loss                   :     7.9735    -0.0195 Best
+Moving Average of Valid Heatmap Loss                   :     7.9893    -0.0782 Best
+Moving Average of Train Tag Pull Loss                  :     0.0026    -0.0011
+Moving Average of Valid Tag Pull Loss                  :     0.0019    -0.0005
+Moving Average of Train Tag Push Loss                  :     0.0098    -0.0050 Best
+Moving Average of Valid Tag Push Loss                  :     0.0250    +0.0000
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 10 Iterations Took 00:02:34.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).

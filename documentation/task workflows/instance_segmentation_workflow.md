@@ -885,12 +885,12 @@ mask 0.6948
 ========================================================================================================================
 |   Iteration: 1000    |    Total Images: 64000    |   Interval Images: 64000   |  Throughput: 33.5 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   1.6639
-Moving Average of Train RPN Classification Loss        :   0.1255
-Moving Average of Train RPN Regression Loss            :   0.1913
-Moving Average of Train Detection Classification Loss  :   0.7328
-Moving Average of Train Detection Regression Loss      :   0.2472
-Moving Average of Train Mask Loss                      :   0.3671
+Moving Average of Train Total Loss                     :     1.6639
+Moving Average of Train RPN Classification Loss        :     0.1255
+Moving Average of Train RPN Regression Loss            :     0.1913
+Moving Average of Train Detection Classification Loss  :     0.7328
+Moving Average of Train Detection Regression Loss      :     0.2472
+Moving Average of Train Mask Loss                      :     0.3671
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 1000 Iterations Took 00:31:50.
 ========================================================================================================================
@@ -898,12 +898,12 @@ Interval Of 1000 Iterations Took 00:31:50.
 ========================================================================================================================
 |   Iteration: 5000    |    Total Images: 320000   |   Interval Images: 64000   |  Throughput: 43.7 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   0.4768  -0.0717 Best
-Moving Average of Train RPN Classification Loss        :   0.0070  -0.0017 Best
-Moving Average of Train RPN Regression Loss            :   0.0450  -0.0060 Best
-Moving Average of Train Detection Classification Loss  :   0.2063  -0.0482 Best
-Moving Average of Train Detection Regression Loss      :   0.0677  -0.0078 Best
-Moving Average of Train Mask Loss                      :   0.1509  -0.0080 Best
+Moving Average of Train Total Loss                     :     0.4768    -0.0717 Best
+Moving Average of Train RPN Classification Loss        :     0.0070    -0.0017 Best
+Moving Average of Train RPN Regression Loss            :     0.0450    -0.0060 Best
+Moving Average of Train Detection Classification Loss  :     0.2063    -0.0482 Best
+Moving Average of Train Detection Regression Loss      :     0.0677    -0.0078 Best
+Moving Average of Train Mask Loss                      :     0.1509    -0.0080 Best
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 1000 Iterations Took 00:24:25.
 ========================================================================================================================

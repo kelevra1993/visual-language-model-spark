@@ -876,11 +876,11 @@ MLflow, step 1000: {'train/Total Loss': 1.2515, 'train/RPN Classification Loss':
 ========================================================================================================================
 |   Iteration: 1000    |    Total Images: 64000    |   Interval Images: 64000   |  Throughput: 10.2 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   1.2515
-Moving Average of Train RPN Classification Loss        :   0.1361
-Moving Average of Train RPN Regression Loss            :   0.1832
-Moving Average of Train Detection Classification Loss  :   0.6931
-Moving Average of Train Detection Regression Loss      :   0.2390
+Moving Average of Train Total Loss                     :     1.2515
+Moving Average of Train RPN Classification Loss        :     0.1361
+Moving Average of Train RPN Regression Loss            :     0.1832
+Moving Average of Train Detection Classification Loss  :     0.6931
+Moving Average of Train Detection Regression Loss      :     0.2390
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 1000 Iterations Took 01:44:34.
 ========================================================================================================================
@@ -888,11 +888,11 @@ Interval Of 1000 Iterations Took 01:44:34.
 ========================================================================================================================
 |   Iteration: 5000    |    Total Images: 320000   |   Interval Images: 64000   |  Throughput: 34.5 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   0.3332  -0.0633 Best
-Moving Average of Train RPN Classification Loss        :   0.0071  -0.0019 Best
-Moving Average of Train RPN Regression Loss            :   0.0409  -0.0058 Best
-Moving Average of Train Detection Classification Loss  :   0.2161  -0.0489 Best
-Moving Average of Train Detection Regression Loss      :   0.0691  -0.0067 Best
+Moving Average of Train Total Loss                     :     0.3332    -0.0633 Best
+Moving Average of Train RPN Classification Loss        :     0.0071    -0.0019 Best
+Moving Average of Train RPN Regression Loss            :     0.0409    -0.0058 Best
+Moving Average of Train Detection Classification Loss  :     0.2161    -0.0489 Best
+Moving Average of Train Detection Regression Loss      :     0.0691    -0.0067 Best
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 1000 Iterations Took 00:30:53.
 ========================================================================================================================

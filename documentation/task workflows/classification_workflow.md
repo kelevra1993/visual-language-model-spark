@@ -1083,7 +1083,7 @@ param groups: 1    base_learning_rates: [0.0002]
 ```
 
 ### Step 2.21 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-`get_tracked_metrics()` lists what is followed on every training and validation batch: the keys that the model or the trainer produce and their display names. The `MetricTracker` stores this list with `batch_size`, `validation_iteration_ratio`, the kind of sample (`"Images"`, which names the throughput) and the keys printed as percentages with their changes in points, given by `get_percent_tracked_metrics()` (`['accuracy']`, the losses keeping 4 decimals). In Stage 3 it averages the metrics over every console interval and prints them (Step 3.24), and writes them to TensorBoard (Step 3.20). It also keeps the values of the previous summary and the best value of the run of every metric, empty for now, for the changes printed in the summaries.
+`get_tracked_metrics()` lists what is followed on every training and validation batch: the keys that the model or the trainer produce and their display names. The `MetricTracker` stores this list with `batch_size`, `validation_iteration_ratio`, the kind of sample (`"Images"`, which names the throughput) and the keys printed as percentages with their changes in percentage points, given by `get_percent_tracked_metrics()` (`['accuracy']`, the losses keeping 4 decimals). In Stage 3 it averages the metrics over every console interval and prints them (Step 3.24), and writes them to TensorBoard (Step 3.20). It also keeps the values of the previous summary and the best value of the run of every metric, empty for now, for the changes printed in the summaries.
 
 **Example output**
 ```text
@@ -1465,7 +1465,7 @@ console at iteration 12: Validation Iterations In This Interval: 1 (Ratio: Every
 ```
 
 ### Step 3.24 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()` + `report_dropped_batches()`
-Every `information_dump` iterations, the loop divides the training and the validation sums by the number of batches each really ran (`interval_batches`). The training interval usually holds `information_dump` batches, but the first interval of a run resumed between two summaries holds fewer, and the number of validation batches depends on the ratio. `log_interval_metrics()` sends the averages to MLflow (`train/<name>` and, when a validation batch ran, `validation/<name>`), with the throughput, the duration of the interval and the learning rate. `print_interval_summary()` prints the summary, and the loop starts fresh trackers. The summary gives the throughput and the moving average of every metric for the training and, if a validation batch ran in the interval, for the validation. After each value comes its change since the previous summary of the run, in green when it improved (a loss decreasing, an accuracy increasing) and in red when it got worse, and `Best` when it is the best value of the run so far. The accuracy is written as a percentage with its change in points (`9.38 % -3.12 points`), the losses with 4 decimals; TensorBoard and MLflow keep the accuracy between 0 and 1. The duration includes everything between the two summaries, evaluations and checkpoints included. Right after the summary, `report_dropped_batches()` prints in yellow the batches of every split dropped since the previous summary because their loading failed (Step 3.8), e.g. `- Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)`, then starts the counts again; it prints nothing when no batch was dropped.
+Every `information_dump` iterations, the loop divides the training and the validation sums by the number of batches each really ran (`interval_batches`). The training interval usually holds `information_dump` batches, but the first interval of a run resumed between two summaries holds fewer, and the number of validation batches depends on the ratio. `log_interval_metrics()` sends the averages to MLflow (`train/<name>` and, when a validation batch ran, `validation/<name>`), with the throughput, the duration of the interval and the learning rate. `print_interval_summary()` prints the summary, and the loop starts fresh trackers. The summary gives the throughput and the moving average of every metric for the training and, if a validation batch ran in the interval, for the validation. After each value comes its change since the previous summary of the run, in green when it improved (a loss decreasing, an accuracy increasing) and in red when it got worse, and `Best` when it is the best value of the run so far. The accuracy is written as a percentage with its change in percentage points (`9.38 %    -3.12 %`), the losses with 4 decimals; TensorBoard and MLflow keep the accuracy between 0 and 1. The duration includes everything between the two summaries, evaluations and checkpoints included. Right after the summary, `report_dropped_batches()` prints in yellow the batches of every split dropped since the previous summary because their loading failed (Step 3.8), e.g. `- Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)`, then starts the counts again; it prints nothing when no batch was dropped.
 
 **Example: the sums and the averages of the first interval**
 ```text
@@ -1480,9 +1480,9 @@ MLflow, step 4: {'train/Total Loss': 2.205, 'train/Classification Loss': 2.205, 
 ========================================================================================================================
 |     Iteration: 4     |      Total Images: 32     |    Interval Images: 32     |  Throughput: 8.6 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.2050
-Moving Average of Train Classification Loss            :   2.2050
-Moving Average of Train Accuracy                       :  12.50 %
+Moving Average of Train Total Loss                     :     2.2050
+Moving Average of Train Classification Loss            :     2.2050
+Moving Average of Train Accuracy                       :    12.50 %
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:03.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -1491,9 +1491,9 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 |     Iteration: 8     |      Total Images: 64     |    Interval Images: 32     |  Throughput: 0.7 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.1895  -0.0154 Best        <- green: the loss decreased
-Moving Average of Train Classification Loss            :   2.1895  -0.0154 Best
-Moving Average of Train Accuracy                       :   9.38 % -3.12 points         <- red: the accuracy decreased
+Moving Average of Train Total Loss                     :     2.1895    -0.0154 Best       <- green: the loss decreased
+Moving Average of Train Classification Loss            :     2.1895    -0.0154 Best
+Moving Average of Train Accuracy                       :     9.38 %    -3.12 %            <- red: the accuracy decreased
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:48.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
@@ -1502,12 +1502,12 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 |    Iteration: 12     |      Total Images: 96     |    Interval Images: 32     |  Throughput: 31.8 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.2103  +0.0208             <- red: the loss increased
-Moving Average of Valid Total Loss                     :   2.1964                      <- first Valid value: no change
-Moving Average of Train Classification Loss            :   2.2103  +0.0208
-Moving Average of Valid Classification Loss            :   2.1964
-Moving Average of Train Accuracy                       :   9.38 % +0.00 points         <- line colour: no change
-Moving Average of Valid Accuracy                       :  12.50 %
+Moving Average of Train Total Loss                     :     2.2103    +0.0208            <- red: the loss increased
+Moving Average of Valid Total Loss                     :     2.1964                       <- first Valid value: no change
+Moving Average of Train Classification Loss            :     2.2103    +0.0208
+Moving Average of Valid Classification Loss            :     2.1964
+Moving Average of Train Accuracy                       :     9.38 %    +0.00 %            <- line colour: no change
+Moving Average of Valid Accuracy                       :    12.50 %
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:01.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).

@@ -279,7 +279,7 @@ class SelfSupervisedTrainer(BaseTrainer):
     def get_percent_tracked_metrics(self) -> List[str]:
         """
         Lists the tracked batch metrics of the method of the run written as percentages in the console summary
-        ("94.03 %", changes in points): the positive pair accuracy of SimCLR, none for Barlow Twins, whose
+        ("94.03 %", changes "+0.52 %"): the positive pair accuracy of SimCLR, none for Barlow Twins, whose
         correlations stay with 4 decimals like the losses and the embedding standard deviation.
 
         Returns:
