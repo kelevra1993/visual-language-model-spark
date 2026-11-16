@@ -4,18 +4,17 @@
 <h2 class="title">Every export states how to build its input</h2>
 </div>
 <div class="split">
-<div class="text">
-<ul class="points">
-<li>Written into the ONNX metadata and preprocessing.json.</li>
-<li>States the BGR photo, the resize, its interpolation, the padding and the layout.</li>
-<li>The export refuses an input it cannot describe.</li>
-<li>A test rebuilds the inputs from the contract alone, pixel for pixel.</li>
-</ul>
+<div class="text wide">
+<p class="small"><span class="mono">preprocessing.json</span> next to the exported model, also in the ONNX metadata. Detection tutorial run:</p>
+<p class="code" style="line-height:1.3; padding:20px 24px">{<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_contract_version"</span>: <span style="color:#F0C878">"2"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_color_order"</span>: <span style="color:#F0C878">"BGR"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_resize"</span>: <span style="color:#F0C878">"keep_ratio"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_size"</span>: <span style="color:#F0C878">"512"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_interpolation"</span>: <span style="color:#F0C878">"linear"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_padding_value"</span>: <span style="color:#F0C878">"0"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_padding_placement"</span>: <span style="color:#F0C878">"centred"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_tile_scale"</span>: <span style="color:#F0C878">"none"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_tile_overlap"</span>: <span style="color:#F0C878">"none"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_layout"</span>: <span style="color:#F0C878">"NCHW"</span>,<br>&nbsp;&nbsp;<span style="color:#7DC4FF">"input_value_range"</span>: <span style="color:#F0C878">"0-255"</span><br>}</p>
+<p class="body">The export refuses an input it cannot describe; a test rebuilds the inputs from this file alone, pixel for pixel.</p>
+</div>
+<div style="flex:1; display:flex; flex-direction:column; gap:16px">
+<div class="figure">
+<img src="/_blob/e75b5cae88135ed051bd12125b7fc5ee" alt="A 640 by 359 photo of giraffes resized for a 256 pixel input three ways: stretched, kept ratio with black padding, and six overlapping tiles" style="width:838px; height:520px; object-fit:contain">
+</div>
 <p class="small">The three resizes of a 640 x 359 photo for an input of 256. Photo: COCO 2017 validation image 288882, Flickr, CC BY 2.0.</p>
 </div>
-<div class="figure">
-<img src="/_blob/e75b5cae88135ed051bd12125b7fc5ee" alt="A 640 by 359 photo of giraffes resized for a 256 pixel input three ways: stretched, kept ratio with black padding, and six overlapping tiles" style="width:958px; height:603px; object-fit:contain">
 </div>
-</div>
-<aside>A server that feeds the model does not have to guess the preprocessing: the input contract travels with the model. Every export writes it into the metadata of model.onnx and as preprocessing.json next to both formats: the photo as OpenCV decodes it in BGR, a stretch, keep_ratio or tiles resize with its interpolation, the padding and the layout. If a run uses an input the contract cannot describe, the export stops before writing any file. A test rebuilds the inputs of a photo from the contract alone and checks them pixel for pixel against the training preprocessing.</aside>
+<aside>A server that feeds the model does not have to guess the preprocessing: the input contract travels with the model. Every export writes it into the metadata of model.onnx and as preprocessing.json next to both formats. On the left, the file of the detection tutorial run, built by the export code from the run: decode the photo in BGR as OpenCV does, resize it with its aspect ratio kept so that its longest side is 512 pixels, with bilinear interpolation, centre it on a black square of 512 pixels, give it as batch, channels, height and width, with values from 0 to 255, the normalization being inside the model; the tile keys say none because the run does not cut its images into tiles. On the right, the three resizes the contract can describe: stretch, keep_ratio and tiles. If a run uses an input the contract cannot describe, the export stops before writing any file, and a test rebuilds the inputs of a photo from the contract alone and checks them pixel for pixel against the training preprocessing.</aside>
 </section>
