@@ -18,8 +18,8 @@ from pathlib import Path
 from torch import nn
 from typing import Optional
 
-from vision_training.deployment.export_model import (export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
-                                                     hide_known_export_warnings)
+from vision_training.deployment.export_formats import (export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
+                                                       hide_known_export_warnings)
 from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS, TASK_INPUT_NAMES,
                                                               build_inference_model, compare_keypoints,
                                                               compare_segmentations,
