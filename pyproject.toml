@@ -9,7 +9,6 @@ dependencies = [
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
     "torchvision>=0.29.0",
-    "fiftyone>=1.22.0",
     "tensorboard>=2.21.0",
     "opencv-python>=5.0.0.93",
     "kornia>=0.8.3",
@@ -35,3 +34,10 @@ addopts = "--import-mode=importlib"
 
 [dependency-groups]
 dev = ["pytest>=9.1.1"]
+# Dataset download of vision_training/data/data_retriever.py through the FiftyOne zoo (with its own MongoDB and a second
+# OpenCV build), left out of the Docker image, which installs no default group
+datasets = ["fiftyone>=1.22.0"]
+
+[tool.uv]
+# Groups installed by a plain "uv sync" on the development machines
+default-groups = ["dev", "datasets"]

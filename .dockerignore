@@ -1,0 +1,14 @@
+# Files sent to the build of the trainer image (Dockerfile): everything is left out, then only what its stages copy is
+# let in again, so that experiments/, .venv, the datasets and local secrets never reach the build
+*
+!pyproject.toml
+!uv.lock
+!vision_training
+!scripts
+!tests
+
+# Left out of the folders let in: bytecode caches, the exported models of the Triton repository and the staging folders
+# of stopped exports
+**/__pycache__
+vision_training/deployment/triton/served_models
+**/.export_staging_*

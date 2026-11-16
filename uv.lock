@@ -4330,7 +4330,6 @@ name = "visual-language-model-spark"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "fiftyone" },
     { name = "huggingface-hub" },
     { name = "kornia" },
     { name = "matplotlib" },
@@ -4352,13 +4351,15 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+datasets = [
+    { name = "fiftyone" },
+]
 dev = [
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "fiftyone", specifier = ">=1.22.0" },
     { name = "huggingface-hub", specifier = ">=2.1.1" },
     { name = "kornia", specifier = ">=0.8.3" },
     { name = "matplotlib", specifier = ">=3.11.2" },
@@ -4380,6 +4381,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+datasets = [{ name = "fiftyone", specifier = ">=1.22.0" }]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
