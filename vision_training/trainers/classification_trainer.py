@@ -318,7 +318,10 @@ class ClassificationTrainer(BaseTrainer):
         """
         Keeps the class probabilities, the labels and the identifiers of the kept samples of a test batch on the CPU,
         the identifiers naming the samples in the predictions file, and the class logits when the temperature explorer
-        is written, and saves the misclassified samples as images when the error images are on.
+        is written, and saves the misclassified samples as images when the error images are on. The probabilities are
+        kept in float32, the precision the model computes them in: float64 would add no digit and double the [N, K]
+        table of the test split (4.4 instead of 8.7 GB for the 50,000 test images of ImageNet-1k over 21,842 classes),
+        the metrics, thresholds and curves only sorting, comparing and counting them.
 
         Args:
             accumulator (Dict[str, Any]): The 'probabilities', 'labels', 'sample_identifiers' and 'logits' lists,
@@ -327,7 +330,7 @@ class ClassificationTrainer(BaseTrainer):
             predictions (Dict[str, Any]): The classifier outputs.
             sample_indices (List[int]): The indices of the samples to keep.
         """
-        accumulator["probabilities"].append(predictions["class_probabilities"][sample_indices].detach().cpu().double())
+        accumulator["probabilities"].append(predictions["class_probabilities"][sample_indices].detach().cpu().float())
         accumulator["labels"].append(batch["labels"][sample_indices].detach().cpu())
         accumulator["sample_identifiers"].append(batch[SAMPLE_IDENTIFIERS_KEY][sample_indices].detach().cpu())
         if self.saves_temperature_explorer():

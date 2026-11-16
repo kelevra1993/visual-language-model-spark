@@ -795,7 +795,7 @@ Test Evaluation Iteration 6: 100%|██████████| 50/50 [00:04<0
 ### Step 4.2 — `create_evaluation_accumulator()`
 **Example: the accumulator at the end of the loop**
 ```text
-'probabilities': 50 tensors, the first [4, 2] torch.float64    'labels': 50 tensors, the first [4] torch.int64
+'probabilities': 50 tensors, the first [4, 2] torch.float32    'labels': 50 tensors, the first [4] torch.int64
 'sample_identifiers': 50 tensors, the first [4] torch.int64    'errors_folder': PosixPath('.../Evaluation/Iteration_6/Errors')
 ```
 

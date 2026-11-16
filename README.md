@@ -108,6 +108,8 @@ uv run python -m vision_training.data.classification.imagenet_download
 
 The held-out images (18,846) are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](documentation/reference/tasks_reference.md#classification-cls).
 
+Should a machine hold `imagenet-merged`, the manifests built by an earlier version of the download (every ImageNet-22k image and the ImageNet-1k training images in training, 15,405,266 images, the ImageNet-1k validation and test images, 21,842 classes), the copies in `imagenet_merged/` of `vision_training/configurations/classification/` and `self_supervised/` train on it with the settings of their source file, testing on the 50,000 ImageNet-1k test images.
+
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
 1. Set `task` and its folder in `output_folders` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run `uv run python -m vision_training.data.synthetic.create_synthetic_dataset`.

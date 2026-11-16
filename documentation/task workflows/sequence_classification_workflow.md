@@ -910,7 +910,7 @@ The lists of the classification: the probabilities, labels and sample identifier
 
 **Example: the accumulator at the end of the loop**
 ```text
-'probabilities':      50 tensors, the first [4, 4] torch.float64
+'probabilities':      50 tensors, the first [4, 4] torch.float32
 'labels':             50 tensors, the first [4] torch.int64
 'sample_identifiers': 50 tensors, the first [4] torch.int64
 'errors_folder':      PosixPath('.../Evaluation/Iteration_6/Errors')
@@ -926,7 +926,7 @@ class_probabilities   [4, 4] torch.float32      (no 'classification_loss' key)
 ```
 
 ### Step 4.4 — `accumulate_evaluation_batch()`
-The classification hook: the probabilities (as `float64`), the labels and the sequence identifiers are kept on the CPU, and `dump_errors()` runs while the frames are still in the batch.
+The classification hook: the probabilities (as `float32`), the labels and the sequence identifiers are kept on the CPU, and `dump_errors()` runs while the frames are still in the batch.
 
 ### Step 4.5 — `dump_errors()` → `reserve_error_image()` + `build_input_image()`
 As for the classification, every wrong prediction is written in `Errors/<TRUE>-TO-<PREDICTED>/`, at most `maximum_per_class_pair` per pair. The image is the one of `build_input_image()`: the real frames of the sequence laid out on a grid of 4 columns with a 4 pixel gray gap, every frame numbered, under a caption bar with both classes and the probability of the predicted class. The grid has one row per 4 frames, so its height depends on the length of the sequence (72 pixels for 1 row, 140 for 2, 208 for 3). The file is named after the sequence (`get_sample_name()`) and that probability.
