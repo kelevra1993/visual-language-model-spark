@@ -222,6 +222,7 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
                                              "ExperimentConfiguration.evaluation.per_class_report",
                                              "ExperimentConfiguration.diagnosis_modes.compute_receptive_field",
                                              "ExperimentConfiguration.diagnosis_modes.view_input_images",
+                                             "ExperimentConfiguration.diagnosis_modes.benchmark_speed",
                                              "ExperimentConfiguration.tracking.activated"])
 
     # Address of the MLflow server and name of the MLflow experiment, null for the local database and the task name

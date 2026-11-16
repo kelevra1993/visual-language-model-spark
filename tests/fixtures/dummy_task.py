@@ -412,7 +412,8 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                 "allow_data_change_on_resume": False,
                                 "evaluation": {"per_class_report": True, "number_sample_images": 0},
                                 "tracking": {"activated": False, "tracking_uri": None, "experiment_name": None},
-                                "diagnosis_modes": {"compute_receptive_field": False, "view_input_images": False}}
+                                "diagnosis_modes": {"compute_receptive_field": False, "view_input_images": False,
+                                                    "benchmark_speed": False}}
     # Every augmentation type listed but turned off, the dummy samples being used as they are, the black-out grid
     # within the side of the dummy images as the checks require
     augmentation_types = {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}

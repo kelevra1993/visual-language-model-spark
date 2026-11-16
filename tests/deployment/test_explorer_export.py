@@ -18,7 +18,7 @@ from vision_training.deployment.explorer_export import (EXPORT_LOG_FILE_NAME, EX
                                                         build_export_folder, check_export_settings,
                                                         describe_evaluation_folder, list_checkpoint_exports,
                                                         prepare_export_job, run_export_job)
-from vision_training.deployment.export_model import hide_known_export_warnings
+from vision_training.deployment.export_formats import hide_known_export_warnings
 from vision_training.evaluation.classification.temperature_explorer import SAVED_THRESHOLDS_FILE_NAME
 
 # Run of the tests

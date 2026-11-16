@@ -10,6 +10,7 @@ its abstract hooks, and vision_training/main.py builds them through the task reg
 import json
 import math
 import sys
+import tempfile
 import traceback
 import cv2
 import numpy as np
@@ -19,13 +20,15 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from shutil import copyfile
+from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import _BaseDataLoaderIter, _MultiProcessingDataLoaderIter
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_changes import (ConfigurationChanges, find_changed_settings,
                                                                             format_setting_value)
@@ -39,6 +42,9 @@ from vision_training.data.data_record import (CLASSES_RECORD_KEY, COMPARED_SPLIT
                                               build_class_records, build_split_record, find_changed_splits)
 from vision_training.data.label_mapping import (RUN_LABEL_DICTIONARY_FILE_NAME, read_run_label_dictionary,
                                                 write_run_label_dictionary)
+from vision_training.data.loaders import uses_pinned_memory
+from vision_training.deployment.export_specifications import (INFERENCE_MODEL_CLASSES, build_inference_model,
+                                                              get_export_specification)
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
@@ -52,6 +58,16 @@ from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_S
                                                     load_checkpoint, save_checkpoint)
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
+from vision_training.trainers.speed_benchmark import (BYTES_PER_GIGABYTE, FORMAT_FAILED_STATUS, INFERENCE_FORMATS,
+                                                      MAXIMUM_BENCHMARK_BATCH_SIZE, MEASURED_STATUS,
+                                                      NOT_AVAILABLE_STATUS, OUT_OF_MEMORY_STATUS, PROBE_ITERATIONS,
+                                                      BenchmarkRow, MemoryBudget, build_inference_table,
+                                                      build_training_table, describe_error, export_benchmark_formats,
+                                                      find_largest_batch_size, is_out_of_memory_error,
+                                                      join_header_parts, limit_process_memory,
+                                                      list_other_gpu_processes, measure_iteration_time, move_batch,
+                                                      open_export_format, print_speed_benchmark_report,
+                                                      release_cached_memory, resize_batch)
 from vision_training.trainers.weight_averaging import ExponentialMovingAverage
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
                                                          RUN_RECORD_FILE_NAME, TRAINED_WEIGHTS_METRIC_PREFIX,
@@ -315,12 +331,14 @@ class BaseTrainer(ABC):
         self.model.print_model_size_summary()
 
         # Optional diagnoses ending the program without training nor creating the run folder: the analysis of every
-        # split against the model (the anchor coverage of the detection tasks), then the viewer of the training and
-        # validation samples fed to the network
+        # split against the model (the anchor coverage of the detection tasks), the viewer of the training and
+        # validation samples fed to the network, then the speed benchmark of the training step and of the inference
         if self.exits_after_diagnosis:
             self.diagnose_data_splits()
             if self.diagnosis_modes["view_input_images"]:
                 self.view_input_batches()
+            if self.diagnosis_modes["benchmark_speed"]:
+                self.benchmark_speed()
             sys.exit()
 
         # Analysis of the training data against the model printed before the training (the anchor recall of the
@@ -613,13 +631,13 @@ class BaseTrainer(ABC):
         """
         Tells whether a diagnosis mode of 'ExperimentConfiguration.diagnosis_modes' ends the program before the
         training, so that the trainer creates no run folder and writes nothing to an existing one: the input viewer
-        ('view_input_images') for every task, the detection tasks adding their anchor coverage
-        ('compute_anchor_coverage').
+        ('view_input_images') and the speed benchmark ('benchmark_speed') for every task, the detection tasks adding
+        their anchor coverage ('compute_anchor_coverage').
 
         Returns:
             bool: Whether the program exits after the diagnosis.
         """
-        return self.diagnosis_modes["view_input_images"]
+        return self.diagnosis_modes["view_input_images"] or self.diagnosis_modes["benchmark_speed"]
 
     def diagnose_data_splits(self) -> None:
         """
@@ -762,6 +780,22 @@ class BaseTrainer(ABC):
             None: Control to the evaluation loop.
         """
         yield
+
+    def build_inference_inputs(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """
+        Gives the inputs of the inference model of the task (deployment/export_specifications.py) from a prepared
+        batch, keyed by the names of TASK_INPUT_NAMES, so that the speed benchmark (benchmark_speed) times the eager
+        inference model and every exported format on the batch of the training loader: its 'images' by default, the
+        float32 BGR images (or frames) in [0, 255] the exports receive. The sequence comparison overrides it with the
+        two members of its pairs.
+
+        Args:
+            batch (Dict[str, Any]): The prepared batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The input of every argument of the inference model.
+        """
+        return {"images": batch["images"]}
 
     # ------------------------------------------------------------------------------------------------------------------
     # Generic pipeline
@@ -1326,6 +1360,479 @@ class BaseTrainer(ABC):
         return ["", "Augmentations"] + self.data_augmenter.describe_report(
             report=batch["augmentation_reports"][sample_index], label_names=label_names, real_frames=real_frames)
 
+    def benchmark_speed(self) -> None:
+        """
+        Measures, for the 'benchmark_speed' diagnosis mode, how fast the configured architecture trains and infers when
+        the data never waits, so that its training time and serving speed are known before any training: one batch of
+        the training loader, kept in memory and tiled to every batch size (speed_benchmark.resize_batch), is timed
+        through the inference of every format (PyTorch evaluation, PyTorch inference model, TorchScript, ONNX Runtime
+        CUDA and TensorRT in FP32 and FP16) at a batch of 1, at the configured batch size and at the largest inference
+        batch size that fits, then through the training step of the training loop (run_training_step) at the configured
+        batch size and at the largest training batch size that fits. The largest batch sizes are searched up to 2048 in
+        the memory left once a margin is kept free for the other processes (40 GB of an integrated GPU, 2 GB of a
+        discrete one). The inference runs first, with the weights of the last checkpoint of the run folder when it has
+        one (read only: the post-processing of the detection tasks depends on the detections of the weights), the
+        training steps then changing the weights in memory only. Nothing is written to the run folder; the report is
+        printed at the end.
+
+        Raises:
+            RuntimeError: If the trainer does not run on a CUDA GPU, or if less memory than the margin is free.
+        """
+        if self.device.type != "cuda":
+            raise RuntimeError(f"The speed benchmark times CUDA GPUs only, the trainer runs on {self.device}.")
+        print_color(color="blue", output="Speed Benchmark Of The Training Step And Of The Inference",
+                    add_separators=True)
+
+        # Other work on the GPU, announced at once and in the report, since it slows the timed iterations down
+        warning_lines = []
+        other_gpu_processes = list_other_gpu_processes()
+        if other_gpu_processes is None:
+            warning_lines.append("nvidia-smi could not list the GPU processes : check that the GPU runs nothing else")
+        elif other_gpu_processes:
+            warning_lines.append(f"Other processes on the GPU : {', '.join(other_gpu_processes)}; the times are those "
+                                 f"of a shared GPU")
+        for warning_line in warning_lines:
+            print_color(color="yellow", output=warning_line)
+
+        # One batch as the training loader gives it, the worker processes of the loader stopped at once so that their
+        # memory is free before the budget is measured
+        loader_batch = next(iter(self.train_dataloader))
+        self.shutdown_loader_workers()
+        source_batch_size = loader_batch["images"].shape[0]
+        stored_batch = move_batch(batch=loader_batch, device=self.get_benchmark_batch_device(), pin_memory=False)
+        del loader_batch
+
+        # Memory capped for the whole benchmark, the inference measured first with the weights of the run
+        with limit_process_memory(device=self.device) as memory_budget:
+            checkpoint_iteration = self.load_benchmark_weights()
+            inference_rows, inference_notes = self.benchmark_inference(stored_batch=stored_batch,
+                                                                       memory_budget=memory_budget)
+            training_rows, training_notes = self.benchmark_training(stored_batch=stored_batch)
+
+        self.print_speed_benchmark(memory_budget=memory_budget, source_batch_size=source_batch_size,
+                                   checkpoint_iteration=checkpoint_iteration, inference_rows=inference_rows,
+                                   inference_notes=inference_notes, training_rows=training_rows,
+                                   training_notes=training_notes, warning_lines=warning_lines)
+
+    def get_benchmark_batch_device(self) -> torch.device:
+        """
+        Gives where the speed benchmark keeps its batches, where the loaders hand them to prepare_batch: in host memory
+        for a discrete GPU (pinned by tile_benchmark_batch, as the loaders pin them), on the device for an integrated
+        GPU, whose device memory is the host memory, so that the memory cap of the benchmark covers the batch.
+
+        Returns:
+            torch.device: The CPU for a discrete GPU, the device of the trainer otherwise.
+        """
+        return torch.device("cpu") if uses_pinned_memory() else self.device
+
+    def tile_benchmark_batch(self, stored_batch: Dict[str, Any], batch_size: int) -> Dict[str, Any]:
+        """
+        Tiles the batch kept by the speed benchmark to a batch size, its samples repeated in their order, pinned in host
+        memory for a discrete GPU as the loaders pin the batches they hand over.
+
+        Args:
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+            batch_size (int): The number of samples of the tiled batch.
+
+        Returns:
+            Dict[str, Any]: The tiled batch, as a loader would hand it to prepare_batch.
+        """
+        return move_batch(batch=resize_batch(batch=stored_batch, batch_size=batch_size),
+                          device=self.get_benchmark_batch_device(), pin_memory=uses_pinned_memory())
+
+    def count_benchmark_frames(self, batch: Dict[str, Any]) -> Optional[int]:
+        """
+        Counts the real frames of a batch of the speed benchmark, for its frame throughput, as the console summaries of
+        the training count them (padding frames left out), or None for the image tasks.
+
+        Args:
+            batch (Dict[str, Any]): The tiled batch, with its 'sequence_mask' for the sequence tasks.
+
+        Returns:
+            Optional[int]: The real frames of the batch, None for the image tasks.
+        """
+        return int(batch["sequence_mask"].sum()) if self.COUNTS_FRAMES else None
+
+    def load_benchmark_weights(self) -> Optional[int]:
+        """
+        Loads the trained weights of the last checkpoint of the run folder into the model for the speed benchmark, the
+        optimizer state and the run folder left untouched, so that the post-processing of the detection tasks (NMS,
+        masks, keypoints) is timed on the detections of trained weights.
+
+        Returns:
+            Optional[int]: The iteration of the loaded checkpoint, None when the run has none (the model keeping its
+                initial weights).
+        """
+        checkpoint_iteration = get_last_checkpoint_iteration(weights_directory=self.weights_directory)
+        if not checkpoint_iteration:
+            return None
+        checkpoint = load_checkpoint(weights_directory=self.weights_directory, iteration=checkpoint_iteration,
+                                     device=self.device)
+        self.model.load_state_dict(checkpoint["model_state"])
+        return checkpoint_iteration
+
+    def run_evaluation_prediction(self, prepared_batch: Dict[str, Any],
+                                  inference_inputs: Dict[str, torch.Tensor]) -> Dict[str, Any]:
+        """
+        Runs one inference pass of the test evaluation for the speed benchmark: predict_batch on a prepared batch, in
+        float32 without gradients and within the evaluation context of the task, as evaluate_test_split runs it.
+
+        Args:
+            prepared_batch (Dict[str, Any]): The prepared batch.
+            inference_inputs (Dict[str, torch.Tensor]): The inputs of the inference model, unused by the evaluation.
+
+        Returns:
+            Dict[str, Any]: The predictions of the batch.
+        """
+        with self.evaluation_context(), torch.no_grad():
+            return self.predict_batch(batch=prepared_batch)
+
+    def probe_inference_batch(self, stored_batch: Dict[str, Any], batch_size: int) -> None:
+        """
+        Runs the test evaluation passes of one batch size tried by the search of the largest inference batch size,
+        which raises an out of memory error when the batch does not fit.
+
+        Args:
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+            batch_size (int): The tried batch size.
+        """
+        prepared_batch = self.prepare_batch(batch=self.tile_benchmark_batch(stored_batch=stored_batch,
+                                                                            batch_size=batch_size))
+        for _ in range(PROBE_ITERATIONS):
+            self.run_evaluation_prediction(prepared_batch=prepared_batch, inference_inputs={})
+        torch.cuda.synchronize(device=self.device)
+
+    def probe_training_batch(self, stored_batch: Dict[str, Any], batch_size: int) -> None:
+        """
+        Runs the training steps of one batch size tried by the search of the largest training batch size, which raises
+        an out of memory error when the batch does not fit, the gradients and the optimizer state included.
+
+        Args:
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+            batch_size (int): The tried batch size.
+        """
+        batch = self.tile_benchmark_batch(stored_batch=stored_batch, batch_size=batch_size)
+        for _ in range(PROBE_ITERATIONS):
+            self.run_training_step(batch=batch, iteration=1, tracker_dictionary=None)
+        torch.cuda.synchronize(device=self.device)
+
+    def fits_benchmark_batch(self, batch_size: int, stored_batch: Dict[str, Any], training: bool) -> bool:
+        """
+        Tells the search of the largest batch size (speed_benchmark.find_largest_batch_size) whether a batch size fits
+        in the memory budget of the speed benchmark, from its probe passes (probe_training_batch or
+        probe_inference_batch), printing the answer. Only an out of memory error means that it does not fit, any other
+        error being raised. The memory of the probe is given back before the answer.
+
+        Args:
+            batch_size (int): The tried batch size.
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+            training (bool): True for the training step, False for the inference of the test evaluation.
+
+        Returns:
+            bool: True when the probe passes fit in memory.
+        """
+        try:
+            if training:
+                self.probe_training_batch(stored_batch=stored_batch, batch_size=batch_size)
+            else:
+                self.probe_inference_batch(stored_batch=stored_batch, batch_size=batch_size)
+            fits = True
+        except Exception as error:
+            if not is_out_of_memory_error(error=error):
+                raise
+            fits = False
+
+        # Gradients of a failed step dropped, then the memory of the probe given back
+        self.zero_gradients()
+        release_cached_memory()
+        print_color(color="green" if fits else "yellow",
+                    output=f"Batch Size {batch_size} : {'Fits' if fits else 'Out Of Memory'}", indent=1)
+        return fits
+
+    def benchmark_inference(self, stored_batch: Dict[str, Any],
+                            memory_budget: MemoryBudget) -> Tuple[List[BenchmarkRow], List[str]]:
+        """
+        Times the inference of the speed benchmark: the largest batch size of the test evaluation is searched first,
+        then every format of INFERENCE_FORMATS is opened in turn (the eager inference model and the exported files
+        written once into a temporary folder, the ONNX file only when ONNX Runtime has a GPU provider) and timed at a
+        batch of 1, at the configured batch size and at the largest one, on inputs already on the GPU. A format that
+        cannot be opened here is reported with its reason; an exported format failing or running out of memory at a
+        batch size is reported at that batch size.
+
+        Args:
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+            memory_budget (MemoryBudget): The memory cap of the benchmark, of which ONNX Runtime may take what PyTorch
+                leaves.
+
+        Returns:
+            Tuple[List[BenchmarkRow], List[str]]: The rows of the inference table, and the lines of its legend.
+        """
+        self.set_evaluation_mode()
+        print_color(color="blue", output="Searching The Largest Inference Batch Size (Test Evaluation, Float32)")
+        largest_batch_size, smallest_failing_batch_size = find_largest_batch_size(
+            fits=partial(self.fits_benchmark_batch, stored_batch=stored_batch, training=False),
+            starting_batch_size=self.batch_size)
+        batch_sizes = sorted({batch_size for batch_size in [1, self.batch_size, largest_batch_size]
+                              if 0 < batch_size <= largest_batch_size})
+        notes = [self.describe_largest_batch_size(largest_batch_size=largest_batch_size,
+                                                  smallest_failing_batch_size=smallest_failing_batch_size,
+                                                  step_name="inference")]
+
+        # Inference model of the task and its exported files, for the tasks Triton serves
+        inference_model, exported_files = None, None
+        rows = []
+        unavailable_reasons = {}
+        with tempfile.TemporaryDirectory(prefix="speed_benchmark_") as export_folder:
+            if self.TASK_NAME in INFERENCE_MODEL_CLASSES and batch_sizes:
+                print_color(color="blue", output="Exporting The Inference Model (TorchScript, ONNX)")
+                inference_model = build_inference_model(task=self.TASK_NAME, model=self.model)
+                specification = get_export_specification(task=self.TASK_NAME, inference_model=inference_model)
+                exported_files = export_benchmark_formats(inference_model=inference_model, specification=specification,
+                                                          maximum_batch_size=max(batch_sizes),
+                                                          export_folder=Path(export_folder), device=self.device)
+
+            # Every format opened, timed at every batch size, then closed before the next one
+            for inference_format in INFERENCE_FORMATS:
+                format_rows, unavailable_reason = self.benchmark_inference_format(
+                    inference_format=inference_format, stored_batch=stored_batch, batch_sizes=batch_sizes,
+                    inference_model=inference_model, exported_files=exported_files, memory_budget=memory_budget,
+                    export_folder=Path(export_folder))
+                rows += format_rows
+                if unavailable_reason is not None:
+                    format_label = f"{inference_format['name']} {inference_format['precision']}"
+                    unavailable_reasons.setdefault(unavailable_reason, []).append(format_label)
+                release_cached_memory()
+
+        # Formats that could not be measured, grouped by reason
+        notes += [f"{', '.join(format_labels)} : {reason}" for reason, format_labels in unavailable_reasons.items()]
+        return rows, notes
+
+    def benchmark_inference_format(self, inference_format: Dict[str, Any], stored_batch: Dict[str, Any],
+                                   batch_sizes: List[int], inference_model: Optional[nn.Module],
+                                   exported_files: Optional[Dict[str, Dict[str, Any]]], memory_budget: MemoryBudget,
+                                   export_folder: Path) -> Tuple[List[BenchmarkRow], Optional[str]]:
+        """
+        Opens one inference format of the speed benchmark and times it at every inference batch size: the test
+        evaluation of the trainer (run_evaluation_prediction) for 'PyTorch Evaluation', the formats of
+        speed_benchmark.open_export_format otherwise. A format that cannot be opened gives one row without batch size
+        and its reason, the error of a failed opening being written as the reason.
+
+        Args:
+            inference_format (Dict[str, Any]): The format, from INFERENCE_FORMATS.
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+            batch_sizes (List[int]): The inference batch sizes, empty when not even one sample fits.
+            inference_model (Optional[nn.Module]): The inference model of the task, None for a task without export.
+            exported_files (Optional[Dict[str, Dict[str, Any]]]): The files of export_benchmark_formats, None for a
+                task without export.
+            memory_budget (MemoryBudget): The memory cap of the benchmark.
+            export_folder (Path): The temporary folder of the exported files.
+
+        Returns:
+            Tuple[List[BenchmarkRow], Optional[str]]: The rows of the format, and the reason why it could not be
+                measured (None when it was opened).
+        """
+        unavailable_row = {"label": inference_format["name"], "precision": inference_format["precision"],
+                           "batch_size": None, "measurement": None, "status": NOT_AVAILABLE_STATUS,
+                           "frames_per_batch": None}
+
+        # Function of one pass of the format, None with the reason when it cannot be opened here
+        if inference_format["name"] == "PyTorch Evaluation":
+            run_pass, unavailable_reason = self.run_evaluation_prediction, None
+        elif inference_model is None:
+            run_pass, unavailable_reason = None, f"no export specification for the {self.TASK_NAME} task"
+        else:
+            try:
+                run_pass, unavailable_reason = open_export_format(
+                    inference_format=inference_format, inference_model=inference_model, exported_files=exported_files,
+                    device=self.device, export_folder=export_folder,
+                    memory_limit_bytes=memory_budget["allowed_bytes"] - torch.cuda.memory_reserved(device=self.device))
+            except Exception as error:
+                return [{**unavailable_row, "status": FORMAT_FAILED_STATUS}], describe_error(error=error)
+        if run_pass is None:
+            return [unavailable_row], unavailable_reason
+
+        # Every batch size of the inference, the row of a failing batch size keeping its status
+        print_color(color="blue", output=f"Timing {inference_format['name']} {inference_format['precision']}")
+        rows = []
+        for batch_size in batch_sizes:
+            rows.append(self.measure_inference_batch(inference_format=inference_format, run_pass=run_pass,
+                                                     stored_batch=stored_batch, batch_size=batch_size))
+        return rows, None
+
+    def measure_inference_batch(self, inference_format: Dict[str, Any], run_pass: Callable[..., Any],
+                                stored_batch: Dict[str, Any], batch_size: int) -> BenchmarkRow:
+        """
+        Times one inference format at one batch size for the speed benchmark, on the tiled batch prepared on the GPU and
+        the inputs of the inference model built from it once, before the timed passes. An out of memory error marks the
+        row; another error of an exported format marks it as failed, the error being printed; an error of the test
+        evaluation is raised.
+
+        Args:
+            inference_format (Dict[str, Any]): The format, from INFERENCE_FORMATS.
+            run_pass (Callable[..., Any]): Runs one pass of the format on (prepared_batch, inference_inputs).
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+            batch_size (int): The batch size.
+
+        Returns:
+            BenchmarkRow: The row of the format at the batch size.
+        """
+        row = {"label": inference_format["name"], "precision": inference_format["precision"], "batch_size": batch_size,
+               "measurement": None, "status": MEASURED_STATUS, "frames_per_batch": None}
+        try:
+            tiled_batch = self.tile_benchmark_batch(stored_batch=stored_batch, batch_size=batch_size)
+            row["frames_per_batch"] = self.count_benchmark_frames(batch=tiled_batch)
+            prepared_batch = self.prepare_batch(batch=tiled_batch)
+            inference_inputs = {input_name: input_tensor.contiguous() for input_name, input_tensor
+                                in self.build_inference_inputs(batch=prepared_batch).items()}
+            row["measurement"] = measure_iteration_time(
+                run_iteration=partial(run_pass, prepared_batch=prepared_batch, inference_inputs=inference_inputs),
+                device=self.device)
+        except Exception as error:
+            if is_out_of_memory_error(error=error):
+                row["status"] = OUT_OF_MEMORY_STATUS
+            elif inference_format["name"] != "PyTorch Evaluation":
+                row["status"] = FORMAT_FAILED_STATUS
+                print_color(color="yellow", output=f"{inference_format['name']} {inference_format['precision']} "
+                                                   f"Failed At Batch Size {batch_size} : {describe_error(error=error)}")
+            else:
+                raise
+
+        # The memory of ONNX Runtime is outside PyTorch, which cannot report its peak
+        if row["measurement"] is not None and inference_format["provider"] is not None:
+            row["measurement"]["peak_memory_bytes"] = None
+        status_color = "green" if row["status"] == MEASURED_STATUS else "yellow"
+        print_color(color=status_color, output=f"Batch Size {batch_size} : {row['status']}", indent=1)
+        return row
+
+    def benchmark_training(self, stored_batch: Dict[str, Any]) -> Tuple[List[BenchmarkRow], List[str]]:
+        """
+        Times the training step of the speed benchmark (run_training_step, with the trackers of the training loop) at
+        the configured batch size and at the largest batch size whose training step fits in the memory budget,
+        searched first, from the batch in host memory as the loader hands it over (on the device of an integrated GPU),
+        and gives the time of the training of the run at the configured batch size, a lower bound since the loading,
+        the validation passes, the checkpoints and the test evaluations are left out.
+
+        Args:
+            stored_batch (Dict[str, Any]): The batch of the training loader kept by benchmark_speed.
+
+        Returns:
+            Tuple[List[BenchmarkRow], List[str]]: The rows of the training table, and the lines of its legend.
+        """
+        print_color(color="blue", output="Searching The Largest Training Batch Size")
+        largest_batch_size, smallest_failing_batch_size = find_largest_batch_size(
+            fits=partial(self.fits_benchmark_batch, stored_batch=stored_batch, training=True),
+            starting_batch_size=self.batch_size)
+        notes = [self.describe_largest_batch_size(largest_batch_size=largest_batch_size,
+                                                  smallest_failing_batch_size=smallest_failing_batch_size,
+                                                  step_name="training")]
+
+        # The configured batch size, then the largest one when it differs
+        measured_batches = [("Configured", self.batch_size)]
+        if 0 < largest_batch_size != self.batch_size:
+            measured_batches.append(("Largest Found", largest_batch_size))
+        print_color(color="blue", output="Timing The Training Step")
+        rows = []
+        for label, batch_size in measured_batches:
+            row = {"label": label, "precision": "BF16", "batch_size": batch_size, "measurement": None,
+                   "status": OUT_OF_MEMORY_STATUS, "frames_per_batch": None}
+            if batch_size <= largest_batch_size:
+                batch = self.tile_benchmark_batch(stored_batch=stored_batch, batch_size=batch_size)
+                row["frames_per_batch"] = self.count_benchmark_frames(batch=batch)
+                row["measurement"] = measure_iteration_time(
+                    run_iteration=partial(self.run_training_step, batch=batch, iteration=1,
+                                          tracker_dictionary=self.metric_tracker.create_trackers()),
+                    device=self.device)
+                row["status"] = MEASURED_STATUS
+                del batch
+            rows.append(row)
+            print_color(color="green" if row["status"] == MEASURED_STATUS else "yellow",
+                        output=f"Batch Size {batch_size} : {row['status']}", indent=1)
+            release_cached_memory()
+
+        # Training time of the run at the configured batch size, when it fits
+        if rows[0]["measurement"] is not None:
+            training_seconds = self.training_iterations * rows[0]["measurement"]["seconds_per_iteration"]
+            notes.append(f"{self.training_iterations:,} iterations (number_iterations) at the configured batch size : "
+                         f"{MetricTracker.format_time_interval(duration_seconds=training_seconds)} at least, the "
+                         f"loading, validation passes, checkpoints and test evaluations left out")
+        return rows, notes
+
+    def describe_largest_batch_size(self, largest_batch_size: int, smallest_failing_batch_size: Optional[int],
+                                    step_name: str) -> str:
+        """
+        Writes the line of the report giving the largest batch size the search of the speed benchmark found for the
+        training step or the inference, with the smallest batch size found not to fit, or the maximum of the search.
+
+        Args:
+            largest_batch_size (int): The largest batch size that fits, 0 when not even one sample fits.
+            smallest_failing_batch_size (Optional[int]): The smallest batch size that does not fit, None when the
+                maximum fits.
+            step_name (str): "training" or "inference".
+
+        Returns:
+            str: The line of the report.
+        """
+        if largest_batch_size == 0:
+            return f"Largest {step_name} batch size : none, a single sample does not fit in the memory budget"
+        if smallest_failing_batch_size is None:
+            return (f"Largest {step_name} batch size : {largest_batch_size}, the largest the search tries "
+                    f"({MAXIMUM_BENCHMARK_BATCH_SIZE})")
+        return (f"Largest {step_name} batch size : {largest_batch_size} ({smallest_failing_batch_size} does not fit in "
+                f"the memory budget)")
+
+    def print_speed_benchmark(self, memory_budget: MemoryBudget, source_batch_size: int,
+                              checkpoint_iteration: Optional[int], inference_rows: List[BenchmarkRow],
+                              inference_notes: List[str], training_rows: List[BenchmarkRow],
+                              training_notes: List[str], warning_lines: List[str]) -> None:
+        """
+        Prints the report of the speed benchmark: the GPU, the memory budget, the batch and the weights used, the
+        warnings (other processes on the GPU, initial weights), then the inference table and the training table with
+        their legends.
+
+        Args:
+            memory_budget (MemoryBudget): The memory cap of the benchmark.
+            source_batch_size (int): The number of samples of the batch drawn from the training loader.
+            checkpoint_iteration (Optional[int]): The iteration of the checkpoint whose weights were loaded, None for
+                the initial weights.
+            inference_rows (List[BenchmarkRow]): The rows of the inference table.
+            inference_notes (List[str]): The lines of the legend of the inference table.
+            training_rows (List[BenchmarkRow]): The rows of the training table.
+            training_notes (List[str]): The lines of the legend of the training table.
+            warning_lines (List[str]): The warnings found when the benchmark started (other processes on the GPU).
+        """
+        gpu_kind = "integrated GPU sharing the host memory" if memory_budget["integrated"] else "discrete GPU"
+        batch_location = "the shared memory of the GPU" if memory_budget["integrated"] else "pinned host memory"
+        information_lines = [
+            f"GPU : {torch.cuda.get_device_name(device=self.device)} ({gpu_kind})",
+            f"Memory : {memory_budget['free_bytes'] / BYTES_PER_GIGABYTE:.1f} GB free at the start, "
+            f"{memory_budget['margin_bytes'] / BYTES_PER_GIGABYTE:.0f} GB kept free for the other processes, "
+            f"{memory_budget['budget_bytes'] / BYTES_PER_GIGABYTE:.1f} GB of budget",
+            f"Batch : one training batch of {source_batch_size} {self.SAMPLE_NAME.lower()} of "
+            f"{self.input_image_size} pixels, its samples repeated to every batch size",
+            f"Training : from the batch where the loader hands it over ({batch_location}), moved, augmented, bfloat16 "
+            f"forward pass, backward pass, optimizer step and moving average of the weights",
+            "Inference : from inputs already on the GPU, float32 unless written otherwise"]
+        warning_lines = list(warning_lines)
+        if checkpoint_iteration is None:
+            warning_lines.append("No checkpoint in the run folder : the inference runs on the initial weights, the "
+                                 "post-processing of the detection tasks then timing the detections of an untrained "
+                                 "model")
+        else:
+            information_lines.append(f"Weights : checkpoint of iteration {checkpoint_iteration} of the run folder")
+
+        # Tables of the inference and of the training, with their legends
+        inference_legend = "\n".join(inference_notes + [
+            "PyTorch Evaluation is the predict_batch of the test evaluation; the peak memory of the ONNX Runtime "
+            "formats is outside PyTorch and not measured"])
+        training_legend = "\n".join(training_notes + [
+            "Window Spread : gap between the slowest and the fastest timing windows, relative to their median"])
+        tables = [build_inference_table(rows=inference_rows, sample_name=self.SAMPLE_NAME,
+                                        counts_frames=self.COUNTS_FRAMES, legend=inference_legend),
+                  build_training_table(rows=training_rows, sample_name=self.SAMPLE_NAME,
+                                       counts_frames=self.COUNTS_FRAMES, legend=training_legend)]
+        print_speed_benchmark_report(header=join_header_parts(parts=["Speed Benchmark", self.run_name]),
+                                     information_lines=information_lines, warning_lines=warning_lines, tables=tables)
+
     def get_next_batch(self, dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader, split_name: str,
                        maximum_consecutive_errors: int = 10) -> Tuple[Dict[str, Any], _BaseDataLoaderIter]:
         """
@@ -1578,17 +2085,9 @@ class BaseTrainer(ABC):
                 # Real frames of the training batch, counted for the frame throughput of the sequence tasks
                 self.metric_tracker.count_frames(tracker_dictionary=training_trackers, batch=training_batch)
 
-                self.set_training_mode()
-                self.zero_gradients()
-
-                # Forward pass For Training
-                training_loss, _ = self.run_model_iteration(batch=training_batch, writer=self.training_writer,
-                                                            apply_augmentation=True, iteration=training_iteration,
-                                                            tracker_dictionary=training_trackers)
-
-                # Backward and Step
-                training_loss.backward()
-                self.step_optimizer(iteration=training_iteration)
+                # Forward pass, backward pass and optimizer step of the training batch
+                self.run_training_step(batch=training_batch, iteration=training_iteration,
+                                       tracker_dictionary=training_trackers)
                 last_stepped_iteration = training_iteration
 
                 # Save the model right after the step of every weight saving iteration (evaluated at the end of the
@@ -1853,6 +2352,36 @@ class BaseTrainer(ABC):
         self.experiment_tracker.log_artifact(file_path=Path(self.experiment_folder) / "Results.txt",
                                              artifact_folder=None)
         self.experiment_tracker.close(status=run_status)
+
+    def run_training_step(self, batch: Dict[str, Any], iteration: int,
+                          tracker_dictionary: Optional[Dict[str, Any]]) -> torch.Tensor:
+        """
+        Runs one training step on a batch of the training loader, the same in the training loop
+        (run_training_iterations) and in the speed benchmark (benchmark_speed), so that the benchmark times exactly what
+        the training runs: the model in training mode with its gradients cleared, the forward pass of
+        run_model_iteration (batch moved to the device, augmented, bfloat16 losses tracked), the backward pass, then
+        the optimizer step with the learning rate of the iteration and the update of the moving average of the weights.
+
+        Args:
+            batch (Dict[str, Any]): The batch yielded by the training loader.
+            iteration (int): The training iteration, giving the learning rate of the schedule and the TensorBoard step.
+            tracker_dictionary (Optional[Dict[str, Any]]): The training trackers of the interval, or None to track
+                nothing.
+
+        Returns:
+            torch.Tensor: The total training loss of the batch.
+        """
+        self.set_training_mode()
+        self.zero_gradients()
+
+        # Forward pass of the augmented batch, its losses tracked and written to TensorBoard
+        training_loss, _ = self.run_model_iteration(batch=batch, writer=self.training_writer, apply_augmentation=True,
+                                                    iteration=iteration, tracker_dictionary=tracker_dictionary)
+
+        # Backward pass and optimizer step
+        training_loss.backward()
+        self.step_optimizer(iteration=iteration)
+        return training_loss
 
     def run_model_iteration(self, batch: Dict[str, Any], writer: Optional[SummaryWriter], iteration: int,
                             tracker_dictionary: Optional[Dict[str, Any]],

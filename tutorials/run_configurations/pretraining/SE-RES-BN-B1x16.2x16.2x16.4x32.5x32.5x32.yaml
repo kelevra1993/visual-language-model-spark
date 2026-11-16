@@ -109,6 +109,9 @@ ExperimentConfiguration:
       # program without training, so set it to False to train. Requires a display (skipped with a warning otherwise). No
       # run folder is created in this mode.
       view_input_images: False
+      # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,
+      # at the configured and largest batch sizes that fit, then exits without training; no run folder is created.
+      benchmark_speed: False
 
 Optimization:
   # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or

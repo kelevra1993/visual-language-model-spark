@@ -245,6 +245,8 @@ main()
         │   │           (nearest, padding at 255) with the same letterbox, or cuts a tile with tiling, then converts the
         │   │           mask values to class indices through the lookup table. Returns images [B, 3, H, W] uint8, masks
         │   │           [B, H, W] int64, sample_identifiers [B].
+        │   ├── run_training_step()  set_training_mode() to step_optimizer() below, the step also timed by
+        │   │       the speed benchmark (diagnosis_modes.benchmark_speed)
         │   ├── set_training_mode()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch()                 images to float32, masks to int64 on the device

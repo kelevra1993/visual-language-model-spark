@@ -10,6 +10,7 @@ Details of the training runs, completing the [Training](../../README.md#training
 - [Data Augmentation](#data-augmentation)
 - [Viewing The Input Images](#viewing-the-input-images)
 - [Checking The Anchor Coverage](#checking-the-anchor-coverage)
+- [Benchmarking The Speed](#benchmarking-the-speed)
 - [TensorBoard Monitoring](#tensorboard-monitoring)
 - [Moving Average Of The Weights](#moving-average-of-the-weights)
 - [Transfer Between Runs](#transfer-between-runs)
@@ -173,6 +174,16 @@ uv run python -m scripts.data.visualize_augmentation_strengths
 - Every split is read from its annotations with a progress bar, no image being loaded.
 - The best anchor of every object is the grid anchor nearest its centre for every anchor shape, on the cell corners, exact and computed on the CPU.
 - It creates no run folder and writes no file; the training launches measure the training split alone at `RegionProposal.foreground_iou_threshold.min` (`anchor_recall.csv`).
+
+## Benchmarking The Speed
+Before training an architecture, `ExperimentConfiguration.diagnosis_modes.benchmark_speed: True` measures how fast it trains and infers when the data never waits, then exits without training (`BaseTrainer.benchmark_speed`, helpers in `vision_training/trainers/speed_benchmark.py`). It is the only setting: the timing, the batch sizes and the memory margin are fixed in the code.
+- **Batch**: one batch of the training loader, its loader workers stopped at once; `resize_batch` repeats its samples in their order to any batch size, indexing every tensor and list whose first dimension is the batch (images, labels, boxes, masks, sequence masks). The batch stays where the loader hands it over: pinned host memory for a discrete GPU, the GPU for an integrated one, whose memory is the host memory.
+- **Memory**: `limit_process_memory` caps the allocator of PyTorch (`torch.cuda.set_per_process_memory_fraction`) at what the process holds plus the free memory minus a margin, 40 GB on an integrated GPU (`INTEGRATED_GPU_MEMORY_MARGIN_BYTES`, the other trainings of the GB10 slowing down once little memory is free) and 2 GB on a discrete one (`DISCRETE_GPU_MEMORY_MARGIN_BYTES`). With less free memory than the margin it stops before anything runs. ONNX Runtime gets the budget PyTorch leaves (`gpu_mem_limit`, TensorRT workspace).
+- **Largest batch size**: `find_largest_batch_size` doubles from the configured batch size while two probe passes fit (halving while they do not), then bisects until the gap is at most 1/16 of the batch size found, up to `MAXIMUM_BENCHMARK_BATCH_SIZE` (2048). Only an out of memory error of PyTorch or ONNX Runtime ends a size; any other error is raised.
+- **Inference**, first: the weights of the last checkpoint of the run folder are loaded when there is one (read only, the optimizer state left out), since the post-processing of the detection tasks depends on the detections. The largest batch size of the test evaluation is searched, then every format is timed at a batch of 1, at the configured batch size and at the largest one, on inputs already on the GPU: `PyTorch Evaluation` (`predict_batch` within `evaluation_context`, float32, as the test evaluation runs it), `PyTorch Inference Model` (the network every export traces), `TorchScript` (`export_torchscript`, loaded by `torch.jit.load`) and the ONNX file (`export_onnx`) in ONNX Runtime CUDA and ONNX Runtime TensorRT FP32 and FP16, its inputs and outputs bound on the GPU. The ONNX formats need `onnxruntime-gpu`; a format that cannot open or fails is reported with its reason. The sequence comparison gives both members of its pairs (`build_inference_inputs`).
+- **Training**: the largest training batch size is searched, then `run_training_step`, the step of the training loop (batch moved, augmented, bfloat16 forward pass, backward pass, optimizer step with the moving average), is timed at the configured batch size and at the largest one, with the trackers of the training loop. The training time of `number_iterations` at the configured batch size is a lower bound: the loading, validation passes, checkpoints and test evaluations are left out.
+- **Timing**: `measure_iteration_time` runs at least 2 seconds and 3 iterations untimed, then 5 windows lasting 5 seconds in all, timed between two synchronisations of the device; a row gives the median window in milliseconds, the samples (and real frames) per second, the window spread (slowest minus fastest, over the median) and the peak memory reserved by PyTorch (not measured for ONNX Runtime).
+- **Report**: the GPU, the memory budget, the batch, the weights and the other processes on the GPU (from nvidia-smi, the daemon of the Multi-Process Service left out), then the inference and training tables with their notes. Nothing is written to the run folder.
 
 ## TensorBoard Monitoring
 
