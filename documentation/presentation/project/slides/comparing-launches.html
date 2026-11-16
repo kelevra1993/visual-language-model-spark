@@ -6,12 +6,12 @@
 <div class="split">
 <div style="flex:1; display:flex; flex-direction:column; gap:24px">
 <div class="figure">
-<img src="/_blob/332407c751b3c10bf40f869f4657733f" alt="Three scripts: the launch folders are collected into results.csv with a mean row per setting, plotted into one figure per stage, and compared in Markdown tables of their best evaluations" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/332407c751b3c10bf40f869f4657733f" alt="Three scripts: the launch folders are collected into results.csv with a mean row per setting, plotted into one figure per stage, and compared in Markdown tables of their best evaluations" style="width:984px; height:461px; object-fit:contain">
 </div>
 <p class="takeaway">Repeated squeeze-and-excitation stage: six launches per setting overlap, means 0.21 points apart for a standard error of 1.11 points.</p>
 </div>
 <div class="figure" style="flex:0 0 524px">
-<img src="/_blob/8866b2fea25e23610f3c57a847cd8c8b" alt="Stage figure: test accuracy of six launches with and without squeeze-and-excitation, their means level, and the gap between them swinging around zero" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/8866b2fea25e23610f3c57a847cd8c8b" alt="Stage figure: test accuracy of six launches with and without squeeze-and-excitation, their means level, and the gap between them swinging around zero" style="width:524px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>After the launches of a hyperparameter stage have trained, three scripts of scripts/evaluation/ compare them: collect_experiment_results.py gathers the test curves and swept settings into one CSV with a mean row per setting, compare_best_evaluations.py prints Markdown tables of the best test evaluation of every run, over the trained and the averaged weights, and plot_experiment_comparisons.py draws one figure per stage. The rule: compare a gap with the spread of the launches of each setting before trusting it. In the repeated squeeze-and-excitation stage on the right, six launches per setting overlap, and the means differ by 0.21 points for a standard error of 1.11 points, so the difference is noise.</aside>

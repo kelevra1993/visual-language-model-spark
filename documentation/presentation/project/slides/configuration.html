@@ -13,7 +13,7 @@
 </ul>
 </div>
 <div class="figure">
-<img src="/_blob/dda0d65b8d68a0dd5f42ebb075533d03" alt="Diagram: the configuration file is loaded, checked, then handed to the trainer of the task, a problem stopping the launch before a model or data loader is built; below, the four sections shared by every task (ExperimentConfiguration, Optimization, Data, Backbone) beside the sections of each of the ten tasks" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/dda0d65b8d68a0dd5f42ebb075533d03" alt="Diagram: the configuration file is loaded, checked, then handed to the trainer of the task, a problem stopping the launch before a model or data loader is built; below, the four sections shared by every task (ExperimentConfiguration, Optimization, Data, Backbone) beside the sections of each of the ten tasks" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>A run is described by one YAML file. Every task has a configuration_example.yaml and a synthetic configuration in vision_training/configurations/&lt;task&gt;/, holding only, and all, the keys the task reads, each explained by its comment. Four sections are shared by every task (ExperimentConfiguration, Optimization, Data, Backbone), the others belong to the task, such as the region proposal and detector sections of detection. The file is checked before anything starts: a missing key, an unusable value, an inconsistent combination or a removed setting stops the program with the list of every problem found, for example a negative learning rate and an image size of 500 that the five poolings of the backbone cannot divide.</aside>

@@ -13,7 +13,7 @@
 </ul>
 </div>
 <div class="figure">
-<img src="/_blob/7b429bb717b2550a13e6c2f9473e06c9" alt="A classifier trained on ImageNet lends its six backbone blocks to a run of any task, its first three blocks to a keypoint stem, and its head and 1,000 class rows to a classifier with more classes" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/7b429bb717b2550a13e6c2f9473e06c9" alt="A classifier trained on ImageNet lends its six backbone blocks to a run of any task, its first three blocks to a keypoint stem, and its head and 1,000 class rows to a classifier with more classes" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>To start from a trained component, for example a backbone trained on ImageNet for a detector, give its run in the pretrained block of the section. The backbone comes from any task; the temporal module, classification head, segmentation decoder, region proposal, detection heads, mask heads, and the high resolution network with its keypoint head move between runs of the tasks that have them. The settings defining the layers must be identical in both runs, checked before the training, while the image size may differ. A backbone can load the first blocks of a deeper source, such as the stem of a keypoint detector, and a component with class layers can initialise a run with more classes, the source classes first in the same order. The loaded part can be frozen or fine-tuned slower, 0.1 meaning ten times slower than the new layers, and the averaged weights of the source are loaded when both runs keep them.</aside>

@@ -13,7 +13,7 @@
 </ul>
 </div>
 <div class="figure">
-<img src="/_blob/21806bf04b56de4ca93bef530466e9ac" alt="Launch flow: configuration file, configuration check that stops listing every problem, run name built from the settings, run folder; the last checkpoint of the folder decides between a new run from iteration 1 and a resume from iteration n + 1; the training loop runs up to number_iterations, the total of the run" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/21806bf04b56de4ca93bef530466e9ac" alt="Launch flow: configuration file, configuration check that stops listing every problem, run name built from the settings, run folder; the last checkpoint of the folder decides between a new run from iteration 1 and a resume from iteration n + 1; the training loop runs up to number_iterations, the total of the run" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>The run name decides the folder, and the last checkpoint of that folder decides between a new run and a resume: weights, optimizer state and moving average of the weights are loaded and the training continues at the next iteration. number_iterations is the total of the run, not the iterations left. Settings without a run name token, such as the batch size or the learning rate, may change between resumptions; the changes are printed and the previous configuration is kept. A labels.json whose SHA-256 differs from the one recorded in data.json stops the resume, unless allow_data_change_on_resume is set. A failing iteration is reported in yellow and skipped, and more than 5 in a row stop the training, saving a checkpoint.</aside>

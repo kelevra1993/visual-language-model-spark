@@ -13,7 +13,7 @@
 <p class="takeaway">Detection tutorial run, 2,000 iterations: test mAP <b>67.49 %</b> averaged, <b>53.38 %</b> trained.</p>
 </div>
 <div class="figure">
-<img src="/_blob/c235791509d74e2c0c20ca98644e7bad" alt="Left: how many past iterations the average follows, about 1,000 at a decay of 0.999. Right: test accuracy of two classification launches, the averaged weights above the trained ones" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/c235791509d74e2c0c20ca98644e7bad" alt="Left: how many past iterations the average follows, about 1,000 at a decay of 0.999. Right: test accuracy of two classification launches, the averaged weights above the trained ones" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>Optimization.exponential_moving_average keeps a second copy of the weights, moved towards the trained ones after every optimizer step: at a decay of 0.999 it follows about the last 1,000 iterations, and a short run averages fewer because of the warm-up (left). Every test evaluation scores both copies, in the EMA Weights report and under Test_EMA in TensorBoard, and the export can take either. On the right, the two launches of stage 13 of the classification benchmark, scored with their trained and their averaged weights. In the detection tutorial run, a short run of 2,000 iterations on synthetic shapes, the averaged weights reach 67.49 % test mAP@[0.5:0.95] against 53.38 % for the trained ones. It adds no token to the run name, so it can be switched on or off when a run resumes.</aside>

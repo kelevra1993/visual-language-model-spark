@@ -13,7 +13,7 @@
 </ul>
 </div>
 <div class="figure">
-<img src="/_blob/5dce8007ed9cfef522a83b9c8f96db62" alt="Run folder tree: Weights, Evaluation and Results.txt of the training left untouched, and a new Checkpoint_Evaluation folder with its report, summary, one folder per checkpoint and the error images" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/5dce8007ed9cfef522a83b9c8f96db62" alt="Run folder tree: Weights, Evaluation and Results.txt of the training left untouched, and a new Checkpoint_Evaluation folder with its report, summary, one folder per checkpoint and the error images" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>scripts/evaluation/evaluate_checkpoint.py scores the checkpoints of a trained run again: on another labelled split, with another batch size, or for detection and instance segmentation with another final NMS. Its iteration is None for the last checkpoint, a number, or “all”, in which case evaluation_summary.csv holds one row per checkpoint and the best one is printed. Everything goes into &lt;run&gt;/Checkpoint_Evaluation/, the Weights, Evaluation and Results.txt of the training staying untouched; save_predictions writes predictions.csv with every evaluated sample, and a classifier keeps class_logits.npz for its temperature explorer. scripts/evaluation/draw_report_figures.py redraws the figures of a research report: confusion matrix, precision-recall curves, training curves with the kept checkpoint, and the numbers they show.</aside>

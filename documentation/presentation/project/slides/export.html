@@ -13,7 +13,7 @@
 </ul>
 </div>
 <div class="figure">
-<img src="/_blob/a7dcb24b929aaadc3f59f49455aa52c8" alt="Export pipeline: checkpoint, inference model and input contract, then TorchScript and ONNX written to a staging folder and each checked against the eager model; the served models are replaced only if every format matches" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/a7dcb24b929aaadc3f59f49455aa52c8" alt="Export pipeline: checkpoint, inference model and input contract, then TorchScript and ONNX written to a staging folder and each checked against the eager model; the served models are replaced only if every format matches" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>vision_training/deployment/export_model.py takes a run, an iteration and trained or averaged weights, and writes the model as TorchScript and ONNX, each with its Triton configuration. Everything is first written to a staging folder, and every format is compared with the PyTorch model on a batch of another size than the traced one, with the tolerances of the task. Only when every format matches are the served models replaced; otherwise the export stops and the served models are left as they were. Each task has one served model name, from image_classifier to frame_selector.</aside>

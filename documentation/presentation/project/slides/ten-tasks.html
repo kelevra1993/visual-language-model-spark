@@ -16,5 +16,6 @@
 <tr style="background:#0C2A2C"><td>SEL</td><td>Frame selection</td><td>a sequence of frames</td><td>the frames of every wanted class</td></tr>
 <tr><td>SSL</td><td>Self-supervised</td><td>unlabelled images</td><td>a pre-trained backbone for the others</td></tr>
 </table>
-<aside>Five image tasks, four sequence tasks (shaded), and self-supervised pre-training that initialises the backbone of the others without labels. Each task adds its own dataset, head, losses and metrics; everything else is shared.</aside>
+<p class="caption" style="margin-top:auto">Not implemented yet: panoptic segmentation, one map holding every object and every background region. Instance and semantic segmentation are trained as separate tasks today.</p>
+<aside>Five image tasks, four sequence tasks (shaded), and self-supervised pre-training that initialises the backbone of the others without labels. Each task adds its own dataset, head, losses and metrics; everything else is shared. Panoptic segmentation, which joins the instance masks of the objects and the semantic classes of the background into one map, is not implemented yet: today the repository trains instance segmentation and semantic segmentation as two separate tasks.</aside>
 </section>

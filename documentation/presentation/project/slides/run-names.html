@@ -13,7 +13,7 @@
 <p class="takeaway">The name alone tells what a run trained.</p>
 </div>
 <div class="figure">
-<img src="/_blob/753d83ec6761df31fd7f99c37ba9c85d" alt="A classification run name decoded token by token: task, input settings, backbone blocks and modules, pre-trained backbone, head, classes and suffix, each with the configuration key it comes from; below, the settings that have no token and may change when a run resumes" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/753d83ec6761df31fd7f99c37ba9c85d" alt="A classification run name decoded token by token: task, input settings, backbone blocks and modules, pre-trained backbone, head, classes and suffix, each with the configuration key it comes from; below, the settings that have no token and may change when a run resumes" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>vision_training/configuration_processing/run_name.py builds the run name from the configuration, section by section. Read the example from left to right: classification, input normalization, kept aspect ratio and a 256-pixel input, a backbone of six blocks with squeeze-and-excitation, residual shortcuts and batch normalization, initialised from another run (PT), a head with two hidden layers of 96, a multi-label output of 35 classes, and the suffix “counted-shapes”. The same settings resume in the same folder; any setting with a token gives another name, so a new folder, while the settings without a token (batch size, learning rate, augmentation, dropout, moving average of the weights) may change when a run resumes. The README gives example names for classification, detection and sequence classification, and the configuration reference one for every task.</aside>

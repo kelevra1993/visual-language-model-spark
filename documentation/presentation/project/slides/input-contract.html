@@ -14,7 +14,7 @@
 <p class="small">The three resizes of a 640 x 359 photo for an input of 256. Photo: COCO 2017 validation image 288882, Flickr, CC BY 2.0.</p>
 </div>
 <div class="figure">
-<img src="/_blob/e75b5cae88135ed051bd12125b7fc5ee" alt="A 640 by 359 photo of giraffes resized for a 256 pixel input three ways: stretched, kept ratio with black padding, and six overlapping tiles" style="width:100%; height:100%; object-fit:contain">
+<img src="/_blob/e75b5cae88135ed051bd12125b7fc5ee" alt="A 640 by 359 photo of giraffes resized for a 256 pixel input three ways: stretched, kept ratio with black padding, and six overlapping tiles" style="width:958px; height:603px; object-fit:contain">
 </div>
 </div>
 <aside>A server that feeds the model does not have to guess the preprocessing: the input contract travels with the model. Every export writes it into the metadata of model.onnx and as preprocessing.json next to both formats: the photo as OpenCV decodes it in BGR, a stretch, keep_ratio or tiles resize with its interpolation, the padding and the layout. If a run uses an input the contract cannot describe, the export stops before writing any file. A test rebuilds the inputs of a photo from the contract alone and checks them pixel for pixel against the training preprocessing.</aside>
