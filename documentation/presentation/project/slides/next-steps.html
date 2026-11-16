@@ -1,0 +1,16 @@
+<section id="next-steps" class="dark">
+<div class="heading">
+<p class="eyebrow">NEXT STEPS</p>
+<h2 class="title">Next: measure serving, finish the mask benchmark</h2>
+</div>
+<div class="cards">
+<div class="card" style="--i:0; background:#1E2A40; border-color:#2E3D58"><h3 style="color:#F2F4F8">1 · Benchmark serving</h3><p class="body" style="color:#B9C3D4">On an idle GPU: p50 and p99 latency, images per second, memory and metric drift against FP32, with perf_analyzer.</p></div>
+<div class="card" style="--i:1; background:#1E2A40; border-color:#2E3D58"><h3 style="color:#F2F4F8">2 · Native TensorRT engines</h3><p class="body" style="color:#B9C3D4">Decided by the benchmark: built at export with optimization profiles, a mounted engine cache and a check of the served engine.</p></div>
+</div>
+<div class="cards">
+<div class="card" style="--i:2; background:#1E2A40; border-color:#2E3D58"><h3 style="color:#F2F4F8">3 · Reduced precisions</h3><p class="body" style="color:#B9C3D4">BF16, INT8 with calibration and FP8, offered only once their speed and accuracy are measured.</p></div>
+<div class="card" style="--i:3; background:#1E2A40; border-color:#2E3D58"><h3 style="color:#F2F4F8">4 · Instance segmentation benchmark</h3><p class="body" style="color:#B9C3D4">Stages 0 to 2 done; next the mask head size and its finer inputs (stages 3 and 3b), then stages 4 to 8.</p></div>
+</div>
+<p class="lead">To start: the README, then <span class="mono">documentation/</span>, then the tutorial videos.</p>
+<aside>The serving numbers so far were taken once on a shared GPU, so the first step is a proper benchmark on an idle GPU: three models (a classifier, the reference detector and a sequence labeller), every export format, dynamic batching on and off, measured with NVIDIA’s perf_analyzer for latency, throughput, memory and the test metric against FP32. That benchmark then decides on native TensorRT engines built at export, BF16 in the export settings and a mounted engine cache; INT8 and FP8 need calibration or quantization nodes first. In parallel, the instance segmentation benchmark continues stage by stage like the detection one: stages 0 to 2 are done with a reference test mask mAP of 78.84 %, next come the mask head size and the finer inputs of the mask heads, then upsampling, a shared mask head, the level chosen by box size, a finer map and mask scoring. Newcomers start with the README, then the reference and workflow documents, then the videos.</aside>
+</section>

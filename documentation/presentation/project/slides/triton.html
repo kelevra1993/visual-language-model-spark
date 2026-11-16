@@ -1,0 +1,20 @@
+<section id="triton">
+<div class="heading">
+<p class="eyebrow">DEPLOYMENT</p>
+<h2 class="title">Triton serves every model behind one endpoint</h2>
+</div>
+<div class="split">
+<div class="text narrow">
+<ul class="points">
+<li><span class="mono">docker compose up</span> serves every exported model.</li>
+<li>HTTP 8000, gRPC 8001, metrics 8002.</li>
+<li>Requests within 1 ms are batched together, up to 16.</li>
+<li>Clients need only tritonclient and numpy.</li>
+</ul>
+</div>
+<div class="figure">
+<img src="/_blob/ffe0cb69c68c8d2cf9630a0f3dff7f95" alt="Request flow: a client sends images over gRPC, HTTP or shared memory to the Triton container, where each model has a dynamic batcher, one GPU instance and its PyTorch or ONNX Runtime backend; the frame selector runs as an ensemble of network and decoder" style="width:100%; height:100%; object-fit:contain">
+</div>
+</div>
+<aside>One docker compose command, from vision_training/deployment/triton, starts NVIDIA Triton with every model of served_models: HTTP on port 8000, gRPC on 8001, Prometheus metrics on 8002. Each model has a dynamic batcher: requests that arrive within one millisecond of each other run as one batch, up to 16 images, which pays off when several cameras or services query the same model at once. The client prepares the photo as the input contract says and sends a tensor; it needs tritonclient and numpy, not PyTorch nor CUDA. The frame selector runs as an ensemble that chains its GPU network and its CPU decoder.</aside>
+</section>

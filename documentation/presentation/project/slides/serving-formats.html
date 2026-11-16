@@ -1,0 +1,21 @@
+<section id="serving-formats">
+<div class="heading">
+<p class="eyebrow">DEPLOYMENT</p>
+<h2 class="title">TensorRT FP32 ran twice as fast, measured once</h2>
+</div>
+<div class="split">
+<div class="text" style="width:520px; gap:16px">
+<div class="stat" style="--i:0; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px">96.59</p><p class="label">TensorRT FP32 through Triton</p></div>
+<div class="stat" style="--i:1; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px; color:#4A5568">48.72</p><p class="label">Eager PyTorch in the process</p></div>
+<div class="stat" style="--i:2; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px; color:#4A5568">43.14</p><p class="label">TorchScript through Triton</p></div>
+<p class="small">Images per second, one client, GPU shared with three trainings.</p>
+</div>
+<div style="flex:1; display:flex; flex-direction:column; gap:16px">
+<div class="figure">
+<img src="/_blob/2c0d134b8e980f2d175a60c04bf42c85" alt="Serving paths: TorchScript with libtorch, ONNX with ONNX Runtime CUDA, ONNX with the TensorRT accelerator in FP32 or FP16, native TensorRT engine not implemented; below, TensorRT fusing convolution, batch normalization and ReLU into one kernel" style="width:100%; height:100%; object-fit:contain">
+</div>
+<p class="caption">FP16 can be exported but is served unchecked; BF16, INT8 and FP8 are not offered yet.</p>
+</div>
+</div>
+<aside>The three numbers come from run_inference.py on the README classifier at 512 pixels, one client sending one request at a time, measured once on 23 October while three trainings shared the GPU: lower than the model gives alone, and to be measured again on an idle GPU. TensorRT FP32 gave 96.59 images per second, twice the eager PyTorch model in the process and 2.2 times TorchScript through Triton. TensorRT fuses the convolution, batch normalization and ReLU of every block into one kernel and picks the fastest kernels for this GPU. FP16 can be exported but the served engine is not checked against PyTorch; BF16, INT8 and FP8 are not offered yet.</aside>
+</section>

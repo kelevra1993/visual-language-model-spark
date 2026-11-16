@@ -1,0 +1,23 @@
+<section id="augmentation">
+<div class="heading">
+<p class="eyebrow">TRAINING</p>
+<h2 class="title">28 augmentation types, drawn on the GPU</h2>
+</div>
+<div class="split">
+<div class="figure" style="flex:0 0 630px">
+<img src="/_blob/df297e51b508f50bb700709b807c4f6a" alt="Grid of one photo augmented by every type alone: ten geometric types, then eighteen photometric types" style="width:100%; height:100%; object-fit:contain">
+</div>
+<div style="flex:1; display:flex; flex-direction:column; gap:24px">
+<ul class="points">
+<li>Applied right before the forward pass.</li>
+<li>Each type has its own switch and probability.</li>
+<li>Geometric types move boxes, masks and keypoints too.</li>
+<li>The input viewer shows what the network receives.</li>
+</ul>
+<div class="figure">
+<img src="/_blob/1dcd6c01161728b0580ea6e0a41e1719" alt="Animated input viewer: one synthetic detection image redrawn with each augmentation draw, its boxes following the flips, rotations and zoom-outs" style="width:100%; height:100%; object-fit:contain">
+</div>
+</div>
+</div>
+<aside>Data.data_augmentation augments the training images on the device, right before the forward pass (vision_training/data/augmentations.py): a global probability, then 28 types, 10 geometric and 18 photometric, each with its own switch and probability; the strengths are set in the code, with a stronger set for the self-supervised views. The geometric types move the boxes, masks and keypoints with the image, and perspective and jigsaw are refused for detection, instance segmentation, semantic segmentation and keypoints. Before a long training, the view_input_images diagnosis mode shows the training and validation samples as the network receives them, with their targets and the drawn augmentations, as on the right. For detection and instance segmentation, compute_anchor_coverage prints the share of objects whose best anchor overlaps them enough; both modes exit without training.</aside>
+</section>

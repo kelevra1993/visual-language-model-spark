@@ -1,0 +1,20 @@
+<section id="shared-code">
+<div class="heading">
+<p class="eyebrow">ARCHITECTURE</p>
+<h2 class="title">One training loop, one trainer per task</h2>
+</div>
+<div class="split">
+<div class="text">
+<ul class="points">
+<li><span class="mono">base_trainer.py</span> runs the loop of every task.</li>
+<li>The task named in the configuration picks its trainer.</li>
+<li>That trainer fills the hooks: data, model, losses, evaluation.</li>
+</ul>
+<p class="takeaway">A new task brings its dataset, head, losses and metrics, not a new loop.</p>
+</div>
+<div class="figure">
+<img src="/_blob/ac02ebb1505ada81d7545ac6779f2f63" alt="Diagram: main.py loads and checks the configuration, get_trainer_class picks the trainer of the task; on the left the steps shared by every task in base_trainer.py (next batch, augmentation, backward and optimizer step, evaluation report), on the right the hooks each task trainer fills (data loaders and model, batch preparation, forward pass, prediction and metrics)" style="width:100%; height:100%; object-fit:contain">
+</div>
+</div>
+<aside>Point at the two columns. On the left, what every task shares in base_trainer.py: reading the next batch, augmenting it on the GPU, the backward pass and optimizer step with the learning rate schedule, the moving average of the weights and the checkpoints, and the reports to Results.txt, TensorBoard and MLflow. On the right, the hooks each task fills in its own trainers/&lt;task&gt;_trainer.py: building its data loaders and model, preparing a batch, the forward pass with its losses, and the prediction and metrics at evaluation. The trainer is picked from ExperimentConfiguration.task by vision_training/core/task_registry.py. Adding a task means writing its dataset, head, losses and metrics, while the loop, checkpoints and reports come for free.</aside>
+</section>

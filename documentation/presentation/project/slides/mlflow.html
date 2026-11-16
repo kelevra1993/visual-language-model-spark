@@ -1,0 +1,20 @@
+<section id="mlflow">
+<div class="heading">
+<p class="eyebrow">EVALUATION</p>
+<h2 class="title">One sortable table of every training run</h2>
+</div>
+<div class="split">
+<div class="text narrow">
+<p class="lead">One setting records every training in MLflow.</p>
+<ul class="points">
+<li>Sort and filter all runs by any setting or metric.</li>
+<li>Each run keeps its configuration, git commit, best iteration and test metrics.</li>
+<li>It also notes whether the code had uncommitted changes.</li>
+</ul>
+</div>
+<div class="figure">
+<img src="/_blob/2668a2cf9f72a9b10f24b67b33a28063" alt="MLflow table of four classification runs sorted by test accuracy, with their duration, learning rate, test accuracy, balanced accuracy and macro F1" style="width:100%; height:100%; object-fit:contain">
+</div>
+</div>
+<aside>Turning on ExperimentConfiguration.tracking.activated records each training in an MLflow database inside the experiment folder; “mlflow ui” then shows this table, here four classification runs sorted by test accuracy. Opening a run shows the last value of every metric and its tags: its folder, its transferred components, the git commit, whether the working tree held uncommitted changes, and the best iteration. A resumed training continues its MLflow run. The per-iteration curves stay in TensorBoard, and checkpoints and images are not sent to MLflow.</aside>
+</section>

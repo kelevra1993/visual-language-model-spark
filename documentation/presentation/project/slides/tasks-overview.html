@@ -1,0 +1,20 @@
+<section id="tasks-overview">
+<div class="heading">
+<p class="eyebrow">ARCHITECTURE</p>
+<h2 class="title">What each task predicts, on synthetic shapes</h2>
+</div>
+<div class="split">
+<div class="text narrow">
+<ul class="points">
+<li>Nine supervised tasks, one evaluation sample each.</li>
+<li>Ground truth beside the prediction and its score.</li>
+<li>Short runs on the synthetic datasets, no real data.</li>
+</ul>
+<p class="caption">Every evaluation logs such samples to TensorBoard.</p>
+</div>
+<div class="figure">
+<img src="/_blob/f0a34c6356592e7aa6d173d45a3f318b" alt="Grid of nine evaluation samples, one per supervised task (classification, object detection, instance segmentation, keypoints, semantic segmentation, sequence classification, sequence labelling, sequence comparison, frame selection), ground truth beside prediction" style="width:100%; height:100%; object-fit:contain">
+</div>
+</div>
+<aside>One evaluation sample of every supervised task, each from a short run on its synthetic dataset. Top row: classification writes the true class, then the predicted one with its score (“hexagon -> hexagon”); detection and instance segmentation draw the ground truth on the left and the prediction on the right, with their scores. Middle row: keypoints of a stick figure and shapes, the semantic segmentation input, ground truth, prediction and errors, and a sequence of frames classified as “moving up”. Bottom row: sequence labelling frame by frame, a before-and-after comparison, and frame selection, where the chosen frames (largest circle, triangle and star) are framed in green. Self-supervised pre-training is not in the grid: it predicts no labels, it prepares the backbone of the others.</aside>
+</section>
