@@ -6,12 +6,13 @@
 <div class="stats" style="grid-template-columns:repeat(3, 1fr)">
 <div class="stat" style="--i:0; background:#0F3046; border:4px solid #4CC9F0"><p class="number">10</p><p class="label" style="color:#E8E8E8; font-weight:600">vision tasks on one backbone design</p></div>
 <div class="stat" style="--i:1"><p class="number">870</p><p class="label">automated tests, short trainings of every task included</p></div>
-<div class="stat" style="--i:2"><p class="number">35</p><p class="label">narrated tutorial chapters, about 4 hours</p></div>
+<div class="stat" style="--i:2"><p class="number">35</p><p class="label">narrated tutorial chapters, one short series per task</p></div>
 </div>
 <div class="cards">
 <div class="card" style="--i:4"><h3>Train</h3><p class="body">One YAML file per run, checked before launch; resumes on its own after a stop.</p></div>
 <div class="card" style="--i:5"><h3>Evaluate</h3><p class="body">Per-class reports, confusion matrices, error images, launch comparisons and MLflow.</p></div>
 <div class="card" style="--i:6"><h3>Export</h3><p class="body">TorchScript and ONNX checked against PyTorch, served by Triton with TensorRT.</p></div>
 </div>
-<aside>The three verbs of the repository: train, evaluate, export. Numbers: 10 tasks, 870 tests passing on the current main, 35 tutorial chapters (about 243 minutes of narrated video). The ten tasks are the headline: every one of them uses the same backbone design, each training its own weights, and shares the loop, the configuration format, the reports and the export.</aside>
+<p class="small"><b style="color:#E8E8E8">Tutorials: start with the overview (4 min) and the foundations (38 min), then watch only your task:</b><br>CLS 21 · DET 29 · INS 15 · KPT 19 · SEG 18 · M2O 19 · M2M 23 · CMP 15 · SEL 19 · SSL 21 minutes</p>
+<aside>The three verbs of the repository: train, evaluate, export. Numbers: 10 tasks, 870 tests passing on the current main, 35 tutorial chapters. Nobody watches all of them: a newcomer watches the 4-minute overview, the 38 minutes of foundations, then only the series of their task, 15 to 29 minutes each (about 243 minutes in all, if one watched everything). The ten tasks are the headline: every one of them uses the same backbone design, each training its own weights, and shares the loop, the configuration format, the reports and the export.</aside>
 </section>
