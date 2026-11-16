@@ -20,7 +20,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_run_folder, merge_facts, read_run_configuration
+from tutorials.figures.figure_utilities import (build_console_metric_tracker, find_run_folder, merge_facts,
+                                                read_run_configuration)
 from tutorials.figures.object_detection.dataset_figures import make_dataset_figures
 from tutorials.figures.object_detection.detection_sources import (EVALUATION_FOLDER_NAME, SAMPLE_IMAGE_NAME,
                                                                   count_scalar_tags)
@@ -34,6 +35,7 @@ from tutorials.figures.object_detection.run_figures import (draw_loss_curves_fig
                                                             read_console_summary_facts,
                                                             write_console_summary_listing)
 from vision_training.losses.detection_losses import LOCALISATION_LOSS_BETA
+from vision_training.trainers.detection_trainer import DetectionTrainer
 
 # Console log of the training of the run (its output redirected to a file), next to the run folder
 CONSOLE_LOG_NAME = "object_detection.log"
@@ -223,12 +225,16 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     (output_folder / "evaluation").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src=sample_path, dst=output_folder / "evaluation" / LAST_SAMPLE_NAME)
 
-    # Console summaries of the run, read from the console log next to the run folder
+    # Console summaries of the run, read from the console log next to the run folder, their metric lines written
+    # again by the console tracker of the current detection trainer
     console_facts = {}
+    metric_tracker = build_console_metric_tracker(run_folder=run_folder, trainer_class=DetectionTrainer,
+                                                  trainer_attributes={})
     for iteration in iterations["console_iterations"]:
         summary_lines = write_console_summary_listing(log_path=run_folder.parent / CONSOLE_LOG_NAME,
                                                       iteration=iteration,
-                                                      output_path=listings_folder / f"console_{iteration}.txt")
+                                                      output_path=listings_folder / f"console_{iteration}.txt",
+                                                      metric_tracker=metric_tracker)
         console_facts.update(read_console_summary_facts(summary_lines=summary_lines,
                                                         fact_prefix=f"console.{iteration}"))
     facts = merge_facts(fact_groups=[

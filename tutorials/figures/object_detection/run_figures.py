@@ -5,9 +5,10 @@ images of a test image at several evaluated iterations, the ground truth panel f
 every iteration, cropped from the Samples/ images of the evaluation folders; the losses of the Train folder of the
 TensorBoard logs, every curve smoothed like TensorBoard over its raw values; the headline metrics of every evaluated
 checkpoint with the trained weights (Test) against their moving average (Test_EMA); and the console summary of an
-iteration read from the console log of the run. Every figure gives the boxes of its panels and the values the
-narration quotes as facts, the headline metrics written on the figures as the percentages of the reports of the
-repository ("72.69 %", ticks "20 %") and kept between 0 and 1 in the facts.
+iteration read from the console log of the run, its metric lines written again by the console formatter of the
+current code with their logged values (reformat_console_summary of figure_utilities.py). Every figure gives the boxes
+of its panels and the values the narration quotes as facts, the headline metrics written on the figures as the
+percentages of the reports of the repository ("72.69 %", ticks "20 %") and kept between 0 and 1 in the facts.
 """
 
 import re
@@ -22,13 +23,14 @@ from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL, SERIES_COLOURS,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box,
-                                                format_thousands, register_fonts, round_fact, save_figure,
-                                                style_chart_panel)
+                                                format_thousands, reformat_console_summary, register_fonts,
+                                                round_fact, save_figure, style_chart_panel)
 from tutorials.figures.object_detection.detection_sources import (read_scalar_series, strip_terminal_codes,
                                                                   write_listing)
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_BOLD_FONT_PATH,
                                      TEXT_COLOUR)
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
+from vision_training.trainers.metric_tracking import MetricTracker
 
 # Regions of a sample image of the detection evaluations (1028 x 560 pixels): the caption band above the panels, the
 # ground truth panel, the 4 pixel separator and the prediction panel, each 512 pixels, and the legend band below them
@@ -251,31 +253,40 @@ def draw_metric_iterations_figure(run_folder: Path, panels: List[Tuple[str, str,
     return facts
 
 
-def write_console_summary_listing(log_path: Path, iteration: int, output_path: Path) -> List[str]:
+def write_console_summary_listing(log_path: Path, iteration: int, output_path: Path,
+                                  metric_tracker: MetricTracker) -> List[str]:
     """
     Writes the console summary of one iteration of a run, read from its console log, as a listing: from the line of
-    the iteration to the duration of the interval, the colours and links of the terminal removed.
+    the iteration to the duration of the interval, the colours and links of the terminal removed, and the metric lines
+    written again by the console formatter of the current code with their logged values (reformat_console_summary),
+    the header, rules and duration kept as logged.
 
     Args:
         log_path (Path): The console log of the run.
         iteration (int): The iteration of the summary.
         output_path (Path): The text file of the listing.
+        metric_tracker (MetricTracker): The console tracker of the run (build_console_metric_tracker), which writes
+            the metric lines again.
 
     Returns:
         List[str]: The lines of the summary.
 
     Raises:
-        ValueError: If the log has no summary of the iteration.
+        ValueError: If the log has no summary of the iteration, or a metric line of the summary cannot be written
+            again (reformat_console_metric_line).
     """
     lines = [strip_terminal_codes(text=line).rstrip() for line in log_path.read_text(encoding="utf-8").splitlines()]
     starts = [line_index for line_index, line in enumerate(lines) if f"Iteration: {iteration} " in line]
     if not starts:
         raise ValueError(f"No console summary of iteration {iteration} in {log_path}.")
-    summary_lines = []
+    logged_lines = []
     for line in lines[starts[0]:]:
-        summary_lines.append(line)
+        logged_lines.append(line)
         if line.startswith("Interval Of "):
             break
+
+    # Metric lines in the columns of the current console formatter, the other lines as logged
+    summary_lines = reformat_console_summary(lines=logged_lines, metric_tracker=metric_tracker)
     write_listing(lines=summary_lines, output_path=output_path)
     return summary_lines
 

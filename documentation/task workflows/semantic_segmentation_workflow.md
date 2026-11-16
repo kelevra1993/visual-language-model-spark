@@ -637,7 +637,7 @@ Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 ```
 
 ### Step 2.21 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.16). `get_percent_tracked_metrics()` gives the keys the console summary prints as percentages with their changes in percentage points (`+0.52 %`) (`['pixel_accuracy', 'mean_iou']`, the losses keeping 4 decimals); TensorBoard and MLflow keep them between 0 and 1 (Step 3.20).
+The tracked losses are those whose weight is not 0, so the console, TensorBoard and MLflow only show what is trained, then the pixel accuracy and the mean IoU of every batch (Step 3.16). `get_percent_tracked_metrics()` gives the keys the console summary prints as percentages, `['pixel_accuracy', 'mean_iou']`, with their changes in percentage points written `+0.52 %`, the losses keeping 4 decimals; TensorBoard and MLflow keep them between 0 and 1 (Step 3.20).
 
 **Example output** (cross entropy and Dice on, Lovász and boundary off)
 ```text

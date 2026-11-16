@@ -103,7 +103,8 @@ def convert_to_percentage(value: float) -> float:
 def round_percentage(value: float) -> float:
     """
     Rounds the percentage of a rate or of a difference to the PERCENT_DECIMALS written, without a negative zero, so that
-    a tiny negative difference is written "+0.00 points" and tells the console summary it is no change.
+    a tiny negative difference is written "+0.00 points" in the reports and "+0.00 %" in the console summary, which
+    reads it as no change.
 
     Args:
         value (float): The rate or the difference, between 0 and 1.

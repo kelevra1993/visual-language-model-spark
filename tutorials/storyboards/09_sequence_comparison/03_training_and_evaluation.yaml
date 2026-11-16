@@ -46,7 +46,7 @@ scenes:
       - "Every {{sequence_comparison.run.information_dump}} iterations, the summary gives the pairs per second, and the real frames of both members per second."
       - "The first interval ran at {{sequence_comparison.console.first_throughput}} pairs and {{sequence_comparison.console.first_frame_throughput}} frames per second, in {{sequence_comparison.console.first_interval_time}}; the next ones at {{sequence_comparison.console.later_minimum_throughput}} to {{sequence_comparison.console.later_maximum_throughput}} pairs per second."
       - "At {{sequence_comparison.run.image_size}} pixels a pair costs far more than a sequence of the classifier at {{sequence_comparison.classifier.image_size}} pixels, which ran at more than {{sequence_comparison.classifier.throughput_bound}} sequences per second."
-      - "Both runs predate the bfloat16 mixed precision that every run now uses, so they were trained in float32; the current summary also writes the accuracy as a percentage."
+      - "Both runs predate the bfloat16 mixed precision that every run now uses, so they were trained in float32; the logged values are shown as the current summary prints them, the accuracy as a percentage."
 
   - kind: image
     title: "Training curves"

@@ -2,13 +2,15 @@
 Training and evaluation figures of the sequence classification tutorials (chapters 1 and 3), made by
 tutorials/figures/sequence_classification/figures.py from the three README runs of the task: the current flatten run
 at 128 pixels, the average pooling run at 512 pixels and the flatten run at 512 pixels. It draws the launch information
-and the console summary of the flatten run, the training loss of the three runs (an empty-axes base and its overlay,
-uncovered one panel at a time), the confusion matrices and ROC curves of the flatten and average runs side by side, the
-probability of the true class of every test sequence from their predictions files, and one sample sequence of both
-runs; its facts are the metrics of every evaluation, the throughputs and losses of the logs and the predictions the
-narration quotes. The evaluations of the flatten run at 128 pixels and the average run are read from their
-Checkpoint_Evaluation folder, where scripts/evaluation/evaluate_checkpoint.py evaluated their checkpoints again with
-the current code, so that the report, the images and the metrics show what the current evaluation writes.
+and the first console summary of the flatten run, whose metric lines are written again with their logged values by
+the console formatter of the current code (the run printed its accuracies between 0 and 1, in narrower columns), the
+training loss of the three runs (an empty-axes base and its overlay, uncovered one panel at a time), the confusion
+matrices and ROC curves of the flatten and average runs side by side, the probability of the true class of every test
+sequence from their predictions files, and one sample sequence of both runs; its facts are the metrics of every
+evaluation, the throughputs and losses of the logs and the predictions the narration quotes. The evaluations of the
+flatten run at 128 pixels and the average run are read from their Checkpoint_Evaluation folder, where
+scripts/evaluation/evaluate_checkpoint.py evaluated their checkpoints again with the current code, so that the report,
+the images and the metrics show what the current evaluation writes.
 """
 
 import math
@@ -24,9 +26,9 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                TEXT_SECONDARY_COLOUR, compute_pixel_box,
-                                                format_thousands, register_fonts, round_fact, save_figure,
-                                                style_chart_panel)
+                                                TEXT_SECONDARY_COLOUR, build_console_metric_tracker,
+                                                compute_pixel_box, format_thousands, reformat_console_summary,
+                                                register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.foundations.training_curves import smooth_values
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
@@ -37,6 +39,7 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
                                                                                  read_interval_summaries,
                                                                                  read_predictions, read_scalar_curve,
                                                                                  write_text_lines)
+from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
 
 # Smoothing of the training curves, the exponential moving average of TensorBoard
 SMOOTHING_WEIGHT = 0.95
@@ -253,12 +256,18 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
     epoch_line = next(line for line in launch_lines if line.startswith("- Iterations Per Epoch"))
     facts["launch.iterations_per_epoch"] = int(epoch_line.split(":")[-1])
 
-    # Console summary of the first interval of the flatten run, and the throughputs and losses of every log
-    console_lines = extract_interval_block(log_path=log_paths["flatten_128"], iteration=100)
+    # Console summary of the first interval of the flatten run, its metric lines written by the current formatter with
+    # their logged values, and the throughputs and losses of every log
+    logged_lines = extract_interval_block(log_path=log_paths["flatten_128"], iteration=100)
+    metric_tracker = build_console_metric_tracker(run_folder=run_folders["flatten_128"],
+                                                  trainer_class=SequenceClassificationTrainer,
+                                                  trainer_attributes={"decorrelation_activated": False})
+    console_lines = reformat_console_summary(lines=logged_lines, metric_tracker=metric_tracker)
     console_boxes = draw_console_figure(lines=console_lines, output_path=output_folder / "evaluation" /
                                         "training_console.png", font_size=17,
                                         highlight_patterns={"header": r"Iteration:\s+100", "train_loss":
-                                                            r"Train Total Loss", "validation": r"Validation Iter",
+                                                            r"Train Total Loss", "accuracy": r" Accuracy +:",
+                                                            "validation": r"Validation Iter",
                                                             "interval": r"Interval Of"})
     facts.update({f"console.{name}": box for name, box in console_boxes.items()})
 
