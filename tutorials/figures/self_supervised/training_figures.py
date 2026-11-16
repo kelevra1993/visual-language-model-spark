@@ -349,8 +349,10 @@ def draw_early_validation(output_folder: Path, run_folder: Path) -> Dict[str, An
 
 def read_last_console_summary(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
-    Copies the last console summary of the training log of the run, its colours and links removed, as a listing of
-    the scenes, and gives the throughputs of the summaries of the log.
+    Copies the last console summary of the training log of the run in which a metric reached its best value (the
+    "Best" marker the console summary scene of the second self-supervised chapter points at, which the very last
+    summary may lack), its colours and links removed, as a listing of the scenes, and gives the throughputs of the
+    summaries of the log.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -361,7 +363,7 @@ def read_last_console_summary(output_folder: Path, run_folder: Path) -> Dict[str
 
     Raises:
         FileNotFoundError: If the training log is missing.
-        ValueError: If the log holds no console summary.
+        ValueError: If the log holds no console summary, or none with a metric at its best value.
     """
     log_path = run_folder.parent / LOG_FILE_NAME
     if not log_path.exists():
@@ -373,9 +375,17 @@ def read_last_console_summary(output_folder: Path, run_folder: Path) -> Dict[str
                       "Iteration:" in line]
     if not summary_starts:
         raise ValueError(f"No console summary in {log_path}.")
-    last_start = summary_starts[-1]
-    last_end = next(line_index for line_index in range(last_start, len(log_lines)) if
-                    log_lines[line_index].startswith("Validation Iterations In This Interval"))
+    summary_ranges = [(summary_start, next(line_index for line_index in range(summary_start, len(log_lines)) if
+                                           log_lines[line_index].startswith("Validation Iterations In This Interval")))
+                      for summary_start in summary_starts]
+
+    # The last summary holding a metric at its best value, the one the scene highlights
+    best_ranges = [(summary_start, summary_end) for summary_start, summary_end in summary_ranges
+                   if any(line.rstrip().endswith(" Best") for line in log_lines[summary_start:summary_end + 1])]
+    if not best_ranges:
+        raise ValueError(f"No console summary of {log_path} holds a metric at its best value: reword the console "
+                         f"summary scene of the second self-supervised chapter, which highlights one.")
+    last_start, last_end = best_ranges[-1]
     summary_lines: List[str] = [line.replace("Moving Average of ", "") for line in
                                 log_lines[last_start:last_end + 1] if not line.startswith("---")]
     listing_path = output_folder / "listings" / "last_console_summary.txt"
