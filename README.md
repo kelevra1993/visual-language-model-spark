@@ -33,6 +33,10 @@
 - [Run Names](#run-names)
 - [MLflow Tracking](#mlflow-tracking)
 - [Tests](#tests)
+- [Docker Image](#docker-image)
+  - [Building The Image](#building-the-image)
+  - [Running A Training](#running-a-training)
+  - [Kubernetes Pods](#kubernetes-pods)
 - [Tutorials](#tutorials)
 - [Repository Structure](#repository-structure)
 - [TODO](#todo)
@@ -73,11 +77,13 @@ This README gives the commands and the settings that matter most. The details ar
 ## Prerequisites
 
 ### Package Requirements
-Before running any script, install Python 3.13+ and uv. An NVIDIA GPU with CUDA is expected (the CPU fallback is much slower), and Docker with the NVIDIA container runtime is only needed to serve the exported models with Triton.
+Before running any script, install Python 3.13+ and uv. An NVIDIA GPU with CUDA is expected (the CPU fallback is much slower), and Docker with the NVIDIA container runtime is only needed to serve the exported models with Triton and to train in the [Docker image](#docker-image).
 
 ```bash
 uv sync
 ```
+
+Besides the dependencies, `uv sync` installs the `dev` group (pytest) and the `datasets` group (FiftyOne, for `data_retriever.py`), both left out of the Docker image.
 
 Every script runs as a module from the repository root. The training takes `--configuration_path`, the task being read from the file; the other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
 
@@ -628,6 +634,59 @@ In case you changed a single folder, run its mirror alone, e.g. `uv run pytest t
   <img src="README/tests_layout.png" width="100%" />
 </p>
 
+## Docker Image
+Should a training run on the GPU pods of a cloud Kubernetes cluster, or in a container on a development machine, the `Dockerfile` of the repository root builds the trainer for `linux/amd64` (cloud nodes) and `linux/arm64` (DGX Spark). The CUDA 13 libraries come with the torch wheels of `uv.lock` and the GPU driver from the machine, so the image starts from Ubuntu 24.04, not from a CUDA image. `.dockerignore` sends only `pyproject.toml`, `uv.lock`, `vision_training/`, `scripts/` and `tests/` to the build.
+
+| Stage | Holds | Built by |
+|---|---|---|
+| `uv` | the uv binary | the builder |
+| `base` | Ubuntu 24.04, the architecture check, the libraries OpenCV loads at import, tini, the user 10001 | every stage |
+| `builder` | Python 3.13 in `/opt/python`, the environment of `uv.lock` without its default groups in `/opt/venv`, the code in `/app` | the test and runtime stages |
+| `test` | the builder with the `dev` group and `tests/`, running `pytest tests` | `--target test` |
+| `runtime` | base with the interpreter, the environment and the code of the builder | default |
+
+### Building The Image
+Each time the image is built, the machine builds its own architecture natively: the Spark for its local trainings, an amd64 machine for the cloud.
+
+```bash
+docker buildx build --platform linux/arm64 --tag vision-trainer:local --load .
+docker buildx build --platform linux/arm64 --target test --tag vision-trainer:test --load .
+```
+
+So that the cloud nodes and the Spark pull the same tag, each architecture is pushed under its own tag and the two are joined, the registry being `<region>-docker.pkg.dev/<project>/<repository>` (`gcloud auth configure-docker <region>-docker.pkg.dev` once per machine):
+
+```bash
+# On the Spark, then the same with linux/amd64 and <tag>-amd64 on an amd64 machine (e.g. Cloud Build)
+docker buildx build --platform linux/arm64 --build-arg GIT_COMMIT="$(git rev-parse HEAD)" \
+    --tag <registry>/vision-trainer:<tag>-arm64 --push .
+# One tag for both: each machine pulls its architecture
+docker buildx imagetools create --tag <registry>/vision-trainer:<tag> \
+    <registry>/vision-trainer:<tag>-amd64 <registry>/vision-trainer:<tag>-arm64
+```
+
+A builder with QEMU registered for the other architecture builds both in one command (`--platform linux/amd64,linux/arm64 --push`), the emulated one being several times slower. `GIT_COMMIT` becomes the `org.opencontainers.image.revision` and `org.opencontainers.image.version` labels: the image holds no git history, so the MLflow runs of a container carry no commit tag.
+
+### Running A Training
+Before a training starts in a container, it needs the GPU, the shared memory of its loader workers (64 MB by default in Docker) and the folders its configuration names, mounted at the same absolute paths. `--user` makes the run folders yours instead of the user 10001 of the image, and the mounted configurations replace those of the image, so that an edit needs no rebuild:
+
+```bash
+docker run --rm --gpus all --ipc=host --user "$(id -u):$(id -g)" \
+    -v "$HOME/Data:$HOME/Data" -v "$PWD/experiments:$PWD/experiments" \
+    -v "$PWD/vision_training/configurations:/app/vision_training/configurations:ro" \
+    vision-trainer:local python -m vision_training.main \
+    --configuration_path=vision_training/configurations/classification/configuration_synthetic_shapes.yaml
+```
+
+The image stops with SIGINT, which the trainer handles as Ctrl+C: it saves the checkpoint of its last steps and closes its MLflow run, so give it the time with `docker stop --timeout 120 <container>`. The pre-trained ImageNet backbones are not in the image yet: a configuration loading one mounts its run folder.
+
+### Kubernetes Pods
+For a pod to train as the Spark does, its specification sets:
+- `args`, not `command`, for the training command: `command` would replace tini, which forwards the stop signal and reaps the loader workers.
+- `resources.limits` with `nvidia.com/gpu: 1`, on nodes whose driver runs CUDA 13 (R580 or newer) and whose GPU is a Turing or newer one (T4, L4, A100, H100); the image puts `/usr/local/nvidia`, where GKE mounts the driver, on its paths.
+- An `emptyDir` volume with `medium: Memory` mounted at `/dev/shm`, the loader workers passing their batches through it.
+- `terminationGracePeriodSeconds` long enough for the final checkpoint, the stop of the pod sending SIGINT.
+- `securityContext` with `runAsNonRoot: true`, `runAsUser: 10001` and `fsGroup: 10001`, so that the user of the image writes into the mounted volumes of the datasets and run folders, at the paths of the configuration (given by a `ConfigMap`).
+
 ## Tutorials
 If you would rather watch than read, narrated tutorial videos (an overview, a foundations series, then one series per task) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default).
 
@@ -663,6 +722,7 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── README.md                          # This documentation file
 ├── README/                            # Images used in the documentation
 ├── pyproject.toml, uv.lock            # Dependencies and their locked versions
+├── Dockerfile, .dockerignore          # Trainer image (stages uv, base, builder, test, runtime) and the files of its build
 ├── documentation/
 │   ├── architecture_benchmarking/     # Experiment plans, copies of their results, stage figures, experiment_comparisons.yaml
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it

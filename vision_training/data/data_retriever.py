@@ -1,6 +1,7 @@
 """
 Downloads raw detection datasets (Open Images V7, COCO 2017) from the FiftyOne Zoo with the requested splits and label
-types, the source of the COCO data used by the object detection configurations.
+types, the source of the COCO data used by the object detection configurations. FiftyOne comes with the datasets
+dependency group, which a plain "uv sync" installs and the Docker image of the trainer leaves out.
 """
 
 import multiprocessing
