@@ -68,6 +68,20 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
         return {"before_images": before_images, "after_images": after_images, "before_mask": before_mask,
                 "after_mask": after_mask}
 
+    def build_inference_inputs(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """
+        Gives the inputs of the inference comparator, the frames of the before and after members of the pairs of a
+        prepared batch, for the speed benchmark of the base trainer, which times the exported formats on them.
+
+        Args:
+            batch (Dict[str, Any]): The prepared batch, with its [B, 2T, 3, H, W] frames.
+
+        Returns:
+            Dict[str, torch.Tensor]: The [B, T, 3, H, W] 'before_images' and 'after_images'.
+        """
+        member_inputs = self.split_pair_batch(batch=batch)
+        return {"before_images": member_inputs["before_images"], "after_images": member_inputs["after_images"]}
+
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Runs the comparison model on the members of the pairs with their labels, so that it returns its loss.

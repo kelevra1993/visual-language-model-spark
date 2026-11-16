@@ -6,8 +6,9 @@ section removed (a CIoU one leaving the file as it is), the turned off gradient 
 left as it is), the final NMS settings added to their detector section, the proposal selection added to their region
 proposal section, the anchors centred on the cell corners removed (a file centring them on the cell centres left as
 it is), the instance index maps (one mask per object) added to the data section of the instance segmentation files,
-the finer inputs of the mask heads (none) added to their mask heads section, and the refusals of a conversion changing
-another setting or the backbone.
+the finer inputs of the mask heads (none) added to their mask heads section, the speed benchmark diagnosis mode (off)
+added to the diagnosis modes of every task (a partial draft without them left as it is), and the refusals of a
+conversion changing another setting or the backbone.
 """
 
 import pytest
@@ -782,3 +783,82 @@ def test_conversion_adds_the_mask_head_fine_inputs_to_the_instance_segmentation_
     assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
     assert (configuration_folder / "previous_configurations" / "run-1_before_mask_fine_inputs.yaml").read_text(
         encoding="utf-8") == original_text
+
+
+# Classification run written before the speed benchmark, its diagnosis modes indented deeper than their section as in
+# the configurations of the repository, followed by a blank line and the next section
+DIAGNOSIS_MODES_TEXT = """ExperimentConfiguration:
+  task: classification
+  diagnosis_modes:
+      # Computes the receptive field
+      compute_receptive_field: True
+      # Shows the network input
+      view_input_images: False
+
+Optimization:
+  optimizer: "adam"
+"""
+BENCHMARK_SPEED_TEXT = (
+    "      # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training"
+    " batch,\n      # at the configured and largest batch sizes that fit, then exits without training; no run folder is"
+    " created.\n      benchmark_speed: False\n")
+CONVERTED_DIAGNOSIS_MODES_TEXT = DIAGNOSIS_MODES_TEXT.replace("view_input_images: False\n",
+                                                              f"view_input_images: False\n{BENCHMARK_SPEED_TEXT}")
+
+
+def test_conversion_adds_the_speed_benchmark_to_the_diagnosis_modes(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the speed benchmark diagnosis mode turned off, with its comment lines, right
+    after 'view_input_images' at its indentation, for every task, and only in the files holding 'diagnosis_modes': a
+    partial draft without the section is left as it is, diagnosis modes without 'view_input_images' are refused, the
+    check refuses a converted file lacking the setting or turning it on, and convert_fixed_settings converts a launch
+    file with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+
+    # The setting written after the viewer, before the blank line closing the section, for an image and a sequence task
+    for task in ["classification", "sequence_comparison"]:
+        original_text = DIAGNOSIS_MODES_TEXT.replace("task: classification", f"task: {task}")
+        expected_text = CONVERTED_DIAGNOSIS_MODES_TEXT.replace("task: classification", f"task: {task}")
+        converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                               configuration_path=configuration_path)
+        assert converted_text == expected_text
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+    # A partial draft without diagnosis modes is left as it is, and the check expects nothing to be added to it
+    draft_text = 'ExperimentConfiguration:\n  task: classification\nOptimization:\n  optimizer: "adam"\n'
+    assert add_required_settings(configuration_text=draft_text, task="classification",
+                                 configuration_path=configuration_path) == draft_text
+    assert check_conversion(original_text=draft_text, converted_text=draft_text, task="classification",
+                            configuration_path=configuration_path) == []
+
+    # Diagnosis modes without the viewer, and conversions without the setting or turning the benchmark on
+    with pytest.raises(expected_exception=ValueError,
+                       match="has no 'ExperimentConfiguration.diagnosis_modes.view_input_images' setting"):
+        add_required_settings(configuration_text=DIAGNOSIS_MODES_TEXT.replace("      view_input_images: False\n", ""),
+                              task="classification", configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: ExperimentConfiguration\.diagnosis_modes\.benchmark_speed\.$"):
+        check_conversion(original_text=DIAGNOSIS_MODES_TEXT, converted_text=DIAGNOSIS_MODES_TEXT,
+                         task="classification", configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: ExperimentConfiguration\.diagnosis_modes\.benchmark_speed\.$"):
+        check_conversion(original_text=DIAGNOSIS_MODES_TEXT, task="classification",
+                         converted_text=CONVERTED_DIAGNOSIS_MODES_TEXT.replace("benchmark_speed: False",
+                                                                               "benchmark_speed: True"),
+                         configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=DIAGNOSIS_MODES_TEXT, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_benchmark_speed")
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == CONVERTED_DIAGNOSIS_MODES_TEXT
+    assert (configuration_folder / "previous_configurations" / "run-1_before_benchmark_speed.yaml").read_text(
+        encoding="utf-8") == DIAGNOSIS_MODES_TEXT

@@ -64,6 +64,9 @@ ExperimentConfiguration:
       # Shows the network input: View 1 and View 2 windows, plus a Training Batch window with Data.grouped_batches.
       # SPACE: next images, ENTER: exit without training (False to train); needs a display, creates no run folder.
       view_input_images: False
+      # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,
+      # at the configured and largest batch sizes that fit, then exits without training; no run folder is created.
+      benchmark_speed: False
 
 Optimization:
   # Optimizer: "adam", "adamw" (decoupled weight decay) or "sgd" (Nesterov momentum 0.9), at

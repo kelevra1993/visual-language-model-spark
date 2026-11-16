@@ -231,6 +231,26 @@ def test_background_minimum_loads_without_warning(tmp_path: Path, capsys: pytest
     assert "background_iou_threshold.min" not in capsys.readouterr().out
 
 
+def set_invalid_benchmark_speed(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the switch of the speed benchmark diagnosis mode as text instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["diagnosis_modes"]["benchmark_speed"] = "yes"
+
+
+def remove_benchmark_speed(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the switch of the speed benchmark diagnosis mode, as in a configuration written before it.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    del configuration["ExperimentConfiguration"]["diagnosis_modes"]["benchmark_speed"]
+
+
 def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
     """
     Sets a negative weight of the classification loss of the region proposals and writes the weight of the box loss of
@@ -295,7 +315,10 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
                                 ">= 0, got -1.0.",
                                 "'Optimization.loss_weights.detection_regression_loss' must be a number >= 0, got "
                                 "'high'."]),
-    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
+    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS),
+    (set_invalid_benchmark_speed, ["'ExperimentConfiguration.diagnosis_modes.benchmark_speed' must be True or False, "
+                                   "got 'yes'."]),
+    (remove_benchmark_speed, ["Missing configuration key 'ExperimentConfiguration.diagnosis_modes.benchmark_speed'."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:

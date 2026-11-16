@@ -388,6 +388,9 @@ main()
 │       ├── view_input_batches()  (only with diagnosis_modes.view_input_images, then exits)
 │       │       Shows an augmented training image next to a validation image, each with its class. ENTER closes the
 │       │       viewer and exit() stops the program before any training; no run folder was created.
+│       ├── benchmark_speed()  (only with diagnosis_modes.benchmark_speed, then exits)
+│       │       Times the inference of every format and the training step on one training batch tiled to the
+│       │       configured and largest batch sizes that fit; no run folder is created.
 │       └── restore_last_model()
 │           │   Always called. Returns the iteration where the loop starts: 1 for a new run,
 │           │   or the last saved iteration + 1 after loading that checkpoint into the model and the optimizer.
@@ -448,6 +451,8 @@ main()
         │   ├── MetricTracker.count_frames()
         │   │       Counts the real frames of the batch for the frame throughput of the sequence tasks; nothing for
         │   │       images.
+        │   ├── run_training_step()  set_training_mode() to step_optimizer() below, the step also timed by
+        │   │       the speed benchmark (diagnosis_modes.benchmark_speed)
         │   ├── set_training_mode()
         │   │       model.train(): dropout is active and the batch normalization layers update their statistics,
         │   │       except those of the frozen transferred components, kept in eval mode. Needed again after every

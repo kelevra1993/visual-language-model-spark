@@ -9,8 +9,8 @@ written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without 
 their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section,
 the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, the
 'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object, and the finer inputs and
-fusion convolutions of its 'MaskHead' section, none), so that
-the training_configuration.yaml of the saved runs, reloaded to resume a run, by
+fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off), so
+that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
 The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from vision_training.configuration_processing.common_checks import FIXED_MOMENTUM_COMPONENTS, REMOVED_SETTINGS
+from vision_training.configuration_processing.configuration_checker import TASK_CONFIGURATION_CHECKS
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS, PREFETCH_BATCHES
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
@@ -144,6 +145,13 @@ MASK_HEAD_FUSION_CONVOLUTIONS_LINES = [
     '# [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.',
     'fusion_convolutions: [0, 0]']
 
+# Lines of the speed benchmark diagnosis mode added to the 'diagnosis_modes' of the runs of every task written before
+# it, off: the comment lines, then the setting
+DIAGNOSIS_BENCHMARK_SPEED_LINES = [
+    '# Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,',
+    '# at the configured and largest batch sizes that fit, then exits without training; no run folder is created.',
+    'benchmark_speed: False']
+
 # Settings a task now requires inside sections its files hold, added to the files of its runs written before them: the
 # tasks holding the setting, the setting it is written after (at its indentation), and its lines, whose value
 # reproduces those runs. They are added in this order, so that a setting can follow one added before it
@@ -171,7 +179,11 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                                                               "lines": MASK_HEAD_SKIP_BLOCKS_AT_MASK_RESOLUTION_LINES},
                   "MaskHead.fusion_convolutions": {"tasks": ["instance_segmentation"],
                                                    "after": "MaskHead.skip_blocks_at_mask_resolution",
-                                                   "lines": MASK_HEAD_FUSION_CONVOLUTIONS_LINES}}
+                                                   "lines": MASK_HEAD_FUSION_CONVOLUTIONS_LINES},
+                  "ExperimentConfiguration.diagnosis_modes.benchmark_speed": {
+                      "tasks": list(TASK_CONFIGURATION_CHECKS),
+                      "after": "ExperimentConfiguration.diagnosis_modes.view_input_images",
+                      "lines": DIAGNOSIS_BENCHMARK_SPEED_LINES}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -373,11 +385,30 @@ def add_required_sections(configuration_text: str, task: str, configuration_path
     return "\n".join(lines)
 
 
+def holds_parent_section(key_paths: List[str], key_path: str) -> bool:
+    """
+    Tells whether a configuration file holds the section of a setting of ADDED_SETTINGS (e.g.
+    'ExperimentConfiguration.diagnosis_modes' for 'ExperimentConfiguration.diagnosis_modes.benchmark_speed'), so that
+    the setting is only added to the files holding its section, the partial drafts of settings being left as they are.
+
+    Args:
+        key_paths (List[str]): The dotted paths of the keys of the file, its sections and settings.
+        key_path (str): The dotted path of the added setting.
+
+    Returns:
+        bool: True when a key of the file is the section of the setting or lies inside it.
+    """
+    section_path = key_path.rsplit(".", 1)[0]
+    return any(path == section_path or path.startswith(f"{section_path}.") for path in key_paths)
+
+
 def add_required_settings(configuration_text: str, task: str, configuration_path: Path) -> str:
     """
     Adds to the text of a configuration file the settings of ADDED_SETTINGS its task requires and it does not hold,
     each written with its comment lines right after the block of the setting it follows and at its indentation, so
-    that the runs written before the setting load again with the value that reproduces them.
+    that the runs written before the setting load again with the value that reproduces them. A file without the
+    section of a setting (a partial draft of settings, such as a file of defaults without 'diagnosis_modes') is left
+    without it.
 
     Args:
         configuration_text (str): The text of the configuration file.
@@ -388,13 +419,15 @@ def add_required_settings(configuration_text: str, task: str, configuration_path
         str: The text with the added settings, identical when the file holds them or its task requires none.
 
     Raises:
-        ValueError: If the file lacks the setting an added setting is written after.
+        ValueError: If the file holds the section of an added setting but lacks the setting it is written after.
     """
     lines = configuration_text.split("\n")
     for key_path, added_setting in ADDED_SETTINGS.items():
-        # Settings of other tasks, and settings the file already holds
+        # Settings of other tasks, settings the file already holds, and settings of a section the file does not hold
         key_paths = find_key_paths(lines=lines)
-        if task not in added_setting["tasks"] or key_path in key_paths:
+        if task not in added_setting["tasks"] or key_path in key_paths or \
+                not holds_parent_section(key_paths=[path for path in key_paths if path is not None],
+                                         key_path=key_path):
             continue
         if added_setting["after"] not in key_paths:
             raise ValueError(f"{format_path_link(path=configuration_path)} has no '{added_setting['after']}' setting "
@@ -479,9 +512,11 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
         if task in added_section["tasks"] and not original_section_paths:
             expected_settings.update(flatten_settings(settings=yaml.safe_load(added_section["text"])))
 
-    # Settings the task requires inside its sections and the original file lacked, with the values of ADDED_SETTINGS
+    # Settings the task requires inside its sections and the original file lacked, with the values of ADDED_SETTINGS,
+    # a file without the section of a setting (a partial draft) staying without it
     for key_path, added_setting in ADDED_SETTINGS.items():
-        if task in added_setting["tasks"] and key_path not in original_settings:
+        if task in added_setting["tasks"] and key_path not in original_settings and \
+                holds_parent_section(key_paths=list(expected_settings), key_path=key_path):
             added_values = yaml.safe_load(stream="\n".join(added_setting["lines"]))
             expected_settings[key_path] = added_values[key_path.split(".")[-1]]
     if converted_settings != expected_settings:
@@ -639,9 +674,13 @@ if __name__ == "__main__":
     # Folders searched for run folders, whose training_configuration.yaml is converted (the 'experiment_folder' of the
     # launches); the copies of the configurations in the MLflow artifacts folder are left as they were logged
     run_roots = [repository_folder / "experiments", repository_folder / "ficha-experiments-staged-schedule",
-                 repository_folder / "ficha_previous_experiments", repository_folder / "hyperparameter_experiments"]
-    # Folders of launch files, converted with their subfolders, their backups going to 'previous_configurations'
-    configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files"]
+                 repository_folder / "ficha_previous_experiments", repository_folder / "hyperparameter_experiments",
+                 Path.home() / "Data" / "tutorial_runs"]
+    # Folders of launch files, converted with their subfolders, their backups going to 'previous_configurations'; the
+    # tracked files of the detection folders already hold the settings, only their untracked launch files are converted
+    configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files",
+                             repository_folder / "vision_training/configurations/instance_segmentation",
+                             repository_folder / "vision_training/configurations/object_detection"]
     # False to only list the files holding fixed settings or lacking an added section or setting, True to convert them
     write_files = False
     # Suffix of the backups of this conversion: '_before_fixed_settings' (2026-10-29), '_before_fixed_head_settings'
@@ -652,9 +691,10 @@ if __name__ == "__main__":
     # '_before_proposal_selection' for the 'RegionProposal.proposal_selection' added on 2026-11-11,
     # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12,
     # '_before_anchor_centres_removal' for its removal on 2026-11-13, '_before_instance_index_maps' for the
-    # 'Data.instance_index_maps' added on 2026-11-13, then '_before_mask_fine_inputs' for the finer inputs and fusion
-    # convolutions of the 'MaskHead' section added on 2026-11-15
-    backup_suffix = "_before_mask_fine_inputs"
+    # 'Data.instance_index_maps' added on 2026-11-13, '_before_mask_fine_inputs' for the finer inputs and fusion
+    # convolutions of the 'MaskHead' section added on 2026-11-15, then '_before_benchmark_speed' for the
+    # 'diagnosis_modes.benchmark_speed' added on 2026-11-16
+    backup_suffix = "_before_benchmark_speed"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

@@ -229,6 +229,8 @@ main()
         │   │   └── collate_padded_sequences()
         │   │           Pads every sequence of the batch with black frames to its longest sequence before stacking.
         │   ├── MetricTracker.count_frames()     real frames of the batch, for the frame throughput
+        │   ├── run_training_step()  set_training_mode() to step_optimizer() below, the step also timed by
+        │   │       the speed benchmark (diagnosis_modes.benchmark_speed)
         │   ├── set_training_mode()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch()             frames to float32, labels and sequence mask on the device

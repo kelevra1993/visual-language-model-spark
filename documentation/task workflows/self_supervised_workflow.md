@@ -248,6 +248,8 @@ main()
         │   ├── get_next_batch()                    a batch failing to load is dropped and the next one taken
         │   │   └── ClassificationDataset.__getitem__() -> read_image()
         │   │           images [B, 3, H, W] uint8, labels [B] int64 (unused by the training), sample_identifiers [B]
+        │   ├── run_training_step()  set_training_mode() to step_optimizer() below, the step also timed by
+        │   │       the speed benchmark (diagnosis_modes.benchmark_speed)
         │   ├── set_training_mode()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch()                 images to float32, labels to int64 on the device
