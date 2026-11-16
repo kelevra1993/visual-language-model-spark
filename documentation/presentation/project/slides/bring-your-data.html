@@ -11,10 +11,14 @@
 <li>COCO format for detection, instance segmentation and keypoints.</li>
 <li>Converters for class folders and pair lists.</li>
 </ul>
+<div style="margin-top:auto; border:2px dashed #4CC9F0; border-radius:12px; padding:20px 24px">
+<p class="small" style="color:#4CC9F0; font-weight:700; letter-spacing:0.08em">PLANNED, NOT DONE YET</p>
+<p class="body"><span class="mono">label_mapping.json</span> and <span class="mono">labels.json</span> merged into one file, simpler to prepare.</p>
+</div>
 </div>
 <div class="figure">
 <img src="/_blob/073efdbb5ba5932ef46fee6ce6fb8147" alt="Dataset folder with label_mapping.json and train, validation and test folders each holding data/ and labels.json; one sample traced from its image to its labels.json entry and its class index; samples of labels.json by task: COCO for DET, INS and KPT, samples for CLS, SEG and SSL, sequences for M2O, M2M and SEL, pairs for CMP" style="width:958px; height:603px; object-fit:contain">
 </div>
 </div>
-<aside>Every task reads the same layout: a train, a validation and a test folder, each with its images in data/ and a labels.json manifest. label_mapping.json maps every category identifier of the manifests to the class the model predicts, so categories can be merged, or left out by not naming them, without touching the manifests. Detection, instance segmentation and keypoints use COCO, so existing COCO annotations load as they are; class_folder_manifests.py converts one folder per class for classification and pair_list_manifests.py converts pair lists for sequence comparison. Point at the right side of the figure: one image, its entry in labels.json, and the mapping that turns category 5 into class index 4.</aside>
+<aside>Every task reads the same layout: a train, a validation and a test folder, each with its images in data/ and a labels.json manifest. label_mapping.json maps every category identifier of the manifests to the class the model predicts, so categories can be merged, or left out by not naming them, without touching the manifests. Detection, instance segmentation and keypoints use COCO, so existing COCO annotations load as they are; class_folder_manifests.py converts one folder per class for classification and pair_list_manifests.py converts pair lists for sequence comparison. Point at the right side of the figure: one image, its entry in labels.json, and the mapping that turns category 5 into class index 4. Planned, not done yet: label_mapping.json and labels.json will be merged into a single file, so that preparing a data set takes one label file instead of two; until then, both files are needed.</aside>
 </section>
