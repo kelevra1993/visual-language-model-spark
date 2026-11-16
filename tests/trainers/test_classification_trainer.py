@@ -14,6 +14,7 @@ from typing import Any, Dict
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.evaluation.classification.temperature_explorer import (build_explorer_data_from_logits,
                                                                             load_class_logits,
@@ -224,3 +225,33 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_evaluation_keeps_the_probabilities_in_float32() -> None:
+    """
+    Verifies that the classification evaluation keeps the class probabilities of the test batches in float32, the
+    precision the model computes them in, so that the [N, K] table of a test split over thousands of classes takes half
+    the memory of float64, and that the class thresholds found on them are those found on the same values in float64.
+    """
+    trainer = object.__new__(ClassificationTrainer)
+    trainer.per_class_report, trainer.error_dumps_configuration = False, {"activated": False}
+    accumulator = {"probabilities": [], "labels": [], "sample_identifiers": [], "logits": []}
+
+    # A test batch of 6 samples over 5 classes, the samples 0, 2, 3 and 5 kept
+    generator = torch.Generator().manual_seed(7)
+    class_probabilities = torch.softmax(input=torch.randn(size=(6, 5), generator=generator), dim=-1)
+    batch = {"labels": torch.tensor(data=[0, 1, 2, 3, 4, 0]), SAMPLE_IDENTIFIERS_KEY: torch.arange(end=6)}
+    trainer.accumulate_evaluation_batch(accumulator=accumulator, batch=batch,
+                                        predictions={"class_probabilities": class_probabilities},
+                                        sample_indices=[0, 2, 3, 5])
+    kept_probabilities = accumulator["probabilities"][0]
+    assert kept_probabilities.dtype == torch.float32
+    assert torch.equal(input=kept_probabilities, other=class_probabilities[[0, 2, 3, 5]])
+
+    # The thresholds only sort and compare the probabilities, so float32 and float64 give the same thresholds
+    kept_labels = batch["labels"][[0, 2, 3, 5]]
+    positive_masks = torch.nn.functional.one_hot(input=kept_labels, num_classes=5).to(dtype=torch.bool)
+    float32_thresholds = find_class_thresholds(probabilities=kept_probabilities, positive_masks=positive_masks,
+                                               target_precision=0.5)
+    assert float32_thresholds == find_class_thresholds(probabilities=kept_probabilities.double(),
+                                                       positive_masks=positive_masks, target_precision=0.5)

@@ -1578,11 +1578,11 @@ class_probabilities   [8, 9] torch.float32      (no 'classification_loss' key)
 ```
 
 ### Step 4.5 — `accumulate_evaluation_batch()`
-This keeps the useful part of the batch on the CPU. The probabilities (as `float64`), the labels and the sample identifiers of the kept samples (the `sample_indices` of Step 4.1) are appended to the accumulator lists, so the GPU memory is released after every batch, with the class logits (as `float32`) when the temperature explorer is written (`per_class_report`, Step 4.13). The identifiers let the predictions file and the error images name the image of each prediction. If `error_dumps.activated` is true, it also calls `dump_errors()` while the images are still in the batch.
+This keeps the useful part of the batch on the CPU. The probabilities (as `float32`, the precision the model computes them in, half the memory of `float64` for the [N, K] table of many classes), the labels and the sample identifiers of the kept samples (the `sample_indices` of Step 4.1) are appended to the accumulator lists, so the GPU memory is released after every batch, with the class logits (as `float32`) when the temperature explorer is written (`per_class_report`, Step 4.13). The identifiers let the predictions file and the error images name the image of each prediction. If `error_dumps.activated` is true, it also calls `dump_errors()` while the images are still in the batch.
 
 **Example: the accumulator at the end of the loop**
 ```text
-'probabilities':      625 tensors, the first [8, 9] torch.float64      5,000 images / batch of 8
+'probabilities':      625 tensors, the first [8, 9] torch.float32      5,000 images / batch of 8
 'labels':             625 tensors, the first [8] torch.int64
 'sample_identifiers': 625 tensors, the first [8] torch.int64
 'error_counts':       8 pairs, square-TO-triangle, circle-TO-triangle, ..., 20 images each
