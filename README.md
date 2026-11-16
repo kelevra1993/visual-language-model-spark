@@ -655,7 +655,7 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── pyproject.toml, uv.lock            # Dependencies and their locked versions
 ├── documentation/
 │   ├── architecture_benchmarking/     # Experiment plans, copies of their results, stage figures, experiment_comparisons.yaml
-│   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css and one HTML file per slide
+│   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
 │   ├── reference/                     # Training, tasks, configurations and tools in detail
 │   ├── task workflows/                # One run of every task followed function by function
 │   └── suggestions.md                 # Proposed improvements and repository audit
