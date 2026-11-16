@@ -585,3 +585,17 @@ comparisons:
     kept: "pool 14, resolution 28"
     verdict: "Resolution 28 kept: the resolution of 56 reads 78.31 % (78.21 %, 78.41 %) against 78.84 % at 15,000 (-0.53 points, beyond the launch gaps of 0.05 and 0.20 points), behind from 2000 on, most on the large objects (-0.95 points); the noisier trained weights lose 2.18 points at 15,000."
     notes: "run_1 and run_2, the reference of stage 0, are reused without training. The mask mAP@0.75, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
+
+  - experiment: instance_segmentation
+    results_file: instance_segmentation_results.csv
+    stage: "3"
+    title: Mask head size
+    plan_lines: "186-201"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "heads [3, 32]", launches: [run_1, run_2], reference: true, trained_as_averaged: false}
+      - {label: "heads [4, 64]", launches: [run_7, run_8], reference: false, trained_as_averaged: false}
+    kept: "heads [4, 64]"
+    verdict: "Heads [4, 64] kept: 81.45 % (81.64 %, 81.27 %) against 78.84 % at 15,000 (+2.62 points, beyond the launch gaps of 0.37 and 0.05 points), ahead at every evaluation, most at mask mAP@0.95 (+3.99 points) and on the small objects (+4.01 points); box mAP@[0.5:0.95] -0.36 points."
+    notes: "run_1 and run_2, the reference of stage 0, are reused without training. The user had the launches started one at a time (run_7 at 01:30 next to a tutorial training, run_8 at 04:00), which changes their pace, not their schedule of iterations. The mask mAP@0.75, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
