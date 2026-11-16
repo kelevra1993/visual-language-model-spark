@@ -1,14 +1,14 @@
 <section id="serving-formats">
 <div class="heading">
 <p class="eyebrow">DEPLOYMENT</p>
-<h2 class="title">TensorRT FP32 ran twice as fast, measured once</h2>
+<h2 class="title">Serving speed by format: to be tested</h2>
 </div>
 <div class="split">
 <div class="text" style="width:520px; gap:16px">
-<div class="stat" style="--i:0; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px">96.59</p><p class="label">TensorRT FP32 through Triton</p></div>
-<div class="stat" style="--i:1; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px; color:#8C96A6">48.72</p><p class="label">Eager PyTorch in the process</p></div>
-<div class="stat" style="--i:2; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px; color:#8C96A6">43.14</p><p class="label">TorchScript through Triton</p></div>
-<p class="small">Images per second, one client, GPU shared with three trainings.</p>
+<div class="stat" style="--i:0; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px">xx.xx</p><p class="label">TensorRT FP32 through Triton</p></div>
+<div class="stat" style="--i:1; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px; color:#8C96A6">xx.xx</p><p class="label">Eager PyTorch in the process</p></div>
+<div class="stat" style="--i:2; padding:24px 28px; gap:8px"><p class="number" style="font-size:72px; color:#8C96A6">xx.xx</p><p class="label">TorchScript through Triton</p></div>
+<p class="small">Images per second, to be tested on an idle GPU.</p>
 </div>
 <div style="flex:1; display:flex; flex-direction:column; gap:16px">
 <div class="figure">
@@ -17,5 +17,5 @@
 <p class="caption">FP16 can be exported but is served unchecked; BF16, INT8 and FP8 are not offered yet.</p>
 </div>
 </div>
-<aside>The three numbers come from run_inference.py on the README classifier at 512 pixels, one client sending one request at a time, measured once on 23 October while three trainings shared the GPU: lower than the model gives alone, and to be measured again on an idle GPU. TensorRT FP32 gave 96.59 images per second, twice the eager PyTorch model in the process and 2.2 times TorchScript through Triton. TensorRT fuses the convolution, batch normalization and ReLU of every block into one kernel and picks the fastest kernels for this GPU. FP16 can be exported but the served engine is not checked against PyTorch; BF16, INT8 and FP8 are not offered yet.</aside>
+<aside>The images per second of the three serving paths are to be tested: the only measurement so far was taken while trainings shared the GPU, so it is left out until the serving benchmark runs on an idle GPU (next steps). TensorRT fuses the convolution, batch normalization and ReLU of every block into one kernel and picks the fastest kernels for this GPU. FP16 can be exported but the served engine is not checked against PyTorch; BF16, INT8 and FP8 are not offered yet.</aside>
 </section>
