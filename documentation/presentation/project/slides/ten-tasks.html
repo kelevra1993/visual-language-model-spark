@@ -10,10 +10,10 @@
 <tr><td>INS</td><td>Instance segmentation</td><td>one image</td><td>boxes and the mask of every object</td></tr>
 <tr><td>KPT</td><td>Keypoint detection</td><td>one image</td><td>objects with their keypoints</td></tr>
 <tr><td>SEG</td><td>Semantic segmentation</td><td>one image</td><td>one class per pixel</td></tr>
-<tr style="background:#EEF5F4"><td>M2O</td><td>Sequence classification</td><td>a sequence of frames</td><td>one class per sequence</td></tr>
-<tr style="background:#EEF5F4"><td>M2M</td><td>Sequence labelling</td><td>a sequence of frames</td><td>one class per frame</td></tr>
-<tr style="background:#EEF5F4"><td>CMP</td><td>Sequence comparison</td><td>a before and an after sequence</td><td>one class per pair</td></tr>
-<tr style="background:#EEF5F4"><td>SEL</td><td>Frame selection</td><td>a sequence of frames</td><td>the frames of every wanted class</td></tr>
+<tr style="background:#0C2A2C"><td>M2O</td><td>Sequence classification</td><td>a sequence of frames</td><td>one class per sequence</td></tr>
+<tr style="background:#0C2A2C"><td>M2M</td><td>Sequence labelling</td><td>a sequence of frames</td><td>one class per frame</td></tr>
+<tr style="background:#0C2A2C"><td>CMP</td><td>Sequence comparison</td><td>a before and an after sequence</td><td>one class per pair</td></tr>
+<tr style="background:#0C2A2C"><td>SEL</td><td>Frame selection</td><td>a sequence of frames</td><td>the frames of every wanted class</td></tr>
 <tr><td>SSL</td><td>Self-supervised</td><td>unlabelled images</td><td>a pre-trained backbone for the others</td></tr>
 </table>
 <aside>Five image tasks, four sequence tasks (shaded), and self-supervised pre-training that initialises the backbone of the others without labels. Each task adds its own dataset, head, losses and metrics; everything else is shared.</aside>

@@ -7,14 +7,14 @@
 <img src="/_blob/155fcf9f0d9c94a3e271f69b953ee422" alt="Timeline of a 1,500-iteration classification run: a console summary every 10 iterations, a checkpoint every 250, a test evaluation every 500; the configuration, data record, label dictionary and MLflow run written at the start" style="width:100%; height:100%; object-fit:contain">
 </div>
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 48px">
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">training_configuration.yaml</span> settings of the last start</p>
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">Results.txt</span> report of every evaluated checkpoint</p>
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">data.json</span> class counts, SHA-256 of labels and images</p>
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">Evaluation/</span> files of every test evaluation</p>
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">Weights/</span> weights, optimizer state, averaged weights</p>
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">Checkpoint_Evaluation/</span> evaluations run later</p>
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">Tensorboard/</span> train, validation and test curves</p>
-<p class="small"><span class="mono" style="color:#172033; font-weight:600">mlflow_run.json</span> its MLflow run, tracking on</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">training_configuration.yaml</span> settings of the last start</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">Results.txt</span> report of every evaluated checkpoint</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">data.json</span> class counts, SHA-256 of labels and images</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">Evaluation/</span> files of every test evaluation</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">Weights/</span> weights, optimizer state, averaged weights</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">Checkpoint_Evaluation/</span> evaluations run later</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">Tensorboard/</span> train, validation and test curves</p>
+<p class="small"><span class="mono" style="color:#E8E8E8; font-weight:600">mlflow_run.json</span> its MLflow run, tracking on</p>
 </div>
 <aside>Every training writes to experiment_folder/run name, so a run can be audited, resumed or compared from its folder alone. The timeline is the classification run of the README images: a console summary every 10 iterations, a checkpoint every 250 and a test evaluation every 500, each set by its own key. The folder keeps the configuration of the last start, data.json with the class counts and the SHA-256 of the labels and images of every split, the checkpoints with their optimizer state and moving average of the weights, the TensorBoard curves, Results.txt with the report of every evaluated checkpoint, Evaluation/ with the files of each evaluation, Checkpoint_Evaluation/ for evaluations run later with evaluate_checkpoint.py, and mlflow_run.json when MLflow tracking is on.</aside>
 </section>
