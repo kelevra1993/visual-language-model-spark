@@ -166,7 +166,8 @@ scenes:
       - {text: "SSL: a backbone learnt without labels, for every other task"}
       - {text: "Pick the task from the question: per image, object, pixel, sequence, frame or pair"}
       - {text: "Everything around the task is shared"}
-      - {text: "Next: the foundations series, then the series of your task"}
+      - {text: "Next: the foundations series, the series of your task, then deployment"}
     narration:
       - "To recap: start from the question you need answered, and the task follows; everything around the task is shared."
-      - "The foundations series comes next, with what every task shares, then each task has its own series, from its data to its deployment."
+      - "The foundations series comes next, with what every task shares, then each task has its own series, from its data to its export."
+      - "A last series, deployment, exports the trained models, serves them with Triton and compares their serving formats."
