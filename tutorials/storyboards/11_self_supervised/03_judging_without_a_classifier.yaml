@@ -210,12 +210,12 @@ scenes:
         source: {file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml, keys: [Backbone.pretrained.experiment_folder, Backbone.pretrained.iteration, Backbone.pretrained.freeze], comments: false}
         highlights:
           - {key: Backbone.pretrained.experiment_folder, sentences: [3]}
-      - {type: box, box: [1060, 450, 1720, 700], text: "same modules and normalization,\nthe same blocks or the first ones,\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: box, box: [1060, 450, 1720, 700], text: "same modules and normalization,\nthe same, fewer or more blocks,\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
     narration:
       - "The export wraps the trained model in the inference encoder, served by Triton as the image encoder: float32 BGR images of {{self_supervised.run.image_size}} pixels in, L2-normalized representations of {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} values out, so that a dot product is a cosine similarity."
       - "Next to the model, the export also writes the input contract of the run: how a photo is resized, padded and laid out before the encoder takes it."
       - "The projection head is not in the graph: the export serves the representation, for similarity searches and nearest neighbour classifications."
-      - "When the goal is to start another task from this backbone, give the run folder as the experiment folder of its backbone pre-trained settings; its modules and normalization must be those of this run, its blocks the same or the first of them, and only the backbone is loaded."
+      - "When the goal is to start another task from this backbone, give the run folder as the experiment folder of its backbone pre-trained settings; its modules and normalization must be those of this run, its blocks the same, the first of them, or them followed by new random blocks, and only the backbone is loaded."
 
   - kind: text_panel
     title: "Pitfalls"

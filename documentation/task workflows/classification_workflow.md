@@ -357,11 +357,14 @@ main()
 │       ├── initialise_pretrained_components()
 │       │       Only acts when Backbone.pretrained or ClassificationHead.pretrained name another run (experiment_folder
 │       │       not null): loads its trained weights into the component and freezes it if asked. A run from scratch does
-│       │       nothing here, and a run that resumes from its own checkpoint does not reload the source run.
+│       │       nothing here, and a run that resumes from its own checkpoint does not reload the source run. A backbone
+│       │       deeper than its source backbone loads its first blocks only (loaded_backbone_blocks), the next ones
+│       │       staying random and never frozen.
 │       ├── build_optimizer()
 │       │       Creates Adam, AdamW or SGD (Nesterov, momentum 0.9) over the model parameters, with the learning rate
 │       │       and the weight decay of the configuration. Every transferred component that is not frozen gets its own
-│       │       parameter group at learning rate x learning_rate_multiplier. base_learning_rates keeps the starting rate
+│       │       parameter group at learning rate x learning_rate_multiplier (only the loaded blocks of a backbone deeper
+│       │       than its source backbone). base_learning_rates keeps the starting rate
 │       │       of every group for the schedule. With Optimization.exponential_moving_average.activated, the
 │       │       ExponentialMovingAverage is then created: a copy of the model, never trained, averaging its weights.
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
@@ -1046,7 +1049,7 @@ class with  722 images: 1271167 / (1000 x  722) = 1.7606     <- the largest weig
 ```
 
 ### Step 2.19 — `initialise_pretrained_components()`
-This is the transfer learning step. For each of the `Backbone` and `ClassificationHead` sections whose `pretrained.experiment_folder` is not `null`, it loads the trained weights of that other run into the component, and freezes it (or only the scale and shift of the normalization layers of the backbone) if asked. It raises an error if every parameter ends up frozen, since nothing would be learned. When a run resumes from its own checkpoint, the source run is not loaded again: the checkpoint already holds the components as they were trained.
+This is the transfer learning step. For each of the `Backbone` and `ClassificationHead` sections whose `pretrained.experiment_folder` is not `null`, it loads the trained weights of that other run into the component, and freezes it (or only the scale and shift of the normalization layers of the backbone) if asked. It raises an error if every parameter ends up frozen, since nothing would be learned. When a run resumes from its own checkpoint, the source run is not loaded again: the checkpoint already holds the components as they were trained. A backbone deeper than its source backbone (the source blocks being its first blocks) loads those blocks only, its next blocks keeping their random weights; `loaded_backbone_blocks` counts them, from the configuration of the source run for a new run and from the `pretrained_backbone_blocks` of the last checkpoint for a resumed one, and only these blocks are frozen (`get_transferred_part()`).
 
 A component is read from the averaged weights of the source checkpoint when the source run kept a moving average and this run has `Optimization.exponential_moving_average.activated`, and from its trained weights otherwise (`read_checkpoint_model_state()`), the console printing which ones. The head may also have more classes than its source run: `prepare_class_layers()` compares the class names of both runs, those of the source run read from the `classes` of its `data.json` (`read_source_class_names()`, or its `class_names` for a run written before the classes were counted): the source classes must be the first ones of this run, in the same order. Then `extend_class_layers()` copies the rows of the source classes into the first rows of the head of this run, the new classes keeping the random rows the head was built with.
 
@@ -1067,7 +1070,7 @@ pretrained_checkpoint_paths                     = {'Backbone': None, 'Classifica
 ```
 
 ### Step 2.20 — `build_optimizer()`
-This creates the optimizer chosen by `Optimization.optimizer` (`adam`, `adamw` or `sgd` with Nesterov momentum 0.9) over the parameters of the model, with the learning rate of the experiment and `Optimization.weight_decay`. Every transferred component that is not frozen gets its own parameter group at the learning rate times its `learning_rate_multiplier`, so it can learn at another speed. The group exists even with a multiplier of 1, so that the multiplier, which gives no token in the run name, can change when the run is resumed without changing the groups saved in its checkpoints. The trainer then keeps `base_learning_rates`, the rate of every group, which the schedule multiplies at every step (Step 3.22).
+This creates the optimizer chosen by `Optimization.optimizer` (`adam`, `adamw` or `sgd` with Nesterov momentum 0.9) over the parameters of the model, with the learning rate of the experiment and `Optimization.weight_decay`. Every transferred component that is not frozen gets its own parameter group at the learning rate times its `learning_rate_multiplier`, so it can learn at another speed; for a backbone deeper than its source backbone, only its loaded blocks join that group, its next blocks learning at the learning rate of the run with the new layers. The group exists even with a multiplier of 1, so that the multiplier, which gives no token in the run name, can change when the run is resumed without changing the groups saved in its checkpoints. The trainer then keeps `base_learning_rates`, the rate of every group, which the schedule multiplies at every step (Step 3.22).
 
 With `Optimization.exponential_moving_average.activated`, `BaseTrainer.__init__()` then creates an `ExponentialMovingAverage` (`vision_training/trainers/weight_averaging.py`): a copy of the model, kept in `eval()` mode without gradients, updated after every optimizer step (Step 3.22) with `ema_weights = decay × ema_weights + (1 − decay) × current_weights` and evaluated next to the trained weights (Step 4.1). It is created after the transferred components are loaded, so that it starts from their weights.
 

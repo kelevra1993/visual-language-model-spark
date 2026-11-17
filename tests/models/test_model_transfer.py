@@ -21,10 +21,13 @@ from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
-from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, compare_component_configurations,
-                                                   disable_pretrained_settings, freeze_batch_normalization_statistics,
-                                                   freeze_component, load_pretrained_component,
-                                                   load_segmentation_class_layers)
+from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
+                                                   compare_component_configurations, count_loaded_backbone_blocks,
+                                                   count_shared_backbone_blocks, disable_pretrained_settings,
+                                                   find_backbone_block_index, freeze_batch_normalization_statistics,
+                                                   freeze_component, freeze_normalization_parameters,
+                                                   load_pretrained_component, load_segmentation_class_layers,
+                                                   select_transferred_part)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import save_checkpoint
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
@@ -36,6 +39,10 @@ from tests.fixtures.configuration_fixtures import (get_classification_model_conf
 # Pretrained settings of a component trained from random weights, and the normalization flag of the backbone
 NO_TRANSFER = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
 NO_BACKBONE_TRANSFER = {**NO_TRANSFER, "freeze_normalization_parameters": False}
+
+# Blocks of the shorter source backbone of the transfers into a deeper backbone, the first 7 of the 9 blocks of the
+# detection fixture
+SHORTER_SOURCE_BLOCKS = 7
 
 # Class names of the classification-like source runs of 3 classes, and of the classes a run adds after them
 SOURCE_CLASS_NAMES = ["square", "circle", "triangle"]
@@ -312,6 +319,177 @@ def test_components_of_a_run_holding_the_fixed_settings_are_transferred(tmp_path
                                   model_configuration=point_to_source_run(configuration=configuration,
                                                                           section_name="Backbone",
                                                                           source_folder=tmp_path / "other_source_run"))
+
+
+def build_deeper_backbone_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Builds the configurations of a classifier whose backbone of 9 residual blocks with batch normalization is deeper
+    than the backbone of its source classifier, made of its first SHORTER_SOURCE_BLOCKS blocks, the max pooling after
+    the last block differing (it has no weights).
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The configuration of the source classifier, and the configuration of the
+            deeper classifier receiving its backbone.
+    """
+    detection_configuration, _, _ = get_detection_model_configuration()
+    target_configuration = get_classifier_configuration(detection_configuration=detection_configuration)
+    target_configuration["Backbone"]["normalization"]["feature_map_normalization"] = "batch"
+    target_configuration["Backbone"]["modules"]["residual_nets"] = True
+    source_configuration = copy.deepcopy(target_configuration)
+    source_configuration["Backbone"]["convolutions"] = dict(
+        list(target_configuration["Backbone"]["convolutions"].items())[:SHORTER_SOURCE_BLOCKS])
+    source_configuration["Backbone"]["last_max_pooling"] = not target_configuration["Backbone"]["last_max_pooling"]
+    return source_configuration, target_configuration
+
+
+def test_shorter_backbone_initialises_the_first_blocks_of_a_deeper_backbone(tmp_path: Path,
+                                                                           capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a backbone deeper than the backbone of its source run takes the source blocks as its first blocks,
+    exactly, while its next blocks keep the random initialisation it was built with, the console naming them, and that
+    the trainer is told how many blocks were loaded.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration, target_configuration = build_deeper_backbone_configurations()
+    device, dtype = torch.device("cpu"), torch.float32
+    torch.manual_seed(seed=0)
+    source_classifier = ImageClassifier(configuration=source_configuration, device=device, dtype=dtype)
+    write_source_run(run_folder=tmp_path / "shorter_run", configuration=source_configuration,
+                     model=source_classifier)
+    torch.manual_seed(seed=1)
+    target_classifier = ImageClassifier(configuration=target_configuration, device=device, dtype=dtype)
+    target_backbone_before = copy.deepcopy(target_classifier.backbone.state_dict())
+
+    transfer_configuration = point_to_source_run(configuration=target_configuration, section_name="Backbone",
+                                                 source_folder=tmp_path / "shorter_run")
+    load_pretrained_component(component=target_classifier.backbone, section_name="Backbone", device=device,
+                              model_configuration=transfer_configuration)
+
+    # The loaded blocks hold the source tensors, the next blocks their own random tensors
+    source_backbone_state = source_classifier.backbone.state_dict()
+    for tensor_name, tensor_value in target_classifier.backbone.state_dict().items():
+        block_index = find_backbone_block_index(tensor_name=tensor_name)
+        assert block_index is not None, tensor_name
+        expected_value = (source_backbone_state[tensor_name] if block_index < SHORTER_SOURCE_BLOCKS
+                          else target_backbone_before[tensor_name])
+        assert torch.equal(input=tensor_value, other=expected_value), tensor_name
+    assert ("The Backbone Of This Run Starts With The 7 Blocks Of The Pretrained Backbone, Its Blocks 8 To 9 Keeping "
+            "Random Weights" in capsys.readouterr().out)
+    assert count_loaded_backbone_blocks(model_configuration=transfer_configuration) == SHORTER_SOURCE_BLOCKS
+
+    # A backbone trained from random weights, or loaded whole from a source backbone of its depth, has no random block
+    no_transfer_configuration = copy.deepcopy(transfer_configuration)
+    no_transfer_configuration["Backbone"]["pretrained"] = NO_BACKBONE_TRANSFER
+    assert count_loaded_backbone_blocks(model_configuration=no_transfer_configuration) is None
+    write_source_run(run_folder=tmp_path / "same_depth_run", configuration=target_configuration,
+                     model=target_classifier)
+    assert count_loaded_backbone_blocks(model_configuration=point_to_source_run(
+        configuration=target_configuration, section_name="Backbone", source_folder=tmp_path / "same_depth_run")) is None
+
+
+@pytest.mark.parametrize(argnames=["source_blocks", "target_blocks", "changed_setting", "expected_shared_blocks",
+                                   "expected_difference"],
+                         argvalues=[(9, 9, None, None, None), (7, 9, None, 7, None), (9, 7, None, 7, None),
+                                    (7, 9, "channels", None, "'Backbone.convolutions' is"),
+                                    (7, 9, "modules", 7, "'Backbone.modules' is"),
+                                    (9, 9, "last_max_pooling", None, "'Backbone.last_max_pooling' is")])
+def test_backbones_sharing_their_first_blocks_are_compared_on_them(source_blocks: int, target_blocks: int,
+                                                                   changed_setting: Optional[str],
+                                                                   expected_shared_blocks: Optional[int],
+                                                                   expected_difference: Optional[str]) -> None:
+    """
+    Verifies the architecture check of two backbones of different depths: a backbone shorter or deeper than its
+    source backbone shares the blocks of the shorter one when they are the first blocks of the other, the pooling
+    after the last block being free then, while backbones whose first blocks differ, whose modules differ, or of the
+    same depth with another last pooling are refused.
+
+    Args:
+        source_blocks (int): The number of blocks of the source backbone, the first blocks of the fixture.
+        target_blocks (int): The number of blocks of the receiving backbone.
+        changed_setting (Optional[str]): The setting of the receiving backbone changed: "channels" for the channels of
+            its second block, "modules" for its squeeze and excitation, "last_max_pooling", or None.
+        expected_shared_blocks (Optional[int]): The number of shared blocks expected, None for none.
+        expected_difference (Optional[str]): The start of the reported difference, None when the backbones fit.
+    """
+    # Backbones made of the first blocks of the fixture, the pooling after the last block differing between depths
+    detection_configuration, _, _ = get_detection_model_configuration()
+    blocks = list(detection_configuration["Backbone"]["convolutions"].items())
+    source_backbone = copy.deepcopy(detection_configuration["Backbone"])
+    target_backbone = copy.deepcopy(detection_configuration["Backbone"])
+    source_backbone["convolutions"], target_backbone["convolutions"] = dict(blocks[:source_blocks]), dict(
+        blocks[:target_blocks])
+    if source_blocks != target_blocks:
+        target_backbone["last_max_pooling"] = not source_backbone["last_max_pooling"]
+    # One setting of the receiving backbone changed
+    if changed_setting == "channels":
+        target_backbone["convolutions"]["2"] = [2, 48]
+    elif changed_setting == "modules":
+        target_backbone["modules"]["squeeze_and_excite"] = True
+    elif changed_setting == "last_max_pooling":
+        target_backbone["last_max_pooling"] = not source_backbone["last_max_pooling"]
+
+    assert count_shared_backbone_blocks(source_backbone_configuration=source_backbone,
+                                        target_backbone_configuration=target_backbone) == expected_shared_blocks
+    differences = compare_component_configurations(section_name="Backbone",
+                                                   source_configuration={"Backbone": source_backbone},
+                                                   target_configuration={"Backbone": target_backbone})
+    if expected_difference is None:
+        assert differences == []
+    else:
+        assert any(difference.startswith(expected_difference) for difference in differences), differences
+
+
+def test_only_the_loaded_blocks_of_a_deeper_backbone_are_frozen() -> None:
+    """
+    Verifies the freezing of a backbone deeper than its source backbone, as the trainer applies it to its transferred
+    part: the loaded blocks keep their weights and batch normalization statistics during a training step while the
+    next blocks learn and update their statistics, the scale and shift of the normalization layers are fixed in the
+    loaded blocks only, and a component loaded whole is its own transferred part.
+    """
+    _, target_configuration = build_deeper_backbone_configurations()
+    device, dtype = torch.device("cpu"), torch.float32
+    torch.manual_seed(seed=0)
+    classifier = ImageClassifier(configuration=target_configuration, device=device, dtype=dtype)
+    assert select_transferred_part(component=classifier.backbone, number_loaded_blocks=None) is classifier.backbone
+    loaded_blocks = select_transferred_part(component=classifier.backbone, number_loaded_blocks=SHORTER_SOURCE_BLOCKS)
+    freeze_component(component=loaded_blocks)
+    backbone_state_before = copy.deepcopy(classifier.backbone.state_dict())
+
+    # Training mode for the model, evaluation mode for the batch normalization of the loaded blocks, as in
+    # BaseTrainer.set_training_mode
+    classifier.train()
+    freeze_batch_normalization_statistics(component=loaded_blocks)
+    optimizer = torch.optim.Adam(params=classifier.parameters(), lr=0.1)
+    loss = classifier(input_tensor=torch.rand(size=(2, 3, 512, 512)) * 255.0,
+                      labels=torch.tensor(data=[0, 1]))["classification_loss"]
+    loss.backward()
+    optimizer.step()
+
+    # Loaded blocks unchanged, next blocks learning, their statistics included
+    for tensor_name, tensor_value in classifier.backbone.state_dict().items():
+        unchanged = torch.equal(input=tensor_value, other=backbone_state_before[tensor_name])
+        if find_backbone_block_index(tensor_name=tensor_name) < SHORTER_SOURCE_BLOCKS:
+            assert unchanged, tensor_name
+        elif tensor_name.endswith((".weight", ".running_mean")):
+            assert not unchanged, tensor_name
+    for block_index, block in enumerate(classifier.backbone.convolution_blocks):
+        assert all(parameter.requires_grad == (block_index >= SHORTER_SOURCE_BLOCKS)
+                   for parameter in block.parameters())
+
+    # Fixed normalization parameters in the loaded blocks of a fresh backbone only, the convolutions learning
+    torch.manual_seed(seed=0)
+    classifier = ImageClassifier(configuration=target_configuration, device=device, dtype=dtype)
+    freeze_normalization_parameters(component=select_transferred_part(component=classifier.backbone,
+                                                                      number_loaded_blocks=SHORTER_SOURCE_BLOCKS))
+    normalization_names = [module_name for module_name, module in classifier.backbone.named_modules()
+                           if isinstance(module, NORMALIZATION_LAYER_TYPES)]
+    for parameter_name, parameter_value in classifier.backbone.named_parameters():
+        is_normalization = parameter_name.rsplit(".", 1)[0] in normalization_names
+        is_loaded = find_backbone_block_index(tensor_name=parameter_name) < SHORTER_SOURCE_BLOCKS
+        assert parameter_value.requires_grad == (not (is_normalization and is_loaded)), parameter_name
 
 
 def test_pretrained_settings_are_disabled() -> None:

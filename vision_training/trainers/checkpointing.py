@@ -1,8 +1,8 @@
 """
 Checkpoint files of the training runs: the 'Weights/Iteration_<iteration>' layout, the registry of saved
-iterations, the save protected from keyboard interrupts and the load. Used by the general trainer to save and resume,
-and by the checkpoint evaluation, the model transfer, the exports and scripts/evaluation/evaluate_checkpoint.py to
-find and read the weights of a run.
+iterations, the save protected from keyboard interrupts, the load and the read of one stored value. Used by the
+general trainer to save and resume, and by the checkpoint evaluation, the model transfer, the exports and
+scripts/evaluation/evaluate_checkpoint.py to find and read the weights of a run.
 """
 
 import os
@@ -270,6 +270,25 @@ def load_checkpoint(weights_directory: Path, iteration: int, device: torch.devic
     """
     return torch.load(f=get_checkpoint_file(weights_directory=weights_directory, iteration=iteration),
                       map_location=device, weights_only=True)
+
+
+def read_checkpoint_value(weights_directory: Path, iteration: int, key_name: str) -> Any:
+    """
+    Reads one value stored with the weights of a checkpoint, the file being mapped in memory so that its tensors are
+    not read, for the settings a resumed run needs before it loads its checkpoint: the backbone blocks it loaded from
+    a shorter source backbone, which its freezing and its optimizer groups follow while the source run may be gone.
+
+    Args:
+        weights_directory (Path): The 'Weights' folder of the run.
+        iteration (int): The iteration of the checkpoint.
+        key_name (str): The key of the value in the checkpoint, e.g. 'pretrained_backbone_blocks'.
+
+    Returns:
+        Any: The value, None when the checkpoint was saved before the value was stored.
+    """
+    checkpoint = torch.load(f=get_checkpoint_file(weights_directory=weights_directory, iteration=iteration),
+                            map_location="cpu", weights_only=True, mmap=True)
+    return checkpoint[key_name] if key_name in checkpoint else None
 
 
 def get_checkpoint_path(experiment_folder: Path, iteration: Optional[int]) -> Path:

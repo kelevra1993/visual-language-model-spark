@@ -229,7 +229,7 @@ The settings defining the layers must match, which is checked at launch. The ima
 
 | Component | Settings that must match |
 |---|---|
-| Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling`; a backbone whose `convolutions` are the first blocks of the source ones (the stem of a keypoint detector) loads those blocks, its `last_max_pooling` free |
+| Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling`; when one backbone's `convolutions` are the first blocks of the other's (a shorter stem of a keypoint detector, or a deeper backbone), the shared blocks are loaded and `last_max_pooling` is free |
 | Classification head | `fully_connected`, `fully_connected_normalization`, and the image size after a `flatten` pooling |
 | Transformer with positional embedding | `maximum_sequence_length` |
 | Region proposal heads | detection levels, `region_proposal` and anchors per position of every level, normalization, `Neck.type` `none` in both runs |
@@ -239,6 +239,7 @@ The settings defining the layers must match, which is checked at launch. The ima
 | Keypoint head | `KeypointHead.higher_resolution` and `hidden_width`, the `HRNet.base_width`, and with the higher resolution branch its `blocks_per_branch`, `modules` and `normalization` (the normalization also with a hidden width above 0) |
 
 - An object detection run can thus initialise an instance segmentation run, whose mask heads train alone with the other components frozen.
+- A backbone deeper than its source backbone starts with the source blocks; its next blocks keep their random weights and learn at the learning rate of the run, in the parameter group of the new layers. `freeze` (with the batch statistics), `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only. The console prints `Starts With The <n> Blocks Of The Pretrained Backbone` and a `Loaded Blocks` line, and every checkpoint stores the number of loaded blocks (`pretrained_backbone_blocks`), so that a resumed run freezes and groups the same blocks even once its source run is gone.
 - A resumed run does not load the pretrained component again.
 - The averaged weights of the source are loaded when the source kept a [moving average](#moving-average-of-the-weights) and the new run has one on. The console says which weights were loaded.
 - In the run name, `PT` marks a pretrained component and `FRZ` a frozen one, prefixed by the letter of the section (`RPT`, `RFRZ`); `load_class_layers` adds `DCL`. The `learning_rate_multiplier` gives no token.
