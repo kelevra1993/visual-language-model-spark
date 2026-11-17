@@ -1,5 +1,5 @@
-# Foundations, chapter 1: what the repository is, where its parts live, how a run is installed, configured, named and
-# launched, and what it prints and writes. Coordinates of the html scenes are in pixels of the content area (1760 x 740,
+# Foundations, chapter 1: what the repository is, where its parts live, how a run is installed (with uv, or in the
+# trainer image of the Dockerfile), configured, named and launched, and what it prints and writes. Coordinates of the html scenes are in pixels of the content area (1760 x 740,
 # origin at its top left corner); the figures named figures:foundations/... are made by tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
@@ -25,7 +25,7 @@ scenes:
     literal_numbers: ["1"]
     narration:
       - "This series is for engineers who know deep learning and need to know this repository: what it decides for you, where the code lives, and which settings matter."
-      - "This first chapter maps the {{foundations.repository.task_count:words}} tasks, installs the environment, and follows one synthetic run from its configuration file to its run folder."
+      - "This first chapter maps the {{foundations.repository.task_count:words}} tasks, installs the environment or builds its container image, and follows one synthetic run from its configuration file to its run folder."
 
   - kind: html
     page: diagram
@@ -92,6 +92,7 @@ scenes:
           - "documentation/  benchmark, audit, workflows"
           - "  reference/    the details of the README"
           - "tutorials/      these videos"
+          - "Dockerfile      trainer image"
           - "README.md       commands, main settings"
     narration:
       - "The training framework is one package: its main module is the entry point of every training, and every task adds its trainer, dataset, model, loss and metrics to the matching folders."
@@ -110,8 +111,30 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
     narration:
       - "uv sync installs the environment pinned by the lock file, and every script then runs as a module from the repository root."
-      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it in a few minutes; like every script but the training, it is set in its main block."
+      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it in a few minutes; like almost every script but the training, it is set in its main block."
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
+
+  # The header of the Dockerfile lists its stages and its build and run commands, so that the excerpt follows the file
+  - kind: code
+    title: "The trainer image"
+    code_reference: "Dockerfile"
+    syntax: plain
+    source:
+      file: Dockerfile
+      start: "^# Multi-stage build"
+      end: "^#   args:"
+    highlights:
+      - {match: "^# Multi-stage build", sentences: [0]}
+      - {match: "^#   (uv|base|builder) ", sentences: [1]}
+      - {match: "^#   (test|runtime) ", sentences: [2]}
+      - {match: "docker buildx build", sentences: [3]}
+      - {match: "^# Start a training|^#   args:", sentences: [4]}
+    narration:
+      - "Should a training run in a container, on the GPU pods of a cloud Kubernetes cluster or on the DGX Spark, the Dockerfile of the repository root builds the trainer in named stages."
+      - "The base stage holds Ubuntu, the libraries OpenCV loads and an unprivileged user, and the builder stage adds Python and the locked environment, without the development and data set groups."
+      - "The test stage adds pytest and the tests, built only when targeted, and the runtime stage, the default, keeps the interpreter, the environment and the code, without uv nor the tests."
+      - "There is no CUDA image underneath: the CUDA libraries come with the torch wheels and the driver from the machine, and each machine builds the image for its own architecture."
+      - "A pod passes the training command as the arguments of the container, so that its init process stays first and forwards the stop signal, which the trainer handles as Control C."
 
   - kind: yaml
     title: "One file defines the run"
@@ -228,6 +251,7 @@ scenes:
     items:
       - {text: "{{foundations.repository.task_count}} tasks: one backbone, one loop, one configuration format, one report"}
       - {text: "uv sync, then every script as a module from the repository root"}
+      - {text: "The Dockerfile builds the trainer image for the cloud and the Spark"}
       - {text: "One YAML file per run: every key required, all checked at launch"}
       - {text: "Iterations, not epochs"}
       - {text: "The run name encodes the model; run_name_suffix starts a new run"}

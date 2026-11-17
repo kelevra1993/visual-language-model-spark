@@ -130,15 +130,13 @@ scenes:
 
   - kind: terminal
     title: "TensorBoard and MLflow"
-    # The first two of the three log folders, Train and Validation
-    literal_numbers: [two]
     lines:
       - {role: comment, text: "# Curves of one run, on http://localhost:6006"}
       - {role: command, text: "uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard"}
       - {role: comment, text: "# Every tracked run of an experiment folder, on http://localhost:5000"}
       - {role: command, text: "uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db"}
     narration:
-      - "TensorBoard reads the Train, Validation and Test folders of the run: the first two at every iteration, the test scalars and sample images at every evaluation."
+      - "TensorBoard reads the Train, Validation and Test folders of the run: the batch values at the iteration they were measured, the test scalars and sample images at every evaluation."
       - "With tracking on, every run is also an MLflow run in a database of the experiment folder, to compare runs by any setting or metric."
 
   - kind: yaml
