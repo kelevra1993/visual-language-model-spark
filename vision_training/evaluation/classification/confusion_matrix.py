@@ -1,11 +1,13 @@
 """
 Drawing and saving of the confusion matrix of an evaluated checkpoint: the CSV table, always saved in the evaluation
-folder of the checkpoint, and the matplotlib image (with the recall of every true class, the precision of every
-predicted class and the accuracy), saved and logged to TensorBoard when the per-class report is on. Used by the
-classification trainer and the trainers inheriting from it, by the segmentation trainer for its pixels, and by the
-detection trainers for the detections matched to the objects, with a background row and column. Every trainer draws
-the image with in_percent, its shares, recalls, precisions and accuracy written as the percentages of the reports
-("94.03 %") in larger cells for their two decimals; without it the image keeps the earlier "94.0%".
+folder of the checkpoint (the non-zero cells only, 'confusion_cells.csv', for the sparse matrix of a classification
+above MAXIMUM_DENSE_CONFUSION_CLASSES classes), and the matplotlib image (with the recall of every true class, the
+precision of every predicted class and the accuracy), saved and logged to TensorBoard when the per-class report is on,
+drawn from a dense matrix only. Used by the classification trainer and the trainers inheriting from it, by the
+segmentation trainer for its pixels, and by the detection trainers for the detections matched to the objects, with a
+background row and column. Every trainer draws the image with in_percent, its shares, recalls, precisions and accuracy
+written as the percentages of the reports ("94.03 %") in larger cells for their two decimals; without it the image
+keeps the earlier "94.0%".
 """
 
 import csv
@@ -308,10 +310,15 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
 def save_confusion_matrix_table(confusion_matrix: torch.Tensor, class_names: List[str], output_folder: Path) -> Path:
     """
     Saves the confusion matrix of an evaluated checkpoint as a CSV table in its evaluation folder, whatever the
-    per-class report, so that the confusions between classes can be inspected after the training.
+    per-class report, so that the confusions between classes can be inspected after the training: a dense matrix as
+    'confusion_matrix.csv', one row per true class and one column per predicted class; a sparse one (the
+    classification above MAXIMUM_DENSE_CONFUSION_CLASSES classes) as 'confusion_cells.csv', one row per non-zero cell
+    (true_class, predicted_class, count) sorted by true class, then predicted class, a few MB where the dense table of
+    the 21,842 classes of imagenet-merged takes about 955 MB, its counts adding up to the evaluated samples.
 
     Args:
-        confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
+        confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes),
+            dense or sparse.
         class_names (List[str]): The name of every class.
         output_folder (Path): The evaluation folder of the checkpoint, created if needed.
 
@@ -319,6 +326,17 @@ def save_confusion_matrix_table(confusion_matrix: torch.Tensor, class_names: Lis
         Path: The path of the table.
     """
     output_folder.mkdir(parents=True, exist_ok=True)
+
+    # Long table of the non-zero cells of a sparse matrix, in the order of its coalesced indices
+    if confusion_matrix.is_sparse:
+        table_path = output_folder / "confusion_cells.csv"
+        cells = confusion_matrix.coalesce()
+        with open(file=table_path, mode="w", newline="") as table_file:
+            table_writer = csv.writer(table_file)
+            table_writer.writerow(["true_class", "predicted_class", "count"])
+            for (true_index, predicted_index), count in zip(cells.indices().t().tolist(), cells.values().tolist()):
+                table_writer.writerow([class_names[true_index], class_names[predicted_index], count])
+        return table_path
 
     # Table: one row per true class, one column per predicted class
     table_path = output_folder / "confusion_matrix.csv"

@@ -289,7 +289,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   └── compute_nearest_neighbour_results()  (with at least one labelled test image)
 │       ├── encode_reference_images()                 reference training images, encoded with the evaluated weights
 │       ├── compute_nearest_neighbour_predictions()   weighted k-NN vote of the reference images
-│       ├── compute_confusion_matrix() + compute_metrics_from_confusion_matrix()
+│       ├── compute_confusion_matrix() + compute_metrics_from_confusion_matrix()   sparse above 1,000 classes
 │       ├── compute_clopper_pearson_intervals()       exact 95 % interval of the recall of every class
 │       ├── build_class_metrics_table() + build_recall_interval_table()   Per Class k-NN Metrics and Recall tables
 │       └── write_class_metrics_file()                class_metrics.csv
@@ -1087,7 +1087,7 @@ Classifies every labelled test image by its neighbours among the reference image
 - `encode_reference_images()` encodes the reference training images chosen at the start (Step 2.1, `build_reference_dataloader()`) with the weights being evaluated, trained or averaged, through `predict_batch()` like the test images. A test image is never compared with the other test images, so a test split of one image per class (ImageNet-22k) is scored like any other. Every class of the training split votes, a class without labelled test image being a possible wrong prediction, as for a classifier of every class.
 - The representations are L2-normalized and compared by cosine similarity, in chunks of `SIMILARITY_CHUNK_SIZE` (1024) test images.
 - The k = min(20, M) most similar reference images vote for their class with the weight exp(similarity / `NEAREST_NEIGHBOUR_TEMPERATURE`), the temperature being 0.07, the votes being summed per class (`scatter_add`); the class with the most votes is the prediction.
-- `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class; `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py` gives the exact (Clopper-Pearson) 95 % confidence interval of every recall from the true positives and the labelled test images of the class, the images being independent (`classification_workflow.md`, Step 4.14); `write_class_metrics_file()` saves them in `class_metrics.csv`, the bounds as `recall_lower` and `recall_upper` after `recall`.
+- `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class, from the non-zero cells of the matrix only above 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES`, e.g. the 21,841 classes of ImageNet-22k, whose dense matrix would take 3.8 GB), with the same values (`classification_workflow.md`, Step 4.9); `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py` gives the exact (Clopper-Pearson) 95 % confidence interval of every recall from the true positives and the labelled test images of the class, the images being independent (`classification_workflow.md`, Step 4.14); `write_class_metrics_file()` saves them in `class_metrics.csv`, the bounds as `recall_lower` and `recall_upper` after `recall`.
 
 **Example: image 0 of the test split at iteration 12** (label 6, plus_sign; captured with the leave-one-out vote, its neighbours being other test images)
 ```text

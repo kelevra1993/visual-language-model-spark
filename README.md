@@ -348,7 +348,7 @@ It writes into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<crite
   <img src="README/checkpoint_evaluation_folder.png" width="100%" />
 </p>
 
-To find where a classifier fails, read its confusion matrix (percent of every true class, precision and recall in the margins), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
+To find where a classifier fails, read its confusion matrix (percent of every true class, precision and recall in the margins; above 1,000 classes no image is drawn, and `confusion_cells.csv` lists the non-zero cells as `true_class,predicted_class,count` in place of `confusion_matrix.csv`), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
 
 <p align="center">
   <img src="README/confusion_matrix.png" width="80%" />

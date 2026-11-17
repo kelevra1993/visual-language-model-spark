@@ -34,7 +34,8 @@ from vision_training.data.split_description import count_split_samples
 from vision_training.evaluation.classification.class_metrics_report import (build_class_metric_scalars,
                                                                              build_class_metrics_rows,
                                                                              build_class_metrics_table)
-from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
+from vision_training.evaluation.classification.classification_metrics import (MAXIMUM_DENSE_CONFUSION_CLASSES,
+                                                                              compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
@@ -407,7 +408,9 @@ class SelfSupervisedTrainer(BaseTrainer):
         evaluated weights (encode_reference_images), and scores the classification like a classifier: accuracy,
         balanced accuracy, macro F1, and the precision, recall (with its exact confidence interval over the labelled
         test images of the class) and F1 of every class, saved in class_metrics.csv and shown in the per-class table,
-        the per-class recall table and the scalars, the rates of both tables written as percentages ("94.03 %").
+        the per-class recall table and the scalars, the rates of both tables written as percentages ("94.03 %"). Above
+        MAXIMUM_DENSE_CONFUSION_CLASSES classes (ImageNet-22k, imagenet-merged), the metrics come from the non-zero
+        cells of the confusion matrix, which is never counted dense.
 
         Args:
             representations (torch.Tensor): The [N, F] representations of the labelled test images.
@@ -425,8 +428,10 @@ class SelfSupervisedTrainer(BaseTrainer):
         predicted_labels = compute_nearest_neighbour_predictions(
             query_representations=representations, reference_representations=reference_representations,
             reference_labels=reference_labels, number_neighbours=self.number_neighbours, number_classes=number_classes)
+        # Metrics from the confusion matrix, its non-zero cells only above MAXIMUM_DENSE_CONFUSION_CLASSES classes
         confusion_matrix = compute_confusion_matrix(predicted_labels=predicted_labels, labels=labels,
-                                                    number_classes=number_classes)
+                                                    number_classes=number_classes,
+                                                    sparse=number_classes > MAXIMUM_DENSE_CONFUSION_CLASSES)
         class_metrics = compute_metrics_from_confusion_matrix(confusion_matrix=confusion_matrix)
         global_metrics = {"k-NN Accuracy": class_metrics["accuracy"],
                           "k-NN Balanced Accuracy": class_metrics["balanced_accuracy"],

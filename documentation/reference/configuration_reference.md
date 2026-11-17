@@ -99,8 +99,9 @@ Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`
 | OKS size and recall tables; `Keypoint Accuracy Per Keypoint` table | KPT | every evaluation; the keypoint table with `per_class_report` |
 | `Mean Average Precision By Object Size (Area)`, `Mean Average Recall` and `Proposal Recall` tables, `proposal_recall.csv` | DET, INS | every evaluation |
 | `class_thresholds.json` | DET, INS, CLS, M2O, M2M, CMP, SEL | every evaluation |
-| `confusion_matrix.csv` | DET, INS, CLS multi-class, M2O, M2M, CMP, SEG, SEL | every evaluation |
-| `confusion_matrix.png` and its Test image | the same | with `per_class_report` |
+| `confusion_matrix.csv` | DET, INS, CLS multi-class, M2O, M2M, CMP, SEG, SEL | every evaluation, up to 1,000 classes for CLS, M2O, M2M, CMP |
+| `confusion_cells.csv`: the non-zero cells of the confusion matrix, one row `true_class,predicted_class,count` each, sorted by true then predicted class | CLS multi-class, M2O, M2M, CMP above 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES`) | every evaluation |
+| `confusion_matrix.png` and its Test image | the tasks of `confusion_matrix.csv` | with `per_class_report`, never with `confusion_cells.csv` |
 | `roc_curves.png`, `precision_recall_curves.png` and their Test images `ROC Curves` and `Precision Recall Curves` | CLS, M2O, M2M, CMP, SEG | with `per_class_report` |
 | `precision_recall_thresholds.png` and its Test image `Precision Recall Thresholds`, the precision-recall curves zoomed on the thresholds of every target precision, each threshold written in the colour of its curve | CLS, M2O, M2M, CMP | with `per_class_report` |
 | `predictions.csv` | CLS, M2O, M2M, CMP | with `save_predictions` |
