@@ -1,0 +1,233 @@
+# Export and deployment, chapter 3: the serving benchmark and what it decided: the rows, models and loads of
+# documentation/architecture_benchmarking/serving_benchmark_plan.md and its drivers, the latency and throughput of every
+# row, the test metric of every served format against the eager model, the float16 overflow of the group offsets of the
+# exported NMS of the detector and its fix (suppress_stacked_groups, DIoU-NMS on boxes in fractions of the image), the
+# server settings (dynamic batching and instances), the batches of the eager detector, and the measurement pitfalls.
+# Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the
+# figures and facts named deployment.* are made by tutorials/figures/deployment/serving_benchmark.py from the committed
+# copies of the results (serving_benchmark_results.csv, serving_benchmark_test_metrics.csv), the plan, and the raw
+# outputs of the detector exported again (~/Data/serving_benchmark_nms_fix, outside_folders of tutorial_sources.yaml).
+series: deployment
+series_title: "Export And Deployment"
+chapter: 3
+title: "The serving benchmark"
+output_name: deployment_03_serving_benchmark
+pace: 1.0
+voice: {name: af_heart, language: en-us}
+figures: [deployment]
+references:
+  - "scripts/deployment/evaluate_served_formats.py · evaluate_row"
+  - "scripts/deployment/benchmark_serving_formats.py · run_perf_analyzer"
+  - "scripts/deployment/benchmark_serving_formats.py · run_client_load"
+  - "scripts/deployment/benchmark_serving_formats.py · wait_for_idle_machine"
+  - "scripts/deployment/benchmark_serving_formats.py · repair_onnx_output_frames"
+  - "vision_training/models/detection/postprocessing.py · suppress_groups_apart"
+  - "vision_training/models/detection/postprocessing.py · suppress_stacked_groups"
+  - "vision_training/models/detection/postprocessing.py · suppress_every_pair_by_distance"
+  - "documentation/architecture_benchmarking/serving_benchmark_results.csv"
+  - "documentation/architecture_benchmarking/serving_benchmark_test_metrics.csv"
+  - "README.md"
+scenes:
+  - kind: title_card
+    heading: "The serving benchmark"
+    subheading: "Every serving path on {{deployment.sweep.model_count:words}} models, and what it changed"
+    footnote: "Export And Deployment · chapter 3"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["3"]
+    narration:
+      - "Which serving path to deploy was decided by measuring them all: speed, memory and test metric, on the idle GPU of the DGX Spark."
+      - "This chapter reads the serving benchmark: its protocol, its results, the detector bug it found in FP16 and its fix, and the server settings it questions."
+
+  - kind: html
+    page: diagram
+    title: "Rows, models and loads"
+    code_reference: "documentation/architecture_benchmarking/serving_benchmark_plan.md"
+    elements:
+      - {type: box, box: [20, 20, 570, 250], text: "CLS · README classifier\n{{deployment.models.CLS.image_size}} pixels, {{deployment.models.CLS.class_count}} classes\na plain classifier\n{{deployment.metric.CLS.evaluated}}", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [605, 20, 1155, 250], text: "DET · detection benchmark\n{{deployment.models.DET.image_size}} pixels, {{deployment.models.DET.class_count}} classes\nNMS inside the model\n{{deployment.metric.DET.evaluated}}", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [1190, 20, 1740, 250], text: "M2M · sequence labeller\n{{deployment.models.M2M.image_size}} pixels, {{deployment.models.M2M.class_count}} classes\nbidirectional LSTM\n{{deployment.metric.M2M.evaluated}}", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [20, 290, 860, 520], text: "rows: eager and TorchScript in the process\nTriton: TorchScript, ONNX Runtime CUDA,\nTensorRT FP32, TensorRT FP16\nas exported: batching on, one instance", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [900, 290, 1740, 520], text: "batch sizes {{deployment.sweep.batch_sizes[0]}}, {{deployment.sweep.batch_sizes[1]}}, {{deployment.sweep.batch_sizes[2]}} · requests in flight {{deployment.sweep.concurrencies[0]}}, {{deployment.sweep.concurrencies[1]}}, {{deployment.sweep.concurrencies[2]}}\nsystem shared memory: perf_analyzer\ngRPC: the tritonclient client\nTensorRT FP16: three more server settings", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+      - {type: box, box: [20, 560, 1740, 720], text: "{{deployment.sweep.measurement_count}} measurements, {{deployment.sweep.failed_count}} failed, no other process on the GPU · then the test split through every row\nevaluate_served_formats.py: the test evaluation of the trainer, its predictions replaced by the requests", font: diagram_small, outline: yellow, appear: 3, highlight: [3, 4]}
+    # The three TensorRT FP16 server settings measured besides the exported one
+    literal_numbers: [three]
+    narration:
+      - "The benchmark covers the three kinds of graphs TensorRT meets in the repository: the README classifier, the reference detector of the detection benchmark with its NMS inside the model, and the bidirectional LSTM of the sequence labelling tutorial."
+      - "Each model runs eager and as TorchScript in the process, then through Triton in the {{deployment.sweep.served_row_count:words}} served formats, with the configuration the export writes."
+      - "Every served row is measured over shared memory with perf analyzer and over gRPC with the client of the repository, at every batch size and number of requests in flight; TensorRT FP16 also gets the other three server settings."
+      - "The sweep made {{deployment.sweep.measurement_count}} measurements, {{deployment.sweep.failed_count:words}} failed, the driver waiting before each one until no other process used the GPU."
+      - "Then evaluate served formats sent the whole test split of each model through every row, scored by the test evaluation of its trainer, so that a faster row is never bought with wrong outputs."
+
+  - kind: code
+    title: "The drivers"
+    code_reference: "scripts/deployment/benchmark_serving_formats.py · run_serving_benchmark"
+    source:
+      file: scripts/deployment/benchmark_serving_formats.py
+      start: "^    # Precision settings, one model repository"
+      end: "^    number_in_process_warmup_iterations = "
+    highlights:
+      - {match: "^    precision_settings = |\"tensorrt_fp32\": |\"tensorrt_fp16\": ", sentences: [0]}
+      - {match: "^    load_groups = |\"server_settings\": \\[\\(False, 1\\)", sentences: [1]}
+      - {match: "^    number_in_process_iterations = |^    number_in_process_warmup_iterations = ", sentences: [2]}
+    narration:
+      - "Benchmark serving formats exports each run once per precision setting, into its own model repository, with the export of the first chapter."
+      - "Its load groups give every row the whole grid with the exported configuration, and the other server settings to TensorRT FP16 at batch {{deployment.sweep.batch_sizes[0]}} only, where several clients sending at once is where they can matter."
+      - "The rows in the process make {{deployment.in_process.timed_calls}} timed calls after {{deployment.in_process.warmup_calls:words}} untimed ones, with a CUDA synchronization after each."
+      - "Both drivers append every measurement to a results file outside the repository and skip what it already holds, so that a stopped sweep restarts where it stopped; the plan commits copies of both results files."
+
+  - kind: image
+    title: "Latency and throughput"
+    code_reference: "documentation/architecture_benchmarking/serving_benchmark_results.csv"
+    image: "figures:deployment/benchmark/serving_speed.png"
+    views:
+      - {box: "{{deployment.figures.speed.p50_view}}", from_sentence: 0}
+      - {box: "{{deployment.figures.speed.throughput_view}}", from_sentence: 2}
+    highlights:
+      - {box: "{{deployment.figures.speed.p50.CLS_box}}", sentences: [0]}
+      - {box: "{{deployment.figures.speed.p50.DET_box}}", sentences: [1]}
+      - {box: "{{deployment.figures.speed.throughput.CLS_box}}", sentences: [2]}
+      - {box: "{{deployment.figures.speed.throughput.DET_box}}", sentences: [3]}
+      - {box: "{{deployment.figures.speed.throughput.M2M_box}}", sentences: [4]}
+    narration:
+      - "With one client sending one image at a time over shared memory, Triton adds latency: the classifier answers in {{deployment.speed.CLS.tensorrt_fp16.p50_batch_1:.1f}} milliseconds with TensorRT FP16 and {{deployment.speed.CLS.torchscript.p50_batch_1:.1f}} with TorchScript, against {{deployment.speed.CLS.eager.p50_batch_1:.1f}} for the eager model in the process."
+      - "The detector takes {{deployment.speed.DET.eager.p50_batch_1:.1f}} milliseconds in the process and {{deployment.speed.DET.tensorrt_fp16.p50_batch_1:.1f}} in FP16, the same compute; only the hatched bars, exported again with the fixed NMS, halve it."
+      - "In batches of {{deployment.sweep.largest_batch_size}}, TensorRT FP16 is the fastest row of every model: {{deployment.speed.CLS.tensorrt_fp16.images_per_second_batch_16:,.0f}} classifier images per second, {{deployment.speed.CLS.fp16_over_eager:.1f}} times the eager model and {{deployment.speed.CLS.fp16_over_tensorrt_fp32:.1f}} times TensorRT FP32."
+      - "The detector gains most, from {{deployment.speed.DET.eager.images_per_second_batch_16:.0f}} images per second in the process to {{deployment.speed.DET.tensorrt_fp16.images_per_second_batch_16:.0f}} in FP16 with the broken NMS, and {{deployment.fixed.tensorrt_fp16.images_per_second_batch_16:.0f}} in both precisions once fixed."
+      - "The sequence labeller reaches {{deployment.speed.M2M.tensorrt_fp16.images_per_second_batch_16:,.0f}} frames per second, while TorchScript through Triton is never faster than the eager model, and ONNX Runtime CUDA takes the most memory for the detector, {{deployment.speed.DET.onnxruntime_cuda.memory_gigabytes:.1f}} gigabytes against {{deployment.speed.DET.tensorrt_fp16.memory_gigabytes:.1f}} in FP16."
+
+  - kind: image
+    title: "Test metric against the eager model"
+    code_reference: "scripts/deployment/evaluate_served_formats.py · run_served_evaluations"
+    image: "figures:deployment/benchmark/test_metric_parity.png"
+    highlights:
+      - {box: "{{deployment.figures.parity.CLS_box}}", sentences: [0]}
+      - {box: "{{deployment.figures.parity.M2M_box}}", sentences: [0]}
+      - {box: "{{deployment.figures.parity.DET_box}}", sentences: [1, 2]}
+      - {box: "{{deployment.figures.parity.DET_fixed_box}}", sentences: [3]}
+    narration:
+      - "The classifier and the sequence labeller keep their test accuracy on every served format, TensorRT FP16 included: {{deployment.metric.CLS.tensorrt_fp16_gap:points}} and {{deployment.metric.M2M.tensorrt_fp16_gap:points}}."
+      - "The detector read {{deployment.metric.DET.tensorrt_fp16_gap:points}} of mAP in FP16, and {{deployment.metric.DET.tensorrt_fp32_gap:points}} even in FP32, while TorchScript and plain ONNX Runtime matched the eager model."
+      - "Its recall barely moved, {{deployment.metric.DET.recall.tensorrt_fp16_gap:points}}: the engine found the same objects but returned extra detections, a loss of precision."
+      - "Exported again with its NMS fixed, the detector reads {{deployment.metric.DET_fixed.tensorrt_fp16_gap:points}} in FP16 and {{deployment.metric.DET_fixed.tensorrt_fp32_gap:points}} in FP32: both engines now match the eager model."
+
+  - kind: html
+    page: diagram
+    title: "Why the detector broke in FP16"
+    code_reference: "vision_training/models/detection/postprocessing.py · suppress_groups_apart"
+    elements:
+      - {type: box, box: [20, 20, 860, 230], text: "first test images, one image per request\neager: {{deployment.false_positives.eager_request_1}} false positives\nTensorRT FP16: {{deployment.false_positives.tensorrt_fp16_request_1}}", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [900, 20, 1740, 230], text: "the same images in requests of {{deployment.sweep.largest_batch_size}}\nTensorRT FP16: {{deployment.false_positives.tensorrt_fp16_request_16}} false positives\nTensorRT FP32: {{deployment.false_positives.tensorrt_fp32_request_16}}", font: diagram_small, outline: red, highlight: [0]}
+      - type: listing
+        box: [20, 280, 1740, 340]
+        font: diagram_monospace_small
+        appear: 1
+        source: {file: vision_training/models/detection/postprocessing.py, start: "group_offsets = group_indices", end: "group_offsets = group_indices"}
+        highlights:
+          - {match: "group_offsets", sentences: [1]}
+      - {type: text, position: [880, 400], text: "group = image × {{deployment.offsets.groups_per_image}} + class · offset = group × ({{deployment.offsets.image_size}} + 1) = group × {{deployment.offsets.group_offset:,}} pixels", font: diagram_text, anchor: mm, appear: 1, highlight: [1]}
+      - {type: box, box: [20, 460, 860, 720], text: "largest FP16 value {{deployment.offsets.float16_maximum:,}}\npassed from group {{deployment.offsets.first_overflowing_group}} on:\nthe last classes of image {{deployment.offsets.first_overflowing_image}}\nand every class of the later images", font: diagram_small, outline: red, appear: 2, highlight: [2]}
+      - {type: box, box: [900, 460, 1740, 720], text: "duplicates no longer suppressed\nin every image of a request but the first\ndynamic batching builds such batches\nfrom requests of one image", font: diagram_small, outline: red, appear: 3, highlight: [3]}
+    # The plus one of the offset, the largest coordinate plus one of suppress_groups_apart
+    literal_numbers: ["1"]
+    narration:
+      - "Sent one image per request, the FP16 engine is right; sent {{deployment.sweep.largest_batch_size:words}} per request, the same images give {{deployment.false_positives.tensorrt_fp16_request_16}} false positives, against {{deployment.false_positives.eager_request_1}} for the eager model."
+      - "The exported NMS ran one suppression over the whole batch, every image and class moved apart by its group index times the largest coordinate plus one, about {{deployment.offsets.group_offset:,}} pixels for this detector."
+      - "From group {{deployment.offsets.first_overflowing_group}}, the moved coordinates pass {{deployment.offsets.float16_maximum:,}}, the largest FP16 value, which falls in image {{deployment.offsets.first_overflowing_image:words}} of a request, so the duplicates of every later image were no longer suppressed."
+      - "Imagine a client sending single images: the dynamic batcher builds such batches from its requests, so it was not protected either."
+
+  - kind: code
+    title: "The fix: one NonMaxSuppression batch per group"
+    code_reference: "vision_training/deployment/export_formats.py · translate_stacked_group_suppression"
+    source:
+      file: vision_training/deployment/export_formats.py
+      function: translate_stacked_group_suppression
+    highlights:
+      - {match: "selected_triplets = opset18.NonMaxSuppression", sentences: [0, 1]}
+      - {match: "group_indices = |box_indices = ", sentences: [1]}
+      - {match: "return opset18.Add", sentences: [1]}
+    narration:
+      - "The detector now stacks its groups as rows and calls suppress stacked groups, a custom operator that the dynamo ONNX export writes as one NonMaxSuppression whose batches are the groups, so every coordinate stays inside the image."
+      - "The selected triplets of group, class and box become the flat indices the operator returns; the eager model and TorchScript keep the offsets, which float32 holds."
+      - "The distance variant of the NMS, the criterion of the synthetic detection configuration, had the other overflow, box areas computed in pixels, infinite in FP16 from a side of {{deployment.offsets.area_overflow_side}} pixels; it now runs on boxes divided by the input size, which leave the overlap and the centre distance unchanged."
+      - "One image now takes {{deployment.fixed.tensorrt_fp16.p50_batch_1:.1f}} milliseconds in FP16 and {{deployment.fixed.tensorrt_fp32.p50_batch_1:.1f}} in FP32, and a batch of {{deployment.sweep.largest_batch_size}} takes the same time in both, so FP16 no longer gains on this detector."
+
+  - kind: image
+    title: "Dynamic batching and instances"
+    code_reference: "scripts/deployment/benchmark_serving_formats.py · build_server_configuration"
+    image: "figures:deployment/benchmark/server_settings.png"
+    highlights:
+      - {box: "{{deployment.figures.settings.CLS_box}}", sentences: [0, 1]}
+      - {box: "{{deployment.figures.settings.M2M_box}}", sentences: [1]}
+      - {box: "{{deployment.figures.settings.DET_box}}", sentences: [2, 3]}
+    narration:
+      - "With one client, batching off doubles the classifier, from {{deployment.settings.CLS.shared_memory.batching_on_instances_1.concurrency_1:.0f}} to {{deployment.settings.CLS.shared_memory.batching_off_instances_1.concurrency_1:.0f}} images per second, the queue delay no longer paid by every request."
+      - "With {{deployment.sweep.largest_concurrency}} requests in flight, the classifier and the sequence labeller are fastest without batching and with {{deployment.sweep.largest_instance_count:words}} instances: {{deployment.settings.CLS.shared_memory.batching_off_instances_2.concurrency_16:,.0f}} against {{deployment.settings.CLS.shared_memory.batching_on_instances_1.concurrency_16:,.0f}} images per second, and {{deployment.settings.M2M.shared_memory.batching_off_instances_2.concurrency_16:,.0f}} against {{deployment.settings.M2M.shared_memory.batching_on_instances_1.concurrency_16:,.0f}} frames."
+      - "The detector seemed to need the batcher, but those bars were measured with the broken NMS."
+      - "Measured again once fixed, its FP16 engine serves {{deployment.fixed.settings.batching_off.concurrency_16:.0f}} images per second without the batcher against {{deployment.fixed.settings.batching_on.concurrency_16:.0f}} with it: the exported dynamic batching suits none of the measured models."
+
+  - kind: html
+    page: diagram
+    title: "The eager detector and its batches"
+    # The two suppressions of the inference detector, of the proposals and of the detections
+    literal_numbers: [two]
+    code_reference: "vision_training/models/detection/postprocessing.py · suppress_groups_apart"
+    elements:
+      - {type: text, position: [20, 20], text: "DET, p50 of one request in milliseconds, one client:", font: diagram_small, colour: dim, anchor: lm}
+      - {type: text, position: [720, 20], text: "eager, in the process", font: diagram_small, colour: dim, anchor: lm}
+      - {type: text, position: [1040, 20], text: "TensorRT FP16, unfixed NMS", font: diagram_small, colour: yellow, anchor: lm}
+      - type: grouped_bars
+        box: [40, 70, 1150, 660]
+        orientation: horizontal
+        legend: false
+        groups: ["batch {{deployment.sweep.batch_sizes[0]}}", "batch {{deployment.sweep.batch_sizes[1]}}", "batch {{deployment.sweep.batch_sizes[2]}}"]
+        series:
+          - {name: "eager, in the process", colour: dim, values: ["{{deployment.speed.DET.eager.p50_batch_1}}", "{{deployment.speed.DET.eager.p50_batch_4}}", "{{deployment.speed.DET.eager.p50_batch_16}}"], value_labels: ["{{deployment.speed.DET.eager.p50_batch_1:.1f}}", "{{deployment.speed.DET.eager.p50_batch_4:.1f}}", "{{deployment.speed.DET.eager.p50_batch_16:,.1f}}"]}
+          - {name: "TensorRT FP16, before the NMS fix", colour: yellow, values: ["{{deployment.speed.DET.tensorrt_fp16.p50_batch_1}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_4}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_16}}"], value_labels: ["{{deployment.speed.DET.tensorrt_fp16.p50_batch_1:.1f}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_4:.1f}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_16:.1f}}"]}
+      - {type: box, box: [1200, 90, 1740, 400], text: "two torchvision nms calls\nproposals and detections\nevery box of the batch\nin one call, groups moved apart", font: diagram_small, outline: red, appear: 1, highlight: [1]}
+      - {type: box, box: [1200, 440, 1740, 640], text: "README TODO: suppress\ncandidates in the process,\na top-k before the export NMS", font: diagram_small, outline: border, appear: 2, highlight: [2]}
+    narration:
+      - "In the process, a batch of the detector takes {{deployment.speed.DET.eager.p50_batch_1:.1f}}, {{deployment.speed.DET.eager.p50_batch_4:.1f}} and {{deployment.speed.DET.eager.p50_batch_16:,.0f}} milliseconds at batch {{deployment.sweep.batch_sizes[0]}}, {{deployment.sweep.batch_sizes[1]}} and {{deployment.sweep.batch_sizes[2]}}, about the square of the batch size, while the TensorRT engine grows far less than the batch."
+      - "The PyTorch profiler put the cause in the two torchvision nms calls of the inference detector, each given every box of the whole batch with the groups moved apart, while the backbone and neck grow linearly."
+      - "Say you size a server from the eager or TorchScript detector: batches would look slower than single images, which only holds outside TensorRT; the candidates of a fix are listed in the to do list of the README."
+
+  - kind: text_panel
+    title: "Pitfalls of the measurement"
+    columns:
+      - heading: "the clients"
+        lines:
+          - "perf_analyzer without shared memory"
+          - "  keeps every request until its end:"
+          - "  gRPC measured with the tritonclient"
+          - "  client, one process per request"
+          - ""
+          - "gRPC payloads dominate large images:"
+          - "  CLS FP16 batches over gRPC"
+          - "  {{deployment.speed.CLS.tensorrt_fp16.grpc_images_per_second_batch_16:.0f}} against {{deployment.speed.CLS.tensorrt_fp16.images_per_second_batch_16:,.0f}} images per second"
+      - heading: "the exports"
+        lines:
+          - "M2M ONNX: outputs fixed to the"
+          - "  {{deployment.export.traced_frames}} traced frames by the dynamo export,"
+          - "  refused by Triton, repaired by"
+          - "  repair_onnx_output_frames (README TODO)"
+          - ""
+          - "TensorRT engines rebuilt by every"
+          - "  new container: cache not mounted"
+    narration:
+      - "Here are the pitfalls the benchmark hit, which any new measurement will hit too."
+      - "Perf analyzer without shared memory keeps every request it sent in memory until the end of its run, which filled the memory of the machine twice in the pilot, so gRPC was measured with the client of the repository, one process per request in flight."
+      - "Over gRPC, building and sending large requests costs more than the model: one client sending classifier batches gets {{deployment.speed.CLS.tensorrt_fp16.grpc_images_per_second_batch_16:.0f}} images per second, against {{deployment.speed.CLS.tensorrt_fp16.images_per_second_batch_16:,.0f}} over shared memory."
+      - "The ONNX export of the bidirectional LSTM writes the {{deployment.export.traced_frames}} traced frames into its output shape, so Triton refuses the model; the driver repairs its copies, and the export fix waits in the to do list of the README."
+
+  - kind: summary
+    title: "What the benchmark decided"
+    items:
+      - {text: "TensorRT FP16: fastest row, CLS and M2M within {{deployment.metric.CLS.tensorrt_fp16_gap:points}} and {{deployment.metric.M2M.tensorrt_fp16_gap:points}}"}
+      - {text: "DET FP16 {{deployment.metric.DET.tensorrt_fp16_gap:points}}: group offsets overflowed FP16 in batches"}
+      - {text: "suppress_stacked_groups and DIoU on fractions: DET {{deployment.metric.DET_fixed.tensorrt_fp16_gap:points}} in FP16"}
+      - {text: "Dynamic batching as exported helps none of the measured models"}
+      - {text: "Shared memory over gRPC for large images"}
+      - {text: "Eager and TorchScript DET: batches grow with the square of the batch size"}
+      - {text: "Plan and results: documentation/architecture_benchmarking/serving_benchmark_*", monospace: true}
+    narration:
+      - "To recap: serve TensorRT FP16 when its test metric matches the eager model, check that metric through the served engine, prefer shared memory for large images, and measure the server settings before keeping the exported ones."
+      - "The serving plan and its results files keep every number of this chapter, and the to do list of the README holds the follow-ups."

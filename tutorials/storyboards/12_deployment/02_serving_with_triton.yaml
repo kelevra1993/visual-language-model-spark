@@ -1,0 +1,240 @@
+# Export and deployment, chapter 2: serving with Triton: the docker compose file of vision_training/deployment/triton,
+# the layout of a model repository (the real one of the serving benchmark), the path of a request (input contract,
+# gRPC or system shared memory, dynamic batcher, instances, backend), run_inference.py, the serving paths the export
+# offers (TorchScript on libtorch, ONNX Runtime CUDA, ONNX with the TensorRT accelerator in FP32 or FP16, BF16 refused
+# by the backend, native TensorRT engines not implemented), the TensorRT engines built at the first requests, and how
+# the dynamic batching and the instances of a model are changed. Coordinates of the html scenes are in pixels of the
+# content area (1760 x 740, origin at its top left corner); the facts named deployment.* are made by
+# tutorials/figures/deployment from the code and from the serving benchmark (serving_benchmark_results.csv and the
+# model repository of ~/Data/serving_benchmark named under outside_folders of tutorial_sources.yaml).
+series: deployment
+series_title: "Export And Deployment"
+chapter: 2
+title: "Serving with Triton"
+output_name: deployment_02_serving_with_triton
+pace: 1.0
+voice: {name: af_heart, language: en-us}
+figures: [deployment]
+references:
+  - "vision_training/deployment/deployment_utilities.py · run_triton_inference"
+  - "vision_training/deployment/deployment_utilities.py · create_triton_input_shared_memory"
+  - "vision_training/deployment/deployment_utilities.py · measure_triton_throughput"
+  - "vision_training/deployment/deployment_utilities.py · load_inference_inputs"
+  - "scripts/deployment/benchmark_serving_formats.py · start_triton_server"
+  - "scripts/deployment/benchmark_serving_formats.py · load_served_model"
+  - "scripts/deployment/benchmark_serving_formats.py · time_first_requests"
+  - "documentation/architecture_benchmarking/serving_benchmark_plan.md"
+  - "README.md"
+scenes:
+  - kind: title_card
+    heading: "Serving with Triton"
+    subheading: "The server, its repository, its requests and its serving paths"
+    footnote: "Export And Deployment · chapter 2"
+    # The number of the chapter, the chapter key of this storyboard
+    literal_numbers: ["2"]
+    narration:
+      - "Once exported, the models are served by Triton Inference Server, started from one docker compose file on the model repository of the export."
+      - "This chapter starts that server, follows a request from the photo to the backend, and compares the serving paths the export can write, with what each one costs before it serves at full speed."
+
+  - kind: yaml
+    title: "The docker compose file"
+    code_reference: "vision_training/deployment/triton/docker-compose.yml"
+    source:
+      file: vision_training/deployment/triton/docker-compose.yml
+      keys: [services]
+      comments: false
+    highlights:
+      - {key: services.tritonserver.image, sentences: [0]}
+      - {key: services.tritonserver.runtime, sentences: [0]}
+      - {key: services.tritonserver.ports, sentences: [1]}
+      - {key: services.tritonserver.volumes, sentences: [2]}
+      - {key: services.tritonserver.ipc, sentences: [3]}
+      - {key: services.tritonserver.command, sentences: [4]}
+    narration:
+      - "The compose file runs the Triton image of the repository, {{deployment.compose.image}}, the arm build for the DGX Spark with the PyTorch, ONNX Runtime and TensorRT backends, on the NVIDIA runtime."
+      - "It listens on port {{deployment.compose.http_port}} for HTTP and health checks, {{deployment.compose.grpc_port}} for the gRPC client of the repository, and {{deployment.compose.metrics_port}} for the Prometheus metrics: queue time, compute time and GPU use of every model."
+      - "The served models folder next to the file, where the export installs its models by default, is mounted as the model repository."
+      - "IPC host shares the shared memory of the machine, so that a client can write its images there instead of copying them into every request."
+      - "The command starts Triton without a model control mode: every model of the repository is loaded at start, and a new export is served at the next start of the server."
+
+  - kind: html
+    page: diagram
+    title: "A model repository"
+    code_reference: "vision_training/deployment/export_model.py · install_staged_models"
+    elements:
+      - {type: text, position: [20, 20], text: "model_repositories/onnxruntime_cuda of the serving benchmark, written by export_experiment", font: diagram_small, colour: dim, anchor: lm}
+      - type: listing
+        box: [20, 55, 860, 600]
+        font: diagram_monospace_small
+        source: {file: "figures:deployment/listings/model_repository_tree.txt"}
+        highlights:
+          - {match: "image_classifier_onnx/|image_classifier_torchscript/|object_detector_onnx/", sentences: [0]}
+          - {match: "config.pbtxt", sentences: [1]}
+          - {match: "── 1/", sentences: [1]}
+          - {match: "model.onnx.data", sentences: [2]}
+          - {match: "preprocessing.json", sentences: [3]}
+      - {type: box, box: [920, 55, 1740, 215], text: "<task model name>_<format>/\nimage_classifier, object_detector,\nsequence_labeller, frame_selector...", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [920, 245, 1740, 405], text: "config.pbtxt next to the version folders\nversion_policy: the exported version only", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [920, 435, 1740, 595], text: "model.onnx: the graph\nmodel.onnx.data: its weights\nmodel.pt: one self-contained file", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
+    narration:
+      - "Each exported model is a folder named after the model name of its task and its format, here the README classifier in both formats and the reference detector of the detection benchmark in ONNX."
+      - "The folder holds its Triton configuration and one folder per version, and the version policy of the configuration serves only the exported version."
+      - "The ONNX export keeps its weights in a model onnx data file next to the graph, which must travel with it, while the TorchScript file holds everything."
+      - "Every version folder carries the preprocessing file of the input contract, and a classifier exported with its temperature adds its class thresholds."
+
+  - kind: html
+    page: diagram
+    title: "The path of a request"
+    # The three colour channels of every input image
+    literal_numbers: ["3"]
+    code_reference: "vision_training/deployment/deployment_utilities.py · run_triton_inference"
+    elements:
+      - {type: box, box: [20, 40, 460, 420], text: "client\nphoto read as BGR\nresized and padded as\npreprocessing.json states\nfloat32 [B, 3, S, S]\ntritonclient.grpc", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: arrow, points: [[470, 120], [700, 120]], label: "gRPC, port {{deployment.compose.grpc_port}}", label_position: [585, 90], appear: 1, highlight: [1]}
+      - {type: text, position: [585, 165], text: "tensor inside the request", font: diagram_tiny, colour: dim, anchor: mm, appear: 1}
+      - {type: arrow, points: [[470, 290], [700, 290]], label: "system shared memory", label_position: [585, 260], dash: [12, 8], appear: 2, highlight: [2]}
+      - {type: text, position: [585, 335], text: "only the region and offset travel", font: diagram_tiny, colour: dim, anchor: mm, appear: 2}
+      - {type: box, box: [710, 40, 1740, 420], fill: null, outline: border, appear: 3}
+      - {type: text, position: [730, 75], text: "Triton, one model", font: diagram_small, colour: dim, anchor: lm, appear: 3}
+      - {type: box, box: [730, 110, 1060, 400], text: "dynamic batcher\nwaits up to\n{{deployment.triton.queue_delay_microseconds}} microseconds\nup to {{deployment.export.maximum_batch_size}} samples", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1068, 255], [1092, 255]], appear: 3}
+      - {type: box, box: [1100, 110, 1390, 400], text: "instance\non the GPU\ncount {{deployment.triton.instance_count}}", font: diagram_small, outline: violet, appear: 3, highlight: [4]}
+      - {type: arrow, points: [[1398, 255], [1422, 255]], appear: 3}
+      - {type: box, box: [1430, 110, 1720, 400], text: "backend\nlibtorch or\nONNX Runtime\n(TensorRT)", font: diagram_small, outline: aqua, appear: 3, highlight: [4]}
+      - {type: box, box: [20, 480, 1740, 640], text: "one float32 image inside a gRPC request: {{deployment.request.classifier_image_megabytes:.1f}} MB for the classifier at {{deployment.classifier.image_size}} pixels, {{deployment.request.detector_image_megabytes:.1f}} MB for the detector at {{deployment.detector.image_size}}\noutputs: the names of config.pbtxt, read back with the client", font: diagram_small, outline: border, appear: 1, highlight: [1]}
+    narration:
+      - "The client builds the input itself: it reads the photo as BGR, resizes and pads it as the preprocessing file states, and sends float32 tensors with the tritonclient gRPC client."
+      - "Over gRPC, the tensor travels inside the request: {{deployment.request.classifier_image_megabytes:.1f}} megabytes per classifier image, {{deployment.request.detector_image_megabytes:.1f}} per detector image, serialized and copied every time."
+      - "With use shared memory, the client writes its images once into a system shared memory region registered with Triton, and the request only says where to read them, which needs the IPC host setting of the compose file."
+      - "In the server, the dynamic batcher holds a request up to the queue delay, waiting for others to run with it in one batch of up to the max batch size."
+      - "The batch then runs on a free instance of the model, through the backend of its format, and the outputs come back under the names of the configuration."
+
+  - kind: code
+    title: "Measuring a model with run_inference"
+    code_reference: "vision_training/deployment/run_inference.py"
+    source:
+      file: vision_training/deployment/run_inference.py
+      start: "^    # Folder of the images sent to the models"
+      end: "^    iteration = None"
+    highlights:
+      - {match: "^    image_folder = ", sentences: [0]}
+      - {match: "^    url = ", sentences: [0]}
+      - {match: "^    use_shared_memory = ", sentences: [1]}
+      - {match: "^    number_iterations = |^    number_warmup_iterations = ", sentences: [2, 3]}
+    narration:
+      - "Run inference sends the images of the inference data folder to the model of a run, first in the process, then through Triton in TorchScript and in ONNX, and prints the throughput of each."
+      - "Use shared memory switches its requests from gRPC to the shared memory region, which the third chapter shows is decisive for large images."
+      - "It sends {{deployment.run_inference.timed_requests:,}} timed requests, one at a time from one client, after {{deployment.run_inference.warmup_requests:words}} untimed ones: with one request in flight, the dynamic batcher never forms a batch larger than one."
+      - "Those warm-up requests absorb the TensorRT engine build of batches of one image only, and its in-process reference is the eager PyTorch model on the GPU, not the TorchScript file."
+
+  - kind: html
+    page: diagram
+    title: "The serving paths"
+    code_reference: "vision_training/deployment/triton_configuration.py · write_triton_configuration"
+    elements:
+      - {type: text, position: [30, 20], text: "path", font: diagram_tiny, colour: dim, anchor: lm}
+      - {type: text, position: [500, 20], text: "file and Triton platform", font: diagram_tiny, colour: dim, anchor: lm}
+      - {type: text, position: [1050, 20], text: "computation", font: diagram_tiny, colour: dim, anchor: lm}
+      - {type: text, position: [1420, 20], text: "the export", font: diagram_tiny, colour: dim, anchor: lm}
+      - {type: box, box: [20, 45, 1740, 120], fill: null, outline: border, highlight: [0]}
+      - {type: text, position: [30, 82], text: "eager PyTorch, in the process", font: diagram_small, anchor: lm}
+      - {type: text, position: [500, 82], text: "checkpoint, run_inference.py", font: diagram_small, anchor: lm}
+      - {type: text, position: [1050, 82], text: "FP32, convolutions in TF32", font: diagram_small, anchor: lm}
+      - {type: text, position: [1420, 82], text: "the reference", font: diagram_small, anchor: lm}
+      - {type: box, box: [20, 130, 1740, 205], fill: null, outline: border, highlight: [1]}
+      - {type: text, position: [30, 167], text: "TorchScript", font: diagram_small, anchor: lm}
+      - {type: text, position: [500, 167], text: "model.pt · pytorch_libtorch", font: diagram_small, anchor: lm}
+      - {type: text, position: [1050, 167], text: "FP32 by libtorch", font: diagram_small, anchor: lm}
+      - {type: text, position: [1420, 167], text: "checked on CUDA", font: diagram_small, anchor: lm}
+      - {type: box, box: [20, 215, 1740, 290], fill: null, outline: border, highlight: [1]}
+      - {type: text, position: [30, 252], text: "ONNX Runtime CUDA", font: diagram_small, anchor: lm}
+      - {type: text, position: [500, 252], text: "model.onnx · onnxruntime_onnx", font: diagram_small, anchor: lm}
+      - {type: text, position: [1050, 252], text: "FP32", font: diagram_small, anchor: lm}
+      - {type: text, position: [1420, 252], text: "checked on the CPU", font: diagram_small, anchor: lm}
+      - {type: box, box: [20, 300, 1740, 375], fill: null, outline: violet, highlight: [2]}
+      - {type: text, position: [30, 337], text: "TensorRT FP32", font: diagram_small, anchor: lm}
+      - {type: text, position: [500, 337], text: "model.onnx + TensorRT accelerator", font: diagram_small, anchor: lm}
+      - {type: text, position: [1050, 337], text: "FP32, TF32 allowed", font: diagram_small, anchor: lm}
+      - {type: text, position: [1420, 337], text: "engine not checked", font: diagram_small, colour: yellow, anchor: lm}
+      - {type: box, box: [20, 385, 1740, 460], fill: null, outline: yellow, highlight: [3]}
+      - {type: text, position: [30, 422], text: "TensorRT FP16", font: diagram_small, anchor: lm}
+      - {type: text, position: [500, 422], text: "precision_mode FP16", font: diagram_small, anchor: lm}
+      - {type: text, position: [1050, 422], text: "FP16 where faster", font: diagram_small, anchor: lm}
+      - {type: text, position: [1420, 422], text: "engine not checked", font: diagram_small, colour: yellow, anchor: lm}
+      - {type: box, box: [20, 470, 1740, 545], fill: null, outline: red, appear: 4, highlight: [4]}
+      - {type: text, position: [30, 507], text: "TensorRT BF16", font: diagram_small, anchor: lm, appear: 4}
+      - {type: text, position: [500, 507], text: "precision_mode BF16", font: diagram_small, anchor: lm, appear: 4}
+      - {type: text, position: [1050, 507], text: "refused at load", font: diagram_small, anchor: lm, appear: 4}
+      - {type: text, position: [1420, 507], text: "not servable", font: diagram_small, colour: red, anchor: lm, appear: 4}
+      - {type: box, box: [20, 555, 1740, 630], fill: null, outline: red, appear: 5, highlight: [5]}
+      - {type: text, position: [30, 592], text: "native TensorRT engine", font: diagram_small, anchor: lm, appear: 5}
+      - {type: text, position: [500, 592], text: "model.plan · tensorrt_plan", font: diagram_small, anchor: lm, appear: 5}
+      - {type: text, position: [1050, 592], text: "FP32 to FP8", font: diagram_small, anchor: lm, appear: 5}
+      - {type: text, position: [1420, 592], text: "not implemented", font: diagram_small, colour: red, anchor: lm, appear: 5}
+      - {type: text, position: [880, 690], text: "inputs and outputs float32 on every path · INT8 and FP8 left out, without calibration", font: diagram_small, colour: dim, anchor: mm, appear: 5}
+    narration:
+      - "The reference of every comparison is the eager model in the process, which runs its convolutions in TF32, the default of PyTorch."
+      - "TorchScript is served by libtorch and plain ONNX by ONNX Runtime on CUDA, both in float32, and both checked by the export."
+      - "With the TensorRT accelerator, ONNX Runtime hands the parts of the graph TensorRT supports to an engine built for this GPU: layers fused, kernels timed on the device, TF32 allowed in FP32."
+      - "In FP16, TensorRT may run any layer in half precision where it finds it faster, and neither engine is checked by the export."
+      - "BF16 cannot be served this way: the ONNX Runtime backend of this Triton image refuses the precision mode at load, does not accept the TensorRT parameter that would enable it, and the environment variable of ONNX Runtime is ignored."
+      - "Native TensorRT engines, the only route to BF16 or calibrated INT8, are not implemented, and INT8 and FP8 are left out of the export."
+
+  - kind: html
+    page: diagram
+    title: "Engines built at the first requests"
+    code_reference: "scripts/deployment/benchmark_serving_formats.py · time_first_requests"
+    elements:
+      - {type: text, position: [20, 20], text: "DET, seconds of the first request at each batch size,", font: diagram_small, colour: dim, anchor: lm}
+      - {type: text, position: [20, 55], text: "engine cache emptied before the load:", font: diagram_small, colour: dim, anchor: lm}
+      - type: grouped_bars
+        box: [40, 80, 1300, 640]
+        legend: false
+        maximum: "{{deployment.first_request.DET.axis_maximum}}"
+        groups: ["batch {{deployment.sweep.batch_sizes[0]}}", "then batch {{deployment.sweep.batch_sizes[1]}}", "then batch {{deployment.sweep.batch_sizes[2]}}"]
+        series:
+          - {name: "Triton TorchScript", colour: blue, values: ["{{deployment.first_request.DET.torchscript.batch_1}}", "{{deployment.first_request.DET.torchscript.batch_4}}", "{{deployment.first_request.DET.torchscript.batch_16}}"], value_labels: ["{{deployment.first_request.DET.torchscript.batch_1:.1f}}", "{{deployment.first_request.DET.torchscript.batch_4:.1f}}", "{{deployment.first_request.DET.torchscript.batch_16:.1f}}"]}
+          - {name: "ONNX Runtime CUDA", colour: aqua, values: ["{{deployment.first_request.DET.onnxruntime_cuda.batch_1}}", "{{deployment.first_request.DET.onnxruntime_cuda.batch_4}}", "{{deployment.first_request.DET.onnxruntime_cuda.batch_16}}"], value_labels: ["{{deployment.first_request.DET.onnxruntime_cuda.batch_1:.1f}}", "{{deployment.first_request.DET.onnxruntime_cuda.batch_4:.1f}}", "{{deployment.first_request.DET.onnxruntime_cuda.batch_16:.1f}}"]}
+          - {name: "TensorRT FP32", colour: violet, values: ["{{deployment.first_request.DET.tensorrt_fp32.batch_1}}", "{{deployment.first_request.DET.tensorrt_fp32.batch_4}}", "{{deployment.first_request.DET.tensorrt_fp32.batch_16}}"], value_labels: ["{{deployment.first_request.DET.tensorrt_fp32.batch_1:.1f}}", "{{deployment.first_request.DET.tensorrt_fp32.batch_4:.1f}}", "{{deployment.first_request.DET.tensorrt_fp32.batch_16:.1f}}"]}
+          - {name: "TensorRT FP16", colour: yellow, values: ["{{deployment.first_request.DET.tensorrt_fp16.batch_1}}", "{{deployment.first_request.DET.tensorrt_fp16.batch_4}}", "{{deployment.first_request.DET.tensorrt_fp16.batch_16}}"], value_labels: ["{{deployment.first_request.DET.tensorrt_fp16.batch_1:.1f}}", "{{deployment.first_request.DET.tensorrt_fp16.batch_4:.1f}}", "{{deployment.first_request.DET.tensorrt_fp16.batch_16:.1f}}"]}
+      - {type: text, position: [900, 20], text: "Triton TorchScript", font: diagram_small, colour: blue, anchor: lm}
+      - {type: text, position: [1250, 20], text: "ONNX Runtime CUDA", font: diagram_small, colour: aqua, anchor: lm}
+      - {type: text, position: [900, 55], text: "TensorRT FP32", font: diagram_small, colour: violet, anchor: lm}
+      - {type: text, position: [1250, 55], text: "TensorRT FP16", font: diagram_small, colour: yellow, anchor: lm}
+      - {type: box, box: [1360, 110, 1740, 330], text: "CLS TensorRT FP16\n{{deployment.first_request.CLS.tensorrt_fp16.batch_1:.1f}} · {{deployment.first_request.CLS.tensorrt_fp16.batch_4:.1f}} · {{deployment.first_request.CLS.tensorrt_fp16.batch_16:.1f}} s\nM2M TensorRT FP16\n{{deployment.first_request.M2M.tensorrt_fp16.batch_1:.1f}} · {{deployment.first_request.M2M.tensorrt_fp16.batch_4:.1f}} · {{deployment.first_request.M2M.tensorrt_fp16.batch_16:.1f}} s", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [1360, 380, 1740, 640], text: "trt_engine_cache_path\n/tmp/tensorrt_engine_cache\nin the container,\nnot mounted by\ndocker-compose.yml", font: diagram_small, outline: red, appear: 2, highlight: [2, 3]}
+    narration:
+      - "ONNX Runtime builds a TensorRT engine at the first request a model receives, and again at every larger batch: the first detector requests at batch {{deployment.sweep.batch_sizes[0]}}, {{deployment.sweep.batch_sizes[1]}} and {{deployment.sweep.batch_sizes[2]}} waited {{deployment.first_request.DET.tensorrt_fp32.batch_1:.1f}}, {{deployment.first_request.DET.tensorrt_fp32.batch_4:.1f}} and {{deployment.first_request.DET.tensorrt_fp32.batch_16:.1f}} seconds in FP32."
+      - "The classifier and the sequence labeller wait several seconds too, while TorchScript and plain ONNX Runtime answer their first requests in at most {{deployment.first_request.DET.torchscript.batch_16:.1f}} seconds."
+      - "The engines are cached in the temporary folder of the container, which the compose file does not mount, so every recreated container builds them again."
+      - "Should your first clients not wait that long, warm the server up at every batch size before opening it, or mount that cache folder; the serving benchmark mounts one per precision."
+
+  - kind: code
+    title: "Changing batching and instances"
+    code_reference: "scripts/deployment/benchmark_serving_formats.py · build_server_configuration"
+    source:
+      file: scripts/deployment/benchmark_serving_formats.py
+      function: build_server_configuration
+    highlights:
+      - {match: "configuration\\[\"instance_group\"\\]\\[0\\]\\[\"count\"\\]", sentences: [1]}
+      - {match: "del configuration\\[\"dynamic_batching\"\\]", sentences: [0]}
+    narration:
+      - "Faced with a model that is never queried by several clients at once, the dynamic batcher only adds its queue delay: with one client, the classifier waits {{deployment.settings.CLS.queue_milliseconds_batching_on:.1f}} milliseconds in the queue with it and {{deployment.settings.CLS.queue_milliseconds_batching_off:.1f}} without."
+      - "More instances run several batches at once on the GPU, each instance holding its own copy of the weights and workspace."
+      - "To change them, edit the dynamic batching and instance group lines of the Triton configuration file, which the next start of the server reads."
+      - "The serving benchmark does it without touching the files: it starts Triton in explicit model control mode and loads each model with this changed configuration in the load request."
+      - "The export still writes batching on with one instance for every model; the next chapter shows that none of the measured models gains from it."
+
+  - kind: summary
+    title: "Recap"
+    items:
+      - {text: "docker compose up in vision_training/deployment/triton, ports {{deployment.compose.http_port}}, {{deployment.compose.grpc_port}}, {{deployment.compose.metrics_port}}"}
+      - {text: "<model>_<format>/<version>/: model file, preprocessing.json, config.pbtxt beside", monospace: true}
+      - {text: "The client builds the input from the contract and sends float32 tensors"}
+      - {text: "System shared memory instead of gRPC payloads for large images"}
+      - {text: "TorchScript, ONNX Runtime CUDA, TensorRT FP32 and FP16; no BF16, no native engine"}
+      - {text: "TensorRT engines built at the first request of every batch size, cache not mounted"}
+      - {text: "Batching and instances: config.pbtxt, or a configuration given at load time"}
+    narration:
+      - "To recap: Triton serves every model of the repository from one compose file, the client prepares the input from the contract and sends it over gRPC or shared memory, and TensorRT pays for its speed with engines built at the first requests."
+      - "The last chapter measures every serving path on {{deployment.sweep.model_count:words}} models, and shows what it changed in the code."
