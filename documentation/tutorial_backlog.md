@@ -10,6 +10,7 @@ To find your way in the backlog, the sections are:
 - [Adding An Entry](#adding-an-entry)
 - [Speed Benchmark Diagnosis Mode](#speed-benchmark-diagnosis-mode)
 - [Deeper Backbone From A Shorter Pretrained Backbone](#deeper-backbone-from-a-shorter-pretrained-backbone)
+- [Sparse Confusion Matrix Above 1,000 Classes](#sparse-confusion-matrix-above-1000-classes)
 
 ## Adding An Entry
 Whenever a change lands on `main` with a behaviour the tutorials do not show, add a section with these four lines, then remove it once the chapter showing it is rebuilt:
@@ -34,3 +35,11 @@ If one wishes to start a deeper backbone from a shorter trained one, `Backbone.p
 - **Documented in**: [README, Transfer Between Runs](../README.md#transfer-between-runs) and [training reference, Transfer Between Runs](reference/training_reference.md#transfer-between-runs).
 - **Tutorial status**: the narration of the "Starting from a trained run" scene of `01_foundations/04_backbone_and_modules.yaml` and the transfer box and sentence of `11_self_supervised/03_judging_without_a_classifier.yaml` were updated in the storyboards to say that a deeper backbone keeps its extra blocks random, but these chapters are not rebuilt yet. No scene shows that freezing, the fixed normalization and the multiplier cover the loaded blocks only, the `Loaded Blocks` line of the console, or the resume without the source run.
 - **Where it would fit**: the "Starting from a trained run" scene of the foundations backbone chapter, with the console of a run of 6 blocks started from a run of 4 (the case of `tests/trainers/test_backbone_transfer_training.py`), then a rebuild of the foundations and self-supervised series.
+
+## Sparse Confusion Matrix Above 1,000 Classes
+Should an evaluation cover more than 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES`, e.g. the 21,842 classes of imagenet-merged), the classification and k-NN evaluations count only the non-zero cells of the confusion matrix, with the same metrics, write them to `confusion_cells.csv` (`true_class,predicted_class,count`) instead of `confusion_matrix.csv`, and draw no confusion image.
+
+- **Added**: `main` b45c72b, 2026-11-17.
+- **Documented in**: [README, Evaluating Checkpoints](../README.md#evaluating-checkpoints) and [configuration reference, Evaluation Outputs](reference/configuration_reference.md#evaluation-outputs).
+- **Tutorial status**: not shown; the classification chapters use the 9 classes of the synthetic shapes and their dense matrix.
+- **Where it would fit**: one sentence in the "Confusions over the training" scene of `02_classification/02_judging_and_shipping.yaml`, no run needed.
