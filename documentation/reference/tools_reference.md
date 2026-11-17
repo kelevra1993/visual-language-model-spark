@@ -18,6 +18,7 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
   - [Export](#export)
   - [Input Contract](#input-contract)
   - [Throughput Measurement](#throughput-measurement)
+  - [Serving Benchmark](#serving-benchmark)
 
 ## Evaluating Checkpoints
 Whenever the checkpoints of a trained run must be judged again, on another split, with other target precisions or another NMS, `scripts/evaluation/evaluate_checkpoint.py` evaluates them into the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training, without touching its other files.
@@ -231,3 +232,16 @@ If you are looking for a server-side implementation, `build_input_from_contract`
 
 ### Throughput Measurement
 `vision_training/deployment/run_inference.py` times the images of `vision_training/deployment/inference_data/`. The image tasks send one request per image. The sequence tasks send the whole folder as one sequence, of 2 to `maximum_sequence_length` images, CMP splitting it into a before and an after half. SEL decodes every sequence locally, and queries Triton through its ensembles.
+
+### Serving Benchmark
+Should you need to compare the serving paths of trained runs on an idle GPU, two drivers of `scripts/deployment/`, run one after the other from the repository root, measure them; their settings are variables of their main blocks, their outputs stay outside the repository in `benchmark_folder` (`~/Data/serving_benchmark`), and the [serving benchmark plan](../architecture_benchmarking/serving_benchmark_plan.md) records the runs, the method and the results.
+
+```bash
+uv run python -m scripts.deployment.benchmark_serving_formats
+uv run python -m scripts.deployment.evaluate_served_formats
+```
+
+| Script | What it does | Settings | Output |
+|---|---|---|---|
+| `benchmark_serving_formats.py` | exports every run of `models` with `export_experiment` into one Triton model repository per precision setting, times the inference model in the process (eager and TorchScript), then serves every exported model alone in a Triton container (`TRITON_IMAGE`) and times it through system shared memory with `perf_analyzer` of `SDK_IMAGE` and over gRPC with the client of `run_inference.py`, with the first requests (TensorRT engine builds) and the memory taken | `models` (run folder, iteration, test split, frames of a sequence), `precision_settings` (ONNX Runtime CUDA, TensorRT FP32 and FP16; BF16 is refused by the ONNX Runtime backend of Triton), `batch_sizes`, `load_groups` (server settings, transports, batch sizes and requests in flight), `maximum_batch_size`, the in-process iterations, and `run_exports`, `run_in_process`, `run_triton` to run some phases only | `results.csv`, one line per measurement, read again at a relaunch so that a stopped sweep restarts where it stopped |
+| `evaluate_served_formats.py` | sends the test split of every run through the eager inference model, then through every model of the repositories of the first script, each scored by the test evaluation of the trainer of its task, so that the gap to the eager row measures the format and the precision only | `models`, `precision_settings`, `maximum_request_size` (the largest batch of the served models and of the test loaders) | the evaluation files of every row and `test_metrics.csv`, one line per scalar of every row, the rows already measured skipped at a relaunch |
