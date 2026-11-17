@@ -1,0 +1,341 @@
+model,row,metric,value,headline,evaluated_samples,duration_seconds,timestamp
+classification,in_process_eager,Accuracy,0.82726,True,50000 Test Images,194.7069742679596,2026-11-17 15:32:50
+classification,in_process_eager,Balanced Accuracy,0.8264108059840268,False,50000 Test Images,194.7069742679596,2026-11-17 15:32:50
+classification,in_process_eager,Macro F1,0.8272968196260206,False,50000 Test Images,194.7069742679596,2026-11-17 15:32:50
+classification,in_process_eager,Top-5 Accuracy,1.0,False,50000 Test Images,194.7069742679596,2026-11-17 15:32:50
+classification,triton_torchscript,Accuracy,0.8273,True,50000 Test Images,626.8160009384155,2026-11-17 15:43:58
+classification,triton_torchscript,Balanced Accuracy,0.8264504112660614,False,50000 Test Images,626.8160009384155,2026-11-17 15:43:58
+classification,triton_torchscript,Macro F1,0.8273406838200175,False,50000 Test Images,626.8160009384155,2026-11-17 15:43:58
+classification,triton_torchscript,Top-5 Accuracy,1.0,False,50000 Test Images,626.8160009384155,2026-11-17 15:43:58
+classification,triton_onnxruntime_cuda,Accuracy,0.82724,True,50000 Test Images,581.9759049415588,2026-11-17 15:53:45
+classification,triton_onnxruntime_cuda,Balanced Accuracy,0.8263895079440163,False,50000 Test Images,581.9759049415588,2026-11-17 15:53:45
+classification,triton_onnxruntime_cuda,Macro F1,0.8272751226287869,False,50000 Test Images,581.9759049415588,2026-11-17 15:53:45
+classification,triton_onnxruntime_cuda,Top-5 Accuracy,1.0,False,50000 Test Images,581.9759049415588,2026-11-17 15:53:45
+classification,triton_tensorrt_fp32,Accuracy,0.8272,True,50000 Test Images,551.3572590351105,2026-11-17 16:03:04
+classification,triton_tensorrt_fp32,Balanced Accuracy,0.8263495499909168,False,50000 Test Images,551.3572590351105,2026-11-17 16:03:04
+classification,triton_tensorrt_fp32,Macro F1,0.8272338312185818,False,50000 Test Images,551.3572590351105,2026-11-17 16:03:04
+classification,triton_tensorrt_fp32,Top-5 Accuracy,1.0,False,50000 Test Images,551.3572590351105,2026-11-17 16:03:04
+classification,triton_tensorrt_fp16,Accuracy,0.82696,True,50000 Test Images,511.3208305835724,2026-11-17 16:11:44
+classification,triton_tensorrt_fp16,Balanced Accuracy,0.8261046862261655,False,50000 Test Images,511.3208305835724,2026-11-17 16:11:44
+classification,triton_tensorrt_fp16,Macro F1,0.8270014145896714,False,50000 Test Images,511.3208305835724,2026-11-17 16:11:44
+classification,triton_tensorrt_fp16,Top-5 Accuracy,1.0,False,50000 Test Images,511.3208305835724,2026-11-17 16:11:44
+object_detection,in_process_eager,mAP@0.5/area,0.8676543154395409,True,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.75/area,0.8373295947184974,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.95/area,0.015960709985532066,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@[0.5:0.95]/area,0.6827027430717734,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.5/11_point,0.8414964438608457,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.75/11_point,0.8026787040060401,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.95/11_point,0.02956975135461047,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@[0.5:0.95]/11_point,0.6661534601344052,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.5/101_point,0.8635257509784937,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.75/101_point,0.8342208525338807,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.95/101_point,0.01741421511593406,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@[0.5:0.95]/101_point,0.6805326800033668,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.5 By Size/small,0.7384502776447507,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@[0.5:0.95] By Size/small,0.5542173416836902,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.5 By Size/medium,0.930430278244323,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@[0.5:0.95] By Size/medium,0.7353407194573476,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@0.5 By Size/large,0.8752368517955075,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAP@[0.5:0.95] By Size/large,0.7052216905151988,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.5/all,0.8752783097062679,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.75/all,0.8524995507808565,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.95/all,0.09594578969427986,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@[0.5:0.95]/all,0.7271276600251154,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.5/small,0.7508115693553349,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.75/small,0.7203126464486075,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.95/small,0.03189447247821144,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@[0.5:0.95]/small,0.595336886763435,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.5/medium,0.9351750434343574,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.75/medium,0.9127057873847549,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.95/medium,0.07977359806405136,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@[0.5:0.95]/medium,0.7738165681081528,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.5/large,0.8859933270079564,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.75/large,0.8669798439748767,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@0.95/large,0.12905300241760187,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,mAR@[0.5:0.95]/large,0.749853129175509,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/all,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/all,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposals Per Image/all,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/small,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/small,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/medium,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/medium,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/large,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/large,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/block_4,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/block_4,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposals Per Image/block_4,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/block_5,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/block_5,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposals Per Image/block_5,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/block_6,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/block_6,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposals Per Image/block_6,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.5/block_7,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposal Recall@0.7/block_7,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,in_process_eager,Proposals Per Image/block_7,0.0,False,10000 Test Images,924.1265525817871,2026-11-17 16:27:37
+object_detection,triton_torchscript,mAP@0.5/area,0.8676563418668592,True,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.75/area,0.8374126448860482,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.95/area,0.01597036433541389,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@[0.5:0.95]/area,0.682710560169893,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.5/11_point,0.841511362045188,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.75/11_point,0.8027012586062368,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.95/11_point,0.029396568101573088,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@[0.5:0.95]/11_point,0.6659517834954938,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.5/101_point,0.8635295311934599,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.75/101_point,0.8339818169426509,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.95/101_point,0.017356744546213998,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@[0.5:0.95]/101_point,0.6805056709504553,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.5 By Size/small,0.7387119215219133,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@[0.5:0.95] By Size/small,0.5543517260724785,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.5 By Size/medium,0.9303848274668919,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@[0.5:0.95] By Size/medium,0.7353209845116323,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@0.5 By Size/large,0.8751454604812312,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAP@[0.5:0.95] By Size/large,0.7051733953738751,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.5/all,0.8752771065542778,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.75/all,0.8525691457920774,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.95/all,0.09600646704574382,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@[0.5:0.95]/all,0.7271525019289483,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.5/small,0.7510978089008526,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.75/small,0.7206478096731858,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.95/small,0.03194537620893646,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@[0.5:0.95]/small,0.5955488646148703,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.5/medium,0.9351336764388102,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.75/medium,0.9127438951807865,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.95/medium,0.07966198373235349,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@[0.5:0.95]/medium,0.7738234106519505,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.5/large,0.8858862036673365,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.75/large,0.8669499857413409,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@0.95/large,0.12923045626802432,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,mAR@[0.5:0.95]/large,0.7498057292556985,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/all,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/all,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposals Per Image/all,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/small,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/small,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/medium,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/medium,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/large,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/large,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/block_4,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/block_4,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposals Per Image/block_4,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/block_5,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/block_5,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposals Per Image/block_5,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/block_6,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/block_6,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposals Per Image/block_6,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.5/block_7,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposal Recall@0.7/block_7,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_torchscript,Proposals Per Image/block_7,0.0,False,10000 Test Images,1294.5537848472595,2026-11-17 16:49:14
+object_detection,triton_onnxruntime_cuda,mAP@0.5/area,0.8677489353234161,True,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.75/area,0.8376402801566959,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.95/area,0.016039227133433177,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95]/area,0.6828241589723163,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.5/11_point,0.841506149688908,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.75/11_point,0.8027575123228711,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.95/11_point,0.029620132473396676,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95]/11_point,0.6661205497451049,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.5/101_point,0.8637761187752518,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.75/101_point,0.8340110864874899,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.95/101_point,0.01748398922962696,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95]/101_point,0.6806192898018206,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.5 By Size/small,0.7387556301585164,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95] By Size/small,0.5543347619446296,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.5 By Size/medium,0.9303906823998184,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95] By Size/medium,0.7355011855879852,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@0.5 By Size/large,0.8752996727566458,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95] By Size/large,0.7053236639093619,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.5/all,0.8753837245847051,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.75/all,0.8527467855203174,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.95/all,0.096331101802161,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/all,0.7272804260268946,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.5/small,0.7511185617843585,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.75/small,0.7207219814130573,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.95/small,0.03202549501577231,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/small,0.5954790772995071,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.5/medium,0.9351354000008544,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.75/medium,0.9128260112835642,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.95/medium,0.0799288816153708,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/medium,0.773921251647646,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.5/large,0.8860764129181476,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.75/large,0.8672127128239568,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@0.95/large,0.12969634550075618,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/large,0.7500159296394766,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/all,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/all,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/all,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/small,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/small,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/medium,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/medium,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/large,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/large,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_4,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_4,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_4,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_5,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_5,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_5,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_6,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_6,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_6,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_7,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_7,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_7,0.0,False,10000 Test Images,679.2814605236053,2026-11-17 17:00:39
+object_detection,triton_tensorrt_fp32,mAP@0.5/area,0.863063087073227,True,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.75/area,0.8344292597304539,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.95/area,0.016344686645692216,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@[0.5:0.95]/area,0.6803242704571422,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.5/11_point,0.8344593361646649,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.75/11_point,0.8031326058484032,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.95/11_point,0.029825779866936956,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@[0.5:0.95]/11_point,0.6626450008618368,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.5/101_point,0.8592948151116839,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.75/101_point,0.8313592995814449,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.95/101_point,0.017756773174592174,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@[0.5:0.95]/101_point,0.6782488135535515,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.5 By Size/small,0.7235246916979606,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@[0.5:0.95] By Size/small,0.5445227223412528,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.5 By Size/medium,0.9285484444158032,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@[0.5:0.95] By Size/medium,0.7347945925247265,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@0.5 By Size/large,0.8744431314216008,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAP@[0.5:0.95] By Size/large,0.7055214641696994,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.5/all,0.8703381182888281,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.75/all,0.8487281270899979,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.95/all,0.09703645249250777,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@[0.5:0.95]/all,0.7241347605510179,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.5/small,0.7354531172275415,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.75/small,0.7075105194193424,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.95/small,0.032352907372978836,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@[0.5:0.95]/small,0.5845090791712855,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.5/medium,0.9330742280573582,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.75/medium,0.9117480757080363,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.95/medium,0.08000367828917265,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@[0.5:0.95]/medium,0.7728701430000988,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.5/large,0.8847714633732103,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.75/large,0.8661570098442765,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@0.95/large,0.1308641523499842,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,mAR@[0.5:0.95]/large,0.7496249494287014,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/all,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/all,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposals Per Image/all,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/small,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/small,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/medium,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/medium,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/large,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/large,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/block_4,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/block_4,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposals Per Image/block_4,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/block_5,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/block_5,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposals Per Image/block_5,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/block_6,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/block_6,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposals Per Image/block_6,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/block_7,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/block_7,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp32,Proposals Per Image/block_7,0.0,False,10000 Test Images,453.40058732032776,2026-11-17 17:08:21
+object_detection,triton_tensorrt_fp16,mAP@0.5/area,0.7888570075993034,True,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.75/area,0.7678699215243538,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.95/area,0.016864894754319796,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@[0.5:0.95]/area,0.6253699773621554,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.5/11_point,0.7693717411413766,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.75/11_point,0.7448595054275946,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.95/11_point,0.0288011426279274,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@[0.5:0.95]/11_point,0.6149618321375228,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.5/101_point,0.7859446559689017,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.75/101_point,0.7652665131497389,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.95/101_point,0.018031125739307322,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@[0.5:0.95]/101_point,0.6238218587671535,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.5 By Size/small,0.6687721108710014,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@[0.5:0.95] By Size/small,0.5025819894494302,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.5 By Size/medium,0.8904690706729255,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@[0.5:0.95] By Size/medium,0.7059871719990791,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@0.5 By Size/large,0.7829114424758118,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAP@[0.5:0.95] By Size/large,0.6387244062149289,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.5/all,0.8730701356675074,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.75/all,0.8558204980934373,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.95/all,0.11099655868869869,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@[0.5:0.95]/all,0.73283024282164,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.5/small,0.7362998083318323,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.75/small,0.7091224212575107,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.95/small,0.0434205313527205,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@[0.5:0.95]/small,0.58665048912896,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.5/medium,0.9339083880178876,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.75/medium,0.9166681196923161,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.95/medium,0.08082545696780641,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@[0.5:0.95]/medium,0.7757477721740089,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.5/large,0.8897310628041929,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.75/large,0.8775701372014791,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@0.95/large,0.15269660544940442,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,mAR@[0.5:0.95]/large,0.7647315351977284,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/all,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/all,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposals Per Image/all,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/small,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/small,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/medium,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/medium,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/large,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/large,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/block_4,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/block_4,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposals Per Image/block_4,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/block_5,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/block_5,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposals Per Image/block_5,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/block_6,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/block_6,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposals Per Image/block_6,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.5/block_7,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposal Recall@0.7/block_7,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+object_detection,triton_tensorrt_fp16,Proposals Per Image/block_7,0.0,False,10000 Test Images,424.55180644989014,2026-11-17 17:15:34
+sequence_labelling,in_process_eager,Accuracy,0.7715466689550616,True,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Balanced Accuracy,0.7216717951601215,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Macro F1,0.6527562139388398,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Top-5 Accuracy,0.9652736062244344,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Sequence Exact Match,0.24,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Edit Score,0.7450512049062049,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Segment F1@10,0.7595744502195763,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Segment F1@25,0.7592553718522499,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,in_process_eager,Segment F1@50,0.7525883133349568,False,"10000 Test Sequences, 69918 Labelled Frames",146.3542022705078,2026-11-17 17:18:09
+sequence_labelling,triton_torchscript,Accuracy,0.771603878829486,True,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Balanced Accuracy,0.7217512092045364,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Macro F1,0.6528576744765243,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Top-5 Accuracy,0.9652593037558282,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Sequence Exact Match,0.2401,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Edit Score,0.7451246248196248,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Segment F1@10,0.7596480032243978,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Segment F1@25,0.7593289221778121,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_torchscript,Segment F1@50,0.7526618076780976,False,"10000 Test Sequences, 69918 Labelled Frames",170.98173022270203,2026-11-17 17:21:03
+sequence_labelling,triton_onnxruntime_cuda,Accuracy,0.7716467862353042,True,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Balanced Accuracy,0.7216456133983743,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Macro F1,0.6528647583140976,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Top-5 Accuracy,0.9652879086930404,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Sequence Exact Match,0.2401,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Edit Score,0.7451589718614718,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Segment F1@10,0.7596358933879718,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Segment F1@25,0.7593167962648842,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_onnxruntime_cuda,Segment F1@50,0.752632551265472,False,"10000 Test Sequences, 69918 Labelled Frames",182.4608714580536,2026-11-17 17:24:10
+sequence_labelling,triton_tensorrt_fp32,Accuracy,0.7715895763608799,True,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Balanced Accuracy,0.7216716789901889,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Macro F1,0.6528758314426534,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Top-5 Accuracy,0.9652593037558282,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Sequence Exact Match,0.2402,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Edit Score,0.7450912193362194,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Segment F1@10,0.7596063415289535,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Segment F1@25,0.7592872497648796,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp32,Segment F1@50,0.752603117022706,False,"10000 Test Sequences, 69918 Labelled Frames",202.57367753982544,2026-11-17 17:27:41
+sequence_labelling,triton_tensorrt_fp16,Accuracy,0.7717182985783346,True,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Balanced Accuracy,0.7217156920461318,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Macro F1,0.6530399832175349,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Top-5 Accuracy,0.9652736062244344,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Sequence Exact Match,0.2399,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Edit Score,0.7450437337662337,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Segment F1@10,0.7596718255334515,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Segment F1@25,0.7593695153800291,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
+sequence_labelling,triton_tensorrt_fp16,Segment F1@50,0.7527522820217831,False,"10000 Test Sequences, 69918 Labelled Frames",214.3120551109314,2026-11-17 17:31:24
