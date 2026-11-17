@@ -171,9 +171,12 @@ scenes:
       - {type: box, box: [20, 250, 330, 430], text: "images\n[B, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Backbone.input_channels}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}}]\nfloat BGR, 0 to 255", font: diagram_small, outline: blue, highlight: [1, 2]}
       - {type: box, box: [20, 60, 380, 220], text: "preprocessing.json\nand ONNX metadata:\nthe letterbox of\nthe evaluation", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
       - {type: arrow, points: [[330, 340], [395, 340]]}
-      - {type: box, box: [400, 60, 1150, 620], fill: null, outline: violet, highlight: [4]}
+      - {type: box, box: [400, 60, 1150, 620], fill: null, outline: violet, highlight: [4, 6, 7]}
       - {type: text, position: [775, 90], text: "object_detector · TorchScript and ONNX", font: diagram_bold, anchor: ma}
       - {type: text, position: [440, 160], text: "input normalization, backbone\nevery region proposal head\ntop-k and NMS, per level or joint\nvalid mask instead of padding copies\nevery detection head on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals,\n  each proposal keeping its level (torch.where)\npost-processing: score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}},\n  {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_criterion}} NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}}, top {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}", font: diagram_text, appear: 4}
+      # The form of both suppressions in the ONNX file (suppress_stacked_groups, postprocess_detections), shown with the
+      # sentences on half precision
+      - {type: text, position: [440, 500], text: "in ONNX: one NonMaxSuppression, a batch per group\nDIoU-NMS on boxes in fractions of the image", font: diagram_small, colour: accent, appear: 6}
       - {type: arrow, points: [[1150, 200], [1215, 140]], appear: 3}
       - {type: arrow, points: [[1150, 300], [1215, 270]], appear: 3}
       - {type: arrow, points: [[1150, 380], [1215, 400]], appear: 3}
@@ -190,6 +193,8 @@ scenes:
       - "It returns {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} boxes per image in network pixels, their scores and int64 labels, zero for the padding, and the number of detections of every image."
       - "In the graph: one NMS call over the batch for the proposals of every level with the per-level selection of the run, a single one with the joint selection, every detection head run on all {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} proposals with each keeping its own level, and the score threshold and the final distance IoU suppression of the configuration baked in."
       - "Outside the graph stay the letterbox, the restoration of the boxes to the original image, and the per-class thresholds; the export is checked against the eager model to a hundredth of a pixel on the boxes."
+      - "In the ONNX file, every greedy suppression is one suppression node with a batch per image, or per image and class, and the distance IoU runs on boxes divided by the input size."
+      - "The values then stay within half precision, so that a TensorRT engine in that precision keeps the detections of the eager model."
 
   - kind: terminal
     title: "Export"

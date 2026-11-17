@@ -303,7 +303,7 @@ scenes:
     narration:
       - "select_best_proposals does this for the whole batch, and both the training filter and the exported detector call it, so they keep the same proposals."
       - "The scores are ranked in the float32 of the boxes, since the bfloat16 logits of the mixed precision would give the confident anchors only a few distinct probabilities."
-      - "Only the suppression differs: one torchvision call per image in the eager model, and in the exports one call over the whole batch, which ONNX runs as one suppression per image."
+      - "Only the suppression differs: one torchvision call per image in training and evaluation, and in the exported detector one call over the whole batch, which the ONNX file writes as one suppression node with a batch per image."
       - "The joint selection runs these steps once over all the anchors; the per-level one runs them for every level and leaves out the proposals clamped to an empty box, as torchvision does."
 
   # The joint and per-level selections on the detector of the detection benchmark (stage 7 of
