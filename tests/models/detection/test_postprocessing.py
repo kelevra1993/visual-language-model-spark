@@ -4,7 +4,8 @@ of 'Detector.nms_criterion' "distance_iou" evaluated at stage 5b of the detectio
 the boxes of a greedy loop written from the authors' code (cython diounms and darknet diounms_sort), those of the
 batched_nms of torchvision when no centre distance separates the boxes, keeps two overlapping boxes whose centres are
 apart where the greedy NMS keeps one, never lets two groups suppress each other, handles empty inputs, single boxes and
-equal scores, and keeps the same boxes whatever its chunks and the precision of the boxes.
+equal scores, and keeps the same boxes whatever its chunks and the precision of the boxes; and that the greedy suppression
+of the stacked groups of the exports keeps the boxes of batched_nms.
 """
 
 import pytest
@@ -15,7 +16,8 @@ from torchvision.ops import batched_nms
 
 from vision_training.models.detection import postprocessing
 from vision_training.models.detection.box_operations import get_intersection_over_union
-from vision_training.models.detection.postprocessing import batched_distance_nms, suppress_groups_apart
+from vision_training.models.detection.postprocessing import (batched_distance_nms, suppress_groups_apart,
+                                                             suppress_stacked_groups)
 
 
 def run_greedy_distance_nms(boxes: torch.Tensor, scores: torch.Tensor, group_indices: torch.Tensor,
@@ -267,3 +269,27 @@ def test_groups_apart_keep_the_boxes_of_batched_nms(number_boxes: int) -> None:
                                  iou_threshold=0.5).tolist() == [0, 1]
     assert suppress_groups_apart(boxes=same_boxes, scores=same_scores, group_indices=torch.tensor(data=[3, 3]),
                                  iou_threshold=0.5).tolist() == [0]
+
+
+@pytest.mark.parametrize(argnames="number_groups", argvalues=[1, 9])
+def test_stacked_groups_keep_the_boxes_of_batched_nms(number_groups: int) -> None:
+    """
+    Verifies that the suppression of the stacked groups of the exported detectors (suppress_stacked_groups, the rows of
+    [G, N] boxes being the groups) keeps, outside the export, the boxes that batched_nms of torchvision keeps with one
+    group per row, given as flat indices row times N plus box, and so does its custom operator called directly.
+
+    Args:
+        number_groups (int): The number of stacked groups.
+    """
+    generator = torch.Generator().manual_seed(number_groups)
+    corners = torch.rand(size=(number_groups, 60, 2), generator=generator) * 400.0
+    sides = torch.rand(size=(number_groups, 60, 2), generator=generator) * 120.0 + 4.0
+    boxes = torch.cat(tensors=[corners, corners + sides], dim=-1)
+    scores = torch.rand(size=(number_groups, 60), generator=generator)
+    group_indices = torch.arange(end=number_groups).unsqueeze(dim=1).expand(-1, 60).reshape(-1)
+    reference_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=scores.reshape(-1), idxs=group_indices,
+                                    iou_threshold=0.5)
+    kept_indices = suppress_stacked_groups(boxes=boxes, scores=scores, iou_threshold=0.5)
+    assert sorted(kept_indices.tolist()) == sorted(reference_indices.tolist())
+    operator_indices = torch.ops.vision_training.suppress_stacked_groups(boxes=boxes, scores=scores, iou_threshold=0.5)
+    assert sorted(operator_indices.tolist()) == sorted(reference_indices.tolist())
