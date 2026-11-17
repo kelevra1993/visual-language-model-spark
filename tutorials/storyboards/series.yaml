@@ -42,3 +42,6 @@ series:
   - name: self_supervised
     title: "Self-Supervised Learning (SSL)"
     description: "A backbone learnt without labels from two views of every image: SimCLR and Barlow Twins, the projection head, the k-NN evaluation and the transfer to the other tasks."
+  - name: deployment
+    title: "Export And Deployment"
+    description: "From a checkpoint to a served model: the export and its checks against the eager model, the Triton configuration and the input contract, serving with Triton, and what the serving benchmark measured and decided."
