@@ -342,9 +342,10 @@ def test_detector_exports_keep_the_greedy_nms_of_many_boxes(tmp_path: Path) -> N
     Verifies the TorchScript and ONNX exports of the inference detector whose greedy final NMS gets more than the 4000
     coordinates per image from which batched_nms of torchvision loops over the groups on the CPU (250 proposals kept
     of 300, 5 classes, 5000 coordinates per image): the dynamo ONNX export of the dynamic batch goes through, the
-    groups being moved apart for a single nms call (suppress_groups_apart), and both exports reproduce the detections
-    of the eager inference detector on a batch of another size than the traced one. Before, the export stopped on the
-    loop over the classes, as the export of a detector of 35 classes on the GPU did from 3 images on.
+    groups being suppressed in a single call (suppress_stacked_groups: moved apart in TorchScript, one
+    NonMaxSuppression batch per group in ONNX), and both exports reproduce the detections of the eager inference
+    detector on a batch of another size than the traced one. Before, the export stopped on the loop over the
+    classes, as the export of a detector of 35 classes on the GPU did from 3 images on.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -431,6 +432,53 @@ def test_detector_exports_keep_the_proposal_selection_per_level(tmp_path: Path) 
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
     onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+
+def test_detector_onnx_suppression_keeps_the_boxes_in_the_image(tmp_path: Path) -> None:
+    """
+    Verifies that the ONNX export of the greedy detector gives its NonMaxSuppression nodes (the proposals and the
+    detections) the boxes of the image only, one ONNX batch per group, without the offsets of the groups moved apart,
+    which a TensorRT FP16 engine overflowed beyond 65,504 from the second image of a batch of the detection benchmark
+    detector (35 classes at 1024 pixels), and still reproduces the detections of the eager inference detector.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    inference_model = build_inference_model(task="object_detection", model=build_test_detector(dtype=torch.float32))
+    specification = get_export_specification(task="object_detection", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = {"images": torch.rand(size=(TEST_MAXIMUM_BATCH_SIZE,) + tuple(example_inputs["images"].shape[1:]),
+                                         generator=torch.Generator().manual_seed(2)) * 255.0}
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+
+    # Boxes reaching every suppression added to the outputs of the graph
+    model_proto = onnx.load(f=str(tmp_path / "model.onnx"))
+    suppression_boxes = [node.input[0] for node in model_proto.graph.node if node.op_type == "NonMaxSuppression"]
+    assert len(suppression_boxes) == 2
+    for boxes_name in suppression_boxes:
+        model_proto.graph.output.append(onnx.helper.make_tensor_value_info(name=boxes_name,
+                                                                          elem_type=onnx.TensorProto.FLOAT, shape=None))
+    onnx.save(proto=model_proto, f=str(tmp_path / "model_with_suppression_boxes.onnx"))
+
+    # Every box of the batch of the largest size stays within the image, in as many batches as groups, and the
+    # detections are those of the eager detector
+    session = onnxruntime.InferenceSession(str(tmp_path / "model_with_suppression_boxes.onnx"),
+                                           providers=["CPUExecutionProvider"])
+    outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    image_size = inference_model.input_image_size
+    proposal_boxes, detection_boxes = outputs[-2:]
+    assert proposal_boxes.shape[0] == TEST_MAXIMUM_BATCH_SIZE
+    assert detection_boxes.shape[0] % TEST_MAXIMUM_BATCH_SIZE == 0 and detection_boxes.shape[0] > TEST_MAXIMUM_BATCH_SIZE
+    for boxes in [proposal_boxes, detection_boxes]:
+        assert boxes.min() >= 0.0 and boxes.max() <= image_size
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=outputs[:len(reference_outputs)],
                                             **specification["comparison_tolerances"]) == []
 
 

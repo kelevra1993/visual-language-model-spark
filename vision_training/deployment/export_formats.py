@@ -11,11 +11,47 @@ import warnings
 import onnx
 import torch
 
+from onnxscript import opset18
+from onnxscript.onnx_types import FLOAT, INT64
 from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List
 
+from vision_training.models.detection.postprocessing import STACKED_GROUP_SUPPRESSION_OPERATOR
 from vision_training.utilities.os_utilities import format_path_link
+
+# Largest number of boxes NonMaxSuppression keeps per batch and class, no limit, as in the translation of the
+# torchvision nms by onnxscript
+MAXIMUM_SUPPRESSION_OUTPUTS = 2 ** 63 - 1
+
+
+def translate_stacked_group_suppression(boxes: FLOAT, scores: FLOAT, iou_threshold: float) -> INT64:
+    """
+    Writes the custom operator suppress_stacked_groups of the detectors (vision_training/models/detection/
+    postprocessing.py) into the ONNX graph as one NonMaxSuppression whose batches are the stacked groups, its single
+    class holding their scores, so that no box is moved by an offset that TensorRT FP16 would overflow; the selected
+    (group, class, box) triplets become the flat indices group times N plus box that the operator returns.
+
+    Args:
+        boxes (FLOAT): The [G, N, 4] boxes of every group.
+        scores (FLOAT): Their [G, N] scores.
+        iou_threshold (float): The overlap above which the lower scoring box of a pair of the same group is suppressed.
+
+    Returns:
+        INT64: The flat indices of the kept boxes.
+    """
+    # Selected [K, 3] triplets of group, class (always 0) and box
+    selected_triplets = opset18.NonMaxSuppression(boxes=boxes, scores=opset18.Unsqueeze(data=scores, axes=[1]),
+                                                  max_output_boxes_per_class=MAXIMUM_SUPPRESSION_OUTPUTS,
+                                                  iou_threshold=iou_threshold)
+    group_indices = opset18.Reshape(data=opset18.Slice(data=selected_triplets, starts=[0], ends=[1], axes=[1]),
+                                    shape=[-1])
+    box_indices = opset18.Reshape(data=opset18.Slice(data=selected_triplets, starts=[2], ends=[3], axes=[1]),
+                                  shape=[-1])
+
+    # Flat index of every kept box in the [G, N] stack
+    number_boxes = opset18.Shape(data=scores, start=1, end=2)
+    return opset18.Add(A=opset18.Mul(A=group_indices, B=number_boxes), B=box_indices)
 
 
 def hide_known_export_warnings() -> None:
@@ -149,12 +185,15 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
                                                      max=input_specification["maximum_frames"])
         dynamic_shapes[input_specification["name"]] = dynamic_dimensions
 
-    # The recurrent operators are traced again for this export, then the dynamic dimensions of the file are checked
+    # The recurrent operators are traced again for this export, the stacked group suppression of the detectors written
+    # as a batched NonMaxSuppression, then the dynamic dimensions of the file are checked
     reset_recurrent_dispatch_caches()
     torch.onnx.export(inference_model, args=tuple(example_inputs.values()), f=str(output_path),
                       input_names=list(example_inputs),
                       output_names=[output["name"] for output in specification["outputs"]],
-                      dynamic_shapes=dynamic_shapes, opset_version=18, dynamo=True, verbose=False)
+                      dynamic_shapes=dynamic_shapes, opset_version=18, dynamo=True, verbose=False,
+                      custom_translation_table={STACKED_GROUP_SUPPRESSION_OPERATOR:
+                                                translate_stacked_group_suppression})
     fixed_dimensions = find_fixed_dynamic_dimensions(
         model_proto=onnx.load(f=str(output_path), load_external_data=False), specification=specification)
     if fixed_dimensions:

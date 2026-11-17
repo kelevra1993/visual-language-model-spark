@@ -14,7 +14,7 @@ from typing import List, Dict, Tuple, Any
 from torchvision.ops import nms
 
 from vision_training.models.detection.anchors import Anchors
-from vision_training.models.detection.postprocessing import suppress_groups_apart
+from vision_training.models.detection.postprocessing import suppress_stacked_groups
 from vision_training.models.components.convolution_block import ConvolutionBlock
 from vision_training.models.detection.box_operations import (apply_regression_predictions,
                                                              clamp_boxes_to_image_boundaries)
@@ -36,8 +36,8 @@ def suppress_overlapping_proposals(boxes: torch.Tensor, scores: torch.Tensor, nm
     each image on its own. The eager training and evaluation run one torchvision nms call per image on views of the
     batch, the fastest form on the GPU (batched_nms loops over the images itself for large batches, with more
     overhead, and its single call over the whole batch is slower still), while the deployed detector runs a single
-    nms call with the images moved apart (suppress_groups_apart), the only form that the TorchScript and ONNX exports
-    keep for any batch size. Both keep the same proposals.
+    call over the batch (suppress_stacked_groups: the images moved apart in TorchScript, one NonMaxSuppression batch
+    per image in ONNX), the only form that the exports keep for any batch size. Both keep the same proposals.
 
     Args:
         boxes (torch.Tensor): The candidate boxes of every image, shape [B, K, 4].
@@ -59,11 +59,7 @@ def suppress_overlapping_proposals(boxes: torch.Tensor, scores: torch.Tensor, nm
         return kept_mask
 
     # A single suppression call over the whole batch, every image its own group
-    batch_size, number_candidates = scores.shape
-    batch_indices = torch.arange(end=batch_size, device=scores.device).unsqueeze(dim=1)
-    kept_indices = suppress_groups_apart(boxes=boxes.reshape(-1, 4), scores=scores.reshape(-1),
-                                         group_indices=batch_indices.expand(-1, number_candidates).reshape(-1),
-                                         iou_threshold=nms_iou_threshold)
+    kept_indices = suppress_stacked_groups(boxes=boxes, scores=scores, iou_threshold=nms_iou_threshold)
     kept_mask.view(-1)[kept_indices] = True
     return kept_mask
 

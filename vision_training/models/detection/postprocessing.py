@@ -1,8 +1,9 @@
 """
 Final postprocessing of the object detector: class probabilities, background removal, score threshold, per-class
 batched non-maximum suppression, greedy on the IoU or DIoU-NMS ('Detector.nms_criterion'), and a fixed number of
-detections per image, vectorised so that both suppressions export. Shared by the TwoStageDetector at inference and by
-the InferenceDetector of the deployment.
+detections per image, vectorised so that both suppressions export, the greedy one of the exported detections and
+proposals through the custom operator suppress_stacked_groups, which the ONNX export writes without coordinate offsets.
+Shared by the TwoStageDetector at inference and by the InferenceDetector of the deployment.
 """
 
 import torch
@@ -46,6 +47,90 @@ def suppress_groups_apart(boxes: torch.Tensor, scores: torch.Tensor, group_indic
     # Offset of every group beyond the largest coordinate of all the boxes, then one suppression over all of them
     group_offsets = group_indices.to(dtype=boxes.dtype) * (boxes.max() + 1.0)
     return nms(boxes=boxes + group_offsets.unsqueeze(dim=1), scores=scores, iou_threshold=iou_threshold)
+
+
+def suppress_stacked_groups_apart(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> torch.Tensor:
+    """
+    Runs the greedy non-maximum suppression of groups of the same number of boxes stacked on the first dimension, with
+    the groups moved apart (suppress_groups_apart): the form of suppress_stacked_groups in the eager model and in the
+    TorchScript export, served by libtorch in float32, where the moved coordinates keep their precision.
+
+    Args:
+        boxes (torch.Tensor): The [G, N, 4] boxes of every group.
+        scores (torch.Tensor): Their [G, N] scores.
+        iou_threshold (float): The overlap above which the lower scoring box of a pair of the same group is suppressed.
+
+    Returns:
+        torch.Tensor: The int64 flat indices (group times N plus box) of the kept boxes.
+    """
+    # Group of every box of the stack, its row
+    number_boxes = scores.shape[1]
+    group_indices = torch.arange(end=scores.shape[0], device=scores.device).unsqueeze(dim=1).expand(-1, number_boxes)
+    return suppress_groups_apart(boxes=boxes.reshape(-1, 4), scores=scores.reshape(-1),
+                                 group_indices=group_indices.reshape(-1), iou_threshold=iou_threshold)
+
+
+@torch.library.custom_op("vision_training::suppress_stacked_groups", mutates_args=())
+def suppress_stacked_groups_operator(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> torch.Tensor:
+    """
+    Custom operator of the stacked group suppression, recorded as one node by the dynamo ONNX export, where
+    translate_stacked_group_suppression (vision_training/deployment/export_formats.py) writes it as the batched
+    NonMaxSuppression of ONNX; run outside the export, it suppresses with the groups moved apart.
+
+    Args:
+        boxes (torch.Tensor): The [G, N, 4] boxes of every group.
+        scores (torch.Tensor): Their [G, N] scores.
+        iou_threshold (float): The overlap above which the lower scoring box of a pair of the same group is suppressed.
+
+    Returns:
+        torch.Tensor: The int64 flat indices (group times N plus box) of the kept boxes.
+    """
+    return suppress_stacked_groups_apart(boxes=boxes, scores=scores, iou_threshold=iou_threshold)
+
+
+@suppress_stacked_groups_operator.register_fake
+def suppress_stacked_groups_shape(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> torch.Tensor:
+    """
+    Gives the export the output of the stacked group suppression without running it: int64 indices whose number
+    depends on the data.
+
+    Args:
+        boxes (torch.Tensor): The [G, N, 4] boxes of every group.
+        scores (torch.Tensor): Their [G, N] scores.
+        iou_threshold (float): The overlap above which the lower scoring box of a pair of the same group is suppressed.
+
+    Returns:
+        torch.Tensor: An empty int64 tensor of data-dependent length.
+    """
+    return boxes.new_empty(size=(torch.library.get_ctx().new_dynamic_size(),), dtype=torch.int64)
+
+
+# Overload of the custom operator that the dynamo ONNX export records, the key of its translation in export_onnx
+STACKED_GROUP_SUPPRESSION_OPERATOR = torch.ops.vision_training.suppress_stacked_groups.default
+
+
+def suppress_stacked_groups(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> torch.Tensor:
+    """
+    Runs the greedy non-maximum suppression of the exported detectors on groups stacked on the first dimension (the
+    images of the proposal suppression, the images and classes of the final detections), the boxes of a group never
+    suppressing those of another. Under the dynamo ONNX export it is the custom operator suppress_stacked_groups,
+    written as one NonMaxSuppression with one ONNX batch per group, so that no coordinate leaves the image: moved apart
+    by about 1,025 pixels per group, the coordinates of the 64th group would pass 65,504, the largest float16 value, and
+    a TensorRT FP16 engine computing them would keep the duplicates of every image of a request after the first. The
+    eager model and the TorchScript trace keep suppress_groups_apart, libtorch loading no custom operator.
+
+    Args:
+        boxes (torch.Tensor): The [G, N, 4] boxes of every group, clipped to the image.
+        scores (torch.Tensor): Their [G, N] scores.
+        iou_threshold (float): The overlap above which the lower scoring box of a pair of the same group is suppressed.
+
+    Returns:
+        torch.Tensor: The int64 flat indices (group times N plus box) of the kept boxes, in any order.
+    """
+    if torch.compiler.is_exporting():
+        return torch.ops.vision_training.suppress_stacked_groups(boxes=boxes, scores=scores,
+                                                                 iou_threshold=iou_threshold)
+    return suppress_stacked_groups_apart(boxes=boxes, scores=scores, iou_threshold=iou_threshold)
 
 
 def keep_cluster_boxes(padded_boxes: torch.Tensor, valid_mask: torch.Tensor, iou_threshold: float,
@@ -206,7 +291,8 @@ def suppress_every_pair_by_distance(boxes: torch.Tensor, scores: torch.Tensor, c
     in float32 at least.
 
     Args:
-        boxes (torch.Tensor): The [B, P, C - 1, 4] boxes of every proposal and foreground class, clipped to the image.
+        boxes (torch.Tensor): The [B, P, C - 1, 4] boxes of every proposal and foreground class, clipped to the image,
+            in any unit: postprocess_detections gives them in fractions of the image, which TensorRT FP16 holds.
         scores (torch.Tensor): Their [B, P, C - 1] class probabilities.
         candidate_mask (torch.Tensor): The [B, P, C - 1] boolean mask of the pairs of valid proposals reaching the
             score threshold.
@@ -269,10 +355,10 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     Every step is vectorised over the whole batch (a single batched NMS call grouped by image and class, then a fixed
     top-k). The eager training and evaluation give the NMS the pairs reaching the score threshold only, with the greedy
     NMS or DIoU-NMS of 'Detector.nms_criterion', while the deployed detector gives every pair to the same NMS (the
-    greedy one of torchvision, or suppress_every_pair_by_distance for DIoU-NMS), without data-dependent Python control
-    flow nor data-dependent sizes, so that the same code can be exported to TorchScript and ONNX. Both paths keep the
-    same detections with either criterion. The outputs
-    have a fixed size; padded entries have a score of 0, a label of 0 and an empty box.
+    greedy one of suppress_stacked_groups, one row per image and class, or suppress_every_pair_by_distance for
+    DIoU-NMS), without data-dependent Python control flow nor data-dependent sizes, so that the same code can be
+    exported to TorchScript and ONNX. Both paths keep the same detections with either criterion. The outputs have a
+    fixed size; padded entries have a score of 0, a label of 0 and an empty box.
 
     Args:
         classification_scores (torch.Tensor): The class logits of every proposal, shape [B, P, C] (C includes the
@@ -326,7 +412,7 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     # path only gives it the candidates: a box below the threshold never suppresses a higher scoring one, so the
     # detections are the same, without the per-group NMS loop torchvision runs on the hundreds of thousands of pairs
     # of a whole batch. The exports give every pair to the NMS, the dynamo ONNX export refusing a data-dependent number
-    # of boxes: the greedy NMS with the groups moved apart (suppress_groups_apart), or DIoU-NMS on the static
+    # of boxes: the greedy NMS of the groups stacked as rows (suppress_stacked_groups), or DIoU-NMS on the static
     # [B, C - 1, P, P] matrix of the groups
     kept_mask = torch.zeros_like(input=probabilities.reshape(-1), dtype=torch.bool)
     if suppress_candidates_only:
@@ -337,12 +423,22 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
             nms_criterion=nms_criterion, nms_distance_exponent=nms_distance_exponent)]
         kept_mask[kept_indices] = True
     elif nms_criterion == "iou":
-        kept_indices = suppress_groups_apart(boxes=boxes.reshape(-1, 4), scores=probabilities.reshape(-1),
-                                             group_indices=group_indices.reshape(-1), iou_threshold=nms_iou_threshold)
-        kept_mask[kept_indices] = True
+        # One row of P pairs per group of image and class, [B (C - 1), P], then the kept rows put back in the
+        # [B, P, C - 1] layout of the pairs
+        group_boxes = boxes.reshape(batch_size, number_proposals, number_classes - 1, 4).transpose(dim0=1, dim1=2)
+        group_scores = probabilities.reshape(batch_size, number_proposals, number_classes - 1).transpose(dim0=1,
+                                                                                                         dim1=2)
+        kept_indices = suppress_stacked_groups(boxes=group_boxes.reshape(-1, number_proposals, 4),
+                                               scores=group_scores.reshape(-1, number_proposals),
+                                               iou_threshold=nms_iou_threshold)
+        group_kept_mask = torch.zeros_like(input=group_scores.reshape(-1), dtype=torch.bool)
+        group_kept_mask[kept_indices] = True
+        kept_mask = group_kept_mask.reshape(batch_size, number_classes - 1, number_proposals).transpose(dim0=1, dim1=2)
     elif nms_criterion == "distance_iou":
+        # Boxes in fractions of the image, which leave the IoU and the normalized centre distance unchanged, so that
+        # the areas stay below 1 where a TensorRT FP16 engine overflowed the areas in pixels from 256 x 256 pixels on
         kept_mask = suppress_every_pair_by_distance(
-            boxes=boxes.reshape(batch_size, number_proposals, number_classes - 1, 4),
+            boxes=(boxes / input_image_size).reshape(batch_size, number_proposals, number_classes - 1, 4),
             scores=probabilities.reshape(batch_size, number_proposals, number_classes - 1),
             candidate_mask=candidate_mask.reshape(batch_size, number_proposals, number_classes - 1),
             iou_threshold=nms_iou_threshold, distance_exponent=nms_distance_exponent)
