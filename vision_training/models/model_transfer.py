@@ -3,10 +3,12 @@ Transfer of trained components between runs: the architecture checks of the back
 classification head, segmentation decoder, region proposal heads, detection heads, mask heads, high resolution network
 and keypoint head, the loading of a pretrained component from the checkpoint of another run (its averaged weights when
 it kept a moving average and the new run keeps one), the first blocks of a deeper backbone initialising a shorter one
-(the stem of the keypoint detector from an ImageNet backbone), the class layers of a run adding classes after those
-of its source run (the source classes keeping their trained rows, the new classes the random rows of the new run), the
-class layers of the semantic segmentation loaded with its decoder, and the freezing of components, normalization
-parameters and batch statistics. Used by the base trainer and by scripts/evaluation/evaluate_checkpoint.py.
+(the stem of the keypoint detector from an ImageNet backbone) and a shorter backbone initialising the first blocks of
+a deeper one (its next blocks staying random, and only its loaded blocks frozen or fine-tuned at the multiplier of the
+transfer), the class layers of a run adding classes after those of its source run (the source classes keeping their
+trained rows, the new classes the random rows of the new run), the class layers of the semantic segmentation loaded
+with its decoder, and the freezing of components, normalization parameters and batch statistics. Used by the base
+trainer and by scripts/evaluation/evaluate_checkpoint.py.
 """
 
 import re
@@ -48,6 +50,15 @@ SEGMENTATION_CLASS_LAYER_ATTRIBUTES = ["segmentation_head", "deep_supervision_he
 # run receiving its backbone. The detection levels only select the blocks read by the heads, and the convolutions do
 # not depend on the image size, so both may differ
 ARCHITECTURE_BACKBONE_KEYS = ["input_channels", "convolutions", "modules", "normalization", "last_max_pooling"]
+
+# Name of the tensors of a backbone block in the backbone state, e.g. 'convolution_blocks.0.layers.0.weight', the
+# group giving the index of the block from 0
+BACKBONE_BLOCK_TENSOR_PATTERN = r"convolution_blocks\.(\d+)\."
+
+# Checkpoint metadata of the trainers giving the number of backbone blocks loaded from a shorter source backbone, None
+# when the whole backbone (or none of it) comes from another run, read back by a resumed run whose source run may be
+# gone, so that it freezes and fine-tunes the same blocks
+LOADED_BACKBONE_BLOCKS_METADATA_KEY = "pretrained_backbone_blocks"
 
 # Backbone module settings added after the first runs, with the value of the runs written before them: a source run
 # without the pre-activation placement of the shortcuts used the original one
@@ -171,35 +182,44 @@ def get_weight_normalization(normalization_configuration: Dict[str, Any]) -> Dic
     return {**weight_settings, "feature_map_normalization": feature_map_normalization}
 
 
-def is_backbone_prefix(source_backbone_configuration: Dict[str, Any],
-                       target_backbone_configuration: Dict[str, Any]) -> bool:
+def count_shared_backbone_blocks(source_backbone_configuration: Dict[str, Any],
+                                 target_backbone_configuration: Dict[str, Any]) -> Optional[int]:
     """
-    Tells whether the backbone of a run is made of the first blocks of the backbone of a source run, the same layers
-    with fewer blocks, so that the first blocks of the source backbone initialise it: the stem of the keypoint detector
-    taken from a backbone trained on ImageNet, for instance. The pooling after the last block has no weights, so it may
-    differ.
+    Tells whether one backbone of a transfer is made of the first blocks of the other, the same layers with fewer
+    blocks, and how many blocks they share: a shorter backbone takes the first blocks of a deeper source backbone (the
+    stem of the keypoint detector taken from a backbone trained on ImageNet, for instance), and a deeper backbone starts
+    with the blocks of a shorter source backbone, its blocks after them keeping their random initialisation. The blocks
+    are compared on their key, layers and channels in order; the residual shortcuts and inception modules of a block
+    follow its position, so that the shared blocks hold the same tensors. The pooling after the last block has no
+    weights, so it may differ.
 
     Args:
         source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
         target_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the run receiving the backbone.
 
     Returns:
-        bool: True when the target blocks are the first blocks of the source, in the same order and fewer of them.
+        Optional[int]: The number of blocks of the shorter backbone when they are the first blocks of the other, None
+            when both backbones have as many blocks or when their first blocks differ.
     """
     source_blocks = list(source_backbone_configuration["convolutions"].items())
     target_blocks = list(target_backbone_configuration["convolutions"].items())
-    return len(target_blocks) < len(source_blocks) and source_blocks[:len(target_blocks)] == target_blocks
+    number_shared_blocks = min(len(source_blocks), len(target_blocks))
+    if len(source_blocks) == len(target_blocks) or \
+            source_blocks[:number_shared_blocks] != target_blocks[:number_shared_blocks]:
+        return None
+    return number_shared_blocks
 
 
 def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any],
                                    target_backbone_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the architecture-defining settings of two backbones, so that a backbone is only
-    transferred between runs whose backbones have exactly the same layers, or whose backbone is made of the first
-    blocks of the source backbone (see is_backbone_prefix). Batch and sequence normalization count as the same layers,
-    holding the same tensors, and the batch normalization momentum may differ. A source run written before a module
-    setting of BACKBONE_MODULE_DEFAULTS counts as having its default value, and one written before the removal of a
-    module setting of FIXED_BACKBONE_MODULE_SETTINGS has the same layers only when it used the fixed value.
+    transferred between runs whose backbones have exactly the same layers, or when one backbone is made of the first
+    blocks of the other, shorter or deeper (see count_shared_backbone_blocks). Batch and sequence normalization count
+    as the same layers, holding the same tensors, and the batch normalization momentum may differ. A source run
+    written before a module setting of BACKBONE_MODULE_DEFAULTS counts as having its default value, and one written
+    before the removal of a module setting of FIXED_BACKBONE_MODULE_SETTINGS has the same layers only when it used the
+    fixed value.
 
     Args:
         source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
@@ -208,11 +228,11 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
     Returns:
         List[str]: The description of every difference, empty when the architectures match.
     """
-    # The blocks of a shorter backbone made of the first source blocks are compared by is_backbone_prefix, the pooling
-    # after its last block having no weights
+    # The blocks of two backbones of which one is made of the first blocks of the other are compared by
+    # count_shared_backbone_blocks, the pooling after the last block having no weights
     compared_keys = ARCHITECTURE_BACKBONE_KEYS
-    if is_backbone_prefix(source_backbone_configuration=source_backbone_configuration,
-                          target_backbone_configuration=target_backbone_configuration):
+    if count_shared_backbone_blocks(source_backbone_configuration=source_backbone_configuration,
+                                    target_backbone_configuration=target_backbone_configuration) is not None:
         compared_keys = [key_name for key_name in ARCHITECTURE_BACKBONE_KEYS
                          if key_name not in ["convolutions", "last_max_pooling"]]
     differences = []
@@ -905,25 +925,122 @@ def describe_backbone_input(configuration: Dict[str, Any]) -> str:
     return f"{configuration['Data']['image_settings']['size']} Pixel Images"
 
 
-def select_backbone_prefix_state(component_state: Dict[str, torch.Tensor],
-                                 number_target_blocks: int) -> Dict[str, torch.Tensor]:
+def find_backbone_block_index(tensor_name: str) -> Optional[int]:
     """
-    Keeps the tensors of the first blocks of a source backbone, and its input normalization, for a backbone made of
-    its first blocks (see is_backbone_prefix), the stem of the keypoint detector for instance.
+    Gives the block of a backbone tensor from its name in the backbone state, e.g. 0 for
+    'convolution_blocks.0.layers.0.weight', so that the tensors of the blocks shared by two backbones of different
+    depths are told apart from those of the blocks only one of them has.
+
+    Args:
+        tensor_name (str): The name of the tensor in the backbone state, without prefix.
+
+    Returns:
+        Optional[int]: The index of its block from 0, None for a tensor outside the convolution blocks.
+    """
+    block_match = re.match(pattern=BACKBONE_BLOCK_TENSOR_PATTERN, string=tensor_name)
+    return None if block_match is None else int(block_match.group(1))
+
+
+def describe_block_range(first_block: int, last_block: int) -> str:
+    """
+    Names backbone blocks numbered from 1, as the configuration numbers them, in the console messages of a backbone
+    deeper than its source backbone, whose blocks after the loaded ones start random.
+
+    Args:
+        first_block (int): The first block of the range.
+        last_block (int): The last block of the range, at least first_block.
+
+    Returns:
+        str: The blocks, e.g. 'Blocks 6 To 7' or 'Block 7'.
+    """
+    if first_block == last_block:
+        return f"Block {first_block}"
+    return f"Blocks {first_block} To {last_block}"
+
+
+def select_backbone_prefix_state(component_state: Dict[str, torch.Tensor], target_state: Dict[str, torch.Tensor],
+                                 number_shared_blocks: int) -> Dict[str, torch.Tensor]:
+    """
+    Gives the tensors loaded into a backbone that shares its first blocks with the source backbone (see
+    count_shared_backbone_blocks): the tensors of the shared blocks and those outside the blocks come from the source,
+    the blocks of a deeper source backbone after them are left out (the stem of the keypoint detector, for instance),
+    and the blocks of a deeper receiving backbone after them keep the random initialisation the new run was built
+    with, so that the state still fits the receiving backbone exactly.
 
     Args:
         component_state (Dict[str, torch.Tensor]): The tensors of the source backbone, without prefix.
-        number_target_blocks (int): The number of blocks of the backbone receiving the tensors.
+        target_state (Dict[str, torch.Tensor]): The state dictionary of the backbone of the new run, holding the
+            random initialisation of its blocks.
+        number_shared_blocks (int): The number of blocks of the shorter backbone, the first blocks of both.
 
     Returns:
-        Dict[str, torch.Tensor]: The tensors of the blocks below number_target_blocks and those outside the blocks.
+        Dict[str, torch.Tensor]: The tensors of the backbone of the new run.
     """
+    # Source tensors of the shared blocks, and those outside the blocks
     prefix_state = {}
     for tensor_name, tensor_value in component_state.items():
-        block_match = re.match(pattern=r"convolution_blocks\.(\d+)\.", string=tensor_name)
-        if block_match is None or int(block_match.group(1)) < number_target_blocks:
+        block_index = find_backbone_block_index(tensor_name=tensor_name)
+        if block_index is None or block_index < number_shared_blocks:
+            prefix_state[tensor_name] = tensor_value
+
+    # Blocks of a deeper receiving backbone after the shared ones, kept as the new run initialised them
+    for tensor_name, tensor_value in target_state.items():
+        block_index = find_backbone_block_index(tensor_name=tensor_name)
+        if block_index is not None and block_index >= number_shared_blocks:
             prefix_state[tensor_name] = tensor_value
     return prefix_state
+
+
+def count_loaded_backbone_blocks(model_configuration: Dict[str, Any]) -> Optional[int]:
+    """
+    Counts the blocks of the backbone of a new run loaded from a shorter source backbone, read from the configuration
+    saved in the source run folder, so that the trainer freezes, keeps the batch statistics and fine-tunes at the
+    learning rate multiplier only these blocks, the blocks after them starting random and learning at the learning rate
+    of the run as the other new layers (see select_transferred_part). Called once load_pretrained_component has loaded
+    the backbone, which checked both architectures.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration of the new run, whose 'Backbone.pretrained'
+            names the source run.
+
+    Returns:
+        Optional[int]: The number of loaded blocks when the backbone is deeper than its source backbone, None when it
+            is not transferred or loads every block (a source backbone of the same depth or deeper).
+    """
+    source_folder = model_configuration["Backbone"]["pretrained"]["experiment_folder"]
+    if source_folder is None:
+        return None
+    source_configuration = load_configuration(configuration_path=Path(source_folder) / "training_configuration.yaml")
+    number_shared_blocks = count_shared_backbone_blocks(
+        source_backbone_configuration=source_configuration["Backbone"],
+        target_backbone_configuration=model_configuration["Backbone"])
+
+    # Only a receiving backbone with more blocks than the shared ones has random blocks
+    if number_shared_blocks is None or number_shared_blocks == len(model_configuration["Backbone"]["convolutions"]):
+        return None
+    return number_shared_blocks
+
+
+def select_transferred_part(component: nn.Module, number_loaded_blocks: Optional[int]) -> nn.Module:
+    """
+    Gives the part of a transferred component that holds the weights of its source run, which the trainer freezes
+    ('pretrained.freeze'), keeps the batch statistics of, fixes the normalization parameters of
+    ('freeze_normalization_parameters') and fine-tunes at the learning rate multiplier of the transfer: the whole
+    component, or the first blocks of a backbone deeper than its source backbone (see count_loaded_backbone_blocks),
+    whose blocks after them start random and learn at the learning rate of the run as the other new layers.
+
+    Args:
+        component (nn.Module): The transferred component of the model.
+        number_loaded_blocks (Optional[int]): The number of blocks of a backbone loaded from a shorter source backbone,
+            None for a component loaded whole.
+
+    Returns:
+        nn.Module: The component itself, or a module list holding its loaded blocks (the input normalization of the
+            backbone holds no tensor), whose parameters and modules are those of the model.
+    """
+    if number_loaded_blocks is None:
+        return component
+    return nn.ModuleList(modules=list(component.convolution_blocks)[:number_loaded_blocks])
 
 
 def load_pretrained_component(component: nn.Module, section_name: str, model_configuration: Dict[str, Any],
@@ -937,8 +1054,9 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     a sequence labeller or comparator, the heads of an object detector an instance segmenter, and so on. The settings
     defining the component must be identical in both runs (see compare_component_configurations), then its tensors
     must fit exactly (see compare_state_dictionaries). A backbone may come from a run of another input image size,
-    the convolutions not depending on it, which is reported since the features were learned at another scale, and a
-    shorter backbone from the first blocks of a deeper one (see is_backbone_prefix), which is reported too, a
+    the convolutions not depending on it, which is reported since the features were learned at another scale, a
+    shorter backbone from the first blocks of a deeper one and a deeper backbone from a shorter one, whose blocks after
+    the loaded ones keep their random initialisation (see count_shared_backbone_blocks), which are reported too, a
     temporal module from a causal or non-causal run alike, and region proposal heads from a run of other anchor scales
     or ratios with the same number of anchors per position, which are reported too.
     The component is read from the averaged weights of the checkpoint when it holds a moving average and the new run
@@ -1029,19 +1147,30 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     component_state = {tensor_name[len(state_prefix):]: tensor_value
                        for tensor_name, tensor_value in model_state.items() if tensor_name.startswith(state_prefix)}
 
-    # A shorter backbone keeps the tensors of the first blocks of the source backbone only
-    if section_name == "Backbone" and is_backbone_prefix(
+    # A backbone sharing its first blocks with the source backbone loads them only: a shorter backbone leaves out the
+    # deeper source blocks, a deeper one keeps its blocks after them as the new run initialised them
+    target_state = component.state_dict()
+    number_shared_blocks = None
+    if section_name == "Backbone":
+        number_shared_blocks = count_shared_backbone_blocks(
             source_backbone_configuration=source_configuration["Backbone"],
-            target_backbone_configuration=model_configuration["Backbone"]):
+            target_backbone_configuration=model_configuration["Backbone"])
+    if number_shared_blocks is not None:
+        component_state = select_backbone_prefix_state(component_state=component_state, target_state=target_state,
+                                                       number_shared_blocks=number_shared_blocks)
+        number_source_blocks = len(source_configuration["Backbone"]["convolutions"])
         number_target_blocks = len(model_configuration["Backbone"]["convolutions"])
-        component_state = select_backbone_prefix_state(component_state=component_state,
-                                                       number_target_blocks=number_target_blocks)
-        print_color(color="yellow", output=f"The Backbone Of This Run Takes The First {number_target_blocks} Of The "
-                                           f"{len(source_configuration['Backbone']['convolutions'])} Blocks Of The "
-                                           f"Pretrained Backbone.")
+        if number_target_blocks < number_source_blocks:
+            transfer_message = (f"The Backbone Of This Run Takes The First {number_target_blocks} Of The "
+                                f"{number_source_blocks} Blocks Of The Pretrained Backbone.")
+        else:
+            random_blocks = describe_block_range(first_block=number_shared_blocks + 1, last_block=number_target_blocks)
+            transfer_message = (f"The Backbone Of This Run Starts With The {number_source_blocks} Blocks Of The "
+                                f"Pretrained Backbone, Its {random_blocks} Keeping Random Weights And Learning At The "
+                                f"Learning Rate Of The Run.")
+        print_color(color="yellow", output=transfer_message)
 
     # Class layers checked against the classes of this run, and grown when it adds classes after the source ones
-    target_state = component.state_dict()
     if section_name in CLASS_LAYERS:
         component_state = prepare_class_layers(component_state=component_state, target_state=target_state,
                                                section_name=section_name, source_folder=source_folder,
@@ -1140,10 +1269,12 @@ def freeze_component(component: nn.Module) -> None:
     """
     Keeps a transferred component fixed during the training: its parameters stop requiring gradients, so that only
     the other components learn. The trainer also keeps its batch normalization layers in evaluation mode (see
-    freeze_batch_normalization_statistics), so that their statistics stay those of the source run.
+    freeze_batch_normalization_statistics), so that their statistics stay those of the source run. The trainer gives
+    it the transferred part of the component (see select_transferred_part): the loaded blocks of a backbone deeper
+    than its source backbone, its next blocks learning.
 
     Args:
-        component (nn.Module): The component to freeze, modified in place.
+        component (nn.Module): The component (or its loaded blocks) to freeze, modified in place.
     """
     for parameter in component.parameters():
         parameter.requires_grad = False
@@ -1153,10 +1284,12 @@ def freeze_normalization_parameters(component: nn.Module) -> None:
     """
     Keeps the scale and shift of the batch, layer and group normalization layers of a transferred component fixed,
     while its other layers learn: the features keep the calibration of the source run while the convolutions adapt
-    to the new task. The batch normalization statistics are not parameters, so they keep following the new data.
+    to the new task. The batch normalization statistics are not parameters, so they keep following the new data. Only
+    the loaded blocks of a backbone deeper than its source backbone keep them (see select_transferred_part).
 
     Args:
-        component (nn.Module): The component whose normalization parameters are frozen, modified in place.
+        component (nn.Module): The component (or its loaded blocks) whose normalization parameters are frozen,
+            modified in place.
     """
     for module in component.modules():
         if isinstance(module, NORMALIZATION_LAYER_TYPES):
@@ -1169,10 +1302,11 @@ def freeze_batch_normalization_statistics(component: nn.Module) -> None:
     Puts the batch normalization layers of a frozen component in evaluation mode, after the trainer has put the whole
     model in training mode, so that their running statistics stay those of the source run. The other layers stay in
     training mode: the gradients of the trainable components before it still flow through a frozen component, and
-    the cuDNN backward of the recurrent layers only runs in training mode.
+    the cuDNN backward of the recurrent layers only runs in training mode. The blocks of a backbone deeper than its
+    source backbone after the loaded ones are not frozen, so their statistics follow the new data.
 
     Args:
-        component (nn.Module): The frozen component, modified in place.
+        component (nn.Module): The frozen component (or the loaded blocks of the backbone), modified in place.
     """
     for module in component.modules():
         if isinstance(module, BATCH_NORMALIZATION_LAYER_TYPES):

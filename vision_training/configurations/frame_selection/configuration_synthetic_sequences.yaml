@@ -239,8 +239,8 @@ Backbone:
     # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
     squeeze_and_excite: True
 
-  # Backbone of another run (any task) initialising this one. The layer settings (input_channels, convolutions, modules,
-  # normalization, last_max_pooling) must match; detection levels and image size may differ.
+  # Backbone of another run (any task) initialising this one: input_channels, convolutions, modules, normalization and
+  # last_max_pooling match, or one backbone has more blocks (extras random); detection levels, image size may differ.
   pretrained:
     # Run folder of the loaded backbone, null for random weights (not reloaded on resume).
     experiment_folder: null

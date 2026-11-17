@@ -49,13 +49,15 @@ from vision_training.evaluation.evaluation_report import report_evaluation_resul
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
 from vision_training.models.model_registry import MODEL_DTYPE
-from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, freeze_batch_normalization_statistics,
-                                                   freeze_component, freeze_normalization_parameters,
-                                                   get_component_name, load_pretrained_component,
-                                                   load_segmentation_class_layers)
+from vision_training.models.model_transfer import (LOADED_BACKBONE_BLOCKS_METADATA_KEY, TRANSFERABLE_COMPONENTS,
+                                                   count_loaded_backbone_blocks, describe_block_range,
+                                                   freeze_batch_normalization_statistics, freeze_component,
+                                                   freeze_normalization_parameters, get_component_name,
+                                                   load_pretrained_component, load_segmentation_class_layers,
+                                                   select_transferred_part)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_last_checkpoint_iteration,
-                                                    load_checkpoint, save_checkpoint)
+                                                    load_checkpoint, read_checkpoint_value, save_checkpoint)
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
 from vision_training.trainers.speed_benchmark import (BYTES_PER_GIGABYTE, FORMAT_FAILED_STATUS, INFERENCE_FORMATS,
@@ -291,7 +293,9 @@ class BaseTrainer(ABC):
         self.model = self.build_model()
         self.model.to(device=self.device, dtype=self.dtype)
 
-        # Components transferred from other runs, replacing the PyTorch initialisation of their layers
+        # Components transferred from other runs, replacing the PyTorch initialisation of their layers; the blocks of a
+        # backbone deeper than its source backbone loaded from it are counted there (None for a whole backbone)
+        self.loaded_backbone_blocks = None
         self.pretrained_checkpoint_paths = self.initialise_pretrained_components()
         self.optimizer = self.build_optimizer()
 
@@ -671,7 +675,9 @@ class BaseTrainer(ABC):
         and freezes written in the run name, and the multiplier can change between two resumptions of a run without
         changing the layout of its checkpoints. The first group holds every other parameter: without such a component,
         every parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
-        transferred backbone comes second, the layout of the runs that only transferred their backbone.
+        transferred backbone comes second, the layout of the runs that only transferred their backbone. A backbone
+        deeper than its source backbone puts only its loaded blocks in its group (see get_transferred_part), its next
+        blocks learning at the learning rate of the run in the first group, as the other new layers.
 
         Returns:
             torch.optim.Optimizer: The optimizer at the configured learning rate.
@@ -682,7 +688,7 @@ class BaseTrainer(ABC):
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             if pretrained_configuration["experiment_folder"] is None or pretrained_configuration["freeze"]:
                 continue
-            component_parameters = list(getattr(self.model, TRANSFERABLE_COMPONENTS[section_name]).parameters())
+            component_parameters = list(self.get_transferred_part(section_name=section_name).parameters())
             component_parameter_identifiers.update(id(parameter) for parameter in component_parameters)
             component_groups.append({"params": component_parameters, "lr": self.learning_rate *
                                      pretrained_configuration["learning_rate_multiplier"]})
@@ -719,13 +725,13 @@ class BaseTrainer(ABC):
         """
         Puts the model in training mode before every training step, except the batch normalization layers of the
         frozen transferred components, kept in evaluation mode so that their statistics stay those of their source
-        runs (see freeze_batch_normalization_statistics).
+        runs (see freeze_batch_normalization_statistics); only the loaded blocks of a backbone deeper than its source
+        backbone are frozen (see get_transferred_part).
         """
         self.model.train()
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             if pretrained_configuration["freeze"]:
-                freeze_batch_normalization_statistics(
-                    component=getattr(self.model, TRANSFERABLE_COMPONENTS[section_name]))
+                freeze_batch_normalization_statistics(component=self.get_transferred_part(section_name=section_name))
 
     def set_evaluation_mode(self) -> None:
         """
@@ -834,7 +840,10 @@ class BaseTrainer(ABC):
         may add classes after those of its source run, and the class layers of the semantic segmentation are loaded
         with its decoder when 'SegmentationDecoder.pretrained.load_class_layers' is True (they are never frozen, the
         new classes having to learn). A run resuming from its own checkpoints does not load them, its checkpoint holding
-        the components it was training, but keeps them frozen.
+        the components it was training, but keeps them frozen. A backbone deeper than its source backbone loads its
+        first blocks only, counted in loaded_backbone_blocks (from the configuration of the source run for a new run,
+        from the 'pretrained_backbone_blocks' of its last checkpoint for a resumed run, whose source run may be gone):
+        only these blocks are frozen, their next blocks learning (see get_transferred_part).
 
         Returns:
             Dict[str, Optional[Path]]: The checkpoint file every component was loaded from, keyed by the section names
@@ -844,27 +853,38 @@ class BaseTrainer(ABC):
             ValueError: If every parameter of the model is frozen, so that the training would change nothing.
         """
         pretrained_checkpoint_paths = {}
+        last_checkpoint_iteration = get_last_checkpoint_iteration(weights_directory=self.weights_directory)
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             pretrained_checkpoint_paths[section_name] = None
             if pretrained_configuration["experiment_folder"] is None:
                 continue
             component = getattr(self.model, TRANSFERABLE_COMPONENTS[section_name])
 
-            # Load the source component for a new run only
-            if get_last_checkpoint_iteration(weights_directory=self.weights_directory):
+            # Load the source component for a new run only, a resumed run reading the backbone blocks it loaded from
+            # its own checkpoint
+            if last_checkpoint_iteration:
                 print_color(color="yellow", output=f"The Run Resumes From Its Own Checkpoint, The Pretrained "
                                                    f"{get_component_name(section_name=section_name).title()} Is Not "
                                                    f"Loaded Again.")
+                if section_name == "Backbone":
+                    self.loaded_backbone_blocks = read_checkpoint_value(
+                        weights_directory=self.weights_directory, iteration=last_checkpoint_iteration,
+                        key_name=LOADED_BACKBONE_BLOCKS_METADATA_KEY)
             else:
                 pretrained_checkpoint_paths[section_name] = load_pretrained_component(
                     component=component, section_name=section_name, model_configuration=self.model_configuration,
                     device=self.device, class_names=self.list_class_names())
+                if section_name == "Backbone":
+                    self.loaded_backbone_blocks = count_loaded_backbone_blocks(
+                        model_configuration=self.model_configuration)
 
-            # Freeze the whole component, or only the scale and shift of the normalization layers of the backbone
+            # Freeze the loaded part of the component, or only the scale and shift of the normalization layers of the
+            # loaded part of the backbone
+            transferred_part = self.get_transferred_part(section_name=section_name)
             if pretrained_configuration["freeze"]:
-                freeze_component(component=component)
+                freeze_component(component=transferred_part)
             elif section_name == "Backbone" and pretrained_configuration["freeze_normalization_parameters"]:
-                freeze_normalization_parameters(component=component)
+                freeze_normalization_parameters(component=transferred_part)
 
         # Class layers of the semantic segmentation, outside its decoder, loaded with the decoder of a new run only
         if "SegmentationDecoder" in self.pretrained_configurations and \
@@ -878,6 +898,23 @@ class BaseTrainer(ABC):
             raise ValueError("Every Parameter Of The Model Is Frozen By The 'pretrained.freeze' Settings, The Training "
                              "Would Change Nothing: Leave At Least One Component Trainable.")
         return pretrained_checkpoint_paths
+
+    def get_transferred_part(self, section_name: str) -> nn.Module:
+        """
+        Gives the part of a transferred component holding the weights of its source run, which is frozen, keeps its
+        batch statistics and learns at the learning rate multiplier of the transfer: the whole component, or the
+        loaded blocks of a backbone deeper than its source backbone (loaded_backbone_blocks), whose next blocks start
+        random and learn at the learning rate of the run as the other new layers.
+
+        Args:
+            section_name (str): The configuration section of the component, a key of TRANSFERABLE_COMPONENTS.
+
+        Returns:
+            nn.Module: The component, or a module list of the loaded blocks of the backbone.
+        """
+        number_loaded_blocks = self.loaded_backbone_blocks if section_name == "Backbone" else None
+        return select_transferred_part(component=getattr(self.model, TRANSFERABLE_COMPONENTS[section_name]),
+                                       number_loaded_blocks=number_loaded_blocks)
 
     def setup_training_paths(self, initial_configuration_path: Path, create_run_folder: bool
                              ) -> Tuple[Path, Path, Path, Optional[ConfigurationChanges]]:
@@ -1246,11 +1283,12 @@ class BaseTrainer(ABC):
         Prints, in the experiment information, one block per component initialised by the trained one of another run
         (backbone, temporal module, classification head, segmentation decoder, region proposal heads, detection
         heads, mask heads): its source run folder, then the checkpoint iteration it comes from, whether it is frozen,
-        whether the normalization layers of the backbone are frozen, whether the class layers of the semantic
-        segmentation are loaded with its decoder, the initialisation of the classes added after those of the source run
-        (components with class layers), and the learning rate it learns at with its multiplier, which gives
-        no token in the run name. A frozen component does not learn, so it has no learning rate line. Components
-        trained from random weights print nothing.
+        whether the normalization layers of the backbone are frozen, the loaded blocks of a backbone deeper than its
+        source backbone (the others starting random), whether the class layers of the semantic segmentation are loaded
+        with its decoder, the initialisation of the classes added after those of the source run (components with class
+        layers), and the learning rate it learns at with its multiplier, which gives no token in the run name. A frozen
+        component does not learn, so it has no learning rate line. Components trained from random weights print
+        nothing.
         """
         pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
                              "ClassificationHead": "Pretrained Class. Head",
@@ -1268,10 +1306,17 @@ class BaseTrainer(ABC):
             print_color(color="blue", output=f"    - Source Iteration    : {source_iteration_description}")
             print_color(color="blue", output=f"    - Frozen              : {pretrained_configuration['freeze']}")
 
-            # Scale and shift of the normalization layers kept fixed, a setting of the backbone only
+            # Scale and shift of the normalization layers kept fixed, a setting of the backbone only, and the blocks of
+            # a backbone deeper than its source backbone loaded from it, the others starting random
             if section_name == "Backbone":
                 print_color(color="blue", output=f"    - Norm. Layers Frozen : "
                                                  f"{pretrained_configuration['freeze_normalization_parameters']}")
+            if section_name == "Backbone" and self.loaded_backbone_blocks is not None:
+                number_blocks = len(self.model_configuration["Backbone"]["convolutions"])
+                random_blocks = describe_block_range(first_block=self.loaded_backbone_blocks + 1,
+                                                     last_block=number_blocks)
+                print_color(color="blue", output=f"    - Loaded Blocks       : {self.loaded_backbone_blocks} Of "
+                                                 f"{number_blocks}, {random_blocks} Random At The Run Learning Rate")
 
             # Class layers of the semantic segmentation loaded with the decoder, a setting of the decoder only
             if section_name == "SegmentationDecoder":
@@ -2636,9 +2681,10 @@ class BaseTrainer(ABC):
         ('mlflow_run_id', None without tracking or while the run is being opened), the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
         'pretrained_classification_head', 'pretrained_segmentation_decoder', 'pretrained_region_proposer_dictionary',
-        'pretrained_detector_heads_dictionary', 'pretrained_mask_heads_dictionary', None without transfer) and the
-        moving average of the weights of a run keeping one, and records it in the checkpoint registry of the run used
-        to resume the training.
+        'pretrained_detector_heads_dictionary', 'pretrained_mask_heads_dictionary', None without transfer), the
+        backbone blocks loaded from a shorter source backbone ('pretrained_backbone_blocks', None when the whole
+        backbone or none of it comes from another run, read back when the run resumes) and the moving average of the
+        weights of a run keeping one, and records it in the checkpoint registry of the run used to resume the training.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
@@ -2650,6 +2696,9 @@ class BaseTrainer(ABC):
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             metadata[f"pretrained_{TRANSFERABLE_COMPONENTS[section_name]}"] = pretrained_configuration[
                 "experiment_folder"]
+
+        # Backbone blocks loaded from a shorter source backbone, read back when the run resumes
+        metadata[LOADED_BACKBONE_BLOCKS_METADATA_KEY] = self.loaded_backbone_blocks
         exponential_moving_average_state = None
         if self.exponential_moving_average is not None:
             exponential_moving_average_state = self.exponential_moving_average.state_dict()

@@ -334,7 +334,7 @@ scenes:
       - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [2]}
     narration:
       - "Say you want to reuse another run: every component can start from its weights, the experiment folder naming that run folder, and the iteration the checkpoint, null taking the last one."
-      - "The backbone needs the same blocks, modules and normalization as the source, or the first blocks of the source backbone; the image size and the task may differ."
+      - "The backbone needs the same blocks, modules and normalization as the source, or shares its first blocks, a deeper backbone keeping its extra blocks random; the image size and the task may differ."
       - "Freeze keeps its weights and batch statistics fixed, freeze normalization parameters fixes only the scale and shift of its normalization layers, and the learning rate multiplier lets it learn at another speed than the new layers."
       - "The transfer adds PT to the run name, with FRZ when frozen and FBN for the fixed normalization; the multiplier gives no token, so it can change when the run resumes."
 

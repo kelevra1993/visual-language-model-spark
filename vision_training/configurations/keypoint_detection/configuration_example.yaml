@@ -222,8 +222,8 @@ Backbone:
     # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
     squeeze_and_excite: True
 
-  # Backbone of another run (any task) loaded into the stem, as many first blocks as it has; input_channels, first
-  # convolutions, modules and normalization must match, the image size may differ.
+  # Backbone of another run (any task) loaded into the stem, the blocks both have (extra stem blocks starting random);
+  # input_channels, first convolutions, modules and normalization must match, the image size may differ.
   pretrained:
     # Run folder of the loaded backbone, null for random weights, not reloaded on resume; e.g. an ImageNet run:
     # experiments/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.16x128.20x128.20x128_HFLAT.512.256-HLN-CWB_MC1000
