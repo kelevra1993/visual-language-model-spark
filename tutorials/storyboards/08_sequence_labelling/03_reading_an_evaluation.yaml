@@ -286,12 +286,17 @@ scenes:
       - {type: box, box: [620, 60, 1140, 230], text: "sequence_labeller_torchscript\nsequence_labeller_onnx\ninput normalization inside", font: diagram_small, outline: violet}
       - {type: arrow, points: [[1140, 145], [1235, 145]]}
       - {type: box, box: [1240, 60, 1720, 230], text: "class_probabilities\n[B, T, K]", font: diagram_small, outline: aqua}
-      - {type: box, box: [240, 310, 1520, 460], text: "No sequence mask: the sequences of one request share T,\nfrom one to Data.sequence_settings.maximum_sequence_length", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [240, 270, 1520, 390], text: "No sequence mask: the sequences of one request share T,\nfrom one to Data.sequence_settings.maximum_sequence_length", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      # The dynamo ONNX export writes the frames of its trace into the output after the bidirectional LSTM, which
+      # Triton refuses against the dynamic frames of config.pbtxt (README TODO, repair_onnx_output_frames of
+      # scripts/deployment/benchmark_serving_formats.py repairing the copies of the serving benchmark)
+      - {type: box, box: [240, 420, 1520, 540], text: "sequence_labeller_onnx: its output keeps the frames of the trace,\nrefused by Triton until the export writes that axis dynamic", font: diagram_small, outline: red, appear: 2, highlight: [2]}
       # The input contract of the run (vision_training/deployment/input_contract.py), written by every export
-      - {type: box, box: [240, 540, 1520, 690], text: "preprocessing.json next to the model, and the metadata of the ONNX model:\ncolor order · resize · size · padding · layout NTCHW · value range", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
+      - {type: box, box: [240, 570, 1520, 700], text: "preprocessing.json next to the model, and the metadata of the ONNX model:\ncolor order · resize · size · padding · layout NTCHW · value range", font: diagram_small, outline: blue, appear: 3, highlight: [3]}
     narration:
       - "The export writes sequence labeler in Torch Script and ONNX: images of B by T by {{sequence_labelling.run.input_channels:words}} by S by S in, the class probabilities of B by T by K out, the input normalization inside the model."
       - "It has no sequence mask, so every sequence of one request has the same number of frames, from one to the maximum sequence length."
+      - "Before serving the ONNX file, know that its output keeps the frames of the trace, the maximum sequence length, so Triton refuses to load it until the export writes that axis dynamic; the Torch Script model loads."
       - "The export also writes the color order, resize, size, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata, for a server to build the frames as the training did."
 
   - kind: summary
