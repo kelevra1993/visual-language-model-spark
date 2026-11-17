@@ -558,7 +558,7 @@ A reduced precision also shrinks the memory the model reads at every request. Th
 The DGX Spark gives its GPU 273 GB/s of memory bandwidth shared with the CPU ([specifications](https://www.nvidia.com/en-us/products/workstations/dgx-spark/)), so halving the bytes of weights and activations halves the traffic of a memory-bound layer; on these models TensorRT FP16 serves 1.6 to 1.9 times the images of TensorRT FP32 at batch 16 (table below).
 
 #### Serving Benchmark Results
-Should you pick a serving path for a model, the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) measured each one on 2026-11-17 on the idle GPU, every cell giving CLS / DET / M2M: the README classifier (512 pixels), the detection benchmark run_9 (1024 pixels, NMS inside the model) and the sequence labelling tutorial run (counted in frames, 7 per sequence). The Triton rows use the exported configuration (dynamic batching on, one instance) and system shared memory; "Best" is the highest throughput over batches of 1, 4 and 16 and 1, 4 and 16 requests in flight (one caller in the process); the memory is the drop of available memory of the whole server or process; the test metric is the headline metric of the test split (CLS and M2M accuracy, DET mAP@0.5 of the detections above the deployment score threshold 0.5) in points against the eager model.
+Should you pick a serving path for a model, the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) measured each one on 2026-11-17 on the idle GPU, every cell giving CLS / DET / M2M: the README classifier (512 pixels), the detection benchmark run_9 (1024 pixels, NMS inside the model) and the sequence labelling tutorial run (counted in frames, 7 per sequence). The Triton rows use the exported configuration (dynamic batching on, one instance) and system shared memory; "Best" is the highest throughput over batches of 1, 4 and 16 and 1, 4 and 16 requests in flight (one caller in the process); the memory is the drop of available memory of the whole server or process; the test metric is the headline metric of the test split (CLS and M2M accuracy, DET mAP@0.5 of the detections above the deployment score threshold 0.5) in points against the eager model. To run the two drivers again, `scripts/deployment/benchmark_serving_formats.py` and `scripts/deployment/evaluate_served_formats.py`, see their settings in the [tools reference](documentation/reference/tools_reference.md#serving-benchmark).
 
 | Path | Batch 1 p50 (milliseconds) | Batch 16, one client (images per second) | Best (images per second) | Memory (gigabytes) | First requests at batch 1, 4 and 16 (seconds) | Test metric against eager (points) |
 |---|---|---|---|---|---|---|
@@ -705,7 +705,7 @@ For a pod to train as the Spark does, its specification sets:
 - `securityContext` with `runAsNonRoot: true`, `runAsUser: 10001` and `fsGroup: 10001`, so that the user of the image writes into the mounted volumes of the datasets and run folders, at the paths of the configuration (given by a `ConfigMap`).
 
 ## Tutorials
-If you would rather watch than read, narrated tutorial videos (an overview, a foundations series, then one series per task) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default).
+If you would rather watch than read, narrated tutorial videos (an overview, a foundations series, one series per task and a deployment series) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default).
 
 <p align="center">
   <img src="README/tutorial_scenes.gif" width="100%" />
@@ -762,14 +762,14 @@ To find your way in the code, the diagram follows the packages along the path of
 │   ├── tracking/                      # MLflow tracking
 │   ├── deployment/                    # Export, input contract, Triton server, throughput measurement
 │   └── utilities/                     # File, tensor, mask and visualization helpers
-├── scripts/                           # Configuration, data, embedding, evaluation and model drawing scripts
+├── scripts/                           # Configuration, data, deployment (serving benchmark), embedding, evaluation and model drawing scripts
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
 └── tutorials/                         # Narrated tutorial videos: storyboards, builder and figure scripts
 ```
 
 ## TODO
 In case you pick up open work, these entries are still to do:
-- **Fix the output frames of the sequence ONNX export.** The dynamo export fixes the frames of the outputs after the bidirectional LSTM to those of the trace (50), so Triton refuses the M2M model whose `config.pbtxt` declares -1; `find_fixed_dynamic_dimensions` of `export_formats.py` checks the inputs only. The serving benchmark repairs the exported files with `repair_onnx_output_frames` of `scripts/deployment/benchmark_serving_formats.py`.
+- **Fix the output frames of the sequence ONNX export.** The dynamo export fixes the frames of the outputs after the bidirectional LSTM to those of the trace (50), so Triton refuses the M2M model whose `config.pbtxt` declares -1, and an export probe of the bidirectional GRU of the frame selector fixes its output frames the same way (its ONNX network and ensemble not yet loaded in Triton); `find_fixed_dynamic_dimensions` of `export_formats.py` checks the inputs only. The serving benchmark repairs the exported files with `repair_onnx_output_frames` of `scripts/deployment/benchmark_serving_formats.py`.
 - **Batches of the detector outside TensorRT.** The inference detector gives every (proposal, foreground class) pair of the batch to one torchvision NMS (`suppress_groups_apart` of `vision_training/models/detection/postprocessing.py`), whose pairwise work grows with the square of the batch: the eager and TorchScript DET take 16 milliseconds for one image and 1.4 seconds for 16, the TensorRT engines 82 milliseconds with their NMS of one batch per group. Profiled on run_9 in the process, the two `nms` calls (proposals and detections) take 4.2 milliseconds at batch 1 and 1,313 milliseconds at batch 16 (89 % of the GPU time), the backbone and neck 9.1 and 140.7. Candidates: the score threshold before the NMS of the evaluation (`suppress_candidates_only`) in the process, a fixed top-k of the pairs per image before the NMS in the exports.
 - **Serving defaults of the export**, from the [Serving Benchmark Results](#serving-benchmark-results):
   - Dynamic batching off for the three models, with two instances for CLS and M2M (CLS 1,747 against 1,168 images per second at 16 requests in flight, twice the throughput at one client; DET 166 against 153 without it since the NMS fix).

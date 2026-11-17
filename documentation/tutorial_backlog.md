@@ -9,10 +9,9 @@ To find your way in the backlog, the sections are:
 
 - [Adding An Entry](#adding-an-entry)
 - [Speed Benchmark Diagnosis Mode](#speed-benchmark-diagnosis-mode)
-- [Deeper Backbone From A Shorter Pretrained Backbone](#deeper-backbone-from-a-shorter-pretrained-backbone)
-- [Sparse Confusion Matrix Above 1,000 Classes](#sparse-confusion-matrix-above-1000-classes)
-- [Docker Image Of The Trainer](#docker-image-of-the-trainer)
-- [Serving Benchmark Scripts](#serving-benchmark-scripts)
+- [Report Figures Of A Kept Classifier](#report-figures-of-a-kept-classifier)
+- [Results Of The Finer Inputs Of The Mask Heads](#results-of-the-finer-inputs-of-the-mask-heads)
+- [ImageNet-22k Download](#imagenet-22k-download)
 
 ## Adding An Entry
 Whenever a change lands on `main` with a behaviour the tutorials do not show, add a section with these four lines, then remove it once the chapter showing it is rebuilt:
@@ -30,34 +29,26 @@ To be able to compare the training and inference speeds of a configuration befor
 - **Tutorial status**: not mentioned in any storyboard. The other diagnosis modes are shown: `view_input_images` in `01_foundations/03_data_pipeline.yaml`, `compute_receptive_field` in `01_foundations/04_backbone_and_modules.yaml`, `compute_anchor_coverage` in `03_object_detection/01_data_levels_and_anchors.yaml`.
 - **Where it would fit**: the foundations series, next to the other diagnosis modes or in `01_foundations/06_after_the_training.yaml` with the export, showing the report of a real run. The run needs an idle machine (on the DGX Spark the benchmark refuses to start unless more than 40 GB are free) and `onnxruntime-gpu` for the ONNX Runtime and TensorRT rows, which the environment of the repository does not have yet.
 
-## Deeper Backbone From A Shorter Pretrained Backbone
-If one wishes to start a deeper backbone from a shorter trained one, `Backbone.pretrained` loads the source backbone into the first blocks of the backbone of the run, the blocks after them keeping their random initialisation and learning at the learning rate of the run; `freeze`, `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only, and every checkpoint stores their number (`pretrained_backbone_blocks`) so that a resumed run freezes the same blocks once its source run is gone (`vision_training/models/model_transfer.py`, `BaseTrainer.get_transferred_part`).
+## Report Figures Of A Kept Classifier
+Should a research report need the figures of a kept classifier again, `scripts/evaluation/draw_report_figures.py` writes them into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` from the run folder: the confusion matrix, the precision-recall curves at the saved temperature, the training curves with the kept checkpoint, and `report_values.json`.
 
-- **Added**: `main` 4a76053, 2026-11-17.
-- **Documented in**: [README, Transfer Between Runs](../README.md#transfer-between-runs) and [training reference, Transfer Between Runs](reference/training_reference.md#transfer-between-runs).
-- **Tutorial status**: the narration of the "Starting from a trained run" scene of `01_foundations/04_backbone_and_modules.yaml` and the transfer box and sentence of `11_self_supervised/03_judging_without_a_classifier.yaml` were updated in the storyboards to say that a deeper backbone keeps its extra blocks random, but these chapters are not rebuilt yet. No scene shows that freezing, the fixed normalization and the multiplier cover the loaded blocks only, the `Loaded Blocks` line of the console, or the resume without the source run.
-- **Where it would fit**: the "Starting from a trained run" scene of the foundations backbone chapter, with the console of a run of 6 blocks started from a run of 4 (the case of `tests/trainers/test_backbone_transfer_training.py`), then a rebuild of the foundations and self-supervised series.
+- **Added**: `main` 1e6daec, 2026-11-14.
+- **Documented in**: [README, Evaluating Checkpoints](../README.md#evaluating-checkpoints) and [tools reference, Drawing The Figures Of A Research Report](reference/tools_reference.md#drawing-the-figures-of-a-research-report).
+- **Tutorial status**: not mentioned in any storyboard; `02_classification/02_judging_and_shipping.yaml` stops at the temperature explorer and the export.
+- **Where it would fit**: one scene after the explorer scenes of `02_classification/02_judging_and_shipping.yaml`, drawn from the classification tutorial run, leaving out the trucks-seen-or-unseen panel (it needs a manifest of image groups); no new training.
 
-## Sparse Confusion Matrix Above 1,000 Classes
-Should an evaluation cover more than 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES`, e.g. the 21,842 classes of imagenet-merged), the classification and k-NN evaluations count only the non-zero cells of the confusion matrix, with the same metrics, write them to `confusion_cells.csv` (`true_class,predicted_class,count`) instead of `confusion_matrix.csv`, and draw no confusion image.
+## Results Of The Finer Inputs Of The Mask Heads
+In order to show what the finer inputs of the instance segmentation mask heads bring (U-Net skips of backbone blocks before their pooling, an image branch on the crop of the input image, fusion convolutions), a chapter needs the results of stage 3b of the instance segmentation benchmark.
 
-- **Added**: `main` b45c72b, 2026-11-17.
-- **Documented in**: [README, Evaluating Checkpoints](../README.md#evaluating-checkpoints) and [configuration reference, Evaluation Outputs](reference/configuration_reference.md#evaluation-outputs).
-- **Tutorial status**: not shown; the classification chapters use the 9 classes of the synthetic shapes and their dense matrix.
-- **Where it would fit**: one sentence in the "Confusions over the training" scene of `02_classification/02_judging_and_shipping.yaml`, no run needed.
+- **Added**: `main` 0ef5cbd, 2026-11-15; skip rules `main` d536467, 2026-11-18; design A recorded `main` 45fbc73, 2026-11-17.
+- **Documented in**: [tasks reference](reference/tasks_reference.md), [configuration reference](reference/configuration_reference.md) and stage 3b of the [instance segmentation plan](architecture_benchmarking/instance_segmentation_experiment_plan.md).
+- **Tutorial status**: `04_instance_segmentation/01_from_boxes_to_masks.yaml` names the settings, off in the run shown, and states the skip rules; no chapter shows a result (design A reaches a mask mAP of 0.8865 against 0.8145 for the heads of stage 3).
+- **Where it would fit**: the mask head scene of `04_instance_segmentation/01_from_boxes_to_masks.yaml` or chapter 2, with the stage 3b figure, once design B and the control are run (user decision); no new tutorial run.
 
-## Docker Image Of The Trainer
-In order to train in a container, on the amd64 GPU pods of a cloud Kubernetes cluster or on the arm64 DGX Spark, the multi-stage `Dockerfile` of the repository root builds the trainer image.
+## ImageNet-22k Download
+Should you need the pretrained backbones of the classification or self-supervised example configurations, `vision_training/data/classification/imagenet_download.py` downloads ImageNet-22k (`timm/imagenet-22k-wds` at a pinned revision, 21,841 classes).
 
-- **Added**: `main` f184436, 2026-11-16.
-- **Documented in**: [README, Docker Image](../README.md#docker-image).
-- **Tutorial status**: not shown; `01_foundations/01_repository_and_first_run.yaml` installs with `uv sync` only, and `06_after_the_training.yaml` uses Docker for Triton only.
-- **Where it would fit**: one scene after the `uv sync` scene of `01_foundations/01_repository_and_first_run.yaml` (stages, build and run commands), no run needed.
-
-## Serving Benchmark Scripts
-If one wishes to compare the serving paths of a trained model, `scripts/deployment/benchmark_serving_formats.py` exports it for every TensorRT precision and measures the latency, throughput, memory and first requests of the model in the process and through Triton (gRPC and system shared memory), and `scripts/deployment/evaluate_served_formats.py` scores the test split through every served format against the eager model.
-
-- **Added**: `main` 5cdaacd, 2026-11-17.
-- **Documented in**: [README, Serving Benchmark Results](../README.md#serving-benchmark-results) and the [serving benchmark plan](architecture_benchmarking/serving_benchmark_plan.md).
-- **Tutorial status**: not shown; the "Serving with Triton" scene of `01_foundations/06_after_the_training.yaml` runs `run_inference.py` with one client and quotes no measurement of the benchmark.
-- **Where it would fit**: one scene after "Serving with Triton" in `01_foundations/06_after_the_training.yaml` with the results table of the README (its numbers from `serving_benchmark_results.csv` and `serving_benchmark_test_metrics.csv`), no new run needed.
+- **Added**: `main` a8a8ff2, 2026-11-11.
+- **Documented in**: [README, ImageNet-22k](../README.md#imagenet-22k).
+- **Tutorial status**: no storyboard mentions ImageNet or the script; the tutorials train on synthetic data only.
+- **Where it would fit**: one terminal scene after the `uv sync` scene of `01_foundations/01_repository_and_first_run.yaml`; no download needed.
