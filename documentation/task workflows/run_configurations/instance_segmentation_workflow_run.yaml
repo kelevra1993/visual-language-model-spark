@@ -403,14 +403,14 @@ MaskHead:
   # Pooled feature doubling: "transposed" (learned 2x2 transposed convolution) or "bilinear" (bilinear upsampling then a
   # 3x3 convolution), each followed by a ReLU.
   upsampling: "transposed"
-  # Backbone blocks (before their pooling, 0 the normalized input image) pooled at the pool size of every level and
-  # concatenated to its pooled features (U-Net skips), e.g. [4] (stride 8); [] for none.
+  # Backbone blocks (before their pooling, 0 the input image) finer than the finest level, pooled at the pool size and
+  # concatenated to the pooled features of every level (U-Net skips), e.g. [4] (stride 8); [] for none.
   skip_blocks_at_pool_size: []
   # Image branch: [layers, channels] of plain 3x3 convolutions on the box crop of the normalized input image at M,
   # shared by the levels and concatenated after the doublings, e.g. [5, 32]; [0, 0] for none.
   image_branch_convolutions: [0, 0]
-  # Backbone blocks (before their pooling) pooled at M and concatenated after the doublings, e.g. [3] (stride 4);
-  # [] for none.
+  # Backbone blocks (before their pooling) finer than those at the pool size, pooled at M and concatenated after the
+  # doublings, e.g. [3] (stride 4); [] for none.
   skip_blocks_at_mask_resolution: []
   # [layers, channels] of plain 3x3 convolutions at M before the predictor, mixing the concatenated features, e.g.
   # [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.

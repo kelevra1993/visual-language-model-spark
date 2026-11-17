@@ -88,6 +88,99 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     return errors
 
 
+def compute_skip_stride(block: int) -> int:
+    """
+    Gives the stride of a backbone skip of the mask heads, read by RoIAlign at its spatial scale: the normalized input
+    image (block 0) is at stride 1, and block b before its pooling at 2 ** (b - 1), each block before it pooling once
+    (only the last block of the backbone may skip its pooling, and no block follows it).
+
+    Args:
+        block (int): The skip block, 0 for the normalized input image.
+
+    Returns:
+        int: The stride of the skip in pixels of the input image.
+    """
+    return 1 if block == 0 else 2 ** (block - 1)
+
+
+def compute_level_stride(level: int, number_blocks: int, last_max_pooling: bool) -> int:
+    """
+    Gives the stride of a detection level, the output of its backbone block after its pooling, which the last block
+    of the backbone skips unless 'Backbone.last_max_pooling' adds it, so that the skips of the mask heads are compared
+    with the levels the heads already read.
+
+    Args:
+        level (int): The backbone block of the detection level.
+        number_blocks (int): The number of blocks of the backbone.
+        last_max_pooling (bool): Whether the last block of the backbone pools its output.
+
+    Returns:
+        int: The stride of the level in pixels of the input image.
+    """
+    return 2 ** level if level < number_blocks or last_max_pooling else 2 ** (level - 1)
+
+
+def check_skip_block_strides(model_configuration: Dict[str, Any], valid_skip_blocks: Dict[str, List[int]],
+                             number_blocks: int) -> List[str]:
+    """
+    Verifies that the backbone skips of the mask heads bring finer features than the maps the heads already read
+    (stage 3b of the instance segmentation benchmark): every skip below the stride of the finest detection level,
+    every skip at the mask resolution finer than every skip at the pool size, as U-Net joins its finest encoder maps
+    at its finest decoder stage, and no block read at both sizes, reported on its own. Skips listed in a wrong form,
+    detection levels that are not block numbers and a 'Backbone.last_max_pooling' that is not a boolean are reported
+    by their own checks, so the rules are then left out.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Backbone', 'DetectionLevels' and
+            'MaskHead' sections.
+        valid_skip_blocks (Dict[str, List[int]]): The skip lists that passed their own check, keyed by their name in
+            'MaskHead' ('skip_blocks_at_pool_size', 'skip_blocks_at_mask_resolution').
+        number_blocks (int): The number of blocks of the backbone.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+
+    # Stride of the finest detection level, from the quoted block numbers of 'DetectionLevels'
+    detection_levels = get_configuration_value(configuration=model_configuration, key_path="DetectionLevels")
+    last_max_pooling = get_configuration_value(configuration=model_configuration, key_path="Backbone.last_max_pooling")
+    levels = [int(level_key) for level_key in detection_levels if isinstance(level_key, str) and level_key.isdigit()] \
+        if isinstance(detection_levels, dict) else []
+    if levels and isinstance(last_max_pooling, bool):
+        finest_level = min(levels)
+        finest_level_stride = compute_level_stride(level=finest_level, number_blocks=number_blocks,
+                                                   last_max_pooling=last_max_pooling)
+
+        # Every skip finer than the finest level, which the mask heads already read
+        for key_name, skip_blocks in valid_skip_blocks.items():
+            coarse_blocks = [block for block in skip_blocks if compute_skip_stride(block=block) >= finest_level_stride]
+            if coarse_blocks:
+                errors.append(f"'MaskHead.{key_name}' must only hold blocks finer than the finest detection level "
+                              f"{finest_level} (stride {finest_level_stride}), a block before its pooling being at "
+                              f"stride 2 ** (block - 1), got {coarse_blocks!r}.")
+
+    # Skips at the mask resolution finer than the skips at the pool size
+    pool_size_blocks = valid_skip_blocks["skip_blocks_at_pool_size"] \
+        if "skip_blocks_at_pool_size" in valid_skip_blocks else []
+    mask_resolution_blocks = valid_skip_blocks["skip_blocks_at_mask_resolution"] \
+        if "skip_blocks_at_mask_resolution" in valid_skip_blocks else []
+    if pool_size_blocks and mask_resolution_blocks:
+        # A block read at both sizes, reported on its own before the order of the other blocks
+        shared_blocks = sorted(set(pool_size_blocks) & set(mask_resolution_blocks))
+        if shared_blocks:
+            errors.append(f"'MaskHead.skip_blocks_at_pool_size' and 'MaskHead.skip_blocks_at_mask_resolution' must not "
+                          f"share a block, the same features being then read twice, got {shared_blocks!r}.")
+        finest_pool_size_stride = min(compute_skip_stride(block=block) for block in pool_size_blocks)
+        coarse_blocks = [block for block in mask_resolution_blocks if block not in shared_blocks and
+                         compute_skip_stride(block=block) >= finest_pool_size_stride]
+        if coarse_blocks:
+            errors.append(f"'MaskHead.skip_blocks_at_mask_resolution' must only hold blocks finer than every block of "
+                          f"'MaskHead.skip_blocks_at_pool_size' {pool_size_blocks!r} (finest stride "
+                          f"{finest_pool_size_stride}), got {coarse_blocks!r}.")
+    return errors
+
+
 def check_mask_head_fine_inputs(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the finer inputs of the mask heads (stage 3b of the instance segmentation benchmark), all off by default:
@@ -96,8 +189,11 @@ def check_mask_head_fine_inputs(model_configuration: Dict[str, Any]) -> List[str
     ('MaskHead.image_branch_convolutions'), [0, 0] when unused, and the backbone blocks whose outputs before pooling
     are pooled at the pool size or at the mask resolution
     ('MaskHead.skip_blocks_at_pool_size', 'MaskHead.skip_blocks_at_mask_resolution'), distinct block numbers of
-    'Backbone.convolutions' or 0 for the normalized input image. The image branch is not part of the transferred mask
-    heads, so it is refused with mask heads initialised by another run, whose heads were trained on another branch.
+    'Backbone.convolutions' or 0 for the normalized input image. A skip must bring finer features than the levels: its
+    stride must be below that of the finest detection level, and every skip at the mask resolution must be finer than
+    every skip at the pool size, as U-Net joins its finest encoder maps at its finest decoder stage, and no block may
+    be read at both sizes. The image branch is not part of the transferred mask heads, so it is refused with mask heads
+    initialised by another run, whose heads were trained on another branch.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' and 'Backbone'
@@ -123,6 +219,7 @@ def check_mask_head_fine_inputs(model_configuration: Dict[str, Any]) -> List[str
 
     # Backbone blocks read before their pooling, 0 standing for the normalized input image
     number_blocks = len(get_configuration_value(configuration=model_configuration, key_path="Backbone.convolutions"))
+    valid_skip_blocks = {}
     for key_name in ["skip_blocks_at_pool_size", "skip_blocks_at_mask_resolution"]:
         key_path = f"MaskHead.{key_name}"
         skip_blocks = get_configuration_value(configuration=model_configuration, key_path=key_path)
@@ -132,6 +229,10 @@ def check_mask_head_fine_inputs(model_configuration: Dict[str, Any]) -> List[str
         if not valid_blocks or len(set(skip_blocks)) != len(skip_blocks):
             errors.append(f"'{key_path}' must be a list of distinct backbone blocks between 0 (the normalized input "
                           f"image) and {number_blocks}, empty when unused, got {skip_blocks!r}.")
+        else:
+            valid_skip_blocks[key_name] = skip_blocks
+    errors += check_skip_block_strides(model_configuration=model_configuration, valid_skip_blocks=valid_skip_blocks,
+                                       number_blocks=number_blocks)
 
     # The image branch is not transferred with the mask heads, which would read an untrained branch
     experiment_folder = get_configuration_value(configuration=model_configuration,
