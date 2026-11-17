@@ -1,9 +1,10 @@
 # Foundations, chapter 4: the backbone shared by every task: its configuration section, the layers of a convolution
 # block, what the trained blocks compute, the modules (squeeze and excitation, residual shortcuts and their pairs,
-# inception), the receptive field, where the parameters are, the transfer of a trained backbone, and what the benchmark
-# measured. The model is the one of the classification run of tutorial_sources.yaml, read by tutorials/figures/foundations
-# (listings.py for its blocks and summaries, backbone_activations.py for its feature maps and gates, benchmark.py for
-# the benchmark charts); the block drawn layer by layer is its third block (listings.example_block).
+# inception), the receptive field, where the parameters are, the transfer of a trained backbone (into a deeper backbone
+# too), and what the benchmark measured. The model is the one of the classification run of tutorial_sources.yaml, read by
+# tutorials/figures/foundations (listings.py for its blocks and summaries, backbone_activations.py for its feature maps
+# and gates, backbone_transfer.py for the launch of a deeper backbone started from it, benchmark.py for the benchmark
+# charts); the block drawn layer by layer is its third block (listings.example_block).
 series: foundations
 series_title: "Foundations"
 chapter: 4
@@ -20,6 +21,9 @@ references:
   - "vision_training/models/components/squeeze_and_excitation.py · SqueezeAndExcitation"
   - "vision_training/models/components/inception.py · InceptionConvolution"
   - "vision_training/models/model_transfer.py · compare_backbone_architectures"
+  - "vision_training/models/model_transfer.py · count_shared_backbone_blocks"
+  - "vision_training/trainers/base_trainer.py · BaseTrainer.print_pretrained_components"
+  - "tests/trainers/test_backbone_transfer_training.py"
   - "documentation/architecture_benchmarking/experiment_plan.md"
 scenes:
   - kind: title_card
@@ -236,7 +240,7 @@ scenes:
       - "A shortcut can only add two maps with the same channels, so in a block whose first layer changes the channels, the pairs start one layer later, from the output of that first layer."
       - "The first block never has one, and blocks {{foundations.listings.non_residual_blocks}} change the channels with only two layers, so only blocks {{foundations.listings.residual_blocks}} add a shortcut in this run."
       - "A block of three layers that changes the channels keeps one pair, over its last two layers."
-      - "Think of the log of an older run: it names shortcuts in every block from the second, while the summary printed at launch names those of these blocks only, so trust this count."
+      - "Should you need to know which blocks of a run add a shortcut, read the backbone summary printed at launch, which names them block by block."
 
   - kind: html
     page: diagram
@@ -334,9 +338,45 @@ scenes:
       - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [2]}
     narration:
       - "Say you want to reuse another run: every component can start from its weights, the experiment folder naming that run folder, and the iteration the checkpoint, null taking the last one."
-      - "The backbone needs the same blocks, modules and normalization as the source, or shares its first blocks, a deeper backbone keeping its extra blocks random; the image size and the task may differ."
-      - "Freeze keeps its weights and batch statistics fixed, freeze normalization parameters fixes only the scale and shift of its normalization layers, and the learning rate multiplier lets it learn at another speed than the new layers."
+      - "The backbone needs the same blocks, modules and normalization as its source, or the first blocks of a deeper one, like the stem of the keypoint detector; the image size and the task may differ."
+      - "Freeze keeps the loaded weights and batch statistics fixed, freeze normalization parameters fixes only the scale and shift of their normalization layers, and the learning rate multiplier lets them learn at another speed than the new layers."
       - "The transfer adds PT to the run name, with FRZ when frozen and FBN for the fixed normalization; the multiplier gives no token, so it can change when the run resumes."
+
+  - kind: html
+    page: diagram
+    title: "A deeper backbone from a shorter one"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.get_transferred_part"
+    elements:
+      - {type: text, position: [665, 40], text: "loaded from the classification run", font: diagram_small, colour: dim, anchor: mm, appear: 0}
+      - {type: box, box: [20, 70, 220, 150], text: "{{foundations.listings.block_labels[0]}}", font: diagram_small, outline: blue, appear: 0, highlight: [1]}
+      - {type: box, box: [240, 70, 440, 150], text: "{{foundations.listings.block_labels[1]}}", font: diagram_small, outline: blue, appear: 0, highlight: [1]}
+      - {type: box, box: [460, 70, 660, 150], text: "{{foundations.listings.block_labels[2]}}", font: diagram_small, outline: blue, appear: 0, highlight: [1]}
+      - {type: box, box: [680, 70, 880, 150], text: "{{foundations.listings.block_labels[3]}}", font: diagram_small, outline: blue, appear: 0, highlight: [1]}
+      - {type: box, box: [900, 70, 1100, 150], text: "{{foundations.listings.block_labels[4]}}", font: diagram_small, outline: blue, appear: 0, highlight: [1]}
+      - {type: box, box: [1120, 70, 1320, 150], text: "{{foundations.listings.block_labels[5]}}", font: diagram_small, outline: blue, appear: 0, highlight: [1]}
+      - {type: text, position: [1540, 40], text: "random weights", font: diagram_small, colour: dim, anchor: mm, appear: 0}
+      - {type: box, box: [1340, 70, 1530, 150], text: "block {{foundations.backbone_transfer.first_random_block}}", font: diagram_small, outline: yellow, appear: 0, highlight: [0]}
+      - {type: box, box: [1550, 70, 1740, 150], text: "block {{foundations.backbone_transfer.last_random_block}}", font: diagram_small, outline: yellow, appear: 0, highlight: [0]}
+      - {type: text, position: [665, 180], text: "freeze · fixed normalization · learning rate × multiplier", font: diagram_small, anchor: mm, appear: 1, highlight: [1]}
+      - {type: text, position: [1540, 180], text: "learning rate of the run", font: diagram_small, anchor: mm, appear: 1}
+      - {type: text, position: [28, 236], text: "the launch of such a run, printed by the code of the repository", font: diagram_tiny, colour: dim, anchor: ls, appear: 2}
+      - type: listing
+        box: [20, 250, 1740, 530]
+        font: diagram_monospace_tiny
+        source: {file: "figures:foundations/listings/backbone_transfer_console.txt"}
+        highlights:
+          - {match: "Starts With", sentences: [2]}
+          - {match: "Loaded Blocks", sentences: [2]}
+          - {match: "Learning Rate  ", sentences: [2]}
+        appear: 2
+      - {type: box, box: [20, 590, 820, 710], text: "every checkpoint stores\npretrained_backbone_blocks", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[828, 650], [932, 650]], appear: 3}
+      - {type: box, box: [940, 590, 1740, 710], text: "a resumed run freezes and groups the same\nblocks, its source run gone or not", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+    narration:
+      - "A backbone may also be deeper than its source: the {{foundations.backbone_transfer.source_block_count:words}} blocks of the classification run can start a backbone of {{foundations.backbone_transfer.deeper_block_count:words}} blocks, whose last blocks keep their random weights and learn at the learning rate of the run."
+      - "Freeze, the fixed normalization and the multiplier apply to the loaded blocks only, so the new blocks always learn, like the other new layers."
+      - "The launch says so: the loading message names the random blocks, and the Loaded Blocks line of the experiment information counts them, above the learning rate of the loaded blocks."
+      - "Every checkpoint stores the number of loaded blocks, so that a resumed run freezes and groups the same blocks even once its source run is gone."
 
   - kind: image
     title: "What the benchmark measured"
@@ -385,7 +425,7 @@ scenes:
       - {text: "Shortcuts add the input of a pair of layers, shifted when the channels change"}
       - {text: "Inception splits every layer into four branches from block {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK}}"}
       - {text: "Model size printed at every launch, receptive field by the diagnosis modes"}
-      - {text: "A trained backbone starts another task through its pretrained settings"}
+      - {text: "A trained backbone starts another run, a deeper one keeping its extra blocks random"}
     narration:
       - "To sum up: the backbone stacks the blocks of its section, with squeeze and excitation, the residual shortcuts and inception as options, the shortcuts following pairs of layers with the same channels."
       - "The next chapter covers the optimization: the optimizer, the learning rate and its schedule, mixed precision and the moving average of the weights."

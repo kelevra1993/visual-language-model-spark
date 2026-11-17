@@ -3,7 +3,8 @@ Figures and facts of the foundations series of the tutorial videos, made by make
 tutorials.figures.make_figures --series foundations) at every build, from the real runs of
 tutorials/tutorial_sources.yaml and the code of the repository: the listings of the classification run, its training
 curves, the learning rate schedule of a configuration, the image size figures, the augmentation examples, the
-benchmark charts, the feature maps and squeeze-and-excitation gates of the trained backbone, and the values of the code
+benchmark charts, the feature maps and squeeze-and-excitation gates of the trained backbone, the launch console of a
+deeper backbone started from it, and the values of the code
 that no placeholder of a storyboard can read (code_values.py). Every figure family is
 a module of this folder, which writes its figures into a subfolder of the output folder (model/, benchmark/, ...) or at
 its top and gives its facts, gathered here into the facts.json the storyboards quote as {{foundations.<name>}}.
@@ -16,6 +17,7 @@ from tutorials.figures.figure_utilities import find_repository_file, find_run_fo
 from tutorials.figures.foundations.aspect_ratio import make_aspect_ratio_figures
 from tutorials.figures.foundations.augmentation_examples import make_augmentation_examples
 from tutorials.figures.foundations.backbone_activations import make_backbone_figures
+from tutorials.figures.foundations.backbone_transfer import make_backbone_transfer_listing
 from tutorials.figures.foundations.benchmark import make_benchmark_figures
 from tutorials.figures.foundations.code_values import describe_code_values
 from tutorials.figures.foundations.learning_rate_schedule import make_learning_rate_schedule_figure
@@ -51,5 +53,6 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_benchmark_figures(output_folder=output_folder, results_path=find_repository_file(
             file_key="benchmark_results")),
         make_backbone_figures(output_folder=output_folder, run_folder=classification_run_folder, force=force),
+        make_backbone_transfer_listing(output_folder=output_folder, run_folder=classification_run_folder),
         describe_code_values(repository_folder=find_repository_root(), configuration_path=find_repository_file(
             file_key="data_pipeline_configuration"))])
