@@ -19,6 +19,7 @@ references:
   - "vision_training/models/instance_segmentation/inference_instance_segmenter.py · InferenceInstanceSegmenter.predict_masks"
   - "vision_training/data/preprocessing.py · restore_boxes_to_original_image"
   - "vision_training/deployment/input_contract.py · write_onnx_input_contract"
+  - "documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md"
 scenes:
   - kind: title_card
     heading: "Scoring and shipping masks"
@@ -134,11 +135,13 @@ scenes:
     title: "Where masks and boxes part"
     code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.compute_evaluation_results"
     image: "figures:instance_segmentation/evaluation/mask_box_average_precision.png"
-    # The intersections over union of the metric names, AP@0.75 and AP@0.95
+    # The intersections over union of the metric names, AP@0.75 and AP@0.95; the benchmark sentence sums up stages 2
+    # (mask resolution) and 3b (design A, the image branch) of instance_segmentation_experiment_plan.md
     literal_numbers: ["0.75", "0.95"]
     narration:
       - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:percent}} on its masks against {{instance_segmentation.classes.star.box_ap_75:percent}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:percent}} against {{instance_segmentation.classes.l_shape.box_ap_75:percent}}."
-      - "Think of thin, pointed objects: masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels pooled from strides of {{instance_segmentation.geometry.strides_text}} cannot follow the points of a star."
+      - "Think of thin, pointed objects: pooled from strides of {{instance_segmentation.geometry.strides_text}}, the features of a star hold only a few cells, too coarse for its points."
+      - "On the instance segmentation benchmark, doubling the mask resolution did not help, whereas the image branch of the mask heads drew far finer borders."
       - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:percent}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:percent}} on its boxes."
 
   - kind: html
@@ -209,13 +212,13 @@ scenes:
           - "polygons, overlaps: one full-size mask each"
       - heading: "Evaluation and export"
         lines:
-          - "{{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} x {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} masks lose thin parts"
+          - "masks from coarse levels lose thin parts"
           - "mask and box size rows: other objects"
           - "client pastes, thresholds itself"
           - "restore boxes unclipped"
     narration:
       - "The pitfalls of the masks: short runs leave the samples empty; each level's mask head trains on the positives of its level only, while block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals; and polygons or overlapping masks, as in COCO, still travel through the loaders as one full-size mask each."
-      - "Masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels lose thin parts at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."
+      - "Masks pooled from coarse levels lose thin parts at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."
 
   - kind: summary
     title: "Recap"
