@@ -22,6 +22,8 @@ from typing import Any, Callable, Dict, List, Optional
 from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS, check_removed_settings
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
+from vision_training.configuration_processing.instance_segmentation_checks import (compute_level_stride,
+                                                                                 compute_skip_stride)
 from vision_training.data.augmentations import SELF_SUPERVISED_AUGMENTATION_STRENGTHS, SUPERVISED_AUGMENTATION_STRENGTHS
 from vision_training.data.label_mapping import write_run_label_dictionary
 from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES, build_keypoint_label_mapping,
@@ -1646,12 +1648,12 @@ def remove_instance_index_maps(configuration: Dict[str, Any]) -> None:
 def use_every_mask_head_fine_input(configuration: Dict[str, Any]) -> None:
     """
     Turns on every finer input of the mask heads, the backbone skips including the normalized input image (block 0)
-    and the last block of the backbone (block 7).
+    and block 5 before its pooling (stride 16), the coarsest skip finer than the finest detection level 5 (stride 32).
 
     Args:
         configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
     """
-    configuration["MaskHead"].update({"skip_blocks_at_pool_size": [4, 7], "image_branch_convolutions": [5, 32],
+    configuration["MaskHead"].update({"skip_blocks_at_pool_size": [4, 5], "image_branch_convolutions": [5, 32],
                                       "skip_blocks_at_mask_resolution": [0, 3], "fusion_convolutions": [1, 64]})
 
 
@@ -1680,6 +1682,28 @@ def set_invalid_mask_head_fine_inputs(configuration: Dict[str, Any]) -> None:
     """
     configuration["MaskHead"].update({"fusion_convolutions": [1, 0], "image_branch_convolutions": [2],
                                       "skip_blocks_at_pool_size": [4, 4], "skip_blocks_at_mask_resolution": [8]})
+
+
+def use_skip_blocks_as_coarse_as_the_levels(configuration: Dict[str, Any]) -> None:
+    """
+    Reads block 6 before its pooling (stride 32, as coarse as the finest detection level 5) at the pool size and the
+    last block of the backbone, block 7 (stride 64), at the mask resolution, neither finer than the levels.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"].update({"skip_blocks_at_pool_size": [4, 6], "skip_blocks_at_mask_resolution": [7]})
+
+
+def use_skip_blocks_coarser_at_the_mask_resolution(configuration: Dict[str, Any]) -> None:
+    """
+    Reads block 4 (stride 8) at the mask resolution while block 3 (stride 4) is read at the pool size, the finer map
+    joining the coarser stage, with block 3 read at both sizes.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"].update({"skip_blocks_at_pool_size": [3], "skip_blocks_at_mask_resolution": [0, 3, 4]})
 
 
 def transfer_mask_heads_with_an_image_branch(configuration: Dict[str, Any]) -> None:
@@ -1718,6 +1742,16 @@ def remove_mask_head_fusion_convolutions(configuration: Dict[str, Any]) -> None:
         "input image) and 7, empty when unused, got [4, 4].",
         "'MaskHead.skip_blocks_at_mask_resolution' must be a list of distinct backbone blocks between 0 (the "
         "normalized input image) and 7, empty when unused, got [8]."]),
+    (use_skip_blocks_as_coarse_as_the_levels, [
+        "'MaskHead.skip_blocks_at_pool_size' must only hold blocks finer than the finest detection level 5 (stride "
+        "32), a block before its pooling being at stride 2 ** (block - 1), got [6].",
+        "'MaskHead.skip_blocks_at_mask_resolution' must only hold blocks finer than the finest detection level 5 "
+        "(stride 32), a block before its pooling being at stride 2 ** (block - 1), got [7]."]),
+    (use_skip_blocks_coarser_at_the_mask_resolution, [
+        "'MaskHead.skip_blocks_at_pool_size' and 'MaskHead.skip_blocks_at_mask_resolution' must not share a block, "
+        "the same features being then read twice, got [3].",
+        "'MaskHead.skip_blocks_at_mask_resolution' must only hold blocks finer than every block of "
+        "'MaskHead.skip_blocks_at_pool_size' [3] (finest stride 4), got [4]."]),
     (transfer_mask_heads_with_an_image_branch, [
         "'MaskHead.image_branch_convolutions' must be [0, 0] when 'MaskHead.pretrained.experiment_folder' is set: the "
         "image branch is not transferred with the mask heads, got [5, 32]."]),
@@ -1756,6 +1790,18 @@ def test_inconsistent_instance_segmentation_configuration_is_rejected(
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "Traceback" not in printed_output
+
+
+def test_skip_and_level_strides() -> None:
+    """
+    Verifies the strides the skip rules of the mask heads compare: the normalized input image and block 1 before its
+    pooling at stride 1, block b before its pooling at 2 ** (b - 1), a detection level at 2 ** level after its pooling,
+    and the last block of the backbone at 2 ** (level - 1) unless 'Backbone.last_max_pooling' pools it.
+    """
+    assert [compute_skip_stride(block=block) for block in [0, 1, 3, 4, 7]] == [1, 1, 4, 8, 64]
+    assert compute_level_stride(level=5, number_blocks=7, last_max_pooling=False) == 32
+    assert compute_level_stride(level=7, number_blocks=7, last_max_pooling=False) == 64
+    assert compute_level_stride(level=7, number_blocks=7, last_max_pooling=True) == 128
 
 
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
