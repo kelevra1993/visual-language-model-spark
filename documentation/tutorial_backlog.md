@@ -12,6 +12,7 @@ To find your way in the backlog, the sections are:
 - [Deeper Backbone From A Shorter Pretrained Backbone](#deeper-backbone-from-a-shorter-pretrained-backbone)
 - [Sparse Confusion Matrix Above 1,000 Classes](#sparse-confusion-matrix-above-1000-classes)
 - [Docker Image Of The Trainer](#docker-image-of-the-trainer)
+- [Serving Benchmark Scripts](#serving-benchmark-scripts)
 
 ## Adding An Entry
 Whenever a change lands on `main` with a behaviour the tutorials do not show, add a section with these four lines, then remove it once the chapter showing it is rebuilt:
@@ -52,3 +53,11 @@ In order to train in a container, on the amd64 GPU pods of a cloud Kubernetes cl
 - **Documented in**: [README, Docker Image](../README.md#docker-image).
 - **Tutorial status**: not shown; `01_foundations/01_repository_and_first_run.yaml` installs with `uv sync` only, and `06_after_the_training.yaml` uses Docker for Triton only.
 - **Where it would fit**: one scene after the `uv sync` scene of `01_foundations/01_repository_and_first_run.yaml` (stages, build and run commands), no run needed.
+
+## Serving Benchmark Scripts
+If one wishes to compare the serving paths of a trained model, `scripts/deployment/benchmark_serving_formats.py` exports it for every TensorRT precision and measures the latency, throughput, memory and first requests of the model in the process and through Triton (gRPC and system shared memory), and `scripts/deployment/evaluate_served_formats.py` scores the test split through every served format against the eager model.
+
+- **Added**: `main` 5cdaacd, 2026-11-17.
+- **Documented in**: [README, Serving Benchmark Results](../README.md#serving-benchmark-results) and the [serving benchmark plan](architecture_benchmarking/serving_benchmark_plan.md).
+- **Tutorial status**: not shown; the "Serving with Triton" scene of `01_foundations/06_after_the_training.yaml` runs `run_inference.py` with one client and quotes no measurement of the benchmark.
+- **Where it would fit**: one scene after "Serving with Triton" in `01_foundations/06_after_the_training.yaml` with the results table of the README (its numbers from `serving_benchmark_results.csv` and `serving_benchmark_test_metrics.csv`), no new run needed.
