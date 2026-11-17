@@ -118,13 +118,16 @@ scenes:
     highlights:
       - {key: Backbone.pretrained.iteration, sentences: [0, 1]}
       - {key: Backbone.convolutions, sentences: [1]}
-      - {key: Backbone.pretrained.freeze, sentences: [2]}
-      - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [2]}
+      - {key: Backbone.pretrained.freeze, sentences: [2, 5]}
+      - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [2, 5]}
+      - {key: Backbone.convolutions, sentences: [4]}
     narration:
       - "The backbone does not start from random weights: its pre-trained section, whose experiment folder is left out here, points at a multi-label classifier trained on frames drawn like these to recognize the {{sequence_labelling.dataset.shape_class_count}} shapes."
-      - "Its checkpoint of iteration {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#Backbone.pretrained.iteration:,}} is loaded only once the layers of both backbones are checked to match, block by block, and the averaged weights of the classifier are preferred when it kept some."
+      - "Its checkpoint of iteration {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#Backbone.pretrained.iteration:,}} is loaded only once the layers of both backbones are checked to match, block by block, and the averaged weights of the classifier are taken, since both runs keep a moving average."
       - "Not frozen, with a learning rate multiplier of {{config:tutorials/run_configurations/sequence_labelling_pretrained_tutorial.yaml#Backbone.pretrained.learning_rate_multiplier}}, it is fine-tuned at the learning rate of the other components."
       - "Say the run resumes: the loaded backbone is not loaded again, the checkpoint of the run holding its fine-tuned weights."
+      - "Should your frames call for a deeper backbone, it can still start from these blocks, the blocks after them starting from random weights."
+      - "The freezing and the learning rate multiplier then act on the loaded blocks only, the new blocks learning at the learning rate of the run."
 
   - kind: yaml
     title: "The model settings"
