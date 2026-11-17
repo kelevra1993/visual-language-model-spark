@@ -36,7 +36,7 @@ from vision_training.evaluation.classification.score_curves import (compute_clas
 from vision_training.evaluation.classification.threshold_finder import (build_class_thresholds_file,
                                                                         find_class_thresholds)
 from vision_training.evaluation.classification.temperature_explorer import (MAXIMUM_EXPLORER_CLASSES,
-                                                                            save_class_logits,
+                                                                            build_positive_masks, save_class_logits,
                                                                             save_temperature_explorer)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.recall_intervals import (CLOPPER_PEARSON_DESCRIPTION, build_recall_interval_table,
@@ -647,9 +647,10 @@ class ClassificationTrainer(BaseTrainer):
                                 f"Top-{self.top_k} Accuracy": compute_top_k_accuracy(probabilities=probabilities,
                                                                                      labels=labels,
                                                                                      top_k=self.top_k)}
-            # One-hot positives for the class thresholds, and the confusion matrix saved as a table (its non-zero cells
-            # in 'confusion_cells.csv' when sparse)
-            positive_masks = torch.nn.functional.one_hot(input=labels, num_classes=number_classes).to(dtype=torch.bool)
+            # One-hot positives for the class thresholds, set as booleans without the int64 one-hot table, and the
+            # confusion matrix saved as a table (its non-zero cells in 'confusion_cells.csv' when sparse)
+            positive_masks = build_positive_masks(labels=labels, output_mode=self.output_mode,
+                                                  number_classes=number_classes)
             files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
                                                                           class_names=self.class_names,
                                                                           output_folder=evaluation_folder)

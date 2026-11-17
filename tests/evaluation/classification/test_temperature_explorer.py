@@ -26,6 +26,7 @@ from vision_training.evaluation.classification.temperature_explorer import (MAXI
                                                                            SAVED_THRESHOLDS_FILE_NAME, TEMPLATE_PATH,
                                                                            TEMPERATURE_GRID,
                                                                            build_explorer_data_from_logits,
+                                                                           build_positive_masks,
                                                                            check_logit_temperature,
                                                                            check_saved_thresholds,
                                                                            check_score_cut_points,
@@ -360,3 +361,32 @@ def test_page_percentages_are_the_twins_of_the_report_helpers() -> None:
     assert page_texts == [[format_percentage(value=rate) for rate in rates],
                           [format_percentage_label(value=label) for label in labels],
                           [format_points(difference=difference) for difference in differences]]
+
+
+def test_positive_masks_are_the_one_hot_labels_without_the_int64_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the positives of the class thresholds of a multi-class evaluation are the one-hot labels as booleans,
+    set without torch.nn.functional.one_hot, whose int64 [N, K] table took 8.7 GB at 50,000 test images over 21,842
+    classes, and that an empty split gives an empty table.
+    """
+    labels = torch.randint(low=0, high=7, size=(50,), generator=torch.Generator().manual_seed(0))
+    expected_masks = torch.nn.functional.one_hot(input=labels, num_classes=7).to(dtype=torch.bool)
+
+    # The one-hot function made unusable, so that the masks must be set without it
+    monkeypatch.setattr(target=torch.nn.functional, name="one_hot", value=None)
+    positive_masks = build_positive_masks(labels=labels, output_mode="multi_class", number_classes=7)
+    assert positive_masks.dtype == torch.bool and torch.equal(positive_masks, expected_masks)
+    empty_masks = build_positive_masks(labels=torch.zeros(size=(0,), dtype=torch.int64), output_mode="multi_class",
+                                       number_classes=7)
+    assert empty_masks.shape == (0, 7)
+
+
+@pytest.mark.parametrize(argnames="wrong_label", argvalues=[-1, 7])
+def test_positive_masks_refuse_class_indices_outside_the_classes(wrong_label: int) -> None:
+    """
+    Verifies that a class index below 0 or not below the number of classes is refused, rather than set from the end of
+    the classes by a negative index.
+    """
+    labels = torch.tensor(data=[0, 3, wrong_label])
+    with pytest.raises(expected_exception=ValueError, match="Expected class indices between 0 and 6"):
+        build_positive_masks(labels=labels, output_mode="multi_class", number_classes=7)

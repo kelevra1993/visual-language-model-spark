@@ -80,8 +80,11 @@ def compute_temperature_probabilities(class_logits: torch.Tensor, output_mode: s
 
 def build_positive_masks(labels: torch.Tensor, output_mode: str, number_classes: int) -> torch.Tensor:
     """
-    Tells for every sample whether it belongs to every class, the positives of the histograms and thresholds of the
-    page: the one-hot labels of a single class per sample, the labels from 0.5 in multi-label mode.
+    Tells for every sample whether it belongs to every class, the positives of the class thresholds of every evaluation
+    (ClassificationTrainer.compute_evaluation_results) and of the histograms and thresholds of the page: the one-hot
+    labels of a single class per sample, the labels from 0.5 in multi-label mode. The one-hot booleans are set directly,
+    without the int64 [N, K] array of torch.nn.functional.one_hot, 8.7 GB at the 50,000 test images of imagenet-merged
+    over its 21,842 classes where the booleans take 1.1 GB.
 
     Args:
         labels (torch.Tensor): The [N] class indices, or the [N, K] multi-hot labels in multi-label mode.
@@ -90,10 +93,22 @@ def build_positive_masks(labels: torch.Tensor, output_mode: str, number_classes:
 
     Returns:
         torch.Tensor: The [N, K] booleans.
+
+    Raises:
+        ValueError: If a class index of the multi-class mode is negative or not below the number of classes.
     """
-    if output_mode == "multi_class":
-        return torch.nn.functional.one_hot(input=labels, num_classes=number_classes).to(dtype=torch.bool)
-    return labels >= 0.5
+    if output_mode != "multi_class":
+        return labels >= 0.5
+
+    # A class index outside the K classes is refused, as one_hot refuses it, rather than indexing from the end
+    if labels.numel() and (int(labels.min()) < 0 or int(labels.max()) >= number_classes):
+        raise ValueError(f"Expected class indices between 0 and {number_classes - 1}, got indices from "
+                         f"{int(labels.min())} to {int(labels.max())}.")
+
+    # One true boolean per sample, at its class, in a [N, K] boolean table
+    positive_masks = torch.zeros(size=(labels.shape[0], number_classes), dtype=torch.bool, device=labels.device)
+    positive_masks[torch.arange(end=labels.shape[0], device=labels.device), labels] = True
+    return positive_masks
 
 
 def describe_temperature(class_logits: torch.Tensor, positive_masks: torch.Tensor, output_mode: str,
