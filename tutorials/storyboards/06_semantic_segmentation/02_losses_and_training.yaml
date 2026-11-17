@@ -197,7 +197,7 @@ scenes:
     items:
       - {text: "Cross entropy + soft Dice at weights {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:g}}; IoU surrogate and boundary at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.lovasz_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_weight:g}}"}
       - {text: "Pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}} left out of every loss and metric"}
-      - {text: "class_weighting: balanced, cached in class_pixel_counts.json"}
+      - {text: "class_weighting balanced: pixel counts cached in class_pixel_counts.json"}
       - {text: "No run name token for the losses: a change resumes the run"}
       - {text: "Batch mean IoU: classes of the batch, averaged over batches"}
       - {text: "Watch the mean IoU, not the pixel accuracy"}

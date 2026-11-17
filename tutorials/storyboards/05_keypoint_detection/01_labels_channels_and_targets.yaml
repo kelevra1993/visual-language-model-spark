@@ -107,10 +107,11 @@ scenes:
       function: build_keypoint_channel_table
     highlights:
       - {match: "channel_table = |channel_table\\[", sentences: [0]}
-      - {match: "channel_names.append", sentences: [1]}
+      - {match: "channel_names.append", sentences: [1, 2]}
     narration:
       - "The table is filled with minus one, then every key point of every class takes the next free channel."
-      - "Its names exist only here: if you transfer a key point head from another run, it is checked on its class names and tensor shapes alone, and the export writes no channel names, so keep the categories of the training labels with the model."
+      - "Its names exist only here: if you transfer a key point head from another run, it is checked on its class names, settings and tensors, never on key point names."
+      - "The export writes no channel names either, so keep the categories of the training labels with the model."
 
   - kind: yaml
     title: "Augmentations move key points, never rename them"

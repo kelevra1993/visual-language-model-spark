@@ -17,6 +17,7 @@ references:
   - "vision_training/models/keypoints/hrnet.py · HigherResolutionBranch"
   - "vision_training/models/keypoints/hrnet.py · build_prediction_head"
   - "vision_training/configuration_processing/keypoint_checks.py · check_keypoint_stem_configuration"
+  - "vision_training/models/model_transfer.py · count_shared_backbone_blocks"
   - "vision_training/configuration_processing/keypoint_checks.py · check_high_resolution_network_configuration"
   - "vision_training/configuration_processing/run_name.py · build_keypoint_sections"
   - "documentation/suggestions.md"
@@ -41,12 +42,13 @@ scenes:
              KeypointHead.heatmap_sigma, KeypointHead.tag_pull_weight, KeypointHead.tag_push_weight]
       comments: false
     highlights:
-      - {key: Backbone.convolutions, sentences: [0]}
+      - {key: Backbone.convolutions, sentences: [0, 1]}
       - {key: Backbone.last_max_pooling, sentences: [0]}
-      - {match: "base_width|modules_per_stage|blocks_per_branch", sentences: [1, 2]}
-      - {match: "heatmap_sigma|tag_pull_weight|tag_push_weight", sentences: [3]}
+      - {match: "base_width|modules_per_stage|blocks_per_branch", sentences: [2, 3]}
+      - {match: "heatmap_sigma|tag_pull_weight|tag_push_weight", sentences: [4]}
     narration:
       - "The stem is the backbone of the other tasks cut at a quarter of the image: {{keypoint_detection.stem_blocks_without_last_pooling:words}} blocks without the last max pooling, or {{keypoint_detection.stem_blocks_with_last_pooling:words}} with it, which the checks enforce."
+      - "If one wishes to start the stem from a deeper backbone trained by another task, its first blocks are loaded when they match the stem, and its deeper blocks are left out."
       - "The high resolution network has a base width of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.base_width}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.modules_per_stage[0]:words}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.modules_per_stage[1]:words}} and {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.modules_per_stage[2]:words}} exchange modules in its {{keypoint_detection.network_stage_count:words}} stages, and {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.blocks_per_branch:words}} residual pairs per branch."
       - "With {{keypoint_detection.network_stage_count:words}} stages its lowest branch has a stride of {{keypoint_detection.network_lowest_stride}}, so the image size must be a multiple of {{keypoint_detection.network_lowest_stride}}."
       - "Should you want to change sigma, the tag weights or the grouping thresholds, a resumed run accepts it: they give no token to the run name."
@@ -93,7 +95,7 @@ scenes:
     narration:
       - "The stem brings the {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixel image to {{keypoint_detection.network_stem_channels}} channels at a quarter of its size, with a receptive field of only {{keypoint_detection.stem_receptive_field}} pixels: the context comes from the lower branches of the high resolution network."
       - "The network returns its quarter resolution branch of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.base_width}} channels, and a three by three convolution of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.hidden_width}} channels feeds a one by one convolution of {{keypoint_detection.network_prediction_channels}} channels: {{keypoint_detection.channels_total}} heat map logits, then {{keypoint_detection.channels_total}} tags."
-      - "Think of the head without the hidden layer: a one by one convolution of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.base_width}} channels cannot raise {{keypoint_detection.channels_total}} heat maps each on its own key points, and an early test without it raised the heat maps of a few classes only."
+      - "Think of the head without the hidden layer: a one by one convolution would have to raise {{keypoint_detection.channels_total}} heat maps, each on its own key points, from the same {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.base_width}} channels."
       - "The higher resolution branch concatenates the features with these predictions, {{keypoint_detection.network_branch_input_channels}} channels, doubles their resolution with a {{constant:vision_training/models/keypoints/hrnet.py#HIGHER_RESOLUTION_KERNEL_SIZE:words}} by {{constant:vision_training/models/keypoints/hrnet.py#HIGHER_RESOLUTION_KERNEL_SIZE:words}} transposed convolution, refines them and predicts {{keypoint_detection.channels_total}} more heat maps at half the image."
       - "Both last layers start with weights of standard deviation {{constant:vision_training/models/keypoints/keypoint_detector.py#HEAD_INITIALISATION_STANDARD_DEVIATION}} and a heat map bias at the logit of {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}}, so that every cell starts at a probability of {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}}."
 
