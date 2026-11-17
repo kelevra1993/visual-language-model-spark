@@ -11,6 +11,7 @@ To find your way in the backlog, the sections are:
 - [Speed Benchmark Diagnosis Mode](#speed-benchmark-diagnosis-mode)
 - [Deeper Backbone From A Shorter Pretrained Backbone](#deeper-backbone-from-a-shorter-pretrained-backbone)
 - [Sparse Confusion Matrix Above 1,000 Classes](#sparse-confusion-matrix-above-1000-classes)
+- [Docker Image Of The Trainer](#docker-image-of-the-trainer)
 
 ## Adding An Entry
 Whenever a change lands on `main` with a behaviour the tutorials do not show, add a section with these four lines, then remove it once the chapter showing it is rebuilt:
@@ -43,3 +44,11 @@ Should an evaluation cover more than 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLA
 - **Documented in**: [README, Evaluating Checkpoints](../README.md#evaluating-checkpoints) and [configuration reference, Evaluation Outputs](reference/configuration_reference.md#evaluation-outputs).
 - **Tutorial status**: not shown; the classification chapters use the 9 classes of the synthetic shapes and their dense matrix.
 - **Where it would fit**: one sentence in the "Confusions over the training" scene of `02_classification/02_judging_and_shipping.yaml`, no run needed.
+
+## Docker Image Of The Trainer
+In order to train in a container, on the amd64 GPU pods of a cloud Kubernetes cluster or on the arm64 DGX Spark, the multi-stage `Dockerfile` of the repository root builds the trainer image.
+
+- **Added**: `main` f184436, 2026-11-16.
+- **Documented in**: [README, Docker Image](../README.md#docker-image).
+- **Tutorial status**: not shown; `01_foundations/01_repository_and_first_run.yaml` installs with `uv sync` only, and `06_after_the_training.yaml` uses Docker for Triton only.
+- **Where it would fit**: one scene after the `uv sync` scene of `01_foundations/01_repository_and_first_run.yaml` (stages, build and run commands), no run needed.
