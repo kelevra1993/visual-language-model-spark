@@ -207,15 +207,19 @@ scenes:
         box: [40, 450, 1000, 700]
         font: diagram_monospace_small
         appear: 3
-        source: {file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml, keys: [Backbone.pretrained.experiment_folder, Backbone.pretrained.iteration, Backbone.pretrained.freeze], comments: false}
+        source: {file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml, keys: [Backbone.pretrained.experiment_folder, Backbone.pretrained.iteration, Backbone.pretrained.freeze, Backbone.pretrained.freeze_normalization_parameters, Backbone.pretrained.learning_rate_multiplier], comments: false}
         highlights:
           - {key: Backbone.pretrained.experiment_folder, sentences: [3]}
+          - {key: Backbone.pretrained.freeze, sentences: [4]}
+          - {key: Backbone.pretrained.freeze_normalization_parameters, sentences: [4]}
+          - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [4]}
       - {type: box, box: [1060, 450, 1720, 700], text: "same modules and normalization,\nthe same, fewer or more blocks,\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
     narration:
       - "The export wraps the trained model in the inference encoder, served by Triton as the image encoder: float32 BGR images of {{self_supervised.run.image_size}} pixels in, L2-normalized representations of {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} values out, so that a dot product is a cosine similarity."
       - "Next to the model, the export also writes the input contract of the run: how a photo is resized, padded and laid out before the encoder takes it."
       - "The projection head is not in the graph: the export serves the representation, for similarity searches and nearest neighbour classifications."
       - "When the goal is to start another task from this backbone, give the run folder as the experiment folder of its backbone pre-trained settings; its modules and normalization must be those of this run, its blocks the same, the first of them, or them followed by new random blocks, and only the backbone is loaded."
+      - "In a deeper backbone, freezing, the fixed normalization parameters and the learning rate multiplier cover only the blocks loaded from this run, the new blocks learning at the learning rate of the new run."
 
   - kind: text_panel
     title: "Pitfalls"
@@ -255,4 +259,4 @@ scenes:
       - {text: "Transfer through Backbone.pretrained"}
     narration:
       - "To recap: a checkpoint is judged by the nearest neighbours of its representations and by their effective rank, with the same sample views at every evaluation."
-      - "The representation is what the export serves and what the other tasks start from; this ends the self-supervised series."
+      - "The representation is what the export serves and what the other tasks start from; this ends the self-supervised series, and the deployment series follows, with the serving of the exported models."

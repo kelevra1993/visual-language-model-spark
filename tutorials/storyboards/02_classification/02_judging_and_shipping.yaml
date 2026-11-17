@@ -1,13 +1,14 @@
 # Image classification, chapter 2: judging and shipping a classifier: the evaluation settings, the report block of
-# Results.txt, the confusion matrices of the three evaluations, the per-class F1 and the thresholds at the target
-# precision, the precision-recall curves, the probabilities of predictions.csv, the logit temperature and its explorer
-# page, served to save the thresholds of a temperature and export the checkpoint at it, the sample and error images,
-# the measured effects of the head settings in the architecture benchmark, the pitfalls and the export with its
-# temperature, its thresholds, its export folder and its input settings. Coordinates of the
-# html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures and facts
-# named classification.* are made by tutorials/figures/classification from the synthetic shapes run of
-# tutorial_sources.yaml, the images under runs: are the files its evaluations wrote (the report block, the confusion
-# matrix image and the precision-recall curves those of its standalone evaluation, run again with the current code).
+# Results.txt, the confusion matrices of the three evaluations (and the non-zero cells kept above 1,000 classes), the
+# per-class F1 and the thresholds at the target precision, the precision-recall curves, the probabilities of
+# predictions.csv, the logit temperature and its explorer page, served to save the thresholds of a temperature and
+# export the checkpoint at it, the sample and error images, the measured effects of the head settings in the
+# architecture benchmark, the pitfalls and the export with its temperature, its thresholds, its export folder and its
+# input settings. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left
+# corner); the figures and facts named classification.* are made by tutorials/figures/classification from the synthetic
+# shapes run of tutorial_sources.yaml, the images under runs: are the files its evaluations wrote (the report block, the
+# confusion matrix image and the precision-recall curves those of its standalone evaluation, run again with the current
+# code).
 series: classification
 series_title: "Image Classification (CLS)"
 chapter: 2
@@ -62,7 +63,7 @@ scenes:
       - {key: ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair, sentences: [1]}
     narration:
       - "The evaluation section of a classification run sets the per class report, {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_sample_images:words}} sample images, and the target precision of the thresholds, while the top-k accuracy needs no setting."
-      - "Save predictions writes the probabilities of every test image, and the error images, when activated, save the misclassified images up to a number per pair of classes; the checks refuse them in the multi label mode."
+      - "Save predictions writes the probabilities of every test image, and the error images, when activated, save the misclassified images up to a number per pair of classes; the checks refuse the error images in the multi label mode."
 
   - kind: html
     page: diagram
@@ -91,6 +92,8 @@ scenes:
     page: diagram
     title: "Confusions over the training"
     code_reference: "vision_training/evaluation/classification/classification_metrics.py · compute_confusion_matrix"
+    # The non-zero cells the sparse matrix keeps above MAXIMUM_DENSE_CONFUSION_CLASSES classes
+    literal_numbers: [zero]
     elements:
       - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_500.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 0, until: 0, marks: [{row: 4, column: 4, sentences: [0]}, {row: 5, column: 5, sentences: [0]}, {row: 8, column: 8, sentences: [0]}]}
       - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_1000.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 1, until: 1, marks: [{row: 4, column: 4, sentences: [1]}, {row: 5, column: 5, sentences: [1]}, {row: 8, column: 8, sentences: [1]}]}
@@ -102,12 +105,14 @@ scenes:
       - {type: text, position: [1180, 70], text: "Iteration {{classification.confusion.iterations[2]}}", font: diagram_heading, appear: 2}
       - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_1500.accuracy:percent}}\nsquare → rectangle {{classification.confusion.iteration_1500.square_to_rectangle.count:,}}\nrectangle → square {{classification.confusion.iteration_1500.rectangle_to_square.count:,}}", font: diagram_text, appear: 2}
       - {type: box, box: [1180, 300, 1740, 480], text: "pentagon → hexagon {{classification.confusion.iteration_1500.pentagon_to_hexagon.count:,}}\noctagon → hexagon {{classification.confusion.iteration_1500.octagon_to_hexagon.count:,}}\ncircle → octagon {{classification.confusion.iteration_1500.circle_to_octagon.count:,}}", font: diagram_small, outline: magenta, appear: 3, highlight: [3]}
+      - {type: box, box: [1180, 495, 1740, 600], text: "above {{constant:vision_training/evaluation/classification/classification_metrics.py#MAXIMUM_DENSE_CONFUSION_CLASSES:,}} classes: non-zero cells\nin confusion_cells.csv, no image", font: diagram_small, outline: yellow, appear: 4, highlight: [4]}
       - {type: text, position: [1180, 620], text: "rows: true class · columns: predicted\ncells: % of the images of the true class", font: diagram_small, colour: dim}
     narration:
       - "At iteration {{classification.confusion.iterations[0]}}, the test accuracy is {{classification.headline.iteration_500.accuracy:percent}}, and hexagon, pentagon and octagon are found only {{classification.confusion.iteration_500.recall.hexagon:percent}}, {{classification.confusion.iteration_500.recall.pentagon:percent}} and {{classification.confusion.iteration_500.recall.octagon:percent}} of the time."
       - "At iteration {{classification.confusion.iterations[1]}}, {{classification.confusion.iteration_1000.recall.pentagon:percent}} of the pentagons are found, but only {{classification.confusion.iteration_1000.recall.hexagon:percent}} of the hexagons and {{classification.confusion.iteration_1000.recall.octagon:percent}} of the octagons."
       - "At iteration {{classification.confusion.iterations[2]}}, the accuracy reaches {{classification.headline.iteration_1500.accuracy:percent}}, and the errors left are pairs of close outlines: {{classification.confusion.iteration_1500.square_to_rectangle.count:,}} squares taken for rectangles, {{classification.confusion.iteration_1500.square_to_rectangle.share:percent}} of them, and {{classification.confusion.iteration_1500.rectangle_to_square.count:,}} rectangles for squares."
       - "{{classification.confusion.iteration_1500.pentagon_to_hexagon.count:,}} pentagons and {{classification.confusion.iteration_1500.octagon_to_hexagon.count:,}} octagons go to hexagon, which finds {{classification.confusion.iteration_1500.recall.hexagon:percent}} of its images at a precision of only {{classification.confusion.iteration_1500.precision.hexagon:percent}}, and {{classification.confusion.iteration_1500.circle_to_octagon.count:,}} circles are taken for octagons."
+      - "Should a data set hold more than {{constant:vision_training/evaluation/classification/classification_metrics.py#MAXIMUM_DENSE_CONFUSION_CLASSES:,}} classes, the evaluation keeps only the non-zero cells, in confusion cells csv, with the same metrics and no image."
 
   - kind: image
     title: "The confusion matrix image"
@@ -121,7 +126,7 @@ scenes:
       - {box: [138, 1261, 1167, 1394], sentences: [1]}
       - {box: [1174, 1261, 1302, 1394], sentences: [1]}
     narration:
-      - "Every evaluation also draws the matrix as confusion matrix png, every cell with its count and its share of the true class, and sends it to TensorBoard."
+      - "With the per class report, every evaluation also draws the matrix as confusion matrix png, every cell with its count and its share of the true class, and sends it to TensorBoard."
       - "Its recall column and its precision row sum it up class by class, and the corner gives the accuracy."
 
   - kind: html
