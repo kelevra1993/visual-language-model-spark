@@ -5,9 +5,10 @@ report of the labelled test images, its per-class metrics file and the sample im
 mixing labelled and unlabelled images is trained on every image and evaluated on the labelled ones, the classes of
 the evaluation are named after the categories of the three manifests (the validation one read without its loader in
 a training without validation), the labelled test images are classified by the reference training images and not by
-each other, the reference images are the same for every trainer of a run and bounded per class, the k-NN rates of the
-report and the positive pair accuracy of the SimCLR console summary are written as percentages, and the input viewer
-of the grouped batches finds the groups of every image of a batch by its identifier.
+each other, the k-NN metrics above MAXIMUM_DENSE_CONFUSION_CLASSES classes come from the sparse confusion matrix and
+equal those of the dense one, the reference images are the same for every trainer of a run and bounded per class, the
+k-NN rates of the report and the positive pair accuracy of the SimCLR console summary are written as percentages, and
+the input viewer of the grouped batches finds the groups of every image of a batch by its identifier.
 """
 
 import csv
@@ -29,7 +30,9 @@ from vision_training.core.contracts import IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIE
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.grouped_batch_sampler import build_grouped_batch_sampler
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.evaluation.classification.classification_metrics import compute_confusion_matrix
 from vision_training.evaluation.report_formatting import build_report_renderables, render_report_text
+from vision_training.trainers import self_supervised_trainer
 from vision_training.trainers.self_supervised_trainer import (METHOD_PERCENT_TRACKED_METRICS, METHOD_TRACKED_METRICS,
                                                               SelfSupervisedTrainer)
 from vision_training.utilities.visualization import CAPTION_BAR_HEIGHT
@@ -321,6 +324,44 @@ def test_test_images_are_classified_by_the_reference_training_images(tmp_path: P
         self=trainer, representations=torch.tensor(data=[[1.0, 0.0], [0.95, 0.31]]), labels=torch.tensor(data=[0, 1]),
         evaluation_folder=tmp_path)
     assert global_metrics["k-NN Accuracy"] == 1.0
+
+
+def test_nearest_neighbour_metrics_above_the_dense_class_limit_match_the_dense_matrix(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the k-nearest neighbour evaluation of a test split over more classes than
+    MAXIMUM_DENSE_CONFUSION_CLASSES (the 21,841 classes of ImageNet-22k) asks for the sparse confusion matrix, and that
+    its global metrics, per-class tables and scalars and class_metrics.csv are those of the dense matrix: 200 random
+    test images of 9 of 12 classes voted by 48 reference images of all 12 classes, scored dense, then with the limit
+    lowered to 5 classes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, receiving both class_metrics.csv files.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture lowering the limit of the trainer module.
+    """
+    # Random representations, four reference images per class
+    generator = torch.Generator().manual_seed(5)
+    trainer = SimpleNamespace(class_names=[f"class_{class_index}" for class_index in range(12)], number_neighbours=3,
+                              encode_reference_images=MagicMock(return_value=(
+                                  torch.randn(size=(48, 8), generator=generator), torch.arange(end=48) % 12)))
+    representations = torch.randn(size=(200, 8), generator=generator)
+    labels = torch.randint(low=0, high=9, size=(200,), generator=generator)
+
+    # Dense scoring, then sparse scoring with the limit lowered below the 12 classes
+    with patch(target="vision_training.trainers.self_supervised_trainer.compute_confusion_matrix",
+               wraps=compute_confusion_matrix) as confusion_matrix_mock:
+        dense_metrics, dense_outputs = SelfSupervisedTrainer.compute_nearest_neighbour_results(
+            self=trainer, representations=representations, labels=labels, evaluation_folder=tmp_path / "dense")
+        monkeypatch.setattr(target=self_supervised_trainer, name="MAXIMUM_DENSE_CONFUSION_CLASSES", value=5)
+        sparse_metrics, sparse_outputs = SelfSupervisedTrainer.compute_nearest_neighbour_results(
+            self=trainer, representations=representations, labels=labels, evaluation_folder=tmp_path / "sparse")
+    assert [call.kwargs["sparse"] for call in confusion_matrix_mock.call_args_list] == [False, True]
+
+    # Same metrics, tables, scalars and class metrics file, to the last bit
+    assert sparse_metrics == dense_metrics and 0.0 < dense_metrics["k-NN Accuracy"] < 1.0
+    assert (sparse_outputs["tables"], sparse_outputs["class_scalars"]) == (dense_outputs["tables"],
+                                                                         dense_outputs["class_scalars"])
+    assert sparse_outputs["class_metrics_path"].read_bytes() == dense_outputs["class_metrics_path"].read_bytes()
 
 
 @pytest.mark.parametrize(argnames=("test_labels", "expected_percent_metrics", "expected_grid_pattern",

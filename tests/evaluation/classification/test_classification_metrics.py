@@ -1,7 +1,8 @@
 """
 Tests of the classification evaluation of vision_training/evaluation/classification: the confusion matrix and metrics
 against hand-computed values, a class predicted but absent lowering the macro F1 as in scikit-learn, the top-k
-accuracy, the multi-label metrics and the class thresholds of threshold_finder.py.
+accuracy, the multi-label metrics, the class thresholds of threshold_finder.py and the sparse confusion matrix of the
+evaluations of many classes against the dense one.
 """
 
 import pytest
@@ -119,3 +120,29 @@ def test_class_thresholds_reach_the_target_precision() -> None:
     assert class_thresholds[1] is None
     # Class 2 has no positive sample
     assert class_thresholds[2] is None
+
+
+def test_sparse_confusion_matrix_gives_the_metrics_of_the_dense_one() -> None:
+    """
+    Verifies the sparse confusion matrix of the evaluations above MAXIMUM_DENSE_CONFUSION_CLASSES classes: it holds
+    the non-zero cells of the dense matrix only, sorted by true class then predicted class, and gives exactly the
+    metrics of the dense matrix, on random labels with absent classes and classes predicted without samples, on a
+    single sample and on an empty split.
+    """
+    generator = torch.Generator().manual_seed(3)
+    for number_samples in [0, 1, 300]:
+        # True labels among 9 of 12 classes, predictions among all 12
+        labels = torch.randint(low=0, high=9, size=(number_samples,), generator=generator)
+        predicted_labels = torch.randint(low=0, high=12, size=(number_samples,), generator=generator)
+        dense_matrix = compute_confusion_matrix(predicted_labels=predicted_labels, labels=labels, number_classes=12)
+        sparse_matrix = compute_confusion_matrix(predicted_labels=predicted_labels, labels=labels, number_classes=12,
+                                                 sparse=True)
+
+        # The non-zero cells only, in the row order of the dense matrix
+        assert sparse_matrix.is_sparse and torch.equal(input=sparse_matrix.to_dense(), other=dense_matrix)
+        assert sparse_matrix.indices().t().tolist() == torch.nonzero(input=dense_matrix).tolist()
+        assert sparse_matrix.values().tolist() == dense_matrix[dense_matrix > 0].tolist()
+
+        # The same metrics, to the last bit
+        assert (compute_metrics_from_confusion_matrix(confusion_matrix=sparse_matrix) ==
+                compute_metrics_from_confusion_matrix(confusion_matrix=dense_matrix))

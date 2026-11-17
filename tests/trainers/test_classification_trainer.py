@@ -1,16 +1,20 @@
 """
 Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
 multi-class training saves, evaluates and resumes, with the report, the per-class metrics, the class thresholds, the
-predictions file, the error images and the sample images checked.
+predictions file, the error images and the sample images checked; above MAXIMUM_DENSE_CONFUSION_CLASSES classes, the
+evaluation scored from the non-zero cells of the confusion matrix gives the metrics and files of the dense matrix,
+its long table 'confusion_cells.csv' holding the non-zero cells of 'confusion_matrix.csv'.
 """
 
+import csv
 import json
+import numpy as np
 import pytest
 import torch
 import yaml
 
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -20,6 +24,7 @@ from vision_training.evaluation.classification.temperature_explorer import (buil
                                                                             load_class_logits,
                                                                             read_explorer_page_data)
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
+from vision_training.trainers import classification_trainer
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
                                               check_sample_images, read_results_blocks)
@@ -255,3 +260,129 @@ def test_evaluation_keeps_the_probabilities_in_float32() -> None:
                                                target_precision=0.5)
     assert float32_thresholds == find_class_thresholds(probabilities=kept_probabilities.double(),
                                                        positive_masks=positive_masks, target_precision=0.5)
+
+
+def build_evaluation_trainer(evaluation_root: Path, number_classes: int,
+                             per_class_report: bool) -> ClassificationTrainer:
+    """
+    Builds a multi-class classification trainer reduced to the attributes read by the evaluation of the test split
+    (compute_evaluation_results), without model nor data loaders, so that the dense and sparse confusion matrices of
+    the evaluations of many classes are compared on the same probabilities.
+
+    Args:
+        evaluation_root (Path): The folder receiving 'Iteration_<n>/' and its evaluation files.
+        number_classes (int): The number of classes, named 'class_<index>'.
+        per_class_report (bool): Whether the evaluation draws the per-class images and the temperature explorer.
+
+    Returns:
+        ClassificationTrainer: The reduced trainer.
+    """
+    trainer = object.__new__(ClassificationTrainer)
+    trainer.class_names = [f"class_{class_index}" for class_index in range(number_classes)]
+    trainer.output_mode, trainer.top_k, trainer.per_class_report, trainer.save_predictions = ("multi_class", 5,
+                                                                                              per_class_report, False)
+    trainer.target_precisions, trainer.target_precision = [0.99, 0.5], 0.99
+    trainer.error_dumps_configuration = {"activated": False}
+    trainer.evaluation_root, trainer.evaluating_averaged_weights = evaluation_root, False
+    return trainer
+
+
+def evaluate_dense_and_sparse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                              per_class_report: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Evaluates the same random test split of 300 images over 12 classes twice, with the dense confusion matrix (12
+    classes being below MAXIMUM_DENSE_CONFUSION_CLASSES) into '<tmp_path>/dense/', then with the sparse one, the limit
+    lowered to 5 classes, into '<tmp_path>/sparse/'. The true classes are 9 of the 12 classes, the predictions spread
+    over all of them, so that classes without samples and classes predicted without samples are both scored.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture lowering the limit of the trainer module.
+        per_class_report (bool): Whether the evaluations draw the per-class images and the temperature explorer.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The results of the dense evaluation, then of the sparse one.
+    """
+    # Test split of random logits, accumulated as by accumulate_evaluation_batch
+    generator = torch.Generator().manual_seed(11)
+    class_logits = 3.0 * torch.randn(size=(300, 12), generator=generator)
+    labels = torch.randint(low=0, high=9, size=(300,), generator=generator)
+    accumulator = {"probabilities": [torch.softmax(input=class_logits, dim=-1)], "labels": [labels],
+                   "sample_identifiers": [torch.arange(end=300)], "logits": [class_logits], "error_counts": {}}
+
+    # Dense evaluation, then the sparse one of the same split with the limit lowered below its 12 classes
+    dense_results = build_evaluation_trainer(evaluation_root=tmp_path / "dense", number_classes=12,
+                                             per_class_report=per_class_report).compute_evaluation_results(
+        accumulator=accumulator, iteration=1)
+    monkeypatch.setattr(target=classification_trainer, name="MAXIMUM_DENSE_CONFUSION_CLASSES", value=5)
+    sparse_results = build_evaluation_trainer(evaluation_root=tmp_path / "sparse", number_classes=12,
+                                              per_class_report=per_class_report).compute_evaluation_results(
+        accumulator=accumulator, iteration=1)
+    return dense_results, sparse_results
+
+
+@pytest.mark.parametrize(argnames="per_class_report", argvalues=[False, True])
+def test_evaluation_above_the_dense_class_limit_gives_the_metrics_of_the_dense_matrix(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, per_class_report: bool) -> None:
+    """
+    Verifies that the evaluation of a test split over more classes than MAXIMUM_DENSE_CONFUSION_CLASSES, scored from
+    the non-zero cells of the confusion matrix only, reports exactly the headline metrics, tables, per-class scalars,
+    class_metrics.csv and class_thresholds.json of the dense matrix, and that it writes 'confusion_cells.csv' instead
+    of 'confusion_matrix.csv' and, with the per-class report, every image but the confusion matrix.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, receiving both evaluation folders.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture lowering the limit of the trainer module.
+        per_class_report (bool): Whether the evaluations draw the per-class images and the temperature explorer.
+    """
+    dense_results, sparse_results = evaluate_dense_and_sparse(tmp_path=tmp_path, monkeypatch=monkeypatch,
+                                                              per_class_report=per_class_report)
+
+    # Same metrics, tables and scalars, to the last bit, and the same files of the class metrics and thresholds
+    for result_key in ["evaluated_samples", "metrics", "notes", "tables", "scalars", "class_scalars",
+                       "headline_metric", "percent_metrics"]:
+        assert sparse_results[result_key] == dense_results[result_key]
+    dense_folder, sparse_folder = tmp_path / "dense" / "Iteration_1", tmp_path / "sparse" / "Iteration_1"
+    for file_name in ["class_metrics.csv", "class_thresholds.json"]:
+        assert (sparse_folder / file_name).read_bytes() == (dense_folder / file_name).read_bytes()
+
+    # The long table replaces the dense one, and the confusion matrix image is the only image left out
+    assert dense_results["files"]["Confusion Matrix Table"] == dense_folder / "confusion_matrix.csv"
+    assert sparse_results["files"]["Confusion Matrix Table"] == sparse_folder / "confusion_cells.csv"
+    assert not (sparse_folder / "confusion_matrix.csv").exists()
+    assert not (sparse_folder / "confusion_matrix.png").exists()
+    assert ("Confusion Matrix" in dense_results["images"]) == per_class_report
+    assert list(sparse_results["images"]) == [image_name for image_name in dense_results["images"]
+                                              if image_name != "Confusion Matrix"]
+    assert all(np.array_equal(a1=sparse_results["images"][image_name], a2=dense_results["images"][image_name])
+               for image_name in sparse_results["images"])
+
+
+def test_confusion_cells_table_holds_the_non_zero_cells_of_the_dense_matrix(tmp_path: Path,
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies 'confusion_cells.csv', the table of the confusion matrix above MAXIMUM_DENSE_CONFUSION_CLASSES classes:
+    one row (true_class, predicted_class, count) per non-zero cell of the dense 'confusion_matrix.csv' of the same
+    split, in its row order (true class, then predicted class), no zero cell written, the counts adding up to the 300
+    evaluated images.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, receiving both evaluation folders.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture lowering the limit of the trainer module.
+    """
+    dense_results, sparse_results = evaluate_dense_and_sparse(tmp_path=tmp_path, monkeypatch=monkeypatch,
+                                                              per_class_report=False)
+
+    # Non-zero cells of the dense table, read row after row
+    with open(file=dense_results["files"]["Confusion Matrix Table"], mode="r", newline="") as table_file:
+        dense_rows = list(csv.reader(table_file))
+    predicted_names = dense_rows[0][1:]
+    dense_cells = [[row[0], predicted_name, count] for row in dense_rows[1:]
+                   for predicted_name, count in zip(predicted_names, row[1:]) if count != "0"]
+
+    # Rows of the long table: the same cells in the same order, adding up to the evaluated images
+    with open(file=sparse_results["files"]["Confusion Matrix Table"], mode="r", newline="") as table_file:
+        long_rows = list(csv.reader(table_file))
+    assert long_rows[0] == ["true_class", "predicted_class", "count"]
+    assert long_rows[1:] == dense_cells
+    assert all(int(row[2]) > 0 for row in long_rows[1:]) and sum(int(row[2]) for row in long_rows[1:]) == 300

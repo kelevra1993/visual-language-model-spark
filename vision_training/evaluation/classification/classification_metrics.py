@@ -1,7 +1,9 @@
 """
 Metrics of the classification-like tasks: confusion matrix, per-class precision, recall, F1 and support, accuracy,
 top-k accuracy and the multi-label metrics. Used by the classification trainer, from which the sequence classification
-and comparison trainers inherit, to evaluate a checkpoint on the test split.
+and comparison trainers inherit, to evaluate a checkpoint on the test split, and by the k-NN evaluation of the
+self-supervised trainer. Above MAXIMUM_DENSE_CONFUSION_CLASSES classes (imagenet-merged, ImageNet-22k), these two
+evaluations count only the non-zero cells of the confusion matrix, a sparse tensor giving the same metrics.
 """
 
 import torch
@@ -12,23 +14,42 @@ from typing import Any, Dict
 # tasks, the frame selection taking its own k from 'evaluation.top_k'
 TOP_K_ACCURACY_CLASSES = 5
 
+# Largest number of classes whose classification and k-NN evaluations count the dense [K, K] confusion matrix: 8 MB at
+# the 1,000 classes of ImageNet-1k, whose evaluations stay as they were, but 3.8 GB at the 21,842 classes of
+# imagenet-merged, of which at most one cell per test image is non-zero; above, only the non-zero cells are counted
+MAXIMUM_DENSE_CONFUSION_CLASSES = 1000
 
-def compute_confusion_matrix(predicted_labels: torch.Tensor, labels: torch.Tensor, number_classes: int) -> torch.Tensor:
+
+def compute_confusion_matrix(predicted_labels: torch.Tensor, labels: torch.Tensor, number_classes: int,
+                             sparse: bool = False) -> torch.Tensor:
     """
     Counts, for every pair of classes, the samples of the first class predicted as the second one, the basis of the
-    classification metrics of the evaluated checkpoints.
+    classification metrics of the evaluated checkpoints. Sparse, only the non-zero cells are counted, at most one per
+    sample, so that an evaluation over tens of thousands of classes never allocates the K x K counts.
 
     Args:
         predicted_labels (torch.Tensor): The [N] predicted class indices.
         labels (torch.Tensor): The [N] true class indices.
         number_classes (int): The number of classes.
+        sparse (bool): Whether to return the non-zero cells as a sparse COO tensor, asked by the evaluations above
+            MAXIMUM_DENSE_CONFUSION_CLASSES classes. Defaults to False.
 
     Returns:
-        torch.Tensor: The [K, K] int64 confusion matrix, rows being the true classes and columns the predicted ones.
+        torch.Tensor: The [K, K] int64 confusion matrix, rows being the true classes and columns the predicted ones,
+            dense, or sparse and coalesced (its cells sorted by true class, then predicted class).
     """
     flat_indices = labels.to(dtype=torch.int64) * number_classes + predicted_labels.to(dtype=torch.int64)
-    return torch.bincount(input=flat_indices, minlength=number_classes * number_classes).reshape(number_classes,
-                                                                                                 number_classes)
+    if not sparse:
+        return torch.bincount(input=flat_indices, minlength=number_classes * number_classes).reshape(number_classes,
+                                                                                                     number_classes)
+
+    # Distinct cells with their counts, sorted by flat index, so in the row order of the dense matrix; the invariant
+    # check refuses a negative true class or one beyond the K classes, as the bincount and reshape of the dense matrix
+    cell_indices, cell_counts = torch.unique(input=flat_indices, sorted=True, return_counts=True)
+    return torch.sparse_coo_tensor(indices=torch.stack(tensors=[cell_indices // number_classes,
+                                                                cell_indices % number_classes]),
+                                   values=cell_counts, size=(number_classes, number_classes), is_coalesced=True,
+                                   check_invariants=True)
 
 
 def compute_precision_recall_f1(true_positives: torch.Tensor, predicted_counts: torch.Tensor,
@@ -62,31 +83,46 @@ def compute_metrics_from_confusion_matrix(confusion_matrix: torch.Tensor) -> Dic
     (mean recall over the classes present in the evaluated samples, insensitive to class imbalance, as in
     scikit-learn), the macro F1 over the classes present or predicted (a class predicted without any sample counting
     with its F1 of 0, as in scikit-learn), and the precision, recall, F1, number of evaluated samples (support) and
-    true positives of every class, the last two giving the confidence interval of its recall.
+    true positives of every class, the last two giving the confidence interval of its recall. A sparse matrix (above
+    MAXIMUM_DENSE_CONFUSION_CLASSES classes) gives the same counts from its non-zero cells, so the same metrics.
 
     Args:
-        confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
+        confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes),
+            dense or sparse (compute_confusion_matrix).
 
     Returns:
         Dict[str, Any]: The 'accuracy', 'balanced_accuracy' and 'macro_f1' floats, the per-class 'precision',
             'recall' and 'f1' lists, and the per-class 'support' list of evaluated samples and 'true_positives' list.
     """
-    actual_counts, predicted_counts = confusion_matrix.sum(dim=1), confusion_matrix.sum(dim=0)
-    class_metrics = compute_precision_recall_f1(true_positives=confusion_matrix.diagonal(),
-                                                predicted_counts=predicted_counts, actual_counts=actual_counts)
+    # Samples of every true class (row sums), of every predicted class (column sums) and right ones (diagonal), the
+    # sparse cells being added into their row, their column and, on the diagonal, their class
+    if confusion_matrix.is_sparse:
+        cells = confusion_matrix.coalesce()
+        (true_classes, predicted_classes), cell_counts = cells.indices(), cells.values()
+        on_diagonal = true_classes == predicted_classes
+        empty_counts = torch.zeros(size=(confusion_matrix.shape[0],), dtype=cell_counts.dtype,
+                                   device=cell_counts.device)
+        actual_counts = empty_counts.index_add(dim=0, index=true_classes, source=cell_counts)
+        predicted_counts = empty_counts.index_add(dim=0, index=predicted_classes, source=cell_counts)
+        true_positives = empty_counts.index_add(dim=0, index=true_classes[on_diagonal], source=cell_counts[on_diagonal])
+    else:
+        actual_counts, predicted_counts = confusion_matrix.sum(dim=1), confusion_matrix.sum(dim=0)
+        true_positives = confusion_matrix.diagonal()
+    class_metrics = compute_precision_recall_f1(true_positives=true_positives, predicted_counts=predicted_counts,
+                                                actual_counts=actual_counts)
 
     # Balanced accuracy over the classes present in the evaluated samples, macro F1 over the classes present or
     # predicted, so that a class predicted without any sample lowers it
     present_classes = actual_counts > 0
     averaged_classes = present_classes | (predicted_counts > 0)
-    number_samples = int(confusion_matrix.sum())
-    return {"accuracy": float(confusion_matrix.diagonal().sum()) / number_samples if number_samples else 0.0,
+    number_samples = int(actual_counts.sum())
+    return {"accuracy": float(true_positives.sum()) / number_samples if number_samples else 0.0,
             "balanced_accuracy": float(class_metrics["recall"][present_classes].mean()) if present_classes.any()
             else 0.0,
             "macro_f1": float(class_metrics["f1"][averaged_classes].mean()) if averaged_classes.any() else 0.0,
             "precision": class_metrics["precision"].tolist(), "recall": class_metrics["recall"].tolist(),
             "f1": class_metrics["f1"].tolist(), "support": actual_counts.tolist(),
-            "true_positives": confusion_matrix.diagonal().tolist()}
+            "true_positives": true_positives.tolist()}
 
 
 def compute_top_k_accuracy(probabilities: torch.Tensor, labels: torch.Tensor, top_k: int) -> float:

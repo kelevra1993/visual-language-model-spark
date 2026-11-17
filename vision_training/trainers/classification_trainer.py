@@ -18,7 +18,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, ClassificationBatch, EvaluationResults
 from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
-from vision_training.evaluation.classification.classification_metrics import (TOP_K_ACCURACY_CLASSES,
+from vision_training.evaluation.classification.classification_metrics import (MAXIMUM_DENSE_CONFUSION_CLASSES,
+                                                                              TOP_K_ACCURACY_CLASSES,
                                                                               compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix,
                                                                               compute_multi_label_metrics,
@@ -615,7 +616,9 @@ class ClassificationTrainer(BaseTrainer):
         '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', whatever the per-class report. Only with it, the confusion
         matrix image (multi-class mode) and the ROC and precision-recall curves of every class, one against the rest,
         are saved and logged to TensorBoard, the curves adding the macro ROC AUC and average precision to the headline
-        metrics and the ROC AUC and average precision of every class to its metrics.
+        metrics and the ROC AUC and average precision of every class to its metrics. Above
+        MAXIMUM_DENSE_CONFUSION_CLASSES classes, the confusion matrix is sparse: the same metrics from its non-zero
+        cells, saved as 'confusion_cells.csv', without the image.
 
         Args:
             accumulator (Dict[str, Any]): The class probabilities and labels of the test split.
@@ -631,18 +634,21 @@ class ClassificationTrainer(BaseTrainer):
         number_classes = len(self.class_names)
         files, images = {}, {}
 
-        # Headline metrics: from the confusion matrix for a single class per sample, from the class decisions at 0.5
+        # Headline metrics: from the confusion matrix for a single class per sample, its non-zero cells only above
+        # MAXIMUM_DENSE_CONFUSION_CLASSES classes (3.8 GB dense at 21,842 classes), from the class decisions at 0.5
         # for several classes per sample
         if self.output_mode == "multi_class":
             confusion_matrix = compute_confusion_matrix(predicted_labels=probabilities.argmax(dim=1), labels=labels,
-                                                        number_classes=number_classes)
+                                                        number_classes=number_classes,
+                                                        sparse=number_classes > MAXIMUM_DENSE_CONFUSION_CLASSES)
             metrics = compute_metrics_from_confusion_matrix(confusion_matrix=confusion_matrix)
             headline_metrics = {"Accuracy": metrics["accuracy"], "Balanced Accuracy": metrics["balanced_accuracy"],
                                 "Macro F1": metrics["macro_f1"],
                                 f"Top-{self.top_k} Accuracy": compute_top_k_accuracy(probabilities=probabilities,
                                                                                      labels=labels,
                                                                                      top_k=self.top_k)}
-            # One-hot positives for the class thresholds, and the confusion matrix saved as a table
+            # One-hot positives for the class thresholds, and the confusion matrix saved as a table (its non-zero cells
+            # in 'confusion_cells.csv' when sparse)
             positive_masks = torch.nn.functional.one_hot(input=labels, num_classes=number_classes).to(dtype=torch.bool)
             files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
                                                                           class_names=self.class_names,
@@ -692,8 +698,10 @@ class ClassificationTrainer(BaseTrainer):
         files["Class Metrics"] = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
 
         # Confusion matrix image of the per-class report, saved and logged to TensorBoard, its accuracies and shares
-        # written as percentages
-        if self.output_mode == "multi_class" and self.per_class_report:
+        # written as percentages; none for a sparse matrix: its classes, more than 1,000, would get under 2.4 pixels
+        # each in the 2,400 pixels of the largest matrix (a ninth of a pixel at 21,842), and its drawing needs the
+        # dense counts and shares in float64
+        if self.output_mode == "multi_class" and self.per_class_report and not confusion_matrix.is_sparse:
             matrix_title = (f"Confusion Matrix · Iteration {iteration} · Accuracy "
                             f"{format_percentage(value=metrics['accuracy'])} · Balanced Accuracy "
                             f"{format_percentage(value=metrics['balanced_accuracy'])}")

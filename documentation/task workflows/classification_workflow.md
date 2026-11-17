@@ -115,7 +115,7 @@ Before changing the synthetic configuration, these are the keys that change the 
 Each time a checkpoint is evaluated, the run folder, TensorBoard and MLflow receive the following.
 
 - `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95 % confidence interval) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`82.73 %`), the thresholds staying between 0 and 1; the files, TensorBoard and MLflow keep every rate between 0 and 1.
-- `Evaluation/Iteration_<n>/`: `confusion_matrix.csv`, `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `saved_temperature_thresholds.json` once the thresholds of a temperature are saved from the served page; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
+- `Evaluation/Iteration_<n>/`: `confusion_matrix.csv` (above 1,000 classes `confusion_cells.csv`, its non-zero cells only, Step 4.12), `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png` (up to 1,000 classes), `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `saved_temperature_thresholds.json` once the thresholds of a temperature are saved from the served page; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`.
 - `Exports/Iteration_<n>[_EMA]_T<temperature>/`: one Triton model repository per checkpoint, weights and temperature exported from the served temperature explorer, with `export_record.json` and `export_log.txt` (Step 4.13).
 - With the MLflow tracking: `test/<metric>`, `test_class/<metric>/<class>`, `test/best_Accuracy` and the tag `best_iteration`, and the files of `evaluation/iteration_<n>/`.
@@ -572,7 +572,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │
 │   ├── compute_confusion_matrix()
 │   │       Counts, for each pair (true class, predicted class), the number of images: a [K, K] table, rows true,
-│   │       columns predicted. Multi-class mode only.
+│   │       columns predicted. Multi-class mode only. Above 1,000 classes (MAXIMUM_DENSE_CONFUSION_CLASSES), only
+│   │       its non-zero cells, as a sparse tensor.
 │   ├── compute_metrics_from_confusion_matrix() -> compute_precision_recall_f1()
 │   │       From the diagonal and the row and column sums: accuracy, balanced accuracy, macro F1 and, for each class,
 │   │       precision, recall, F1, support (number of test images of the class) and true positives (the diagonal).
@@ -582,7 +583,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       save_confusion_matrix_table: Subset Accuracy, Micro F1 and Macro F1 of the class decisions at a
 │   │       probability of 0.5, without top-k accuracy nor confusion matrix.
 │   ├── save_confusion_matrix_table()
-│   │       Writes the matrix to Evaluation/Iteration_N/confusion_matrix.csv, with the class names as headers.
+│   │       Writes the matrix to Evaluation/Iteration_N/confusion_matrix.csv, with the class names as headers; a
+│   │       sparse one to confusion_cells.csv, one row (true_class, predicted_class, count) per non-zero cell.
 │   ├── find_class_thresholds()
 │   │       For each class (one against the rest), finds the lowest probability threshold whose precision stays at or
 │   │       above target_precision, with the recall kept at that threshold, or None when no threshold reaches it, for
@@ -599,7 +601,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       Merges the per-class metrics (the recall followed by recall_lower and recall_upper), curve metrics (with
 │   │       per_class_report) and thresholds into one row per class, in class index order, and writes
 │   │       class_metrics.csv. Written at every evaluation, whatever per_class_report.
-│   ├── save_confusion_matrix_image()   (only with per_class_report)
+│   ├── save_confusion_matrix_image()   (only with per_class_report, up to 1,000 classes)
 │   │       Draws the confusion matrix with matplotlib (counts, shares, recall column, precision row, colour bar) and
 │   │       saves confusion_matrix.png. The same image is later sent to TensorBoard.
 │   ├── save_score_curve_images()   (only with per_class_report)
@@ -1644,6 +1646,8 @@ The current results also hold `percent_metrics`, the names of the global metrics
 ### Step 4.9 — `compute_confusion_matrix()`
 This counts, for every pair (true class, predicted class), the number of test images. The result is a `[K, K]` table (K = number of classes): the row is the true class, the column the predicted class, so the diagonal holds the correct predictions. It is computed with a single `bincount` over `true × K + predicted`. It is used in multi-class mode only: in multi-label mode an image has several classes, so no single matrix exists.
 
+Should a test split cover more than 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES` of `classification_metrics.py`), as ImageNet-22k and imagenet-merged do with their 21,841 and 21,842 classes, the dense matrix would take 3.8 GB in int64 while at most one cell per test image is non-zero. The evaluation then asks for `sparse=True`: `torch.unique` counts the distinct values of `true × K + predicted`, and the result is a sparse `[K, K]` COO tensor holding only these cells, sorted by true class then predicted class, a negative true class or one beyond the K classes being refused as by the dense `bincount`. Up to 1,000 classes (ImageNet-1k included, 8 MB) nothing changes. The k-NN evaluation of the self-supervised trainer follows the same rule.
+
 **Example output** (first rows of the matrix of iteration 6: every image was predicted as class 2, `triangle`)
 ```text
 tensor([[  0,   0, 579,   0,   0,   0,   0,   0,   0],      <- the 579 squares, all predicted as triangle
@@ -1653,7 +1657,7 @@ tensor([[  0,   0, 579,   0,   0,   0,   0,   0,   0],      <- the 579 squares, 
 ```
 
 ### Step 4.10 — `compute_metrics_from_confusion_matrix()` → `compute_precision_recall_f1()`
-All the multi-class metrics come from the matrix. For a class: the **support** is its row sum (its test images), the **precision** is the diagonal divided by its column sum (how many images predicted as the class are right), the **recall** is the diagonal divided by its row sum (how many images of the class were found) and the **F1** is their harmonic mean. A class that is never predicted gets a precision of 0. The **accuracy** is the diagonal sum over all the images, the **balanced accuracy** is the mean recall over the classes present in the test set, and the **macro F1** the mean F1 over the classes present or predicted, a class predicted without any test image counting with its F1 of 0, as in scikit-learn: they do not depend on how many images each class has. The **true positives** of every class (the diagonal) are returned with the support, for the confidence interval of its recall (Step 4.14).
+All the multi-class metrics come from the matrix. For a class: the **support** is its row sum (its test images), the **precision** is the diagonal divided by its column sum (how many images predicted as the class are right), the **recall** is the diagonal divided by its row sum (how many images of the class were found) and the **F1** is their harmonic mean. A class that is never predicted gets a precision of 0. The **accuracy** is the diagonal sum over all the images, the **balanced accuracy** is the mean recall over the classes present in the test set, and the **macro F1** the mean F1 over the classes present or predicted, a class predicted without any test image counting with its F1 of 0, as in scikit-learn: they do not depend on how many images each class has. The **true positives** of every class (the diagonal) are returned with the support, for the confidence interval of its recall (Step 4.14). From a sparse matrix (Step 4.9), the row sums, column sums and diagonal are added up from its non-zero cells (`index_add`), which gives exactly the same metrics.
 
 **Example: how the numbers of iteration 6 are obtained**
 ```text
@@ -1673,7 +1677,7 @@ Top-2 Accuracy = 0.2244 at iteration 6, 0.2276 at iteration 12      (about 2 / 9
 ```
 
 ### Step 4.12 — `save_confusion_matrix_table()`
-This writes the matrix of Step 4.9 as `confusion_matrix.csv`, with the class names as row and column headers, to read the exact counts or open them in a spreadsheet. It is written at every evaluation in multi-class mode, whatever `per_class_report`.
+This writes the matrix of Step 4.9 as `confusion_matrix.csv`, with the class names as row and column headers, to read the exact counts or open them in a spreadsheet. It is written at every evaluation in multi-class mode, whatever `per_class_report`. Above 1,000 classes, the sparse matrix is written as `confusion_cells.csv` instead, a name that no reader of the dense table can mistake for it: one row `true_class,predicted_class,count` per non-zero cell, in the row order of the dense table (true class, then predicted class), the counts adding up to the test images. For the 21,842 classes of imagenet-merged, the dense table would take about 955 MB whatever the number of test images; the long table holds at most one row per test image, 0.13 MB for 5,000 images.
 
 **Example: `Evaluation/Iteration_6/confusion_matrix.csv`**
 ```text
@@ -1687,6 +1691,15 @@ hexagon,0,0,574,0,0,0,0,0,0
 plus_sign,0,0,545,0,0,0,0,0,0
 star,0,0,526,0,0,0,0,0,0
 octagon,0,0,590,0,0,0,0,0,0
+```
+
+**Example: `confusion_cells.csv`** (first rows, 5,000 test images of random labels and probabilities over 21,842 classes named `class_<index>`, the synthetic split of the memory measurement)
+```text
+true_class,predicted_class,count
+class_00000,class_02897,1
+class_00000,class_10297,1
+class_00000,class_12507,1
+class_00011,class_19444,1
 ```
 
 ### Step 4.13 — `find_class_thresholds()`
@@ -1747,7 +1760,7 @@ class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshol
 ### Step 4.15 — `save_confusion_matrix_image()` + `save_score_curve_images()`   (only with `per_class_report`)
 `save_score_curve_images()` draws the curves of Step 4.14 and saves them as `roc_curves.png` and `precision_recall_curves.png`, the same image arrays being returned to be logged to TensorBoard as `ROC Curves` and `Precision Recall Curves` (Step 4.18) and to MLflow (Step 4.19). Up to 10 classes, every class is a curve of its own colour on a single plot, its ROC AUC or average precision in the legend; above, every class has a small panel titled with its metric, 10 panels per row at most, and above 100 classes only the 100 classes with the lowest metric are drawn. The ROC curves come with the chance diagonal; the precision-recall curves with a dotted line at every target precision and a point at the recall and precision of the threshold of Step 4.13 on every class having one. The titles give the iteration and the macro mean. `precision_recall_thresholds.png` (TensorBoard `Precision Recall Thresholds`) draws the precision-recall curves again, zoomed on these points, and writes every threshold next to its point in the colour of its curve, rounded down to the fewest decimals (at least 4, at most 9 significant digits) that select the same images as the exact threshold, so that a threshold can be chosen from the image.
 
-`save_confusion_matrix_image()` draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0 %) to dark blue (100 %); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The shares, recalls, precisions and accuracy are written as percentages with two decimals (`62.11 %`), the matrix taking 0.65 inch per class instead of 0.4 (still between 4 and 16 inches) so that they fit, and the colour bar goes from `0 %` to `100 %`. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`.
+`save_confusion_matrix_image()` draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0 %) to dark blue (100 %); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The shares, recalls, precisions and accuracy are written as percentages with two decimals (`62.11 %`), the matrix taking 0.65 inch per class instead of 0.4 (still between 4 and 16 inches) so that they fit, and the colour bar goes from `0 %` to `100 %`. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`. Above 1,000 classes it is not drawn at all, even with `per_class_report`: the matrix is sparse (Step 4.9), the largest image gives its classes under 2.4 pixels each (a ninth of a pixel at 21,842 classes), and the drawing would need the dense counts and shares in float64, 3.8 GB each.
 
 **Example: `Evaluation/Iteration_12/confusion_matrix.png`** (1470 x 1432 pixels with the current cells, 1192 x 1155 when it was recorded)
 ```text
