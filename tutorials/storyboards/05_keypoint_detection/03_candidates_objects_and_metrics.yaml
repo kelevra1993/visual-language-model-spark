@@ -90,7 +90,8 @@ scenes:
       - "The grouping runs on the CPU, class by class: the candidates of the first key point of the class start one object each."
       - "The candidates of every next key point are matched to the objects so far by the Hungarian method, the cost being the tag distance to the mean tag of the object rounded to whole units, times {{constant:vision_training/models/keypoints/keypoint_grouping.py#TAG_DISTANCE_COST:.0f}}, minus the score."
       - "The {{keypoint_detection.grouping_capsule_objects:words}} capsules have mean tags only {{keypoint_detection.tags_same_class_distance:.2f}} apart, so every rounded distance is zero, both assignments cost the same, and the candidates go to the objects in the order of their scores: {{keypoint_detection.grouping_exchanged_count}} key points join the other capsule."
-      - "An object scores the sum of its key point scores over the key points of its class; the evaluation keeps every object, the sample images and the deployment those scoring at least {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.object_score_threshold}}."
+      - "An object scores the mean of its key point scores over all the key points of its class, a key point not found counting zero."
+      - "The evaluation keeps every object, while the sample images keep those scoring at least {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.object_score_threshold}}, the threshold a client passes to the grouping."
 
   - kind: image
     title: "The sample image of the evaluation"
