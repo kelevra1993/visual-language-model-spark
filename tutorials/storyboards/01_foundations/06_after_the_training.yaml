@@ -1,8 +1,8 @@
 # Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, comparing
-# launches and runs, clustering the image embeddings of a trained run, exporting a model to Triton through a staging
-# folder with its input contract and serving it, the tests and the map of the repository. The settings shown are the
-# live main blocks of the scripts; the spread between launches is the one of benchmark.py and the counts of the
-# repository those of listings.py of tutorials/figures/foundations.
+# launches and runs, clustering the image embeddings of a trained run, an overview of the export to Triton (the
+# deployment series covers the export, its checks, the Triton serving and the serving benchmark), the tests and the map
+# of the repository. The settings shown are the live main blocks of the scripts; the spread between launches is the one
+# of benchmark.py and the counts of the repository those of listings.py of tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
 chapter: 6
@@ -16,10 +16,11 @@ references:
   - "vision_training/evaluation/checkpoint_evaluation.py · evaluate_checkpoints"
   - "scripts/evaluation/collect_experiment_results.py"
   - "scripts/evaluation/compare_best_evaluations.py · compare_best_evaluations"
+  - "scripts/evaluation/plot_experiment_comparisons.py"
+  - "documentation/architecture_benchmarking/experiment_comparisons.yaml"
   - "scripts/embedding/cluster_image_embeddings.py · embed_and_cluster_sources"
   - "vision_training/deployment/export_model.py · export_experiment"
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
-  - "vision_training/deployment/run_inference.py"
 scenes:
   - kind: title_card
     heading: "After the training"
@@ -96,6 +97,7 @@ scenes:
       - "To compare settings, train every launch in its own run folder of one experiment folder, run one, run two, and run twenty three b for a repeat launch of the same settings, then run the collect experiment results script."
       - "It writes one row per launch with the test metric at every evaluation, its mean and the mean of the last evaluations, then a mean row for the launches of the same settings."
       - "Compare settings by their mean and the mean of their last evaluations, with at least two launches each: in the benchmark, {{foundations.benchmark.launch_noise.launches_per_setting:words}} launches of the same settings went from {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_minimum:percent}} to {{foundations.benchmark.launch_noise.squeeze_excitation_on_whole_mean_maximum:percent}} in mean test accuracy."
+      - "To see a stage at a glance, the plot experiment comparisons script draws every launch and the mean of every setting from a copy of this file, for the stages listed in experiment comparisons yaml."
 
   - kind: code
     title: "Comparing runs"
@@ -109,7 +111,7 @@ scenes:
       - {match: "^    best_metric = |^    higher_is_better = |^    evaluated_weights = ", sentences: [1]}
     narration:
       - "To compare finished runs, the compare best evaluations script reads every run folder of some experiment folders."
-      - "It picks the best evaluation of every run by one test curve, with the trained or the averaged weights, and prints markdown tables with any setting of the configurations and the image counts of every split as columns."
+      - "It picks the best evaluation of every run by one test curve, over the trained weights, the averaged weights or both, and prints markdown tables with any setting of the configurations and the image counts of every split as columns."
 
   - kind: html
     page: diagram
@@ -149,41 +151,13 @@ scenes:
       start: "^if __name__ == \"__main__\":"
       end: "^    tensorrt_precision = "
     highlights:
-      - {match: "^    formats = |^    repository = ", sentences: [0, 1]}
-      - {match: "^    run_name = |^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [2]}
+      - {match: "^    formats = |^    repository = ", sentences: [0]}
+      - {match: "^    run_name = |^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [1]}
     narration:
-      - "The export model script writes a trained run to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model."
-      - "Every format is first exported and checked against the PyTorch model in a staging folder, and the served models are replaced only once all of them match, so a failed check leaves them as they were."
+      - "Once a run is trained, the export model script writes it to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model."
       - "Set the run folder, the iteration, the averaged or the trained weights, the largest batch size and the TensorRT precision of the ONNX model, then run it as a module."
-
-  - kind: code
-    title: "The exported models"
-    code_reference: "vision_training/deployment/export_specifications.py · get_export_specification"
-    source:
-      file: vision_training/deployment/export_specifications.py
-      function: TASK_MODEL_NAMES
-    highlights:
-      - {match: "\"object_detection\":|\"classification\":", sentences: [0]}
-    # The range of the raw 8-bit pixels the models take
-    literal_numbers: [zero, two hundred and fifty five]
-    narration:
-      - "Every task is exported under its own model name, followed by its format in the model repository, each in a folder with its Triton configuration and its version."
-      - "The models take float32 BGR images, or the frames of a sequence, from zero to two hundred and fifty five, resized and padded, or cut into tiles, like the data loaders, the normalization being in the model."
-      - "So that a server builds its inputs as the training did, every export writes these settings in a preprocessing file next to the model and in the ONNX metadata; every task series shows its outputs."
-
-  - kind: terminal
-    title: "Serving with Triton"
-    code_reference: "vision_training/deployment/run_inference.py"
-    lines:
-      - {role: command, text: "cd vision_training/deployment/triton"}
-      - {role: command, text: "docker compose up"}
-      - {role: comment, text: "# serves every model of served_models/: HTTP on port {{foundations.triton.http_port}}, gRPC on {{foundations.triton.grpc_port}}, metrics on {{foundations.triton.metrics_port}}"}
-      - {role: command, text: "curl localhost:{{foundations.triton.http_port}}/v2/health/ready"}
-      - {role: comment, text: "# in another terminal, from the repository root"}
-      - {role: command, text: "uv run python -m vision_training.deployment.run_inference"}
-    narration:
-      - "Start Triton with docker compose up in its folder and keep it running: it serves every exported model, HTTP on port {{foundations.triton.http_port}} and gRPC on {{foundations.triton.grpc_port}}."
-      - "The run inference script then measures the throughput of a model in this process, then through Triton, in TorchScript and in ONNX with TensorRT."
+      - "Every format is checked against the PyTorch model before the served models are replaced, and carries the preprocessing of the run, so that a server builds its inputs as the training did."
+      - "The deployment series takes it from there: the export and its checks, the serving with Triton, and what the serving benchmark measured for every format."
 
   - kind: terminal
     title: "The tests"
@@ -206,15 +180,15 @@ scenes:
       - {type: text, position: [40, 200], text: "│   ├── data/ · models/ · losses/ · trainers/", font: diagram_monospace, anchor: ls, highlight: [0]}
       - {type: text, position: [40, 250], text: "│   └── evaluation/ · tracking/ · deployment/ · utilities/", font: diagram_monospace, anchor: ls, highlight: [0]}
       - {type: text, position: [40, 300], text: "├── scripts/", font: diagram_monospace, anchor: ls, highlight: [1]}
-      - {type: text, position: [40, 350], text: "│   └── evaluation/ · embedding/ · data/ · configuration_processing/", font: diagram_monospace, anchor: ls, highlight: [1]}
+      - {type: text, position: [40, 350], text: "│   └── evaluation/ · embedding/ · deployment/ · data/ · models/ · configuration_processing/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 400], text: "├── tests/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 450], text: "├── documentation/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 500], text: "│   └── architecture_benchmarking/ · reference/ · task workflows/", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: text, position: [40, 550], text: "├── tutorials/", font: diagram_monospace, anchor: ls, highlight: [2]}
-      - {type: text, position: [40, 600], text: "└── README.md · pyproject.toml · uv.lock", font: diagram_monospace, anchor: ls}
+      - {type: text, position: [40, 600], text: "└── README.md · pyproject.toml · uv.lock · Dockerfile", font: diagram_monospace, anchor: ls}
     narration:
       - "To find your way, the training framework holds the entry point, the configurations, the data, the models and losses, the trainers, the evaluation, the tracking and the deployment."
-      - "Next to it, the scripts folder holds the evaluation, comparison and clustering scripts, the tests mirror the framework, and the documentation keeps the reference documents, the benchmark and one run of every task followed function by function."
+      - "Next to it, the scripts folder holds the evaluation, comparison, clustering and serving benchmark scripts, the tests mirror the framework, and the documentation keeps the reference documents, the benchmark and one run of every task followed function by function."
       - "And the tutorials folder rebuilds these videos from the repository and its runs, so that they follow the code."
 
   - kind: summary
