@@ -710,6 +710,8 @@ Each time a build ends, it writes `index.html` next to the series folders: one p
   <img src="README/tutorial_index_page.png" width="100%" />
 </p>
 
+Should you look for what the videos do not show yet, `documentation/tutorial_backlog.md` lists implemented features the built videos leave out or show only in part, where each one is documented and which chapter could take it; the list is not exhaustive.
+
 ## Repository Structure
 To find your way in the code, the diagram follows the packages along the path of a training and the tools reading its run folder, and the tree lists where each part lives:
 
@@ -728,7 +730,8 @@ To find your way in the code, the diagram follows the packages along the path of
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
 │   ├── reference/                     # Training, tasks, configurations and tools in detail
 │   ├── task workflows/                # One run of every task followed function by function
-│   └── suggestions.md                 # Proposed improvements and repository audit
+│   ├── suggestions.md                 # Proposed improvements and repository audit
+│   └── tutorial_backlog.md            # Implemented features the tutorials do not show yet (not exhaustive)
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── configurations/                # Example and synthetic configuration of every task
