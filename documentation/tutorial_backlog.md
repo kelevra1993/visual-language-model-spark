@@ -66,7 +66,7 @@ Whenever a launch is refused with `'<key>' was removed: <what replaced it>. Dele
 ## Checking Configurations Without Training
 For a pipeline to refuse a configuration before it launches a training, `python -m vision_training.check_configuration` checks one or several files as a training loads them and exits with 1 when one is invalid, `--check_paths` also requiring the data folders, the label mapping file and the pretrained runs.
 
-- **Added**: 2026-11-18, merge into `main` pending (branch `worktree-agent-aedaf230a3260cfcf`).
+- **Added**: `main` 87c11b3, 2026-11-18.
 - **Documented in**: [README, Configurations](../README.md#configurations), [README, Running A Training](../README.md#running-a-training) and [configuration reference, Checking Without Training](reference/configuration_reference.md#checking-without-training).
 - **Tutorial status**: `01_foundations/01_repository_and_first_run.yaml` says the checks at launch list every problem before stopping and `11_self_supervised/01_two_views.yaml` shows that list; no storyboard runs the command.
 - **Where it would fit**: one terminal scene after the "One file defines the run" scene of `01_foundations/01_repository_and_first_run.yaml`, checking the synthetic configuration and a copy with a mistake; no training.
