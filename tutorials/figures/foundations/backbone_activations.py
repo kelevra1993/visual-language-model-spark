@@ -18,12 +18,11 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import (STAR_IMAGE_NAME, find_star_image, load_classification_model,
-                                                read_network_input, read_reused_facts, read_run_configuration,
-                                                restore_committed_figures, round_fact, write_network_input,
-                                                write_reused_facts)
+from tutorials.figures.figure_utilities import (STAR_IMAGE_NAME, find_star_image, has_last_checkpoint,
+                                                load_classification_model, read_network_input, read_reused_facts,
+                                                read_run_configuration, restore_committed_figures, round_fact,
+                                                write_network_input, write_reused_facts)
 from tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
-from vision_training.trainers.checkpointing import get_checkpoint_file, get_last_checkpoint_iteration
 
 # Blocks whose output feature maps are drawn, with the most active channels of each laid out on a grid of tiles
 SHOWN_BLOCK_NUMBERS = [1, 3, 6]
@@ -118,24 +117,6 @@ def draw_feature_map_grid(block_output: numpy.ndarray, output_path: Path) -> Lis
     if not cv2.imwrite(filename=str(output_path), img=cv2.cvtColor(src=grid, code=cv2.COLOR_RGB2BGR)):
         raise OSError(f"The figure {output_path} could not be written.")
     return shown_channels
-
-
-def has_last_checkpoint(run_folder: Path) -> bool:
-    """
-    Tells whether the classification run holds the weight file of the last checkpoint of its registry, which the
-    backbone figures run: a real run does, a run read from the committed run snapshots (its registry copied, never its
-    weights) does not, and then takes the committed outputs of the family.
-
-    Args:
-        run_folder (Path): The folder of the classification run.
-
-    Returns:
-        bool: Whether the weight file of the last checkpoint exists.
-    """
-    weights_directory = run_folder / "Weights"
-    last_iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
-    return last_iteration > 0 and get_checkpoint_file(weights_directory=weights_directory,
-                                                      iteration=last_iteration).exists()
 
 
 def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:

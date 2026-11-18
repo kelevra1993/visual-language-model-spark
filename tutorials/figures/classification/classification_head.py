@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (DOTS_PER_INCH, SERIES_COLOURS, STAR_IMAGE_NAME, SURFACE_COLOUR,
-                                                TEXT_SECONDARY_COLOUR, find_star_image, load_classification_model,
-                                                read_network_input, read_reused_facts, read_run_configuration,
-                                                register_fonts, restore_committed_figures, round_fact, save_figure,
-                                                write_network_input, write_reused_facts)
+                                                TEXT_SECONDARY_COLOUR, find_star_image, has_last_checkpoint,
+                                                load_classification_model, read_network_input, read_reused_facts,
+                                                read_run_configuration, register_fonts, restore_committed_figures,
+                                                round_fact, save_figure, write_network_input, write_reused_facts)
 from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.configuration_processing.run_name import build_classification_sections
@@ -36,7 +36,6 @@ from vision_training.losses.self_supervised_losses import compute_feature_cross_
 from vision_training.models.classification.classification_head import ClassificationHead
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.task_model import TaskModel
-from vision_training.trainers.checkpointing import get_checkpoint_file, get_last_checkpoint_iteration
 
 # Validation images of the correlation matrix of the hidden layer of the head, and the size of their batches: one
 # image at a time, so that every activation stays small enough to be reused from the heap; batches of 32 images map
@@ -228,24 +227,6 @@ def describe_head_layers(model: TaskModel, head_configuration: Dict[str, Any], i
             "head.flatten_features_at_half_size": channels * half_size_map * half_size_map,
             "head.first_linear_share": round_fact(value=count_parameters(module=first_linear) /
                                                   count_parameters(module=model))}
-
-
-def has_last_checkpoint(run_folder: Path) -> bool:
-    """
-    Tells whether the last checkpoint of the classification run is on disk, the one load_classification_model reads:
-    the iteration of the checkpoint registry of the run (Weights/full-checkpoint, kept in the run snapshots) and its
-    weight file, which the snapshots never hold.
-
-    Args:
-        run_folder (Path): The folder of the classification run of tutorial_sources.yaml.
-
-    Returns:
-        bool: Whether the weight file of the last checkpoint exists.
-    """
-    weights_directory = run_folder / "Weights"
-    checkpoint_iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
-    return checkpoint_iteration > 0 and get_checkpoint_file(weights_directory=weights_directory,
-                                                            iteration=checkpoint_iteration).exists()
 
 
 def describe_head_run_name_tokens(configuration_path: Path, run_folder: Path) -> Dict[str, Any]:

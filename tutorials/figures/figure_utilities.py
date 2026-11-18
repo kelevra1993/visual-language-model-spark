@@ -38,7 +38,8 @@ from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.trainers.checkpointing import get_checkpoint_path, get_last_checkpoint_iteration
+from vision_training.trainers.checkpointing import (get_checkpoint_file, get_checkpoint_path,
+                                                    get_last_checkpoint_iteration)
 from vision_training.trainers.metric_tracking import BEST_MARKER, MetricTracker
 
 # Charts drawn without a window: the figure scripts run in a subprocess of the build, a display being there or not
@@ -654,6 +655,25 @@ def load_classification_model(run_folder: Path) -> Tuple[TaskModel, int]:
     model = load_trained_model(configuration_path=run_folder / "training_configuration.yaml",
                                checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)
     return model, checkpoint_iteration
+
+
+def has_last_checkpoint(run_folder: Path) -> bool:
+    """
+    Tells whether the classification run holds the weight file of the last checkpoint of its registry, the one
+    load_classification_model reads for the model figures of the foundations and classification series: a real run
+    does, a run read from the committed run snapshots (its registry Weights/full-checkpoint copied, never its weights)
+    does not, and its model families then take their outputs committed under figure_reuse/ of the snapshots.
+
+    Args:
+        run_folder (Path): The folder of the classification run.
+
+    Returns:
+        bool: Whether the weight file of the last checkpoint exists.
+    """
+    weights_directory = run_folder / "Weights"
+    last_iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
+    return last_iteration > 0 and get_checkpoint_file(weights_directory=weights_directory,
+                                                      iteration=last_iteration).exists()
 
 
 def find_star_image(run_configuration: Dict[str, Any]) -> Path:
