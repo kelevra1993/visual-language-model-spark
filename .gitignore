@@ -44,3 +44,8 @@ previous_classifiers/
 # Exported models served by Triton, and the staging folders of exports stopped before removing them
 vision_training/deployment/triton/served_models/
 .export_staging_*/
+# Committed run snapshots of the tutorials (tutorials/MAINTAINING.md): copies of small run, dataset and figure files at
+# the paths of the experiments folder, whose folder names (hyperparameter_experiments, experiments, datasets) the rules
+# above would otherwise ignore, and the guide of the tutorial maintenance
+!tutorials/run_snapshots/**
+!tutorials/MAINTAINING.md

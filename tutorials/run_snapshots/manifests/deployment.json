@@ -1,0 +1,73 @@
+{
+  "experiments_folder_label": "tutorial_runs",
+  "files": [
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 495,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/label_dictionary.json",
+      "snapshot_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80",
+      "source_bytes": 495,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/label_dictionary.json",
+      "source_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 21674,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "snapshot_sha256": "54b439d327cdc549a06c02726ae6b4014bd16222bfe983f7648504174e79a911",
+      "source_bytes": 21674,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "source_sha256": "54b439d327cdc549a06c02726ae6b4014bd16222bfe983f7648504174e79a911"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 110,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/label_dictionary.json",
+      "snapshot_sha256": "79e94c4f4b9996a798fe3f98e36d1cc282fc693cc8de924545e6ee4ad31ec5f4",
+      "source_bytes": 110,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/label_dictionary.json",
+      "source_sha256": "79e94c4f4b9996a798fe3f98e36d1cc282fc693cc8de924545e6ee4ad31ec5f4"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 4961,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/training_configuration.yaml",
+      "snapshot_sha256": "66c96aaa8f9bdfa032d9aad30e2c28b4436403f574b1a263137f3480e73598e4",
+      "source_bytes": 4961,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/training_configuration.yaml",
+      "source_sha256": "66c96aaa8f9bdfa032d9aad30e2c28b4436403f574b1a263137f3480e73598e4"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 977,
+      "snapshot_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/label_dictionary.json",
+      "snapshot_sha256": "974f83a1848c5fdaa02ffbcd4e21d5462d890684ebf8e15cf4ef0612510a86d1",
+      "source_bytes": 977,
+      "source_kind": "run",
+      "source_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/label_dictionary.json",
+      "source_sha256": "974f83a1848c5fdaa02ffbcd4e21d5462d890684ebf8e15cf4ef0612510a86d1"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 20682,
+      "snapshot_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/training_configuration.yaml",
+      "snapshot_sha256": "86a09d8287ecdb764d91884f19f322b7424d8d0a1bb55fd237b4e9505cce7ada",
+      "source_bytes": 20682,
+      "source_kind": "run",
+      "source_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/training_configuration.yaml",
+      "source_sha256": "86a09d8287ecdb764d91884f19f322b7424d8d0a1bb55fd237b4e9505cce7ada"
+    }
+  ],
+  "series": "deployment",
+  "snapshot_bytes": 48899
+}

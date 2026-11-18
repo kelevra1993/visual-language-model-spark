@@ -1,0 +1,21 @@
+# Files of the runs the deployment figures read, copied into tutorials/run_snapshots by tutorials/make_run_snapshots.py
+# (tutorials/MAINTAINING.md, section Run Snapshots). The series loads no checkpoint: the classifier and the detector of
+# its config.pbtxt listings are stand-ins built from these configurations and label dictionaries, and the serving
+# benchmark results are repository files (repository_files of tutorial_sources.yaml).
+runs:
+  # README classifier: image size, class count and input contract of the export chapter
+  - run: classification
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+  # Reference detector of the detection benchmark (run_9), served by the serving benchmark: image size, maximum
+  # detections, classes of the float16 overflow of its group offsets
+  - run: object_detection_benchmark_joint_a
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+  # Sequence labeller: the traced and checked frames of its export, image size and class count
+  - run: sequence_labelling
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json

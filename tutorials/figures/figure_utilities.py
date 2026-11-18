@@ -98,7 +98,7 @@ def read_tutorial_sources() -> Dict[str, Any]:
     run trained again under another name only changes that file.
 
     Returns:
-        Dict[str, Any]: The 'runs' and 'repository_files' sections.
+        Dict[str, Any]: The 'runs', 'repository_files' and 'snapshots' sections.
 
     Raises:
         FileNotFoundError: If the sources file is missing.
@@ -160,10 +160,127 @@ def find_repository_file(file_key: str) -> Path:
     return file_path
 
 
+def find_snapshot_root() -> Path:
+    """
+    Finds the folder of the committed run snapshots (folder of the 'snapshots' section of tutorial_sources.yaml), which
+    mirrors the experiments folder with the small files the figure scripts read, so that a machine without the runs
+    builds every series with --experiments-folder pointing at it.
+
+    Returns:
+        Path: The absolute snapshot folder.
+    """
+    return find_repository_root() / read_tutorial_sources()["snapshots"]["folder"]
+
+
+def is_snapshot_folder(folder: Path) -> bool:
+    """
+    Tells whether a run folder is read from the committed snapshots rather than from the real runs, in which case its
+    checkpoints are absent, its dataset files come from datasets/ of the snapshot folder and the figures that need a
+    checkpoint come from figure_reuse/ of the snapshot folder.
+
+    Args:
+        folder (Path): The run folder, or any folder of the experiments folder of the build.
+
+    Returns:
+        bool: Whether the folder is inside the snapshot folder.
+    """
+    return folder.resolve().is_relative_to(find_snapshot_root().resolve())
+
+
+def resolve_dataset_path(path: Any, snapshot_mode: bool) -> Path:
+    """
+    Gives the dataset file or folder a figure script reads: the path written in a configuration on the machine of the
+    runs, or, for a run read from the snapshots, the same path under datasets/ of the snapshot folder when it starts
+    with the recorded data root of tutorial_sources.yaml, so that the snapshot build never reads the datasets of the
+    machine (and fails loudly on a dataset file the snapshot does not hold).
+
+    Args:
+        path (Any): The path, a string or a Path, as written in the configuration.
+        snapshot_mode (bool): Whether the run is read from the snapshots (is_snapshot_folder of its run folder).
+
+    Returns:
+        Path: The path to read.
+    """
+    recorded_data_root = Path(read_tutorial_sources()["snapshots"]["recorded_data_root"])
+    original_path = Path(path)
+    if not snapshot_mode or not original_path.is_relative_to(recorded_data_root):
+        return original_path
+    return find_snapshot_root() / "datasets" / original_path.relative_to(recorded_data_root)
+
+
+def remap_recorded_dataset_paths(value: Any) -> Any:
+    """
+    Replaces, in a configuration read from the snapshots, every string path under the recorded data root by its copy
+    under datasets/ of the snapshot folder (resolve_dataset_path), whatever section holds it (the data folders of
+    ExperimentConfiguration, the mapping file of Data.label_mapping), so that the code of the repository given that
+    configuration reads the committed dataset files.
+
+    Args:
+        value (Any): A configuration, or one of its sections or values.
+
+    Returns:
+        Any: The same structure with its dataset paths replaced.
+    """
+    recorded_data_root = read_tutorial_sources()["snapshots"]["recorded_data_root"]
+    if isinstance(value, dict):
+        return {key: remap_recorded_dataset_paths(value=item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [remap_recorded_dataset_paths(value=item) for item in value]
+    if isinstance(value, str) and value.startswith(recorded_data_root.rstrip("/") + "/"):
+        return str(resolve_dataset_path(path=value, snapshot_mode=True))
+    return value
+
+
+def describe_run_label(experiments_folder: Path, run_folder: Path) -> str:
+    """
+    Gives the label of a run drawn on the figures and written in the facts, the run folder relative to the experiments
+    folder under the name of tutorial_sources.yaml (experiments_label), so that a build from the snapshots draws the
+    same label as a build from the real runs.
+
+    Args:
+        experiments_folder (Path): The experiments folder of the build.
+        run_folder (Path): The run folder, inside it.
+
+    Returns:
+        str: The label, e.g. "tutorial_runs/readme_screenshots/CLS_..._MC9".
+    """
+    experiments_label = read_tutorial_sources()["snapshots"]["experiments_label"]
+    return f"{experiments_label}/{run_folder.relative_to(experiments_folder)}"
+
+
+def restore_committed_figures(output_folder: Path, family_folder: str) -> bool:
+    """
+    Copies into the figures folder of a series the committed outputs of a family of figures that needs a checkpoint
+    (figure_reuse/<series>/<family folder> of the snapshot folder: its reuse JSON file and the figures it lists), so
+    that a build without the checkpoint reuses them through read_reused_facts. A family calls it only when the
+    checkpoint is absent; the files already in the figures folder are kept.
+
+    Args:
+        output_folder (Path): The figures folder of the series (its name is the series).
+        family_folder (str): The folder of the family inside it, e.g. "model".
+
+    Returns:
+        bool: Whether committed outputs were found and copied.
+    """
+    committed_folder = find_snapshot_root() / "figure_reuse" / output_folder.name / family_folder
+    if not committed_folder.is_dir():
+        return False
+    for committed_path in sorted(committed_folder.rglob("*")):
+        destination_path = output_folder / family_folder / committed_path.relative_to(committed_folder)
+        if committed_path.is_dir():
+            destination_path.mkdir(parents=True, exist_ok=True)
+        elif not destination_path.exists():
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            destination_path.write_bytes(data=committed_path.read_bytes())
+    print(f"Restored the committed figures of {committed_folder} (no checkpoint in the run read)")
+    return True
+
+
 def read_run_configuration(run_folder: Path) -> Dict[str, Any]:
     """
     Reads the training configuration saved in a run folder, which gives its dataset folders, its image settings and
-    the settings of its model, as the run used them.
+    the settings of its model, as the run used them; for a run read from the snapshots, its dataset paths point at the
+    committed dataset files (remap_recorded_dataset_paths).
 
     Args:
         run_folder (Path): The run folder.
@@ -171,7 +288,10 @@ def read_run_configuration(run_folder: Path) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: The configuration, with its ExperimentConfiguration, Optimization, Data and model sections.
     """
-    return load_configuration(configuration_path=run_folder / "training_configuration.yaml")
+    configuration = load_configuration(configuration_path=run_folder / "training_configuration.yaml")
+    if is_snapshot_folder(folder=run_folder):
+        return remap_recorded_dataset_paths(value=configuration)
+    return configuration
 
 
 def build_console_metric_tracker(run_folder: Path, trainer_class: Type[BaseTrainer],

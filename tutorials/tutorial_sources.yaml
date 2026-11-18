@@ -112,3 +112,21 @@ repository_files:
   # on and off), kept in ~/Data/serving_benchmark_nms_fix
   serving_benchmark_nms_fix_test_metrics: documentation/architecture_benchmarking/serving_benchmark_nms_fix_test_metrics.csv
   serving_benchmark_nms_fix_loads: documentation/architecture_benchmarking/serving_benchmark_nms_fix_loads
+
+# Committed snapshots of the runs (tutorials/MAINTAINING.md, section Run Snapshots): the small files the figure scripts
+# and the storyboards read from every run, copied by tutorials/make_run_snapshots.py from the experiments folder into
+# the snapshot folder at the same relative paths (so that `tutorials/build_tutorials.sh --experiments-folder
+# tutorials/run_snapshots` builds every series on a machine without the runs), the dataset files they read under
+# datasets/, and the outputs of the figures that need a checkpoint under figure_reuse/<series>/; every series lists what
+# it needs in tutorials/figures/<series>/snapshot_files.yaml
+snapshots:
+  # Snapshot folder, relative to the repository root
+  folder: tutorials/run_snapshots
+  # Name the run labels drawn on the figures give to the experiments folder, the same whichever folder the build reads
+  experiments_label: tutorial_runs
+  # Dataset root written in the saved configurations of the runs: under the snapshot folder, the figure scripts read
+  # the dataset files of a path starting with it from datasets/ of the snapshot folder instead
+  recorded_data_root: /home/robert_kelevra/Data
+  # Largest file of a snapshot, and the total the snapshot folder should stay under, in megabytes (git-friendly sizes)
+  maximum_file_megabytes: 5
+  maximum_total_megabytes: 200

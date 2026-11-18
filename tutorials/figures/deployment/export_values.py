@@ -24,12 +24,10 @@ from typing import Any, Dict, List, Tuple
 
 from tutorial_builder.figure_context import find_repository_root
 from tutorials.figures.classification.data_listings import write_listing
-from tutorials.figures.figure_utilities import (find_repository_file, find_run_folder, load_classification_model,
-                                                read_run_configuration)
+from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, read_run_configuration
 from tutorials.figures.foundations.code_values import read_main_block_value, read_triton_host_ports
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
-from vision_training.deployment.export_specifications import (build_inference_model, build_input_specification,
-                                                              get_export_specification)
+from vision_training.deployment.export_specifications import build_input_specification, get_export_specification
 from vision_training.deployment.frame_selection_deployment import DECODER_OUTPUT_TYPES
 from vision_training.deployment.input_contract import INPUT_CONTRACT_KEYS, build_input_contract
 from vision_training.deployment.triton_configuration import (format_dimensions, get_served_output_names,
@@ -242,9 +240,9 @@ def describe_triton_configurations(output_folder: Path, classification_run_folde
                                    detection_run_folder: Path, export_settings: Dict[str, Any]) -> Dict[str, Any]:
     """
     Writes the config.pbtxt listings of the export chapter: the README classifier exported as ONNX with TensorRT FP16
-    (its real inference model, rebuilt on the CPU) and the benchmark detector as TorchScript (a stand-in holding the
-    input size and maximum detections of its configuration, all its export specification reads), and reads the
-    settings the narration quotes from them.
+    (a stand-in holding the input size and class count of its configuration) and the benchmark detector as TorchScript
+    (a stand-in holding the input size and maximum detections of its configuration), the attributes their export
+    specifications read, so that no checkpoint is loaded; and reads the settings the narration quotes from them.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -255,9 +253,14 @@ def describe_triton_configurations(output_folder: Path, classification_run_folde
     Returns:
         Dict[str, Any]: The facts triton.* and the image size and classes of the classifier.
     """
-    # Classifier: its inference model on the CPU, as the export builds it
-    classification_model, _ = load_classification_model(run_folder=classification_run_folder)
-    classification_inference_model = build_inference_model(task="classification", model=classification_model)
+    # Classifier: a stand-in holding the input size and class count of its configuration and label dictionary, all its
+    # export specification reads (InferenceClassifier takes them from the backbone and the label dictionary), so that
+    # the listing needs no checkpoint and builds from the run snapshots
+    _, classification_model_configuration = load_experiment_configuration(
+        configuration_path=classification_run_folder / "training_configuration.yaml")
+    classification_inference_model = SimpleNamespace(
+        input_image_size=classification_model_configuration["Data"]["image_settings"]["size"],
+        number_classes=len(set(classification_model_configuration["Data"]["label_dictionary"].values())))
     classification_specification = get_export_specification(task="classification",
                                                             inference_model=classification_inference_model)
     classification_text = write_configuration_listing(
