@@ -7,9 +7,12 @@ star of the test image of the series, cropped and resized by build_mask_targets 
 loss); and the masks the trained instance segmenter predicts for the detections of that image on the CPU,
 pasted into the image at their boxes and thresholded by paste_instance_masks, against the ground truth masks, with
 their mask overlaps (the chapter on scoring and shipping masks). The functions of the repository decode, crop, paste
-and compare the masks, so that the figures show what the code computes. The inference is reused unless forced; the
-geometry of the mask heads and of the mask evaluation quoted by both chapters (levels, strides, kernels, image size,
-chunk size, object size limits) is read from the rebuilt model and the constants of the repository at every build.
+and compare the masks, so that the figures show what the code computes. The inference is reused unless forced, and a
+run read from the run snapshots (tutorials/run_snapshots, no checkpoint) takes the inference committed under
+figure_reuse/instance_segmentation/masks of the snapshots by a build from the real runs; the geometry of the mask heads
+and of the mask evaluation quoted by both chapters (levels, strides, kernels, image size, chunk size, object size
+limits) is read at every build from the model built untrained from the configuration of the run and the constants of
+the repository.
 """
 
 import math
@@ -24,12 +27,13 @@ from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (SERIES_COLOURS, read_reused_facts, read_run_configuration,
-                                                round_fact, write_reused_facts)
+                                                restore_committed_figures, round_fact, write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
                                                                   find_test_folder, hexadecimal_to_rgb,
-                                                                  load_run_model, read_category_names,
-                                                                  read_image_annotations, read_network_image,
-                                                                  read_test_manifest, write_listing)
+                                                                  load_run_model, load_untrained_run_model,
+                                                                  read_category_names, read_image_annotations,
+                                                                  read_network_image, read_test_manifest,
+                                                                  write_listing)
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH,
                                      SANS_SEMIBOLD_FONT_PATH, TEXT_COLOUR)
 from vision_training.data.detection.coco_masks import build_instance_mask, compute_mask_bounding_boxes
@@ -39,6 +43,7 @@ from vision_training.models.detection.box_operations import get_intersection_ove
 from vision_training.models.instance_segmentation.mask_operations import (build_mask_targets,
                                                                           compute_mask_intersection_over_union,
                                                                           paste_instance_masks)
+from vision_training.trainers.checkpointing import get_checkpoint_file
 from vision_training.trainers.instance_segmentation_trainer import (MASK_OVERLAP_CHUNK_SIZE,
                                                                     MASK_OVERLAP_REFERENCE_PIXELS)
 
@@ -60,6 +65,10 @@ PANEL_GAP = 32
 
 # Opacity of the masks drawn over the images
 MASK_OPACITY = 0.6
+
+# Folder of the mask figures in the figures folder of the series, also the family committed under figure_reuse/ of the
+# run snapshots for the builds without the checkpoint
+MASK_FAMILY_FOLDER = "masks"
 
 
 def load_figure_fonts() -> Tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont]:
@@ -435,8 +444,9 @@ def count_mask_parameters(model: torch.nn.Module) -> Dict[str, Any]:
 def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
     """
     Gives the geometry of the mask heads and of the mask evaluation that the chapters quote and that no configuration
-    value holds as it is, read from the trained instance segmenter rebuilt on the CPU (not run) and from the constants
-    of the repository: the detection levels and the strides their mask heads pool from, the feature map of the first
+    value holds as it is, read from the instance segmenter built untrained from the configuration of the run (not run,
+    none of these values depends on the weights, so that no checkpoint is needed) and from the constants of the
+    repository: the detection levels and the strides their mask heads pool from, the feature map of the first
     level in a training batch, the kernels of the upsampling and of the mask predictor, the pixels of a mask, the masks
     compared at once by compute_mask_overlaps at the network resolution of the run (and that resolution), the object
     size limits of the size tables and the beta of the smooth L1 box loss. Cheap, it runs at every build, outside the
@@ -455,7 +465,7 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
     run_configuration = read_run_configuration(run_folder=run_folder)
     image_size = run_configuration["Data"]["image_settings"]["size"]
     batch_size = run_configuration["ExperimentConfiguration"]["batch_size"]
-    model = load_run_model(run_folder=run_folder, iteration=CHECKPOINT_ITERATION)
+    model = load_untrained_run_model(run_folder=run_folder)
 
     # Mask head of every detection level, in the order of the levels, and the strides of their feature maps
     level_names = list(model.mask_heads_dictionary.keys())
@@ -491,7 +501,9 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
 def make_mask_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes the annotation, target and prediction figures of the instance segmentation series, the inference of the
-    trained instance segmenter on the CPU being reused from the previous build unless forced.
+    trained instance segmenter on the CPU being reused from the previous build unless forced; a run without its
+    checkpoint (read from the run snapshots) reuses the inference committed in the snapshots, copied into the figures
+    folder by restore_committed_figures.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -501,14 +513,28 @@ def make_mask_figures(output_folder: Path, run_folder: Path, force: bool) -> Dic
     Returns:
         Dict[str, Any]: The facts, named annotation.*, target.*, predictions.* and model.*.
     """
-    figure_folder = output_folder / "masks"
+    figure_folder = output_folder / MASK_FAMILY_FOLDER
     facts_path = figure_folder / "mask_facts.json"
     test_folder = find_test_folder(run_configuration=read_run_configuration(run_folder=run_folder))
     facts = make_annotation_figure(test_folder=test_folder, output_folder=output_folder)
-    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force)
+
+    # A run without the checkpoint (read from the run snapshots) takes the inference committed by a build from the real
+    # runs, which cannot be made again, forced or not
+    checkpoint_path = get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=CHECKPOINT_ITERATION)
+    checkpoint_missing = not checkpoint_path.exists()
+    if checkpoint_missing:
+        if force:
+            print(f"No checkpoint {checkpoint_path}: --force cannot run the instance segmenter again, the committed "
+                  f"mask figures of the run snapshots are reused")
+        restore_committed_figures(output_folder=output_folder, family_folder=MASK_FAMILY_FOLDER)
+    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force and not checkpoint_missing)
     if reused_facts is not None:
         facts.update(reused_facts)
         return facts
+    if checkpoint_missing:
+        raise FileNotFoundError(f"No checkpoint {checkpoint_path} and no committed mask figures for {facts_path}: "
+                                f"build the instance_segmentation figures from the real runs, then write the snapshots "
+                                f"again (tutorials/make_run_snapshots.py --series instance_segmentation).")
 
     # The trained instance segmenter on the test image of the series, in evaluation mode
     model = load_run_model(run_folder=run_folder, iteration=CHECKPOINT_ITERATION)

@@ -3,7 +3,9 @@ Figures and facts of the object detection series of the tutorial videos, made by
 tutorials.figures.make_figures --series object_detection) at every build, from the DET run of
 tutorials/tutorial_sources.yaml (the shipped synthetic configuration) and the code of the repository: the COCO manifest
 and anchor recall of its data, the trained detector of its last checkpoint run on the CPU on the test image of the
-series (anchors, proposals in the proposal selection of the run, anchor labels, training targets), its training losses
+series (anchors, proposals in the proposal selection of the run, anchor labels, training targets; committed in the run
+snapshots for a build without the checkpoint), the architecture of the detector built untrained from its configuration
+(parameters and layers, no checkpoint needed), its training losses
 and console summaries, and its evaluation (sample images at three iterations, mAP of the trained and averaged weights,
 and, from its last checkpoint evaluated again with the current code in its Checkpoint_Evaluation folder, the average
 precision of every class, confusion matrix, report tables and proposal recall), the settings and iterations of
@@ -24,8 +26,8 @@ from tutorials.figures.figure_utilities import (build_console_metric_tracker, fi
                                                 read_run_configuration)
 from tutorials.figures.object_detection.dataset_figures import make_dataset_figures
 from tutorials.figures.object_detection.detection_sources import (EVALUATION_FOLDER_NAME, SAMPLE_IMAGE_NAME,
-                                                                  count_scalar_tags)
-from tutorials.figures.object_detection.detector_inference import make_detector_inference_figures
+                                                                  count_scalar_tags, load_untrained_run_model)
+from tutorials.figures.object_detection.detector_inference import describe_model, make_detector_inference_figures
 from tutorials.figures.object_detection.evaluation_figures import (draw_class_average_precision_figure,
                                                                    draw_confusion_matrix_figure, read_confusion_notes,
                                                                    read_proposal_recall, write_report_listings)
@@ -196,7 +198,9 @@ def describe_iteration_aliases(facts: Dict[str, Any], iterations: Dict[str, Any]
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Makes every figure of the object detection series into its output folder and gives their facts, the checkpoint
-    inference being reused from the previous build unless forced or unless its checkpoint file changed.
+    inference being reused from the previous build unless forced or unless its checkpoint file changed (and taken from
+    the run snapshots when the run has no checkpoint), the architecture facts coming from the untrained model of the
+    configuration of the run.
 
     Args:
         output_folder (Path): The figures folder of the series in the cache of the build.
@@ -243,6 +247,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_dataset_figures(output_folder=output_folder, run_folder=run_folder),
         make_detector_inference_figures(output_folder=output_folder, run_folder=run_folder,
                                         iteration=checkpoint_iteration, force=force),
+        describe_model(model=load_untrained_run_model(run_folder=run_folder)),
         draw_loss_curves_figure(run_folder=run_folder, panels=LOSS_PANELS,
                                 output_path=output_folder / "training" / "loss_curves.png", fact_prefix="losses"),
         draw_sample_iterations_figure(run_folder=run_folder, image_name=SAMPLE_IMAGE_NAME,

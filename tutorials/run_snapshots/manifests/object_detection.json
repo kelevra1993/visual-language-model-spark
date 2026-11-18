@@ -1,0 +1,353 @@
+{
+  "experiments_folder_label": "tutorial_runs",
+  "files": [
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 264,
+      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/label_mapping.json",
+      "snapshot_sha256": "5185b034d77b300b6ae39b7891db6d32e0c82d2b802eb87ae6547c21ef98be19",
+      "source_bytes": 264,
+      "source_kind": "dataset",
+      "source_path": "instance_segmentation_data/synthetic_shapes/label_mapping.json",
+      "source_sha256": "5185b034d77b300b6ae39b7891db6d32e0c82d2b802eb87ae6547c21ef98be19"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 8080,
+      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/data/test_014285.png",
+      "snapshot_sha256": "a004d1b4e7272e3bb2b11b6d01000f32e7feb5947b3e544b93ab6414496433b3",
+      "source_bytes": 8080,
+      "source_kind": "dataset",
+      "source_path": "instance_segmentation_data/synthetic_shapes/test/data/test_014285.png",
+      "source_sha256": "a004d1b4e7272e3bb2b11b6d01000f32e7feb5947b3e544b93ab6414496433b3"
+    },
+    {
+      "options": {
+        "images": [
+          "test_000000.png",
+          "test_014285.png"
+        ]
+      },
+      "reduction": "manifest_subset",
+      "snapshot_bytes": 2897437,
+      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/labels.json",
+      "snapshot_sha256": "f7a8423c97502fdb17f9bbfc9e04ca61787b198e6758810d1273aec56a32a5ff",
+      "source_bytes": 80972478,
+      "source_kind": "dataset",
+      "source_path": "instance_segmentation_data/synthetic_shapes/test/labels.json",
+      "source_sha256": "313be07f3a539266819f08e30be3ee784dfe2b0b59c17c240a2206fbbe3f7830"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 71745,
+      "snapshot_path": "figure_reuse/object_detection/inference/anchor_labels.png",
+      "snapshot_sha256": "ceee60abe6588c61c850e601d77906a881aab284ea43fb89643d5fa152aadcd8",
+      "source_bytes": 71745,
+      "source_kind": "figures",
+      "source_path": "inference/anchor_labels.png",
+      "source_sha256": "ceee60abe6588c61c850e601d77906a881aab284ea43fb89643d5fa152aadcd8"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 13894,
+      "snapshot_path": "figure_reuse/object_detection/inference/inference_facts.json",
+      "snapshot_sha256": "408a0706a3667d4beb6521bb23006d2fd750ffc3d0302c0f4e63f2ec75b06288",
+      "source_bytes": 13894,
+      "source_kind": "figures",
+      "source_path": "inference/inference_facts.json",
+      "source_sha256": "408a0706a3667d4beb6521bb23006d2fd750ffc3d0302c0f4e63f2ec75b06288"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 152383,
+      "snapshot_path": "figure_reuse/object_detection/inference/proposal_filter.png",
+      "snapshot_sha256": "b3028b48c59e8aa50d8d9ee47bc447df4f5655a3fde3e7b846ea8f47668596a8",
+      "source_bytes": 152383,
+      "source_kind": "figures",
+      "source_path": "inference/proposal_filter.png",
+      "source_sha256": "b3028b48c59e8aa50d8d9ee47bc447df4f5655a3fde3e7b846ea8f47668596a8"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 3960,
+      "snapshot_path": "figure_reuse/object_detection/inference/test_014285.png",
+      "snapshot_sha256": "ecc4e0d13e0065626bbae46f5bea5dab4048c4352b95bc118604c2f16dc276ef",
+      "source_bytes": 3960,
+      "source_kind": "figures",
+      "source_path": "inference/test_014285.png",
+      "source_sha256": "ecc4e0d13e0065626bbae46f5bea5dab4048c4352b95bc118604c2f16dc276ef"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 158128,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_10/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794061293.spark-c6e9.2527914.2",
+      "snapshot_sha256": "449e7f28327666f572e21d30cc95ef8360e54c49980eddaeafb218bcc4a16695",
+      "source_bytes": 25039553,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_10/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794061293.spark-c6e9.2527914.2",
+      "source_sha256": "df1a49d71b30bef985e8e924731c10e7e53c5df2bf6db6f36d20aabf7f1e5b54"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 158128,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794437019.spark-c6e9.1243905.2",
+      "snapshot_sha256": "39672cde89c7c249fd738ae12445ce61d3db2a17cc1de3e7264290e76f7b9bb3",
+      "source_bytes": 25356655,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794437019.spark-c6e9.1243905.2",
+      "source_sha256": "b74fa52875881b7b2a583fbce480eeb213c636880ad3c18b3d77121dea1209b9"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 495,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/label_dictionary.json",
+      "snapshot_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80",
+      "source_bytes": 495,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/label_dictionary.json",
+      "source_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 21802,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "snapshot_sha256": "6e08e1b3c6e4456c7ea554484053b25581a370cfefc3dde7abd2ae4dba938116",
+      "source_bytes": 21802,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "source_sha256": "6e08e1b3c6e4456c7ea554484053b25581a370cfefc3dde7abd2ae4dba938116"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 158128,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_22/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794437032.spark-c6e9.1256456.2",
+      "snapshot_sha256": "6d3c6d53486f3015616b9f76e6b4398007e005d82d403152910e62d4c774e671",
+      "source_bytes": 25328643,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_22/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794437032.spark-c6e9.1256456.2",
+      "source_sha256": "be5b6a5456483828fd93e920dd7827fe21ac41d95e5fdcb447d0529129fad55c"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 158128,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794061275.spark-c6e9.2525265.2",
+      "snapshot_sha256": "a61442cf4155c29154ed51a19a315a955a846bfd62079c0506a7535ce4e60e9b",
+      "source_bytes": 25020840,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1794061275.spark-c6e9.2525265.2",
+      "source_sha256": "34b3d798a42a4709d4af785773da1eb2c4e3aa7023f69d1da2e280d1d5485fc3"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 5356,
+      "snapshot_path": "hyperparameter_experiments/object_detection/run_9/evaluations/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35_proposal_selection_per_level/Tensorboard/Test_EMA/events.out.tfevents.1794424889.spark-c6e9.1240673.1",
+      "snapshot_sha256": "dc8364ece2aff0d2cfb98409d974d77e6b58b588f33373207dee9cceeff61a66",
+      "source_bytes": 862864,
+      "source_kind": "run",
+      "source_path": "hyperparameter_experiments/object_detection/run_9/evaluations/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35_proposal_selection_per_level/Tensorboard/Test_EMA/events.out.tfevents.1794424889.spark-c6e9.1240673.1",
+      "source_sha256": "406f27ab1c474740704cf438752b12682bc0142f3961bb3102c9125ac3d68a0a"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 3951,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_metrics.csv",
+      "snapshot_sha256": "6b8cd7c95026c8ca85c9d6654de565a42e3a016eca4ae19ff35c23c6d36d7d03",
+      "source_bytes": 3951,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_metrics.csv",
+      "source_sha256": "6b8cd7c95026c8ca85c9d6654de565a42e3a016eca4ae19ff35c23c6d36d7d03"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 2163,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_thresholds.json",
+      "snapshot_sha256": "36ade6b99ea3c7abcf0a987a57229beab79017f93cc8ecf085b8538c898981ef",
+      "source_bytes": 2163,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_thresholds.json",
+      "source_sha256": "36ade6b99ea3c7abcf0a987a57229beab79017f93cc8ecf085b8538c898981ef"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 1469,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv",
+      "snapshot_sha256": "c40554a119bb1469ceb11cbd69eaa4be74f4c84a63bdf7dbb0e9fc86098cf187",
+      "source_bytes": 1469,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv",
+      "source_sha256": "c40554a119bb1469ceb11cbd69eaa4be74f4c84a63bdf7dbb0e9fc86098cf187"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 318,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/proposal_recall.csv",
+      "snapshot_sha256": "71a8196c349b217316b6716e788971c3e0995181c1956ef3c1d9148013866538",
+      "source_bytes": 318,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/proposal_recall.csv",
+      "source_sha256": "71a8196c349b217316b6716e788971c3e0995181c1956ef3c1d9148013866538"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 17575,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Results.txt",
+      "snapshot_sha256": "fb36f951b1b185b188c0e10e94901ca53d0ec95b67b54fe2499339a358b6c48a",
+      "source_bytes": 17575,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Results.txt",
+      "source_sha256": "fb36f951b1b185b188c0e10e94901ca53d0ec95b67b54fe2499339a358b6c48a"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 52704,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_1000/Samples/test_014285.png",
+      "snapshot_sha256": "7e265110ddec8e46b2b582dbc20b25c3989e00f63fcb4f1fb3c333d9da960539",
+      "source_bytes": 52704,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_1000/Samples/test_014285.png",
+      "source_sha256": "7e265110ddec8e46b2b582dbc20b25c3989e00f63fcb4f1fb3c333d9da960539"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 57682,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_2000/Samples/test_014285.png",
+      "snapshot_sha256": "b13b58eef15138b1a9643b6f60b301237b420c807f74a655d89c984d6e061131",
+      "source_bytes": 57682,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_2000/Samples/test_014285.png",
+      "source_sha256": "b13b58eef15138b1a9643b6f60b301237b420c807f74a655d89c984d6e061131"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 48001,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_250/Samples/test_014285.png",
+      "snapshot_sha256": "a2ca5baa3d4a3055523396b128f29a07c54a859a64c929365bcdee889033f136",
+      "source_bytes": 48001,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_250/Samples/test_014285.png",
+      "source_sha256": "a2ca5baa3d4a3055523396b128f29a07c54a859a64c929365bcdee889033f136"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 138095,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Results.txt",
+      "snapshot_sha256": "3ce632c1980ee85d114fcca8b90e5602027d79e406ddf0d076df3969b2b4008d",
+      "source_bytes": 138095,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Results.txt",
+      "source_sha256": "3ce632c1980ee85d114fcca8b90e5602027d79e406ddf0d076df3969b2b4008d"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 33352,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test/events.out.tfevents.1794753314.spark-c6e9.183890.1",
+      "snapshot_sha256": "73201dc6311d1f04acb897c20dac1492ef6c97a1e59dc17ffbce495a56880524",
+      "source_bytes": 2316935,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test/events.out.tfevents.1794753314.spark-c6e9.183890.1",
+      "source_sha256": "0c706ab5d577113152440a16949f76cb6c8ab134677188e3379817785656b76a"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 33352,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test_EMA/events.out.tfevents.1794753581.spark-c6e9.183890.2",
+      "snapshot_sha256": "95af47bfb73fd7fd93d7892f341d9d1fbb13d6501076eb09bfce009a0e25b290",
+      "source_bytes": 2246280,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test_EMA/events.out.tfevents.1794753581.spark-c6e9.183890.2",
+      "source_sha256": "c6efbf7689b64edadbd3de427267ff185de93f1b994b24f68f151aaa47349515"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 705326,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Train/events.out.tfevents.1794752845.spark-c6e9.183890.0",
+      "snapshot_sha256": "ad87f0a24e8635ecc63f67c20f8c1962270c0fdf1013bc59dd7fb6b09e02a6c0",
+      "source_bytes": 705326,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Train/events.out.tfevents.1794752845.spark-c6e9.183890.0",
+      "source_sha256": "ad87f0a24e8635ecc63f67c20f8c1962270c0fdf1013bc59dd7fb6b09e02a6c0"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 275,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/anchor_recall.csv",
+      "snapshot_sha256": "a9fdc6e20ba2d2d84ec06bf7e864548f84fd897907ebe061844228f472b5fe77",
+      "source_bytes": 275,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/anchor_recall.csv",
+      "source_sha256": "a9fdc6e20ba2d2d84ec06bf7e864548f84fd897907ebe061844228f472b5fe77"
+    },
+    {
+      "options": {},
+      "reduction": "tutorials.figures.object_detection.snapshot_reductions:reduce_data_record",
+      "snapshot_bytes": 7423,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/data.json",
+      "snapshot_sha256": "3a0fe31baf391010ee205a9271d8d35f9804618f219bb10c06e716b056b1e621",
+      "source_bytes": 4791501,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/data.json",
+      "source_sha256": "940ec3c3599c20cd0c1efdd2831f1d781926d28b699f2b7ca238072499357491"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 285,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/label_dictionary.json",
+      "snapshot_sha256": "ad35c57e1589ec3e2621ceee4a2d37a943a58662fd217e0431d626c5d51a3de2",
+      "source_bytes": 285,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/label_dictionary.json",
+      "source_sha256": "ad35c57e1589ec3e2621ceee4a2d37a943a58662fd217e0431d626c5d51a3de2"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 21814,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/training_configuration.yaml",
+      "snapshot_sha256": "ab683283cc26ac24cfbb69f8c15b5a239a599d578119d2cfe63eb7aa91475af4",
+      "source_bytes": 21814,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/training_configuration.yaml",
+      "source_sha256": "ab683283cc26ac24cfbb69f8c15b5a239a599d578119d2cfe63eb7aa91475af4"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 769970,
+      "snapshot_path": "tutorials/object_detection.log",
+      "snapshot_sha256": "6f9e376ab621fa71214b7a01d21033b1ca4b4b3c44c9b23c183e05d0125da2b4",
+      "source_bytes": 769970,
+      "source_kind": "run",
+      "source_path": "tutorials/object_detection.log",
+      "source_sha256": "6f9e376ab621fa71214b7a01d21033b1ca4b4b3c44c9b23c183e05d0125da2b4"
+    }
+  ],
+  "series": "object_detection",
+  "snapshot_bytes": 5701683
+}
