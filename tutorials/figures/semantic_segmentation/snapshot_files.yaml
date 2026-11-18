@@ -1,0 +1,37 @@
+# Files of the synthetic segmentation run and of its dataset the semantic segmentation figures read, copied into
+# tutorials/run_snapshots by tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The
+# checkpoint stays out: the outputs of the inference on the test image are committed under figure_reuse/.
+runs:
+  - run: semantic_segmentation
+    files:
+      # Settings, dataset paths and model of the run (the export specification builds the model without weights)
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      # Training and validation curves (scalars only)
+      - path: Tensorboard/Train/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Tensorboard/Validation/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      # Headline metrics of both checkpoints, copied whole: the evaluation listing counts its image tags too
+      - path: Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.*
+      # Every file of the last evaluation, unchanged: the evaluation listing prints their names and sizes in bytes,
+      # the figures read the CSV files and the sample of the test image, and the storyboards show the curves
+      - path: Checkpoint_Evaluation/Iteration_2000/*.csv
+      - path: Checkpoint_Evaluation/Iteration_2000/*.png
+      - path: Checkpoint_Evaluation/Iteration_2000/Samples/*.png
+      # Sample of the test image and precision-recall curves of the first evaluation (storyboard runs:)
+      - path: Checkpoint_Evaluation/Iteration_1000/Samples/test_000028.png
+      - path: Checkpoint_Evaluation/Iteration_1000/precision_recall_curves.png
+      # Throughput and interval durations of the training, read from the log next to the run folder
+      - path: ../semantic_segmentation.log
+        reduction: text_lines
+        pattern: "Throughput: |Interval Of \\d+ Iterations Took"
+datasets:
+  # Label mapping and whole manifest of the test split (its sample count is quoted), the test image and its mask
+  - path: segmentation_data/synthetic_shapes/label_mapping.json
+  - path: segmentation_data/synthetic_shapes/test/labels.json
+  - path: segmentation_data/synthetic_shapes/test/data/test_000028.png
+  - path: segmentation_data/synthetic_shapes/test/masks/test_000028.png
+figure_reuse:
+  # Activation maps, class map and facts of the forward pass of checkpoint 2000 on the test image
+  - family: inference

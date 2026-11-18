@@ -1,0 +1,117 @@
+{
+  "facts": {
+    "inference_checkpoint_iteration": 2000,
+    "inference_cross_entropy": 0.0266582,
+    "inference_dice_loss": 0.196352,
+    "inference_head": "Sequential(\n  (0): Dropout2d(p=0.0, inplace=False)\n  (1): Conv2d(16, 10, kernel_size=(1, 1), stride=(1, 1))\n)",
+    "inference_parameters": {
+      "Backbone": 438368,
+      "Segmentation Decoder": 345984,
+      "Segmentation Head": 170,
+      "Total Model": 784522
+    },
+    "inference_pixel_accuracy": 0.997486,
+    "inference_receptive_field": 282,
+    "inference_shapes": {
+      "bottleneck": [
+        1,
+        128,
+        16,
+        16
+      ],
+      "level_1": [
+        1,
+        16,
+        512,
+        512
+      ],
+      "level_2": [
+        1,
+        32,
+        256,
+        256
+      ],
+      "level_3": [
+        1,
+        32,
+        128,
+        128
+      ],
+      "level_4": [
+        1,
+        64,
+        64,
+        64
+      ],
+      "level_5": [
+        1,
+        64,
+        32,
+        32
+      ],
+      "skip_1": [
+        1,
+        16,
+        512,
+        512
+      ],
+      "skip_2": [
+        1,
+        32,
+        256,
+        256
+      ],
+      "skip_3": [
+        1,
+        32,
+        128,
+        128
+      ],
+      "skip_4": [
+        1,
+        64,
+        64,
+        64
+      ],
+      "skip_5": [
+        1,
+        64,
+        32,
+        32
+      ],
+      "skip_6": [
+        1,
+        128,
+        16,
+        16
+      ]
+    },
+    "inference_shortcuts": {
+      "backbone": [
+        0,
+        0,
+        1,
+        0,
+        1,
+        0
+      ],
+      "decoder": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "inference_upsampling_layers": {
+      "1": "ConvTranspose2d(32, 16, kernel_size=(2, 2), stride=(2, 2))",
+      "2": "ConvTranspose2d(32, 32, kernel_size=(2, 2), stride=(2, 2))",
+      "3": "ConvTranspose2d(64, 32, kernel_size=(2, 2), stride=(2, 2))",
+      "4": "ConvTranspose2d(64, 64, kernel_size=(2, 2), stride=(2, 2))",
+      "5": "ConvTranspose2d(128, 64, kernel_size=(2, 2), stride=(2, 2))"
+    }
+  },
+  "figures": [
+    "segmentation_inference.npz"
+  ]
+}

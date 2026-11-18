@@ -1,0 +1,169 @@
+{
+  "experiments_folder_label": "tutorial_runs",
+  "files": [
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 447,
+      "snapshot_path": "datasets/keypoint_data/synthetic_shapes/label_mapping.json",
+      "snapshot_sha256": "06b98fa29cd7fbc11d3cf1cce5c91cb1cf29c54067afaf502a6d56e082a5e1dc",
+      "source_bytes": 447,
+      "source_kind": "dataset",
+      "source_path": "keypoint_data/synthetic_shapes/label_mapping.json",
+      "source_sha256": "06b98fa29cd7fbc11d3cf1cce5c91cb1cf29c54067afaf502a6d56e082a5e1dc"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 4055,
+      "snapshot_path": "datasets/keypoint_data/synthetic_shapes/test/data/test_000000.png",
+      "snapshot_sha256": "02b8e6903d186767ade97c1662c725b8f0f383525dbc6def39c2227b172078c5",
+      "source_bytes": 4055,
+      "source_kind": "dataset",
+      "source_path": "keypoint_data/synthetic_shapes/test/data/test_000000.png",
+      "source_sha256": "02b8e6903d186767ade97c1662c725b8f0f383525dbc6def39c2227b172078c5"
+    },
+    {
+      "options": {
+        "images": [
+          "test_000000.png"
+        ],
+        "other_annotations": "drop",
+        "other_images": "drop"
+      },
+      "reduction": "manifest_subset",
+      "snapshot_bytes": 9856,
+      "snapshot_path": "datasets/keypoint_data/synthetic_shapes/test/labels.json",
+      "snapshot_sha256": "68c16094f8346dd241c5330672fecefc551b5fd6762d6fccbd0c2e97e0484dbe",
+      "source_bytes": 48714286,
+      "source_kind": "dataset",
+      "source_path": "keypoint_data/synthetic_shapes/test/labels.json",
+      "source_sha256": "746a080c0229aa69b70cb72d62809585bd6dc2d2cafca2a6f56e0c2713a77d3b"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 4767752,
+      "snapshot_path": "figure_reuse/keypoint_detection/inference/keypoint_inference.npz",
+      "snapshot_sha256": "4cef32e02754e7757a9fb79b8d650aaea2bf96a36b64624745a3498707466cb8",
+      "source_bytes": 4767752,
+      "source_kind": "figures",
+      "source_path": "inference/keypoint_inference.npz",
+      "source_sha256": "4cef32e02754e7757a9fb79b8d650aaea2bf96a36b64624745a3498707466cb8"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 8301,
+      "snapshot_path": "figure_reuse/keypoint_detection/inference/keypoint_inference_facts.json",
+      "snapshot_sha256": "a160a5f2983f9d83844cef4709da6fb9dbb4d5ce9db93e672f7b6b88ad3bee72",
+      "source_bytes": 8301,
+      "source_kind": "figures",
+      "source_path": "inference/keypoint_inference_facts.json",
+      "source_sha256": "a160a5f2983f9d83844cef4709da6fb9dbb4d5ce9db93e672f7b6b88ad3bee72"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 56217,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/Samples/test_000000.png",
+      "snapshot_sha256": "abcf235b9c8b10d7735b391aa21f89b5c3a8055065861f536f1efef0a951dcca",
+      "source_bytes": 56217,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/Samples/test_000000.png",
+      "source_sha256": "abcf235b9c8b10d7735b391aa21f89b5c3a8055065861f536f1efef0a951dcca"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 6661,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/class_metrics.csv",
+      "snapshot_sha256": "75a7ad8dde13c41392ddd2891a7f9c41451436802ecc026fea4a041b6affd7f2",
+      "source_bytes": 6661,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/class_metrics.csv",
+      "source_sha256": "75a7ad8dde13c41392ddd2891a7f9c41451436802ecc026fea4a041b6affd7f2"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 12640,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/keypoint_metrics.csv",
+      "snapshot_sha256": "749709028f3affb213a4900dc2b878e49c553c957c8cc962579fe4b515e87fa4",
+      "source_bytes": 12640,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/keypoint_metrics.csv",
+      "source_sha256": "749709028f3affb213a4900dc2b878e49c553c957c8cc962579fe4b515e87fa4"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 211023,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Results.txt",
+      "snapshot_sha256": "16b8444fc3798fcf241b1dd09a542a5ed1ccd402078d08cefe22acbf1044fa41",
+      "source_bytes": 211023,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Results.txt",
+      "source_sha256": "16b8444fc3798fcf241b1dd09a542a5ed1ccd402078d08cefe22acbf1044fa41"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 12034,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.1794753415.spark-c6e9.287363.0",
+      "snapshot_sha256": "91265a6a21263650cce872161af297273ac43469b29f419081ed0be91e003698",
+      "source_bytes": 1680935,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.1794753415.spark-c6e9.287363.0",
+      "source_sha256": "ddfdb36f64bdfe2652450c3a17bda51a0dd3e2eb7a4154145be65c9968ac66dc"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 12034,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Tensorboard/Test_EMA/events.out.tfevents.1794753448.spark-c6e9.287363.1",
+      "snapshot_sha256": "85c85a4aaa84d1e476d043ba29fa1bb1a9e50b8b77377c2517f502ecd41e0a77",
+      "source_bytes": 1645505,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Tensorboard/Test_EMA/events.out.tfevents.1794753448.spark-c6e9.287363.1",
+      "source_sha256": "99e06a48de5e2cb4332ff559675c161b2284b2f3543d41c231918770b12e2921"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 1535453,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Tensorboard/Train/events.out.tfevents.1792273970.spark-c6e9.690919.0",
+      "snapshot_sha256": "84645d590776d9eabc4004e41d3f537963de62994f9af25e0df261afbb001566",
+      "source_bytes": 1535453,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Tensorboard/Train/events.out.tfevents.1792273970.spark-c6e9.690919.0",
+      "source_sha256": "84645d590776d9eabc4004e41d3f537963de62994f9af25e0df261afbb001566"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 31297,
+      "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/training_configuration.yaml",
+      "snapshot_sha256": "3a2a3e6a6238a43bdc0683f093c6832c636119ab59d97c87f76efa95436344ae",
+      "source_bytes": 31297,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/training_configuration.yaml",
+      "source_sha256": "3a2a3e6a6238a43bdc0683f093c6832c636119ab59d97c87f76efa95436344ae"
+    },
+    {
+      "options": {
+        "pattern": "Throughput: "
+      },
+      "reduction": "text_lines",
+      "snapshot_bytes": 1452,
+      "snapshot_path": "keypoint_focal_synthetic/training.log",
+      "snapshot_sha256": "5747a461ad72cc10aeb240a852ee6cf385672ad07bb1833d6f04120aa4bce574",
+      "source_bytes": 340821,
+      "source_kind": "run",
+      "source_path": "keypoint_focal_synthetic/training.log",
+      "source_sha256": "606ddb37044dc5149aa8adc0c9823bb76295229a9a51660822316c1599a2db83"
+    }
+  ],
+  "series": "keypoint_detection",
+  "snapshot_bytes": 6669222
+}

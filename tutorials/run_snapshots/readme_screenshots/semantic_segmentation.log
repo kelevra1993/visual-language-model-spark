@@ -1,0 +1,40 @@
+|    Iteration: 100    |     Total Images: 1600    |   Interval Images: 1600    |  Throughput: 19.8 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:20.
+|    Iteration: 200    |     Total Images: 3200    |   Interval Images: 1600    |  Throughput: 18.6 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:26.
+|    Iteration: 300    |     Total Images: 4800    |   Interval Images: 1600    |  Throughput: 19.4 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:22.
+|    Iteration: 400    |     Total Images: 6400    |   Interval Images: 1600    |  Throughput: 19.3 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:22.
+|    Iteration: 500    |     Total Images: 8000    |   Interval Images: 1600    |  Throughput: 19.2 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:23.
+|    Iteration: 600    |     Total Images: 9600    |   Interval Images: 1600    |  Throughput: 19.0 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:24.
+|    Iteration: 700    |    Total Images: 11200    |   Interval Images: 1600    |  Throughput: 20.0 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:20.
+|    Iteration: 800    |    Total Images: 12800    |   Interval Images: 1600    |  Throughput: 19.9 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:20.
+|    Iteration: 900    |    Total Images: 14400    |   Interval Images: 1600    |  Throughput: 20.2 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:19.
+|   Iteration: 1000    |    Total Images: 16000    |   Interval Images: 1600    |  Throughput: 20.3 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:18.
+|   Iteration: 1100    |    Total Images: 17600    |   Interval Images: 1600    |  Throughput: 18.4 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:27.
+|   Iteration: 1200    |    Total Images: 19200    |   Interval Images: 1600    |  Throughput: 20.0 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:20.
+|   Iteration: 1300    |    Total Images: 20800    |   Interval Images: 1600    |  Throughput: 19.9 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:20.
+|   Iteration: 1400    |    Total Images: 22400    |   Interval Images: 1600    |  Throughput: 19.7 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:21.
+|   Iteration: 1500    |    Total Images: 24000    |   Interval Images: 1600    |  Throughput: 19.4 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:22.
+|   Iteration: 1600    |    Total Images: 25600    |   Interval Images: 1600    |  Throughput: 19.1 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:23.
+|   Iteration: 1700    |    Total Images: 27200    |   Interval Images: 1600    |  Throughput: 19.4 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:22.
+|   Iteration: 1800    |    Total Images: 28800    |   Interval Images: 1600    |  Throughput: 20.1 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:19.
+|   Iteration: 1900    |    Total Images: 30400    |   Interval Images: 1600    |  Throughput: 20.0 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:19.
+|   Iteration: 2000    |    Total Images: 32000    |   Interval Images: 1600    |  Throughput: 20.0 Images Per Second  |
+Interval Of 100 Iterations Took 00:01:20.
