@@ -108,9 +108,12 @@ snapshots again on the machine of the runs, from the repository root:
 ```
 
 The `figure_reuse/` copies come from the figures folder of the cache (`--figures-folder` to take another), so a build
-of the series from the real runs comes first. Until they are written again, a build from the snapshots shows the
-outputs of the last snapshot, even if the code of their family changed since; the next section lists when and how to
-write them again.
+of the series from the real runs comes first, into an empty scratch cache whose `figures` folder is then given with
+`--figures-folder`: the shared cache may hold outputs of older code that the reuse check accepts, some above the 5 MB
+limit. Until they are written again, a build from the snapshots shows the outputs of the last snapshot, even if the
+code of their family changed since; the next section lists when and how to write them again. A `--series` call that
+would change a file also read by a series it leaves out stops before writing anything and names the file; add that
+series to `--series`.
 
 ## Committed Figure Families
 For a build from the snapshots to show current outputs, the committed outputs of a family below are written again
