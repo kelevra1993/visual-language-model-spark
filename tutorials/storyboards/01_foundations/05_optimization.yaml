@@ -3,7 +3,8 @@
 # cosine decay, mixed precision and the moving average of the weights. The curves are those of
 # benchmark.py (documentation/architecture_benchmarking/results.csv) and learning_rate_schedule.py (the schedule of the
 # keypoint configuration) of tutorials/figures/foundations; the costs of mixed precision are those recorded in
-# documentation/architecture_benchmarking/experiment_plan.md.
+# documentation/architecture_benchmarking/experiment_plan.md, as the decay of the moving average stage, whose window
+# 1 / (1 - decay) at the last evaluation benchmark.py shades.
 series: foundations
 series_title: "Foundations"
 chapter: 5
@@ -162,6 +163,7 @@ scenes:
     highlights:
       - {box: "{{foundations.benchmark.moving_average.whole_panel_box}}", sentences: [1]}
       - {box: "{{foundations.benchmark.moving_average.zoom_panel_box}}", sentences: [2]}
+      - {box: "{{foundations.benchmark.moving_average.window_box}}", sentences: [5]}
     reveals:
       - {region: "{{foundations.benchmark.moving_average.whole_reveal_region}}", sentence: 1}
       - {region: "{{foundations.benchmark.moving_average.zoom_reveal_region}}", sentence: 2}
@@ -171,7 +173,9 @@ scenes:
       - "The moving average keeps a second copy of the model, never trained itself, which moves towards the trained weights after every step: the decay times the average, plus one minus the decay times the weights."
       - "In the benchmark, the mean of the averaged weights of {{foundations.benchmark.moving_average.launch_count:words}} launches was ahead of the trained weights at every evaluated iteration, and steadier: the trained weights dip, the average does not."
       - "At the last evaluation, they reach {{foundations.benchmark.moving_average.averaged_weights.accuracy_2000:percent}} against {{foundations.benchmark.moving_average.trained_weights.accuracy_2000:percent}}."
-      - "A decay of {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#Optimization.exponential_moving_average.decay}} averages about the last {{foundations.configuration.moving_average_horizon}} steps, the first updates using a smaller decay so that the random starting weights fade quickly."
+      - "Read the decay as a window: the average looks back about one over one minus the decay steps, so a decay of {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#Optimization.exponential_moving_average.decay}} averages about the last {{foundations.configuration.moving_average_horizon:,}} steps."
+      - "The first updates use a smaller decay, so that the random starting weights fade quickly."
+      - "Stopped at iteration {{foundations.benchmark.last_iteration:,}}, these launches averaged only about their last {{foundations.benchmark.moving_average.window_iterations}} steps, the shaded span."
 
   - kind: html
     page: diagram
