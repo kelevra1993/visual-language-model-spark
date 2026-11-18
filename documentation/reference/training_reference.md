@@ -31,6 +31,10 @@ Details of the training runs, completing the [Training](../../README.md#training
 ├── data_until_iteration_<n>.json      # Data that trained the run up to iteration n, kept by a resume whose data changed
 ├── label_dictionary.json              # Class index of every category of the label mapping, the classes of the run
 ├── anchor_recall.csv                  # Anchor recall of the training objects (DET, INS), written at every launch
+├── Input_Samples/                     # First 10 samples of every split as fed to the network, before the first iteration
+│   ├── Training/, Validation/, Test/  # sample_00.png to sample_09.png, drawn as the input viewer draws them
+│   └── samples.json                   # Split, source, labels drawn, augmentations and input size of every sample
+├── Input_Samples_until_iteration_<n>/ # Input samples of the run up to iteration n, kept by a resume that changed the configuration or data
 ├── Weights/
 │   ├── full-checkpoint                # Registry of the saved checkpoints, the last one first
 │   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state, moving average of the weights and metadata (classes included) of iteration n
@@ -77,6 +81,18 @@ Details of the training runs, completing the [Training](../../README.md#training
 | M2M, SEL | `frames` |
 | CMP | `pairs` |
 
+So that a run can be checked against what it was fed long after its launch, without a display, `Input_Samples/` is written before the first iteration of every launch that trains (`BaseTrainer.save_input_samples`, `vision_training/trainers/input_samples.py`); the diagnosis modes ending the program and `evaluate_checkpoint.py` write none.
+- **Samples**: the first 10 samples of every split by identifier (`NUMBER_INPUT_SAMPLES`, not configurable), the same at every launch whatever the shuffled order of the loaders. Each is read in the main process and batched alone by the collate function of its loader. A sample that cannot be read is recorded with its error, without image, and the training goes on.
+- **Images**: one window of the input viewer per sample ([Viewing The Input Images](#viewing-the-input-images)), the image fed to the network with its boxes, mask, keypoints or frame grid, next to its panel without the navigation keys. The training samples are augmented on the device of the model as by the training step, and the random states are restored afterwards, so that the training draws the same augmentations as without them; the validation and test samples are not augmented. The SSL training and validation images show their two views side by side, as its validation passes draw them, and its test images are shown whole, as the evaluation encodes them.
+- **`samples.json`**: for every split, its images written and whether they are augmented (and a `note` for a training without validation loader, which has no `Validation/`); for every sample, its split, image file, identifier, `source` in the manifest (image file, sequence or pair name), the `labels` drawn, the `augmentations` of every window as its panel writes them, and the `image_size` fed to the network.
+- **Resume**: a resumed run whose configuration and data are unchanged keeps the folder. When either changed (the conditions keeping `training_configuration_until_iteration_<n>.yaml` or `data_until_iteration_<n>.json`), the folder is kept as `Input_Samples_until_iteration_<n>`, never replaced, and the samples are written again. A run without checkpoint writes them again in place of those of its previous start.
+- **MLflow**: the samples written by a launch are sent under `Input_Samples/` (`Input_Samples_resume_<n>/` for a resume from iteration n), their split folders kept.
+- **Cost**: one console line gives the folder and the time taken, 0.2 to 0.9 seconds for the 30 images of the tiny synthetic runs of every task family (64 to 256 pixel inputs), 1.0 second at 1024 pixels for the object detection.
+
+```text
+- Input Samples           : file:///…/Input_Samples (30 images written in 0.48 seconds)
+```
+
 ## Console Output
 - **At launch**: the run name with clickable links to its files, the changes since the last start of a resumed run, the transferred components, the splits and their sizes, the main settings, the model summary and the model size. `diagnosis_modes.compute_receptive_field` adds the receptive field. A transferred component shows its source and learning rate:
 
@@ -119,6 +135,7 @@ Training Batch Dropped : The image cannot be read : <file>
 ```
 
 - A `labels.json` whose SHA-256 differs from `data.json` stops the resume, unless `ExperimentConfiguration.allow_data_change_on_resume: true`. The previous record is then kept as `data_until_iteration_<n>.json`, as when only the data folder moved.
+- Either change also keeps the input samples as `Input_Samples_until_iteration_<n>/` and writes them again; a resume changing nothing keeps `Input_Samples/` as it is ([Run Folder](#run-folder)).
 
 **Restarting**: to train the same settings from scratch, set another `run_name_suffix` or `experiment_folder`, or move the run folder away. The new run folder starts a new MLflow run.
 
@@ -171,7 +188,7 @@ uv run python -m scripts.data.visualize_augmentation_strengths
 `ExperimentConfiguration.diagnosis_modes.view_input_images: True` opens a Training and a Validation window. Every image comes with a panel listing its targets and, for a training sample, the augmentations drawn with their values, the objects they removed and the frame order.
 - The SSL runs show the two views of every image. With `Data.grouped_batches` on, every training batch is first shown whole, cut into its blocks.
 - SPACE shows the next samples, ENTER exits without training.
-- It needs a display and creates no run folder.
+- It needs a display and creates no run folder. Without a display, the `Input_Samples/` folder of a training run holds the same windows for the first 10 samples of every split ([Run Folder](#run-folder)).
 
 ## Checking The Anchor Coverage
 `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (object detection and instance segmentation) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, per detection level and object size, then exits without training.

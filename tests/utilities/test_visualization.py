@@ -19,7 +19,7 @@ from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, GRID_GA
                                                      PANEL_MARGIN, PANEL_TABLE_GAP, PANEL_TABLE_ROW_HEIGHT,
                                                      PANEL_TITLE_HEIGHT, SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
                                                      UNSELECTED_FRAME_BRIGHTNESS, WRONG_PREDICTION_COLOUR, PanelTable,
-                                                     build_class_colours, build_detection_sample_grid,
+                                                     ViewerWindow, build_class_colours, build_detection_sample_grid,
                                                      build_frame_selection_image, build_information_panel,
                                                      draw_keypoint_objects, overlay_segmentation_mask,
                                                      split_panel_table, view_input_data)
@@ -195,8 +195,9 @@ def test_viewer_is_skipped_without_a_display(monkeypatch: pytest.MonkeyPatch) ->
     """
     monkeypatch.delenv(name="DISPLAY", raising=False)
     monkeypatch.delenv(name="WAYLAND_DISPLAY", raising=False)
-    assert view_input_data(images=[torch.zeros(size=(3, 8, 8))], bounding_boxes=None, labels=None,
-                           window_titles=["Training"], display_input_size=8, panel_lines=[["Class : cat"]])
+    assert view_input_data(windows=[ViewerWindow(image=torch.zeros(size=(3, 8, 8)), bounding_boxes=None, labels=None,
+                                                 label_names=None, title="Training", target_lines=["Class : cat"],
+                                                 augmentation_lines=[], display_input_size=8)])
 
 
 def test_information_panel_draws_its_tables_in_row_pairs() -> None:

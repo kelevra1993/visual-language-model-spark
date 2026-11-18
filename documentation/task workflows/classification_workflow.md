@@ -422,6 +422,10 @@ main()
         │   failures in a row, or Ctrl+C, end the loop. A last checkpoint is then saved when steps were taken since
         │   the last save; nothing is evaluated after the loop.
         │
+        ├── save_input_samples()
+        │       Writes Input_Samples/: the first 10 training, validation and test images by identifier, drawn as the
+        │       viewer of view_input_batches draws them (build_input_windows), the training ones augmented as by the
+        │       training step, with samples.json. A resume keeps the folder unless its configuration or data changed.
         ├── setup_tensorboard_writers()
         │       Creates Tensorboard/Train and, when validation_iteration_ratio > 0, Tensorboard/Validation. The Test
         │       writer is only created at the first evaluation.
@@ -434,8 +438,8 @@ main()
         │           accuracy: 0.0}: the sums and the batch count that accumulate() fills during an interval.
         ├── start_experiment_tracking()
         │       With tracking.activated: creates the MLflow tracker (or reopens the run of mlflow_run.json for a
-        │       resumed run), sends the parameters, the tags, the configuration file and data.json when this launch
-        │       wrote it. A background thread writes
+        │       resumed run), sends the parameters, the tags, the configuration file, and data.json and the input
+        │       samples when this launch wrote them. A background thread writes
         │       everything, so MLflow never slows down or stops the training. Without tracking it does nothing.
         ├── for each training_iteration:
         │   │   One pass of the loop body, from start_iteration (1 for a new run) to number_iterations.
@@ -1189,7 +1193,7 @@ iterations_per_epoch     = 4966
 ```
 
 ### Step 2.25 — `view_input_batches()`
-This only runs with `diagnosis_modes.view_input_images: True`. It shows what the network will really receive: an augmented training image (Step 3.13) next to a validation image, in two windows titled `Training` and `Validation`, centred on the screen. Each image is followed by a black information panel (`build_viewer_window()` → `build_information_panel()`) giving its class (`Class : n04456115`) and, for the training image, the augmentations drawn for it with their values, written by `describe_input_augmentations()` from the report of `augment_batch()` (one line per type, such as `random_rotation : <angle> degrees`, the angle within 5 degrees either way (`SUPERVISED_AUGMENTATION_STRENGTHS`), or `brightness_contrast_saturation : brightness +18.0 levels, ...`), the validation image giving `Augmentations : none (validation sample)`. The panels are not printed in the terminal, which only receives the title of the viewer in red, `View Of The Training And Validation Images That Are Fed To The Neural Network`, and its keys in green, `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit` (and, without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow). SPACE shows the next images and ENTER closes the viewer, after which `sys.exit()` ends the program before any training, and no run folder was created (Step 2.6).
+This only runs with `diagnosis_modes.view_input_images: True`. It shows what the network will really receive: an augmented training image (Step 3.13) next to a validation image, in two windows titled `Training` and `Validation`, centred on the screen, drawn by the hook `build_input_windows()` of the trainer and shown by `show_input_samples()` → `view_input_data()`. Each image is followed by a black information panel (`build_viewer_window()` → `build_information_panel()`) giving its class (`Class : n04456115`) and, for the training image, the augmentations drawn for it with their values, written by `describe_input_augmentations()` from the report of `augment_batch()` (one line per type, such as `random_rotation : <angle> degrees`, the angle within 5 degrees either way (`SUPERVISED_AUGMENTATION_STRENGTHS`), or `brightness_contrast_saturation : brightness +18.0 levels, ...`), the validation image giving `Augmentations : none (validation sample)`. The panels are not printed in the terminal, which only receives the title of the viewer in red, `View Of The Training And Validation Images That Are Fed To The Neural Network`, and its keys in green, `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit` (and, without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow). SPACE shows the next images and ENTER closes the viewer, after which `sys.exit()` ends the program before any training, and no run folder was created (Step 2.6). Without a display, the same windows are written for the first samples of every split at the start of every training launch (`save_input_samples()`, Step 3.1).
 
 ### Step 2.26 — `restore_last_model()`
 This always runs, a run always resuming from its last checkpoint. It asks Step 2.27 for the last saved iteration. Without any checkpoint it returns 1 and the run starts from the random weights (or from the pretrained components of Step 2.19, which the message then names: `No Checkpoint Of This Run Found, The New Model Starts From Pretrained Components Of Other Runs : Backbone.` and `Every Other Layer Is Trained From Scratch.`). Otherwise it loads that checkpoint (Step 2.28) and returns the iteration + 1, which becomes `start_iteration`: the training loop continues exactly where it stopped, up to `number_iterations`, the total of the run. The run of Stage 3 built again with `number_iterations: 12` therefore trains nothing more (Step 3.1): `number_iterations` must be raised to train it further.
@@ -1256,6 +1260,20 @@ Every iteration does, in this order: fetch a batch (3.8), take one training step
 | Console summary | | | | ✔ | | | | ✔ | | | | ✔ | |
 | Test evaluation | | | | | | ✔ | | | | | | ✔ | nothing |
 
+Before the first iteration, `save_input_samples()` writes `Input_Samples/` in the run folder (`vision_training/trainers/input_samples.py`), so that what the network was fed can be checked later without a display. It takes the first 10 samples by identifier of the training, validation and test splits (`NUMBER_INPUT_SAMPLES`), the same at every launch, each read in the main process and batched alone (`read_input_samples()`). `draw_input_split()` augments the training ones on the device as the training step does (`prepare_batch()` then `augment_input_batch()`, Steps 3.12 and 3.13), on copies of the random states (`fork_random_state()`) so that the training draws the same augmentations as without them, and draws every sample with `build_input_windows()` into `<split>/sample_<nn>.png`, the window of Step 2.25 without its keys. `samples.json` gives, for every sample, its split, file, identifier, `source` in the manifest, the `labels` and `augmentations` of its panel and the `image_size` fed to the network. A resumed run whose configuration and data are unchanged keeps the folder; when either changed, the folder is kept as `Input_Samples_until_iteration_<n>` and written again. Without validation loader (`validation_iteration_ratio: 0`) no `Validation/` is written, which the record and a console line say.
+
+**Example: the console line and the first sample of `samples.json` of a tiny synthetic run** (224 pixel images, 2026-11-18)
+```text
+- Input Samples           : file:///…/Input_Samples (30 images written in 0.26 seconds)
+
+{"split": "Training", "file": "Training/sample_00.png", "sample_identifier": 1, "source": {"sample": "train_000000.png"},
+ "labels": ["Class : ellipse"],
+ "augmentations": {"Training": ["Augmentations", "Geometric :", "  random_crop : 93 % of each side, at top 3 and left 13 pixels",
+                                "  random_left_right_flip", "Photometric :", "  random_noise : standard deviation 20 levels",
+                                "  random_haze : strength 0.51, airlight 247 levels"]},
+ "image_size": [224, 224]}
+```
+
 ### Step 3.2 — `setup_tensorboard_writers()`
 This creates the TensorBoard writers right before the loop, not in the constructor, so that a trainer that never trains leaves no empty log file. There is one writer for the training curves and, if `validation_iteration_ratio > 0`, one for the validation curves, so that both appear as separate runs of the same charts. The `Test` writer is only created at the first evaluation (Step 4.18).
 
@@ -1279,7 +1297,7 @@ This returns a dictionary with one sum per tracked metric (see Step 2.21), the n
 ```
 
 ### Step 3.5 — `start_experiment_tracking()`
-With `ExperimentConfiguration.tracking.activated: True`, this creates the MLflow tracker of the run (`create_experiment_tracker()`), right after the loader iterators exist, so that the loader worker processes are forked before the tracker starts its thread. The tracker writes to the server of `tracking.tracking_uri`, or to the local database `mlflow.db` of the experiments root folder (its artifacts in `mlartifacts/` next to it), in the MLflow experiment named after the task unless `tracking.experiment_name` is set. It sends the parameters of the run (every configuration section flattened, plus the number of parameters, the split sizes, the iterations per epoch, the device and the library versions), the tags (task, run name, run folder, source runs of the transferred components, host, git commit and whether the working tree had changes), the configuration file and, when this start wrote it, `data.json` (Step 2.7). Every call only puts an event in a queue: a background thread opens the MLflow run and writes in batches, retrying while MLflow is unavailable, so MLflow never slows down nor stops the training, and any MLflow error only prints one warning (an artifact whose write keeps failing with a system error, such as a read-only artifact folder, is retried and holds back every later write until the run closes, `bug_standards.md` B16, dropped; a write MLflow rejects is dropped with a warning). The run is recorded in `mlflow_run.json` of the run folder, so that a resumed training reopens the same MLflow run. Without tracking, the tracker stays a `DisabledTracker`.
+With `ExperimentConfiguration.tracking.activated: True`, this creates the MLflow tracker of the run (`create_experiment_tracker()`), right after the loader iterators exist, so that the loader worker processes are forked before the tracker starts its thread. The tracker writes to the server of `tracking.tracking_uri`, or to the local database `mlflow.db` of the experiments root folder (its artifacts in `mlartifacts/` next to it), in the MLflow experiment named after the task unless `tracking.experiment_name` is set. It sends the parameters of the run (every configuration section flattened, plus the number of parameters, the split sizes, the iterations per epoch, the device and the library versions), the tags (task, run name, run folder, source runs of the transferred components, host, git commit and whether the working tree had changes), the configuration file and, when this start wrote them, `data.json` (Step 2.7) and the input samples (Step 3.1, under `Input_Samples/`, or `Input_Samples_resume_<n>/` for a resume from iteration n). Every call only puts an event in a queue: a background thread opens the MLflow run and writes in batches, retrying while MLflow is unavailable, so MLflow never slows down nor stops the training, and any MLflow error only prints one warning (an artifact whose write keeps failing with a system error, such as a read-only artifact folder, is retried and holds back every later write until the run closes, `bug_standards.md` B16, dropped; a write MLflow rejects is dropped with a warning). The run is recorded in `mlflow_run.json` of the run folder, so that a resumed training reopens the same MLflow run. Without tracking, the tracker stays a `DisabledTracker`.
 
 **Example: the line printed once the background thread opened the run** (here during the first evaluation, since creating the local database takes a few seconds), and `mlflow_run.json`
 ```text

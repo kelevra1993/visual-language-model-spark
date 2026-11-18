@@ -388,13 +388,13 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
     def get_input_sample_image(self, batch: Dict[str, Any], sample_index: int) -> torch.Tensor:
         """
-        Gives the image of a batch shown by the input viewer with the masks of its objects painted in the colour of
-        their class, so that the user checks the masks and their augmentations along with the boxes. The validation
-        batch comes from the loader as it is: with 'Data.instance_index_maps', the map of the image is expanded into
-        its masks here.
+        Gives the image of a batch shown by the input viewer and the input samples of a training launch with the masks
+        of its objects painted in the colour of their class, so that the user checks the masks and their augmentations
+        along with the boxes. The validation and test batches come from the loader as they are: with
+        'Data.instance_index_maps', the map of the image is expanded into its masks here.
 
         Args:
-            batch (Dict[str, Any]): The training or validation batch, on the CPU.
+            batch (Dict[str, Any]): The training, validation or test batch, on the CPU.
             sample_index (int): The index of the image in the batch.
 
         Returns:

@@ -261,7 +261,7 @@ The suffix starts a run of its own among runs of the same settings, and resuming
 With `ExperimentConfiguration.tracking.activated: True`, every run is recorded in `<experiment_folder>/mlflow.db`, its files in `<experiment_folder>/mlartifacts/`, next to TensorBoard and `Results.txt`.
 - **Kept**: the full configuration and the git commit of every run, in one table sorted and filtered by any setting or metric. A resumed training continues its MLflow run and records the changed settings.
 - **Safe**: the values are written by a background thread, and an unavailable database only prints a warning.
-- **Limits**: the curves are averages over `information_dump` iterations, the per-iteration curves staying in TensorBoard. The checkpoints, predictions and images are not sent, only the run folder path. The package takes about 1 second to import, and a new database a few seconds to create.
+- **Limits**: the curves are averages over `information_dump` iterations, the per-iteration curves staying in TensorBoard. The checkpoints, predictions and sample images of the evaluations are not sent, only the run folder path. The package takes about 1 second to import, and a new database a few seconds to create.
 
 | Logged | Tasks |
 |---|---|
@@ -269,6 +269,7 @@ With `ExperimentConfiguration.tracking.activated: True`, every run is recorded i
 | `train/<metric>`, `validation/<metric>`, `learning_rate`, `train/throughput` | all |
 | `train/frame_throughput`, the real frames per second | M2O, M2M, CMP, SEL |
 | `test/best_<headline metric>`, `Results.txt` and the configuration file; `evaluation_summary.csv` and `evaluation_curves.png`, sent again after every evaluation | all |
+| The input samples written by the launch, under `Input_Samples/<split>/` with `samples.json` (`Input_Samples_resume_<n>/` for a resume from iteration n) | all |
 | `test_ema/` and `test_ema_class/` metrics, and the files under `evaluation/iteration_<n>/ema/` | all, with the moving average on |
 | `test/mAP@0.5`, `mAP@0.75`, `mAP@0.95`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test/mAP@0.5 By Size/<size>`, `mAP@[0.5:0.95] By Size/<size>`; `test/Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>`, `Proposals Per Image/<group>`; `test_class/AP@0.5/<class>`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `proposal_recall.csv`; `anchor_recall.csv` under `analysis/` (`anchor_recall_resume_<n>.csv` for a resume from iteration n) | DET, INS (with the `Mask` metrics) |
 | `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`), `Macro ROC AUC`, `Macro Average Precision`; `test_class/Precision`, `Recall`, `F1`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` | CLS, M2O, M2M, CMP |

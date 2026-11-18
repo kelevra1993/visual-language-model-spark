@@ -1,8 +1,8 @@
 """
 Tests of the MLflow tracking of the trainings: on the dummy task, a recording tracker checks the hooks of the general
 trainer (run opened at the start of the loop, interval averages, test evaluations, configuration, training data
-analysis, data record, evaluation summary and curves and Results.txt artifacts, run identifier in the checkpoints,
-status of the end of the training).
+analysis, data record, input samples, evaluation summary and curves and Results.txt artifacts, run identifier in
+the checkpoints, status of the end of the training).
 """
 
 import pytest
@@ -15,6 +15,7 @@ from unittest.mock import patch
 from tests.trainers.test_base_trainer import build_dummy_trainer
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, RUN_RECORD_FILE_NAME,
                                                          DisabledTracker, ExperimentTracker)
+from vision_training.trainers.input_samples import INPUT_SAMPLES_FOLDER_NAME, INPUT_SAMPLES_RECORD_FILE_NAME
 
 # Factory of the trackers as called by the general trainer, replaced by the recording tracker
 TRACKER_FACTORY_TARGET = "vision_training.trainers.base_trainer.create_experiment_tracker"
@@ -107,11 +108,12 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     Verifies the tracking hooks of the general trainer on the dummy task: the tracker is disabled until the training
     loop opens the run with the settings, derived values and tags of the run, then receives the training and
     validation averages, learning rate and throughput of every console summary, the test scalars of the evaluated
-    checkpoint with the per-class ones and its headline metric, the configuration and the files of the analysis of
-    the training data at the start, the evaluation summary and curves after the evaluation and Results.txt at the end,
-    and is closed as finished, its run identifier being
-    stored in the checkpoints. A resumed training opens the run as resumed and sends its configuration and its analysis
-    files under the name of the resumption.
+    checkpoint with the per-class ones and its headline metric, the configuration, the files of the analysis of the
+    training data, the record of the data and the input samples (their record and the images of every split, in their
+    split folders) at the start, the evaluation summary and curves after the evaluation and Results.txt at the end,
+    and is closed as finished, its run identifier being stored in the checkpoints. A resumed training opens the run
+    as resumed and sends its configuration and its analysis files under the name of the resumption, but neither the
+    record of the data nor the input samples, both unchanged.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -163,11 +165,19 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     assert any(metric_name.startswith("test_class/Recall/") for metric_name in test_metrics[0][1])
     assert recording_tracker.best_metrics == [("Accuracy", test_metrics[0][1]["test/Accuracy"], 4, "test")]
 
-    # Configuration, analysis of the training data and record of the data at the start, the evaluation summary and
-    # curves after the evaluation of iteration 4, Results.txt at the end, then the run closed as finished
+    # Configuration, analysis of the training data, record of the data and input samples (the images of the 8
+    # training, 4 validation and 6 test samples, then their record) at the start, the evaluation summary and curves
+    # after the evaluation of iteration 4, Results.txt at the end, then the run closed as finished
+    input_samples_folder = trainer.experiment_folder / INPUT_SAMPLES_FOLDER_NAME
+    input_sample_artifacts = [(input_samples_folder / split_name / f"sample_{position:02d}.png",
+                               f"{INPUT_SAMPLES_FOLDER_NAME}/{split_name}", None)
+                              for split_name, number_samples in [("Test", 6), ("Training", 8), ("Validation", 4)]
+                              for position in range(number_samples)]
     assert recording_tracker.artifacts == [(trainer.configuration_path, "configuration", None),
                                            (analysis_file_path, "analysis", None),
-                                           (trainer.data_record_path, "data", None),
+                                           (trainer.data_record_path, "data", None), *input_sample_artifacts,
+                                           (input_samples_folder / INPUT_SAMPLES_RECORD_FILE_NAME,
+                                            INPUT_SAMPLES_FOLDER_NAME, None),
                                            (trainer.experiment_folder / "Evaluation" / "evaluation_summary.csv", None,
                                             None),
                                            (trainer.experiment_folder / "evaluation_curves.png", None, None),
@@ -189,8 +199,10 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
         (resumed_trainer.configuration_path, "configuration", "training_configuration_resume_5.yaml"),
         (analysis_file_path, "analysis", "analysis_example_resume_5.csv")]
 
-    # The data did not change, so its record is not sent again
-    assert all(artifact_folder != "data" for _, artifact_folder, _ in resumed_tracker.artifacts)
+    # The configuration and the data did not change, so neither the record of the data nor the input samples, kept as
+    # they were, are sent again
+    assert all(artifact_folder != "data" and not str(artifact_folder).startswith(INPUT_SAMPLES_FOLDER_NAME)
+               for _, artifact_folder, _ in resumed_tracker.artifacts)
     assert resumed_tracker.close_statuses == [FINISHED_STATUS]
 
 

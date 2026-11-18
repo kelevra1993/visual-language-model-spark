@@ -48,7 +48,7 @@ Should you need to change one step of the task, this table names the file and th
 
 | Role | File | Main functions or classes |
 |---|---|---|
-| Trainer | `vision_training/trainers/sequence_classification_trainer.py` | `SequenceClassificationTrainer`: `build_dataloaders`, `prepare_batch`, `forward_pass`, `predict_batch`, `augment_batch`, `get_member_length`, `describe_split`, `build_input_image`, `build_sample_frame_grid`, `show_input_samples` |
+| Trainer | `vision_training/trainers/sequence_classification_trainer.py` | `SequenceClassificationTrainer`: `build_dataloaders`, `prepare_batch`, `forward_pass`, `predict_batch`, `augment_batch`, `get_member_length`, `describe_split`, `build_input_image`, `build_sample_frame_grid`, `build_input_windows` |
 | Loss, batch metric and evaluation (inherited) | `vision_training/trainers/classification_trainer.py` | `ClassificationTrainer`: `build_model`, `compute_batch_metrics`, `dump_errors`, `build_sample_image`, `compute_evaluation_results`, `write_predictions_file` |
 | Shared training loop | `vision_training/trainers/base_trainer.py` | `BaseTrainer`: `run_training_iterations`, `run_model_iteration`, `save_model`, `run_test_evaluation`, `restore_last_model` |
 | Dataset and loaders | `vision_training/data/sequence/sequence_dataset.py`, `vision_training/data/serialized_records.py`, `vision_training/data/loaders.py`, `vision_training/data/split_description.py` | `SequenceDataset`, `SerializedRecords` (`find_record`), `read_sequence_frames`, `collate_padded_sequences`, `get_sequence_dataloaders`, `build_native_loader`, `count_split_sequences` |

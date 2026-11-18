@@ -2,7 +2,7 @@
 OpenCV drawing helpers: the conversion of the network inputs into the arrays every drawing starts from, bounding boxes
 of the detection sample and error images and anchors, the input viewer of the trainers (every image next to a black
 information panel listing its target, with tables such as the objects per class, and its augmentations, the windows
-centred on the screen), the frame grids of the
+centred on the screen, also saved as the input samples of every training launch), the frame grids of the
 sequence tasks, the caption bars of the evaluation error images, the class colours,
 mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
 segmentation, the keypoints of the objects of an image with their skeleton and the keypoint sample grids of the
@@ -59,6 +59,25 @@ class PanelTable(NamedTuple):
     """
     row_titles: Tuple[str, str]
     columns: List[Tuple[str, str]]
+
+
+class ViewerWindow(NamedTuple):
+    """
+    One sample drawn as a window of the input viewer ('view_input_images'), and as an image of the input samples
+    written at the start of every training launch ('<run>/Input_Samples/', trainers/input_samples.py): built by the
+    build_input_windows hook of every task trainer and drawn by build_viewer_window. It holds the image fed to the
+    network (its masks, keypoints or frame grid already painted on it), its boxes captioned with their classes, the
+    title of its panel, the panel lines describing its target, and those describing its augmentations, kept apart so
+    that the record of the input samples (samples.json) lists them apart.
+    """
+    image: torch.Tensor
+    bounding_boxes: Optional[torch.Tensor]
+    labels: Optional[torch.Tensor]
+    label_names: Optional[Dict[int, str]]
+    title: str
+    target_lines: List[Union[str, PanelTable]]
+    augmentation_lines: List[str]
+    display_input_size: int
 
 
 # Placement of the input viewer windows: the space in pixels between two windows, the height kept for the title bar of
@@ -421,34 +440,52 @@ def build_information_panel(title: str, lines: List[Union[str, PanelTable]], min
     return panel
 
 
-def build_viewer_window(image: torch.Tensor, bounding_boxes: Optional[torch.Tensor], labels: Optional[torch.Tensor],
-                        label_names: Optional[Dict[int, str]], title: str, lines: List[Union[str, PanelTable]],
-                        display_input_size: int) -> np.ndarray:
+def flatten_panel_lines(lines: List[Union[str, PanelTable]]) -> List[str]:
     """
-    Builds the content of one window of the input viewer ('view_input_images'): the image fed to the network with its
-    ground truth boxes captioned with their classes, resized so that its longest side is the display size, next to
-    its black information panel.
+    Writes the lines of an information panel of the input viewer as plain text, for the record of the input samples
+    written at the start of every training launch (samples.json of trainers/input_samples.py): the empty separator
+    lines are left out, and every table gives one line per row, its row title followed by the texts of its columns.
 
     Args:
-        image (torch.Tensor): The [3, H, W] BGR image in [0, 255], on any device.
-        bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes of the image, or None for the tasks without boxes.
-        labels (Optional[torch.Tensor]): The [N] labels of the boxes, or None.
-        label_names (Optional[Dict[int, str]]): The class name of every label index for the box captions, or None to
-            write the indices.
-        title (str): The title of the window, written at the top of the panel.
-        lines (List[Union[str, PanelTable]]): The lines and tables of the information panel.
-        display_input_size (int): The size in pixels of the longest side of the displayed image.
+        lines (List[Union[str, PanelTable]]): The lines and tables of the panel, as given to build_information_panel.
+
+    Returns:
+        List[str]: The text lines, e.g. ['Objects : 3', 'Class : circle, square', 'Count : 2, 1'].
+    """
+    text_lines = []
+    for line in lines:
+        # A table gives the texts of its top row, then those of its bottom row, each after its row title
+        if isinstance(line, PanelTable):
+            text_lines += [f"{row_title} : {', '.join(column[row_index] for column in line.columns)}"
+                           for row_index, row_title in enumerate(line.row_titles)]
+        elif line.strip():
+            text_lines.append(line)
+    return text_lines
+
+
+def build_viewer_window(window: ViewerWindow, hint: str = NAVIGATION_HINT) -> np.ndarray:
+    """
+    Builds the content of one window of the input viewer ('view_input_images'), or one image of the input samples
+    written at the start of every training launch (trainers/input_samples.py): the image fed to the network with its
+    ground truth boxes captioned with their classes, resized so that its longest side is the display size, next to
+    its black information panel holding the target lines then the augmentation lines of the window.
+
+    Args:
+        window (ViewerWindow): The sample drawn: its image, boxes, labels, class names, title, panel lines and display
+            size.
+        hint (str): The text written at the bottom of the panel: the navigation keys of the viewer, empty for a saved
+            image. Defaults to NAVIGATION_HINT.
 
     Returns:
         np.ndarray: The [H, W, 3] uint8 BGR window content, the image on the left and the panel on the right.
     """
-    image_numpy = convert_image_to_array(image=image)
+    image_numpy = convert_image_to_array(image=window.image)
 
     # Draw each object's bounding box rectangle and its class caption, for the tasks with boxes
-    if bounding_boxes is not None:
-        for box, label in zip(bounding_boxes.detach().cpu().numpy(), labels.detach().cpu().numpy()):
+    if window.bounding_boxes is not None:
+        for box, label in zip(window.bounding_boxes.detach().cpu().numpy(), window.labels.detach().cpu().numpy()):
             box_x1, box_y1, box_x2, box_y2 = map(int, box)
-            caption = label_names.get(int(label), str(int(label))) if label_names else str(int(label))
+            caption = window.label_names.get(int(label), str(int(label))) if window.label_names else str(int(label))
             cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0),
                           thickness=2)
             cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
@@ -456,14 +493,15 @@ def build_viewer_window(image: torch.Tensor, bounding_boxes: Optional[torch.Tens
 
     # Resize the image so that its longest side is the display size, with sharp pixels when it is enlarged
     image_height, image_width, _ = image_numpy.shape
-    display_scale = display_input_size / max(image_height, image_width)
+    display_scale = window.display_input_size / max(image_height, image_width)
     display_width = max(1, round(image_width * display_scale))
     display_height = max(1, round(image_height * display_scale))
     interpolation = cv2.INTER_NEAREST if display_scale >= 1.0 else cv2.INTER_AREA
     display_image = cv2.resize(src=image_numpy, dsize=(display_width, display_height), interpolation=interpolation)
 
     # Place the image at the top left of a black window and the panel on its right, behind a gray gap
-    panel = build_information_panel(title=title, lines=lines, minimum_height=display_height)
+    panel = build_information_panel(title=window.title, lines=window.target_lines + window.augmentation_lines,
+                                    minimum_height=display_height, hint=hint)
     window_image = np.zeros(shape=(panel.shape[0], display_width + GRID_GAP + INFORMATION_PANEL_WIDTH, 3),
                             dtype=np.uint8)
     window_image[:display_height, :display_width] = display_image
@@ -531,47 +569,54 @@ def compute_window_positions(window_sizes: List[Tuple[int, int]],
     return window_positions, display_scale
 
 
-def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[torch.Tensor]],
-                    labels: Optional[List[torch.Tensor]], window_titles: List[str], display_input_size: int,
-                    label_names: Optional[Dict[int, str]] = None,
-                    panel_lines: Optional[List[List[Union[str, PanelTable]]]] = None) -> bool:
+def view_input_data(windows: List[ViewerWindow]) -> bool:
     """
     Displays preprocessed input images with their ground truth boxes, one window per image, each next to a black
     information panel, so the user can check exactly what is fed to the neural network and how it was augmented.
 
     It is the 'view_input_images' diagnosis mode of the trainers (a Training and a Validation window, or the two views
-    of the self-supervised task): the object detection trainer draws the boxes, and every trainer writes in the panels
-    the target of the sample (its class, its objects...) and, for the training sample, the augmentations drawn for it
-    with their values. The windows are centred on the screen. Execution halts until the user presses SPACE (next
-    image) or ENTER (stop viewing).
+    of the self-supervised task), whose windows the task trainers build (build_input_windows): the object detection
+    trainer draws the boxes, and every trainer writes in the panels the target of the sample (its class, its
+    objects...) and, for the training sample, the augmentations drawn for it with their values. The windows are
+    centred on the screen. Execution halts until the user presses SPACE (next image) or ENTER (stop viewing).
 
     Args:
-        images (List[torch.Tensor]): The preprocessed image tensors of shape [Channels, Height, Width], on CPU or GPU.
-        bounding_boxes (Optional[List[torch.Tensor]]): The [N, 4] bounding boxes associated with each image, or None
-            for the tasks without boxes.
-        labels (Optional[List[torch.Tensor]]): The [N] class labels associated with each image's bounding boxes, or
-            None for the tasks without boxes.
-        window_titles (List[str]): The title of the window displaying each image, also written at the top of its panel.
-        display_input_size (int): The size in pixels of the longest side of each displayed image, typically the
-            network input image size so that images are shown exactly as the network receives them.
-        label_names (Optional[Dict[int, str]]): Mapping from class index to class name used for the box captions.
-            Defaults to None, in which case the numeric class index is written.
-        panel_lines (Optional[List[List[Union[str, PanelTable]]]]): The lines and tables of the panel of each image.
-            Defaults to None, in which case the panels only hold their title and the navigation hint.
+        windows (List[ViewerWindow]): The windows to show, side by side in their order, their titles naming them.
 
     Returns:
         bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
     """
     # Build every window: the image with its boxes next to its information panel
-    window_images = [build_viewer_window(image=image,
-                                         bounding_boxes=bounding_boxes[window_index] if bounding_boxes is not None
-                                         else None,
-                                         labels=labels[window_index] if labels is not None else None,
-                                         label_names=label_names, title=window_title,
-                                         lines=panel_lines[window_index] if panel_lines is not None else [],
-                                         display_input_size=display_input_size)
-                     for window_index, (image, window_title) in enumerate(zip(images, window_titles))]
-    return show_viewer_windows(window_images=window_images, window_titles=window_titles)
+    window_images = [build_viewer_window(window=window) for window in windows]
+    return show_viewer_windows(window_images=window_images, window_titles=[window.title for window in windows])
+
+
+def join_viewer_windows(window_images: List[np.ndarray]) -> np.ndarray:
+    """
+    Places the windows of one sample side by side in a single image, for the input samples written at the start of
+    every training launch (trainers/input_samples.py): one window for most tasks, the two views of the self-supervised
+    task next to each other as the input viewer shows them, separated by a gray band as wide as the space between
+    two windows of the viewer, the shorter windows padded with black at the bottom.
+
+    Args:
+        window_images (List[np.ndarray]): The [H, W, 3] uint8 BGR windows built by build_viewer_window, in order.
+
+    Returns:
+        np.ndarray: The [max H, sum W + gaps, 3] uint8 BGR image of the sample.
+    """
+    joined_height = max(window_image.shape[0] for window_image in window_images)
+    joined_width = sum(window_image.shape[1] for window_image in window_images) + \
+        (len(window_images) - 1) * VIEWER_WINDOW_SPACING
+    joined_image = np.zeros(shape=(joined_height, joined_width, 3), dtype=np.uint8)
+
+    # Copy every window at its place from the left, followed by the gray band separating it from the next one
+    window_left = 0
+    for window_image in window_images:
+        window_height, window_width = window_image.shape[:2]
+        joined_image[:window_height, window_left:window_left + window_width] = window_image
+        joined_image[:, window_left + window_width:window_left + window_width + VIEWER_WINDOW_SPACING] = 128
+        window_left += window_width + VIEWER_WINDOW_SPACING
+    return joined_image
 
 
 def show_viewer_windows(window_images: List[np.ndarray], window_titles: List[str]) -> bool:

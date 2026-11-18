@@ -9,7 +9,8 @@ of the 50,000 validation images of the hard instance segmentation dataset copied
 parsed manifest, and copies 0.05 GB with the packed records; one reading the 1.27 million training samples of
 ImageNet-1k copied 0.40 GB, and copies nothing. Used by CocoDetectionDataset of data/detection/coco_dataset.py, and by
 ClassificationDataset, SegmentationDataset, SequenceDataset and SequencePairDataset, which also find a record by its
-identifier to name the evaluated samples.
+identifier to name the evaluated samples, and list the records of the smallest identifiers, the input samples drawn
+at the start of every training launch (trainers/input_samples.py).
 """
 
 import io
@@ -17,7 +18,7 @@ import numpy as np
 import pickle
 
 from collections.abc import Sequence
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 
 class SerializedRecords(Sequence):
@@ -31,7 +32,7 @@ class SerializedRecords(Sequence):
     sorted_identifiers: Optional[np.ndarray] = None
     sorted_record_indices: Optional[np.ndarray] = None
 
-    def __init__(self, records: Iterable[Any], identifier_key: Optional[str] = None) -> None:
+    def __init__(self, records: Iterable[Any], identifier_key: Optional[str | Callable[[Any], int]] = None) -> None:
         """
         Pickles the records one after the other into one byte stream, keeping the end offset of every record, the memo
         of the pickler being cleared after each record so that every record unpickles alone. The stream grows in place
@@ -43,9 +44,10 @@ class SerializedRecords(Sequence):
 
         Args:
             records (Iterable[Any]): The picklable records, in the order of their indices.
-            identifier_key (Optional[str]): The key of the integer identifier of every record, a dictionary, by which
-                find_record finds it ("identifier" for the samples, the identifier given in the batches); None for
-                records only read by their index. Defaults to None.
+            identifier_key (Optional[str | Callable[[Any], int]]): The key of the integer identifier of every record,
+                a dictionary, by which find_record finds it ("identifier" for the samples, the identifier given in the
+                batches), or the function reading it from a record of another type (the COCO identifier of an image
+                record, a tuple); None for records only read by their index. Defaults to None.
 
         Raises:
             ValueError: If the identifier of a record is not an integer.
@@ -59,7 +61,9 @@ class SerializedRecords(Sequence):
             pickler.dump(record)
             pickler.clear_memo()
             record_ends.append(stream.tell())
-            if identifier_key is not None:
+            if callable(identifier_key):
+                record_identifiers.append(identifier_key(record))
+            elif identifier_key is not None:
                 record_identifiers.append(record[identifier_key])
 
         # The bytes of the stream, trimmed to their size, taken as the read-only buffer, and the offsets as one array
@@ -74,8 +78,9 @@ class SerializedRecords(Sequence):
             if identifiers.dtype.kind != "i":
                 example = next((identifier for identifier in record_identifiers if type(identifier) is not int),
                                record_identifiers[0])
-                raise ValueError(f"The '{identifier_key}' of every record must be an integer, the identifier of its "
-                                 f"sample in the batches, got {example!r}.")
+                key_name = getattr(identifier_key, "__name__", identifier_key)
+                raise ValueError(f"The '{key_name}' of every record must be an integer, the identifier of its sample "
+                                 f"in the batches, got {example!r}.")
             self.sorted_record_indices = np.argsort(a=identifiers, kind="stable")
             self.sorted_identifiers = identifiers[self.sorted_record_indices]
 
@@ -138,3 +143,24 @@ class SerializedRecords(Sequence):
         if position < 0 or self.sorted_identifiers[position] != identifier:
             raise KeyError(f"No record has the identifier {identifier}.")
         return self[int(self.sorted_record_indices[position])]
+
+    def list_first_records(self, number_records: int) -> List[Tuple[int, int]]:
+        """
+        Lists the records of the smallest identifiers with their index, so that the input samples written at the start
+        of every training launch (trainers/input_samples.py) show the same samples of a split at every launch, whatever
+        the order the dataset shuffled its records into. Records sharing an identifier keep their order.
+
+        Args:
+            number_records (int): The number of records listed, all of them when the records are fewer.
+
+        Returns:
+            List[Tuple[int, int]]: The index and the identifier of every listed record, by increasing identifier.
+
+        Raises:
+            ValueError: If the records were packed without identifier key.
+        """
+        if self.sorted_identifiers is None:
+            raise ValueError("The records were packed without identifier key: they are only read by their index.")
+        return [(int(record_index), int(identifier))
+                for record_index, identifier in zip(self.sorted_record_indices[:number_records],
+                                                    self.sorted_identifiers[:number_records])]

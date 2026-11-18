@@ -48,8 +48,9 @@ from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.visualization import (add_caption_bar, build_batch_mosaic, convert_image_to_array,
-                                                     show_viewer_windows, view_input_data)
+from vision_training.utilities.tensor_utilities import fork_random_state
+from vision_training.utilities.visualization import (ViewerWindow, add_caption_bar, build_batch_mosaic,
+                                                     convert_image_to_array, show_viewer_windows, view_input_data)
 
 # Metrics tracked on every training and validation batch for each self-supervised method, with their display names
 METHOD_TRACKED_METRICS = {"simclr": {"total_loss": "Total Loss", "info_nce_loss": "InfoNCE Loss",
@@ -100,6 +101,9 @@ class SelfSupervisedTrainer(BaseTrainer):
 
     # The data augmentation draws the two views of every image, with the self-supervised strengths
     SELF_SUPERVISED_AUGMENTATION = True
+
+    # The input samples of the validation split are drawn as views too, its passes drawing the views of every image
+    AUGMENTED_INPUT_SPLITS = ["Training", "Validation"]
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
@@ -328,6 +332,23 @@ class SelfSupervisedTrainer(BaseTrainer):
         """
         return batch
 
+    def augment_input_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Draws the two views of the images of a batch shown by the input viewer or drawn as the input samples of a
+        training launch, as forward_pass draws them for the training and validation batches
+        (DataAugmenter.create_views), and keeps them with the augmentations drawn for them for build_input_windows.
+
+        Args:
+            batch (Dict[str, Any]): The training or validation batch.
+
+        Returns:
+            Dict[str, Any]: The batch with its 'views', the [B, 3, H, W] first and second views, and their
+                'view_reports', the augmentation report of every image for each view.
+        """
+        first_views, second_views, first_reports, second_reports = self.data_augmenter.create_views(
+            images=batch["images"])
+        return {**batch, "views": [first_views, second_views], "view_reports": [first_reports, second_reports]}
+
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Draws the two random views of every image of a training or validation batch with the data augmentation
@@ -555,14 +576,10 @@ class SelfSupervisedTrainer(BaseTrainer):
         """
         image = batch["images"][sample_index:sample_index + 1]
         views_seed = SAMPLE_VIEWS_SEED + int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
-        training_random_state = random.getstate()
-        try:
-            with torch.random.fork_rng(devices=[] if self.device.type == "cpu" else [self.device]):
-                torch.manual_seed(seed=views_seed)
-                random.seed(views_seed)
-                first_view, second_view, _, _ = self.data_augmenter.create_views(images=image)
-        finally:
-            random.setstate(training_random_state)
+        with fork_random_state(device=self.device):
+            torch.manual_seed(seed=views_seed)
+            random.seed(views_seed)
+            first_view, second_view, _, _ = self.data_augmenter.create_views(images=image)
 
         # Similarity of the representations of both views, the model being in evaluation mode
         view_representations = self.model(input_tensor=torch.cat(tensors=[first_view, second_view],
@@ -669,29 +686,53 @@ class SelfSupervisedTrainer(BaseTrainer):
                            for batch_value, block_value in zip(batch_values, block_values)])
         return title, lines, block_captions, image_captions
 
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
+        """
+        Draws one image for the input viewer and the input samples of a training launch as the network receives it:
+        the two views of a training or validation image drawn by augment_input_batch, side by side, each next to an
+        information panel holding the class of the image and the augmentations drawn for the view with their values
+        (DataAugmenter.describe_report), or the image itself for a test image, which the evaluation encodes whole.
+
+        Args:
+            batch (Dict[str, Any]): The batch holding the image, with its 'views' for the training and validation
+                splits, on the CPU.
+            sample_index (int): The index of the image in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window of a test image.
+
+        Returns:
+            List[ViewerWindow]: The windows of the two views, or the window of the test image.
+        """
+        class_line = f"Class : {self.get_label_caption(label=batch['labels'][sample_index])}"
+
+        # A test image is encoded whole, as in deployment (predict_batch)
+        if "views" not in batch:
+            return [ViewerWindow(image=batch["images"][sample_index], bounding_boxes=None, labels=None,
+                                 label_names=None, title=split_name, target_lines=[class_line],
+                                 augmentation_lines=["", f"Views : none ({split_name.lower()} image, encoded whole)"],
+                                 display_input_size=self.input_image_size)]
+
+        # The class of the image, then the augmentations of each view under their header
+        return [ViewerWindow(image=views[sample_index], bounding_boxes=None, labels=None, label_names=None,
+                             title=f"View {view_index + 1}", target_lines=[class_line],
+                             augmentation_lines=["", "View augmentations"] + self.data_augmenter.describe_report(
+                                 report=view_reports[sample_index]),
+                             display_input_size=self.input_image_size)
+                for view_index, (views, view_reports) in enumerate(zip(batch["views"], batch["view_reports"]))]
+
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
-        Displays the two random views of a training image side by side, exactly as the network receives them, each
-        next to an information panel holding the class of the image and the augmentations drawn for the view with
-        their values (DataAugmenter.describe_report). The validation images get views drawn the same way, so only the
-        training image is shown.
+        Displays the two random views of a training image side by side, exactly as the network receives them
+        (build_input_windows). The validation images get views drawn the same way, so only the training image is
+        shown.
 
         Args:
-            training_batch (Dict[str, Any]): The training batch, on the CPU.
+            training_batch (Dict[str, Any]): The training batch with its views (augment_input_batch), on the CPU.
             validation_batch (Dict[str, Any]): The validation batch, on the CPU, unused.
             sample_index (int): The index of the displayed image in the training batch.
 
         Returns:
             bool: True if the user asked to stop viewing.
         """
-        first_view, second_view, first_reports, second_reports = self.data_augmenter.create_views(
-            images=training_batch["images"][sample_index:sample_index + 1].to(dtype=torch.float32))
-
-        # The class of the image, then the augmentations of each view under their header
-        class_line = f"Class : {self.get_label_caption(label=training_batch['labels'][sample_index])}"
-        panel_lines = [[class_line, "", "View augmentations"] + self.data_augmenter.describe_report(report=reports[0])
-                       for reports in [first_reports, second_reports]]
-        return view_input_data(images=[first_view[0], second_view[0]], bounding_boxes=None, labels=None,
-                               window_titles=["View 1", "View 2"], display_input_size=self.input_image_size,
-                               panel_lines=panel_lines)
+        return view_input_data(windows=self.build_input_windows(batch=training_batch, sample_index=sample_index,
+                                                                split_name="Training"))

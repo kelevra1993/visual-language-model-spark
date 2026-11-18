@@ -17,7 +17,7 @@ from vision_training.core.contracts import EvaluationResults
 from vision_training.data.augmentations import AUGMENTATION_TYPES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.visualization import add_caption_bar
+from vision_training.utilities.visualization import ViewerWindow, add_caption_bar
 
 # Side of the square random images of the dummy task
 DUMMY_IMAGE_SIZE = 8
@@ -76,6 +76,34 @@ class DummyDataset(Dataset):
             raise ValueError(f"The image cannot be read : {sample_identifier}.png")
         return {"images": self.images[sample_identifier], "labels": self.labels[sample_identifier],
                 "sample_identifiers": sample_identifier}
+
+    def list_first_samples(self, number_samples: int) -> List[Tuple[int, int]]:
+        """
+        Lists the samples of the smallest identifiers, the input samples written at the start of every training launch,
+        like the datasets of the framework.
+
+        Args:
+            number_samples (int): The number of samples listed, all of them when the dataset holds fewer.
+
+        Returns:
+            List[Tuple[int, int]]: The index and the identifier of every listed sample, by increasing identifier.
+        """
+        sample_indices = sorted(range(len(self.sample_identifiers)),
+                                key=lambda sample_index: self.sample_identifiers[sample_index])
+        return [(sample_index, self.sample_identifiers[sample_index])
+                for sample_index in sample_indices[:number_samples]]
+
+    def describe_sample(self, sample_identifier: int) -> Dict[str, str]:
+        """
+        Names a sample after its identifier, the dummy dataset having no image files.
+
+        Args:
+            sample_identifier (int): The identifier of the sample.
+
+        Returns:
+            Dict[str, str]: The 'sample' entry, 'sample_<identifier>'.
+        """
+        return {"sample": f"sample_{sample_identifier}"}
 
 
 class DummyModel(TaskModel):
@@ -369,6 +397,25 @@ class DummyTrainer(BaseTrainer):
                                      .permute(1, 2, 0).numpy())
         predicted_label = int(predictions["class_logits"][sample_index].argmax())
         return add_caption_bar(image=image, caption=f"Predicted label {predicted_label}")
+
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
+        """
+        Draws a sample as its image next to a panel holding its label and its augmentations, for the input samples
+        written at the start of every training launch.
+
+        Args:
+            batch (Dict[str, Any]): The batch holding the sample, on the CPU.
+            sample_index (int): The index of the sample in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window.
+
+        Returns:
+            List[ViewerWindow]: The window of the sample.
+        """
+        augmentation_lines = self.describe_input_augmentations(batch=batch, sample_index=sample_index,
+                                                               split_name=split_name)
+        return [ViewerWindow(image=batch["images"][sample_index], bounding_boxes=None, labels=None, label_names=None,
+                             title=split_name, target_lines=[f"Label : {int(batch['labels'][sample_index])}"],
+                             augmentation_lines=augmentation_lines, display_input_size=DUMMY_IMAGE_SIZE)]
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

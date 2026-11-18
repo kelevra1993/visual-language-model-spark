@@ -153,6 +153,7 @@ Whenever a training starts, it writes to `<experiment_folder>/<run name>/`, the 
 ├── training_configuration.yaml        # Configuration of the last start of the run
 ├── data.json                          # Class counts, data folder and SHA-256 of labels.json and images of every split
 ├── label_dictionary.json              # Class index of every category, the classes of the run
+├── Input_Samples/                     # First 10 samples of every split as fed to the network, and samples.json
 ├── Weights/Iteration_<n>/model_<n>.pt # Weights, optimizer state, moving average of the weights, metadata
 ├── Tensorboard/                       # Train, Validation, Test and Test_EMA curves
 ├── Results.txt                        # Report of every evaluated checkpoint
@@ -165,6 +166,8 @@ Whenever a training starts, it writes to `<experiment_folder>/<run name>/`, the 
 ```
 
 So that the test results of a run can be followed at a glance, without TensorBoard, every evaluation adds the row of its iteration to `Evaluation/evaluation_summary.csv` (every test scalar, those of the averaged weights in `ema_` columns with their number of updates in `ema_number_updates`, a checkpoint evaluated again replacing its row) and draws `evaluation_curves.png` again from it: the headline metric of `Results.txt` for the trained and the averaged weights against the iteration, the best iteration of each ringed with its value and, with the moving average on, the iterations the averaged weights of the highest evaluated iteration look back over shaded up to it, 1/(1 − d) for the decay d of their last update given by their number of updates, with the configured 1/(1 − decay) in grey behind it while the warm-up still lowers d. Both files are sent to MLflow when the tracking is on. A run evaluated before these files existed starts its summary at its next evaluation from its TensorBoard test curves, whose values TensorBoard keeps in float32.
+
+To be able to check afterwards what a run was fed, without a display, every launch that trains writes `Input_Samples/` before its first iteration: the first 10 samples of every split by identifier, the same at every launch, drawn as the input viewer draws them into `Training/`, `Validation/` and `Test/` (`sample_00.png` to `sample_09.png`), the training ones augmented on the device as the training step augments them, with `samples.json` giving the source file or sequence, the labels drawn, the augmentations and the input size of each. A resumed run keeps the folder unless its configuration or data changed, the previous one being then kept as `Input_Samples_until_iteration_<n>`; a training without validation loader has no `Validation/`, and the MLflow tracking receives the folder.
 
 A checkpoint is saved every `intermediate_weight_saving_iterations` iterations (0 saves none), a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations and a console summary printed every `information_dump` iterations, here with the settings of the classification run of the README images:
 
@@ -633,7 +636,7 @@ Whenever a result needs explaining, open its run: the page keeps the last value 
   <img src="README/mlflow_run_page.png" width="100%" />
 </p>
 
-The per-iteration curves stay in TensorBoard, and the checkpoints and images are not sent. The metrics and files of every task are in the [configuration reference](documentation/reference/configuration_reference.md#mlflow-tracking).
+The per-iteration curves stay in TensorBoard, and the checkpoints and the sample and error images of the evaluations are not sent, unlike the input samples of a launch. The metrics and files of every task are in the [configuration reference](documentation/reference/configuration_reference.md#mlflow-tracking).
 
 ## Tests
 After a change to the code, run the tests of `tests/`, whose folders mirror `vision_training/` and `scripts/` and include short trainings of every task on tiny synthetic datasets:

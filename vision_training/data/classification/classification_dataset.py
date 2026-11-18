@@ -16,7 +16,7 @@ import torch
 
 from torch.utils.data import Dataset
 from pathlib import PurePosixPath
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
@@ -190,6 +190,19 @@ class ClassificationDataset(Dataset):
         """
         file_name = self.samples.find_record(identifier=sample_identifier)["file_name"]
         return str(PurePosixPath(file_name).with_suffix("")).replace("/", "_")
+
+    def list_first_samples(self, number_samples: int) -> List[Tuple[int, int]]:
+        """
+        Lists the samples of the smallest identifiers, the input samples of the split written at the start of
+        every training launch (trainers/input_samples.py), the same at every launch whatever the shuffled order.
+
+        Args:
+            number_samples (int): The number of samples listed, all of them when the split holds fewer.
+
+        Returns:
+            List[Tuple[int, int]]: The index in the dataset and the identifier of every listed sample.
+        """
+        return self.samples.list_first_records(number_records=number_samples)
 
     def get_sample_class_indices(self) -> Dict[int, List[int]]:
         """

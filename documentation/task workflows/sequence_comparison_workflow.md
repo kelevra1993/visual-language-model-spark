@@ -47,7 +47,7 @@ Should you need to change one part of the task, this table gives the file holdin
 | Role | File | Main functions or classes |
 |---|---|---|
 | Trainer | `vision_training/trainers/sequence_comparison_trainer.py` | `SequenceComparisonTrainer`: `describe_split`, `split_pair_batch`, `forward_pass`, `predict_batch`, `build_sample_frame_grid` |
-| Inherited sequence hooks | `vision_training/trainers/sequence_classification_trainer.py` | `SequenceClassificationTrainer`: `build_dataloaders`, `prepare_batch`, `augment_batch`, `get_member_length`, `build_input_image`, `show_input_samples` |
+| Inherited sequence hooks | `vision_training/trainers/sequence_classification_trainer.py` | `SequenceClassificationTrainer`: `build_dataloaders`, `prepare_batch`, `augment_batch`, `get_member_length`, `build_input_image`, `build_input_windows` |
 | Loss, batch metric and evaluation (inherited) | `vision_training/trainers/classification_trainer.py` | `ClassificationTrainer`: `build_model`, `compute_batch_metrics`, `dump_errors`, `build_sample_image`, `compute_evaluation_results` |
 | Dataset and loaders | `vision_training/data/sequence/sequence_pair_dataset.py`, `sequence_dataset.py`, `vision_training/data/serialized_records.py`, `vision_training/data/loaders.py`, `vision_training/data/split_description.py` | `SequencePairDataset`, `SerializedRecords` (`find_record`), `split_pair_members`, `PAIR_MEMBERS`, `read_sequence_frames`, `collate_padded_sequences`, `get_sequence_dataloaders`, `count_split_pairs` |
 | Model | `vision_training/models/sequence/sequence_comparator.py`, `frame_encoder.py` | `SequenceComparator`: `encode_members`, `summarise_members`, `forward`; `encode_frames` |

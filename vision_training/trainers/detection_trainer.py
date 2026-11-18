@@ -40,8 +40,8 @@ from vision_training.evaluation.report_formatting import build_table_renderables
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.coco_split_trainer import CocoSplitTrainer
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.visualization import (PanelTable, build_detection_sample_grid, convert_image_to_array,
-                                                     view_input_data)
+from vision_training.utilities.visualization import (PanelTable, ViewerWindow, build_detection_sample_grid,
+                                                     convert_image_to_array)
 
 # Files of the recalls of the anchors, in the run folder, and of the proposals, in the evaluation folder of every
 # checkpoint
@@ -689,55 +689,50 @@ class DetectionTrainer(CocoSplitTrainer):
         """
         return None, None
 
-    def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
-                           sample_index: int) -> bool:
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
         """
-        Displays an augmented training image next to a validation image, each with its ground truth boxes captioned
-        with their class names and an information panel holding its number of objects, a table of its classes (Class
-        row) over their numbers of objects (Count row), its augmentations and the objects they removed.
+        Draws one image for the input viewer and the input samples of a training launch: the image as the network
+        receives it with its ground truth boxes captioned with their class names, next to an information panel holding
+        its number of objects, a table of its classes (Class row) over their numbers of objects (Count row), its
+        augmentations and the objects they removed.
 
         Args:
-            training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
-            validation_batch (Dict[str, Any]): The validation batch, on the CPU.
-            sample_index (int): The index of the displayed images in their batches.
+            batch (Dict[str, Any]): The batch holding the image, augmented for the training split, on the CPU.
+            sample_index (int): The index of the image in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window.
 
         Returns:
-            bool: True if the user asked to stop viewing.
+            List[ViewerWindow]: The window of the image.
         """
         # The class names of the test manifest, so that the boxes, the table and the removed objects read "square"
         # instead of the category identifier of the label dictionary
         label_names = self.class_names
 
-        # The objects of every image: their number, then a table of their classes in class order over their counts,
-        # then its augmentations
-        panel_lines = []
-        for batch in [training_batch, validation_batch]:
-            class_counts = Counter(batch["labels"][sample_index].tolist())
-            if class_counts:
-                object_lines = [f"Objects : {sum(class_counts.values())}",
-                                PanelTable(row_titles=("Class", "Count"),
-                                           columns=[(label_names[class_index], str(class_counts[class_index]))
-                                                    for class_index in sorted(class_counts)])]
-            else:
-                object_lines = ["Objects : none"]
-            panel_lines.append(object_lines + self.describe_input_augmentations(
-                batch=batch, sample_index=sample_index, label_names=label_names))
-        return view_input_data(
-            images=[self.get_input_sample_image(batch=training_batch, sample_index=sample_index),
-                    self.get_input_sample_image(batch=validation_batch, sample_index=sample_index)],
-            bounding_boxes=[training_batch["bounding_boxes"][sample_index],
-                            validation_batch["bounding_boxes"][sample_index]],
-            labels=[training_batch["labels"][sample_index], validation_batch["labels"][sample_index]],
-            window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
-            label_names=label_names, panel_lines=panel_lines)
+        # The objects of the image: their number, then a table of their classes in class order over their counts
+        class_counts = Counter(batch["labels"][sample_index].tolist())
+        if class_counts:
+            object_lines = [f"Objects : {sum(class_counts.values())}",
+                            PanelTable(row_titles=("Class", "Count"),
+                                       columns=[(label_names[class_index], str(class_counts[class_index]))
+                                                for class_index in sorted(class_counts)])]
+        else:
+            object_lines = ["Objects : none"]
+        # Then the augmentations of the image and the objects they removed
+        augmentation_lines = self.describe_input_augmentations(batch=batch, sample_index=sample_index,
+                                                               split_name=split_name, label_names=label_names)
+        return [ViewerWindow(image=self.get_input_sample_image(batch=batch, sample_index=sample_index),
+                             bounding_boxes=batch["bounding_boxes"][sample_index], labels=batch["labels"][sample_index],
+                             label_names=label_names, title=split_name, target_lines=object_lines,
+                             augmentation_lines=augmentation_lines, display_input_size=self.input_image_size)]
 
     def get_input_sample_image(self, batch: Dict[str, Any], sample_index: int) -> torch.Tensor:
         """
-        Gives the image of a batch shown by the input viewer, under its boxes: the image itself for the object
-        detection, the instance segmentation trainer painting the masks of its objects on it.
+        Gives the image of a batch shown by the input viewer and the input samples of a training launch, under its
+        boxes: the image itself for the object detection, the instance segmentation trainer painting the masks of its
+        objects on it.
 
         Args:
-            batch (Dict[str, Any]): The training or validation batch, on the CPU.
+            batch (Dict[str, Any]): The training, validation or test batch, on the CPU.
             sample_index (int): The index of the image in the batch.
 
         Returns:
