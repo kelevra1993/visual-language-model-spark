@@ -27,12 +27,10 @@ import matplotlib.pyplot as plt
 
 from matplotlib.ticker import StrMethodFormatter
 from pathlib import Path
-from torch import nn
 from typing import Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_loader import load_configuration
-from vision_training.trainers.weight_averaging import (AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY,
-                                                       ExponentialMovingAverage)
+from vision_training.trainers.weight_averaging import compute_update_decay
 
 # Launches of the reference pair of the detection benchmark, the settings shipped in the detection configurations
 REFERENCE_LAUNCHES = ["run_21", "run_22"]
@@ -120,27 +118,6 @@ def read_launch_decay(results_path: Path, experiments_folder: Path, launches: Li
     return decays[launches[0]]
 
 
-def compute_last_update_decay(decay: float, number_updates: int) -> float:
-    """
-    Gives the decay of the last update of a moving average after a number of updates, through
-    ExponentialMovingAverage.get_current_decay of the trainer, so that the shaded window follows the warm-up of the
-    code: min(decay, (1 + n) / (10 + n)) for the update n, counted from 0.
-
-    Args:
-        decay (float): The configured decay of the average.
-        number_updates (int): The updates made, one per training iteration for a launch keeping its average from its
-            first iteration.
-
-    Returns:
-        float: The decay of the last of these updates.
-    """
-    # An average holding every update but the last one, its next update being the last one of the launch
-    moving_average = ExponentialMovingAverage(model=nn.Identity(), decay=decay)
-    moving_average.load_state_dict(state_dictionary={AVERAGED_MODEL_STATE_KEY: {},
-                                                     NUMBER_UPDATES_KEY: number_updates - 1})
-    return moving_average.get_current_decay()
-
-
 def draw_window_bracket(axis: plt.Axes, start_iteration: float, end_iteration: float, height: float, colour: str,
                         lines: List[str]) -> None:
     """
@@ -177,7 +154,8 @@ def draw_averaging_windows(axis: plt.Axes, last_iteration: int, decay: float) ->
     Returns:
         Dict[str, float]: The decay of the last update and both windows, in iterations.
     """
-    last_update_decay = compute_last_update_decay(decay=decay, number_updates=last_iteration)
+    # Decay of the last update of the launches, lowered by the warm-up of the trainer (update index counted from 0)
+    last_update_decay = compute_update_decay(decay=decay, update_index=last_iteration - 1)
     configured_window, last_update_window = 1.0 / (1.0 - decay), 1.0 / (1.0 - last_update_decay)
 
     # Both windows shaded behind the curves, the longer one in grey, the one of the last update in the averaged colour
