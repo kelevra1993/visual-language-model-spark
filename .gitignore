@@ -44,6 +44,10 @@ previous_classifiers/
 # Exported models served by Triton, and the staging folders of exports stopped before removing them
 vision_training/deployment/triton/served_models/
 .export_staging_*/
+# Machine-specific launch copies of the classification and self-supervised configurations, kept on the disk of the
+# machine whose datasets they read and out of version control
+vision_training/configurations/classification/imagenet_merged/
+vision_training/configurations/self_supervised/imagenet_merged/
 # Committed run snapshots of the tutorials (tutorials/MAINTAINING.md): copies of small run, dataset and figure files at
 # the paths of the experiments folder, whose folder names (hyperparameter_experiments, experiments, datasets) the rules
 # above would otherwise ignore, and the guide of the tutorial maintenance

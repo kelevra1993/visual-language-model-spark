@@ -1,6 +1,6 @@
 # Tasks Reference
 
-Details of every task, completing the [Tasks](../../README.md#tasks) section of the README. The [task workflows](../task%20workflows/) follow one run of every task function by function.
+Details of every task, completing the [Tasks](../../README.md#tasks) section of the README. The task workflows follow one run of every task function by function, such as the [classification](../task%20workflows/classification_workflow.md) and [object detection](../task%20workflows/object_detection_workflow.md) workflows; the Details column of the README Tasks table links the workflow of every task.
 
 ## Table Of Content
 - [Synthetic Datasets](#synthetic-datasets)
@@ -96,7 +96,7 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 
 **Converting a dataset**
 - One folder of images per class: `vision_training/data/classification/class_folder_manifests.py` writes the manifests and the label mapping, `data/` linking to the class folders without copying them. Set `split_folders` and `output_folder` in its main block, then run `uv run python -m vision_training.data.classification.class_folder_manifests`.
-- ImageNet-22k (14.1M images, 21,841 classes, about 1.2 TB), to pre-train the backbones: `imagenet_download.py` downloads it from Hugging Face (`timm/imagenet-22k-wds` at a pinned revision), every shard going to train but one held-out image per class of at least 50 images (18,846 images), which is both the validation and the test split (`manifests/validation` and `manifests/test` read `images/test`). The steps and disk space are in the [README](../../README.md#imagenet-22k).
+- ImageNet-22k (14.1M images, 21,841 classes, about 1.2 TB), to pre-train the backbones: `imagenet_download.py` downloads it from Hugging Face (`timm/imagenet-22k-wds` at a pinned revision), every shard going to train but one held-out image per class of at least 50 images (18,846 images), which is both the validation and the test split (`manifests/validation` and `manifests/test` read `images/test`). The steps and disk space are in the [pretraining reference](pretraining_reference.md#downloading-imagenet-22k).
   - Splits of a fresh download: `train` 14,127,545 images (every image of the 4,096 training and the 512 published validation shards, except the held-out ones), `test` 18,846 (one image per class of at least 50 images, the one whose file name has the smallest MD5 hash) and `validation` 18,846 (the `test` images). The split moves the images from wherever they sit, so running the script on a folder split another way re-splits it without downloading anything.
   - Each shard is stored, recorded in `progress/shards/`, then deleted, so an interrupted run resumes shard by shard. A shard whose download fails on a network error is tried again for about one hour, with a 60-second read timeout and plain HTTP instead of the Xet client, which hung on a dropped Wi-Fi connection.
 - Several class-folder datasets in one split: `create_class_folder_manifests` takes several named source folders per split (`data/` then holds one link per source) and the file names to leave out.
