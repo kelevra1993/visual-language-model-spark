@@ -16,9 +16,9 @@ import statistics
 import yaml
 
 from pathlib import Path
-from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict, List, Tuple
 
+from vision_training.evaluation.evaluation_curves import read_test_curves
 from vision_training.evaluation.report_formatting import format_file_value
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_TENSORBOARD_FOLDER
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -116,32 +116,6 @@ def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...], configura
                            f"before the setting existed: add it with the value the launch was trained with")
         value = value[key]
     return value
-
-
-def read_test_curves(test_folder: Path) -> Dict[str, Dict[int, float]]:
-    """
-    Reads every test curve of a launch at every evaluated checkpoint from its Tensorboard/Test (or Test_EMA) folder,
-    written at full precision by the trainer at every weight_saving_iterations checkpoint: the global metrics and the
-    per-class ones ('Recall/<class name>'), compared between the launches of an experiment by collect_launches and
-    between the best evaluations of several runs by compare_best_evaluations.py. A launch evaluated again at the same
-    iteration after a restart keeps its last evaluation.
-
-    Args:
-        test_folder (Path): The Tensorboard/Test or Tensorboard/Test_EMA folder of the run folder.
-
-    Returns:
-        Dict[str, Dict[int, float]]: The value at every evaluated iteration of every curve, empty before the first
-            evaluation.
-    """
-    # No test curve before the first evaluation of the launch
-    if not test_folder.is_dir():
-        return {}
-    events = EventAccumulator(path=str(test_folder), size_guidance={"scalars": 0})
-    events.Reload()
-
-    # Later events of the same iteration overwrite the earlier ones
-    return {curve_name: {event.step: event.value for event in events.Scalars(tag=curve_name)}
-            for curve_name in events.Tags()["scalars"]}
 
 
 def collect_launches(experiment_folder: Path, metric: str,

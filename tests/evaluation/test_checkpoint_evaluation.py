@@ -2,7 +2,8 @@
 Tests of evaluate_checkpoints of vision_training/evaluation/checkpoint_evaluation.py on the dummy task: every checkpoint
 of the registry is evaluated, deleted checkpoints are skipped and the evaluation summary holds one row per iteration,
 with the columns and the best iteration of the averaged weights for a run keeping a moving average, a standalone
-evaluation (scripts/evaluation/evaluate_checkpoint.py) writes only the Checkpoint_Evaluation folder of the run, and the
+evaluation (scripts/evaluation/evaluate_checkpoint.py) writes only the Checkpoint_Evaluation folder of the run, its
+evaluation curves included, the summary of its folder keeping the rows of the earlier standalone evaluations, and the
 best checkpoint line writes as a percentage a headline metric kept outside the metrics grid (the keypoint detection).
 """
 
@@ -28,7 +29,8 @@ def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: py
     intermediate one included) are evaluated in turn, a deleted checkpoint is skipped, the summary holds one row per
     evaluated iteration with every global evaluation scalar, and those of every class only with the per-class report,
     and the best iteration of the headline metric is printed; a run keeping a moving average of its weights gets the
-    same columns preceded by 'ema_' and the best iteration of its averaged weights.
+    same columns preceded by 'ema_', the number of updates of the averaged weights restored with every checkpoint, and
+    the best iteration of its averaged weights.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -62,9 +64,13 @@ def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: py
         assert trained_columns[1:] and all(column_name.startswith("Recall/") for column_name in trained_columns[1:])
     else:
         assert trained_columns == ["Accuracy"]
-    expected_averaged_columns = [f"ema_{column_name}" for column_name in trained_columns] if (
+    expected_averaged_columns = [f"ema_{column_name}" for column_name in trained_columns] + ["ema_number_updates"] if (
         moving_average_activated) else []
     assert column_names == ["iteration"] + trained_columns + expected_averaged_columns
+
+    # Number of updates of the averaged weights restored with every checkpoint, one per training iteration here
+    if moving_average_activated:
+        assert [row["ema_number_updates"] for row in summary_rows] == ["4", "5"]
 
     # The skipped checkpoint and the best iterations of the headline metric, every tied one in the evaluation order,
     # are reported
@@ -83,9 +89,9 @@ def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: py
 def test_standalone_evaluation_writes_only_its_checkpoint_evaluation_folder(tmp_path: Path) -> None:
     """
     Verifies that a standalone evaluation of a trained run, pointed to the run as
-    scripts/evaluation/evaluate_checkpoint.py does, writes its iteration folders and its summary directly in
-    '<run>/Checkpoint_Evaluation/', next to the Evaluation folder of the training, without a Weights folder of its
-    own, and leaves every other file of the run as it was.
+    scripts/evaluation/evaluate_checkpoint.py does, writes its iteration folders, its summary and its evaluation curves
+    directly in '<run>/Checkpoint_Evaluation/', next to the Evaluation folder of the training, without a Weights folder
+    of its own, and leaves every other file of the run as it was.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -110,10 +116,49 @@ def test_standalone_evaluation_writes_only_its_checkpoint_evaluation_folder(tmp_
     assert trainer.get_evaluation_folder(iteration=4) == run_folder / "Evaluation" / "Iteration_4"
     assert summary_path == evaluation_folder / "evaluation_summary.csv"
     assert (evaluation_folder / "Results.txt").is_file() and (evaluation_folder / "Tensorboard" / "Test").is_dir()
+    assert (evaluation_folder / "evaluation_curves.png").is_file()
     assert not (evaluation_folder / "Evaluation").exists() and not (evaluation_folder / "Weights").exists()
 
     # The files of the run itself untouched
     assert list_run_files(run_folder=run_folder) == run_files_before
+
+
+def test_standalone_evaluations_add_their_rows_to_the_summary_of_their_folder(tmp_path: Path,
+                                                                             capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the summary of the Checkpoint_Evaluation folder keeps the rows of every standalone evaluation written
+    into it, in increasing iteration order: a launch evaluating iteration 5, then one evaluating iterations 4 and 2,
+    leave the rows of iterations 2, 4 and 5, while the best checkpoint printed by each launch compares its own
+    checkpoints only.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    run_folder = trainer.experiment_folder
+
+    # Two standalone launches, the second one evaluating earlier checkpoints than the first one
+    launched_iterations = [[5], [4, 2]]
+    for iterations in launched_iterations:
+        evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5,
+                                                 view_input_images=False, number_sample_images=0,
+                                                 evaluated_run_folder=run_folder)
+        capsys.readouterr()
+        summary_path = evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=run_folder,
+                                            iterations=iterations)
+        console_output = capsys.readouterr().out
+        assert f"Evaluation Summary Of {len(iterations)} Checkpoints : " in console_output
+
+    # The best checkpoint of the last launch among its own checkpoints, the summary holding the rows of both launches
+    best_checkpoint_line = next(line for line in console_output.splitlines() if "Best Checkpoint : " in line)
+    assert "iteration 5" not in best_checkpoint_line
+    with open(file=summary_path, mode="r", newline="") as summary_file:
+        summary_rows = list(csv.DictReader(f=summary_file))
+    assert [row["iteration"] for row in summary_rows] == ["2", "4", "5"]
+    assert all(row["Accuracy"] != "" for row in summary_rows)
 
 
 def move_headline_out_of_grid(original_compute: Callable[..., EvaluationResults], accumulator: Dict[str, Any],

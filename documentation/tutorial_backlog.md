@@ -8,6 +8,7 @@ Before rebuilding or extending the tutorials, this list tells which implemented 
 To find your way in the backlog, the sections are:
 
 - [Adding An Entry](#adding-an-entry)
+- [Evaluation Summary And Curves Of A Run](#evaluation-summary-and-curves-of-a-run)
 - [Speed Benchmark Diagnosis Mode](#speed-benchmark-diagnosis-mode)
 - [Report Figures Of A Kept Classifier](#report-figures-of-a-kept-classifier)
 - [Results Of The Finer Inputs Of The Mask Heads](#results-of-the-finer-inputs-of-the-mask-heads)
@@ -22,6 +23,14 @@ Whenever a change lands on `main` with a behaviour the tutorials do not show, ad
 - **Documented in**: the README section and the reference document describing it.
 - **Tutorial status**: what the storyboards and the built videos say about it today.
 - **Where it would fit**: the series and chapter that could show it, and what the scene needs (a real run, a figure, an idle GPU).
+
+## Evaluation Summary And Curves Of A Run
+So that the test results of a run can be followed without TensorBoard, every evaluation adds its row to `Evaluation/evaluation_summary.csv` (`Checkpoint_Evaluation/` for `evaluate_checkpoint.py`) and draws `evaluation_curves.png` again next to `Results.txt`: the headline metric of the trained and averaged weights at every evaluation, the best iteration of each ringed and the windows of the moving average shaded (`BaseTrainer.update_evaluation_curves`, `vision_training/evaluation/evaluation_curves.py`).
+
+- **Added**: 2026-11-18, on branch `worktree-agent-a3d1cb4f381fe5f3c`; the merge commit on `main` is to be written here at the merge.
+- **Documented in**: [README, Run Folder](../README.md#run-folder), [training reference, Run Folder](reference/training_reference.md#run-folder) and [tools reference, Evaluating Checkpoints](reference/tools_reference.md#evaluating-checkpoints).
+- **Tutorial status**: the run folder listing of `01_foundations/01_repository_and_first_run.yaml` lacks both files, and `01_foundations/06_after_the_training.yaml` shows `evaluation_summary.csv` as the summary of `iteration = "all"` only, without the figure.
+- **Where it would fit**: both scenes, the figure drawn from the Test and Test_EMA curves of a run snapshot of `tutorials/run_snapshots/` (`seed_evaluation_summary`, then `draw_summary_curves`); no training.
 
 ## Speed Benchmark Diagnosis Mode
 To be able to compare the training and inference speeds of a configuration before a long run, `ExperimentConfiguration.diagnosis_modes.benchmark_speed: True` times the inference of every format (PyTorch evaluation, PyTorch inference model, TorchScript, ONNX Runtime CUDA, ONNX Runtime TensorRT FP32 and FP16) and the training step on one training batch tiled to any batch size, searches the largest batch sizes that fit up to 2048 while keeping a margin of memory free (40 GB on the integrated GPU of the DGX Spark, 2 GB on a discrete GPU), prints the report and exits without training (`vision_training/trainers/speed_benchmark.py`, `BaseTrainer.benchmark_speed`).

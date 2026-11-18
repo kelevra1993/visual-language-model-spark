@@ -40,20 +40,24 @@ Details of the training runs, completing the [Training](../../README.md#training
 │   ├── Test/                          # Test metrics and sample images of every evaluation
 │   └── Test_EMA/                      # Same for the moving average of the weights, when it is on
 ├── Results.txt                        # Report of every evaluated checkpoint
+├── evaluation_curves.png              # Headline metric of every evaluation, drawn again after each one
 ├── Evaluation/
+│   ├── evaluation_summary.csv         # Every test scalar of every evaluated iteration, the averaged weights in ema_ columns with ema_number_updates
 │   └── Iteration_<n>/                 # Files of the evaluation of iteration n
 │       └── EMA/                       # Files of the evaluation of the moving average of the weights, when it is on
 ├── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py, written after the training
 │   ├── training_configuration.yaml    # Configuration of the evaluation, with its split and settings
 │   ├── data.json, label_dictionary.json # Data of the evaluated split and classes of the run
 │   ├── Results.txt, Tensorboard/Test/ # Report and test curves of the evaluated checkpoints
-│   ├── evaluation_summary.csv         # One row per evaluated checkpoint, every checkpoint with iteration = "all"
+│   ├── evaluation_summary.csv         # One row per checkpoint evaluated into the folder, by every launch
+│   ├── evaluation_curves.png          # Headline metric of these checkpoints, as during the training
 │   └── Iteration_<n>/[EMA/]           # Files of the evaluation of iteration n, as in Evaluation/
 ├── Checkpoint_Evaluation_nms_<name>/  # The same for a DET or INS run evaluated with another final NMS (nms_criterion)
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
 - **Checkpoints**: one every `intermediate_weight_saving_iterations` iterations (0 for none), and one evaluated on the test split every `weight_saving_iterations`. `Iteration_<n>` holds n training steps, and its evaluation runs last in the iteration. The evaluation files are listed in [Evaluation Outputs](configuration_reference.md#evaluation-outputs).
+- **`evaluation_summary.csv` and `evaluation_curves.png`**: after the evaluation of the trained weights, then after that of the averaged weights, `update_evaluation_curves` of the base trainer (`vision_training/evaluation/evaluation_curves.py`) writes the scalars into the row of the iteration, rows in increasing iteration order, the per-class scalars only with `per_class_report`. The trained weights start the row, so that a checkpoint evaluated again after a resume replaces its row, the averaged weights adding their `ema_` columns and `ema_number_updates`, their number of updates restored with the checkpoint (one per training iteration since the average started); a scalar met for the first time adds a column, empty in the earlier rows. The figure, next to `Results.txt`, is drawn again from the whole summary in about 0.1 second: the headline metric (`Accuracy` for CLS, `mAP@0.5/area` for DET, ...) of both weights, the best iteration of each ringed with its value (`Trained best: iteration 112,500, 94.03 %`, `(+2 tied)` when several share it), and, with the moving average on, the window of the averaged weights of the highest evaluated iteration ending at it, whatever the order of the evaluations (`evaluate_checkpoint.py` evaluates `"all"` from the last checkpoint down): 1/(1 − d) iterations, d being the decay of their last update given by the `ema_number_updates` of their row (`compute_update_decay` of `vision_training/trainers/weight_averaging.py`; no window when that row, started from TensorBoard, has none), shaded in orange with the share of the weight of the average it carries once the warm-up is over (63 % for 5,000 iterations at 0.9998), and, during the warm-up, the configured 1/(1 − decay) shaded in grey behind it (after 15,000 updates at 0.9998, d = 0.9994 gives 1,668 iterations against 5,000). Both files are written into a partial file renamed over the previous one, and sent to the MLflow run at its root after every evaluation. A run evaluated before the summary existed gets, at its next evaluation, the earlier rows from its `Tensorboard/Test` and `Test_EMA` folders, whose float32 values are replaced by exact ones only if the checkpoint is evaluated again; reading them takes a few seconds once (5 to 7 seconds for 60 to 80 MB of TensorBoard events holding sample images).
 - **`label_dictionary.json`**: the class index of every category, also stored in every checkpoint. The evaluation, export and model loading tools read it instead of the mapping file, so editing or moving that file never changes the classes of a run.
 - **`data.json`**: written at the start of the run and sent to MLflow (about 1.5 seconds and 70 MB for the 1.3M images of ImageNet-1k). For every split, it holds the data folder, the SHA-256 of `labels.json` and the images in manifest order. Its `classes` are listed in class index order, the background first for DET, INS and SEG, each with its mapped categories and its count in every split (`null` for an SSL dataset without categories).
 
@@ -210,7 +214,8 @@ Every test evaluation scores the trained weights, then the averaged weights of t
 | Evaluation files | `Evaluation/Iteration_<n>/` (`Checkpoint_Evaluation/Iteration_<n>/` for `evaluate_checkpoint.py`) | `Evaluation/Iteration_<n>/EMA/` (`Checkpoint_Evaluation/Iteration_<n>/EMA/`) |
 | TensorBoard | `Test` | `Test_EMA` |
 | MLflow | `test/`, `test_class/`, `test/best_<headline metric>` (tag `best_iteration`) | `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>` (tag `best_iteration_test_ema`) |
-| `evaluation_summary.csv` of `evaluate_checkpoint.py` | one column per scalar | the same columns prefixed by `ema_` |
+| `evaluation_summary.csv` (`Evaluation/`, `Checkpoint_Evaluation/`) | one column per scalar | the same columns prefixed by `ema_`, and `ema_number_updates` |
+| `evaluation_curves.png` | blue curve | orange curve, with the window of the averaged weights of the highest evaluated iteration |
 
 ## Transfer Between Runs
 The `pretrained` block of a section initialises its component from a trained run, of the same task or of another one:

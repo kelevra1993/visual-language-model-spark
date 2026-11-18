@@ -9,7 +9,8 @@ threshold of every target precision, at the temperature saved with scripts/evalu
 (e.g. its truck), the balanced accuracy on the groups seen in training and on those never seen (predictions.csv,
 written by the evaluation with save_predictions); from the training of the run, the validation balanced accuracy of
 the trained and averaged weights at every evaluated checkpoint, the kept one ringed (Tensorboard/Test,
-Tensorboard/Test_EMA). The figures, and report_values.json with the numbers they show (the thresholds rounded down to
+Tensorboard/Test_EMA), drawn like the evaluation curves of every run (vision_training/evaluation/evaluation_curves.py).
+The figures, and report_values.json with the numbers they show (the thresholds rounded down to
 the fewest decimals, four at least, selecting the same samples, their recalls, the balanced accuracy of every group),
 are written to '<evaluation folder>/Report_Figures/'.
 """
@@ -29,7 +30,7 @@ from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from scripts.evaluation.collect_experiment_results import TEST_FOLDERS, read_test_curves
+from scripts.evaluation.collect_experiment_results import TEST_FOLDERS
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
@@ -42,6 +43,8 @@ from vision_training.evaluation.classification.temperature_explorer import (CLAS
                                                                             compute_temperature_probabilities,
                                                                             compute_temperature_thresholds,
                                                                             list_target_thresholds, load_class_logits)
+from vision_training.evaluation.evaluation_curves import (GRID_COLOR, TEXT_PRIMARY_COLOR, TEXT_SECONDARY_COLOR,
+                                                          read_test_curves, save_evaluation_curves_figure)
 from vision_training.evaluation.report_formatting import (format_percentage, format_percentage_label,
                                                           format_percentage_tick)
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME
@@ -68,15 +71,13 @@ BALANCED_ACCURACY_CURVE_NAME = "Balanced Accuracy"
 # Columns of the predictions file read for the groups figure (one class per sample)
 PREDICTION_COLUMNS = ["sample", "true_class", "predicted_class"]
 
-# Inks, grid and reference lines of the report figures; the two classes of a binary classifier (the first one red) and
-# the curve of every panel of more classes (blue); the groups seen and never seen in training (the colours of the two
-# recall columns of the table under the chart of the reports); the trained and averaged weights of the training curves
-TEXT_PRIMARY_COLOR, TEXT_SECONDARY_COLOR, GRID_COLOR, REFERENCE_LINE_COLOR = "#1f2328", "#5f6670", "#e3e6ea", "#c9ced6"
+# Reference lines of the report figures, their inks and grid being those of the evaluation curves; the two classes of a
+# binary classifier (the first one red) and the curve of every panel of more classes (blue); the groups seen and never
+# seen in training (the colours of the two recall columns of the table under the chart of the reports)
+REFERENCE_LINE_COLOR = "#c9ced6"
 BINARY_CLASS_COLORS = ["#b3261e", "#2b5fa8"]
 PANEL_CURVE_COLOR = "#2b5fa8"
 SEEN_GROUP_COLOR, NEVER_SEEN_GROUP_COLOR = "#2a78d6", "#d9730d"
-WEIGHTS_COLORS = {"trained": "#2a78d6", "ema": "#eb6834"}
-WEIGHTS_LABELS = {"trained": "Trained weights", "ema": "Moving average of the weights (EMA)"}
 
 # Offsets in points of the thresholds written next to their point: above and right for the first class of a binary
 # classifier, below and left for the second one and for the panels of more classes
@@ -95,13 +96,12 @@ PRECISION_AXIS_MARGIN = 0.05
 PANEL_COLUMNS = 3
 
 # Sizes in inches and resolutions of the figures, so that a Notion page shows each one at its full width: the
-# precision-recall figure (the height of a row of panels), the training curves and the groups chart
+# precision-recall figure (the height of a row of panels) and the groups chart, the training curves keeping those of
+# the evaluation curves
 BINARY_FIGURE_SIZE = (11.0, 7.0)
 PANEL_FIGURE_WIDTH, PANEL_ROW_HEIGHT = 15.0, 4.5
-TRAINING_CURVES_FIGURE_SIZE = (9.0, 4.2)
 GROUPS_FIGURE_SIZE = (6.4, 3.8)
 PRECISION_RECALL_DOTS_PER_INCH = 150
-TRAINING_CURVES_DOTS_PER_INCH = 200
 GROUPS_DOTS_PER_INCH = 230
 
 # Font of the figures of the reports, used when installed in this folder, matplotlib's default font otherwise
@@ -159,20 +159,6 @@ def register_report_font() -> Optional[str]:
     for font_path in font_paths:
         font_manager.fontManager.addfont(path=font_path)
     return REPORT_FONT_FAMILY
-
-
-def format_iteration_tick(value: float, position: Optional[int] = None) -> str:
-    """
-    Writes a tick of the iteration axis of the training curves with a thousands separator, e.g. "7,500".
-
-    Args:
-        value (float): The iteration of the tick.
-        position (Optional[int]): The position of the tick, given by matplotlib and not used. Defaults to None.
-
-    Returns:
-        str: The tick label.
-    """
-    return f"{int(value):,}"
 
 
 def read_confusion_matrix(table_path: Path) -> Tuple[List[str], torch.Tensor]:
@@ -511,7 +497,8 @@ def draw_training_curves_figure(curves: Dict[str, Dict[int, float]], iteration: 
     """
     Draws the validation balanced accuracy of the trained and averaged weights at every checkpoint evaluated during
     the training, the kept checkpoint ringed with its value, the training figure of the report showing when the kept
-    weights were reached and how the curves move around them.
+    weights were reached and how the curves move around them, with the drawing of the evaluation curves of every run
+    (save_evaluation_curves_figure, without the window of the moving average).
 
     Args:
         curves (Dict[str, Dict[int, float]]): The balanced accuracy of the weights at every evaluated iteration, the
@@ -524,42 +511,13 @@ def draw_training_curves_figure(curves: Dict[str, Dict[int, float]], iteration: 
     Returns:
         float: The balanced accuracy of the kept checkpoint.
     """
-    figure = Figure(figsize=TRAINING_CURVES_FIGURE_SIZE)
-    FigureCanvasAgg(figure=figure)
-    axis = figure.subplots()
-
-    # One line per kind of weights, a point at every evaluated checkpoint
-    for curve_weights, curve in curves.items():
-        curve_iterations = sorted(curve)
-        axis.plot(curve_iterations, [curve[curve_iteration] for curve_iteration in curve_iterations],
-                  color=WEIGHTS_COLORS[curve_weights], linewidth=2, marker="o", markersize=4,
-                  label=WEIGHTS_LABELS[curve_weights])
-
-    # Ring around the kept checkpoint and its value above it, written on its left when it is the last point
+    # The kept checkpoint ringed on the curve of its weights, its value written above it
     kept_value = curves[weights][iteration]
-    axis.plot([iteration], [kept_value], marker="o", markersize=13, markerfacecolor="none",
-              markeredgecolor=TEXT_PRIMARY_COLOR, markeredgewidth=1.6)
-    axis.annotate(text=f"kept: iteration {iteration:,}, {format_percentage(value=kept_value)}",
-                  xy=(iteration, kept_value), xytext=(0, 14), textcoords="offset points",
-                  ha="right" if iteration == max(curves[weights]) else "center", fontsize=10,
-                  color=TEXT_PRIMARY_COLOR, bbox={"boxstyle": "round,pad=0.25", "facecolor": "white",
-                                                  "edgecolor": "none"})
-
-    # Rates in percent from a little below the lowest value, recessive axes and grid
-    all_values = [value for curve in curves.values() for value in curve.values()]
-    axis.set_ylim(bottom=max(0.0, min(all_values) - 0.03), top=min(1.005, max(all_values) + 0.02))
-    axis.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
-    axis.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_iteration_tick))
-    axis.set_xlabel(xlabel="Training iteration", color=TEXT_SECONDARY_COLOR, fontsize=10)
-    axis.set_ylabel(ylabel=f"{split_name.capitalize()} balanced accuracy", color=TEXT_SECONDARY_COLOR, fontsize=10)
-    axis.grid(axis="y", color=GRID_COLOR, linewidth=0.8)
-    axis.set_axisbelow(True)
-    axis.spines[["top", "right"]].set_visible(False)
-    axis.spines[["left", "bottom"]].set_color(GRID_COLOR)
-    axis.tick_params(colors=TEXT_SECONDARY_COLOR, labelsize=9)
-    axis.legend(frameon=False, fontsize=9, loc="lower right", labelcolor=TEXT_PRIMARY_COLOR)
-    figure.tight_layout()
-    figure.savefig(fname=output_path, dpi=TRAINING_CURVES_DOTS_PER_INCH, facecolor="white")
+    kept_point = {"weights": weights, "iterations": [iteration],
+                  "label": f"kept: iteration {iteration:,}, {format_percentage(value=kept_value)}"}
+    save_evaluation_curves_figure(curves=curves, marked_points=[kept_point],
+                                  metric_label=f"{split_name.capitalize()} balanced accuracy", in_percent=True,
+                                  moving_average=None, title=None, output_path=output_path)
     return kept_value
 
 
