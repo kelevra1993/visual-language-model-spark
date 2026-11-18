@@ -745,6 +745,7 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── documentation/
 │   ├── architecture_benchmarking/     # Experiment plans, copies of their results, stage figures, experiment_comparisons.yaml
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
+│   ├── pretraining_strategy.md        # Order of the classification, detection and instance segmentation pretraining of the T to XL sizes
 │   ├── reference/                     # Training, tasks, configurations and tools in detail
 │   ├── task workflows/                # One run of every task followed function by function
 │   ├── suggestions.md                 # Proposed improvements and repository audit
