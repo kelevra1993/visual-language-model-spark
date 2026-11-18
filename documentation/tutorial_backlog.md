@@ -50,7 +50,7 @@ In order to show what the finer inputs of the instance segmentation mask heads b
 Should you need the pretrained backbones of the classification or self-supervised example configurations, `vision_training/data/classification/imagenet_download.py` downloads ImageNet-22k (`timm/imagenet-22k-wds` at a pinned revision, 21,841 classes).
 
 - **Added**: `main` a8a8ff2, 2026-11-11.
-- **Documented in**: [README, ImageNet-22k](../README.md#imagenet-22k).
+- **Documented in**: [pretraining reference, ImageNet-22k](reference/pretraining_reference.md#imagenet-22k).
 - **Tutorial status**: no storyboard mentions ImageNet or the script; the tutorials train on synthetic data only.
 - **Where it would fit**: one terminal scene after the `uv sync` scene of `01_foundations/01_repository_and_first_run.yaml`; no download needed.
 

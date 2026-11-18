@@ -10,7 +10,6 @@
 - [Prerequisites](#prerequisites)
   - [Package Requirements](#package-requirements)
   - [Data Requirements](#data-requirements)
-  - [ImageNet-22k](#imagenet-22k)
 - [Quick Start With Synthetic Data](#quick-start-with-synthetic-data)
 - [Training](#training)
   - [Launching A Run](#launching-a-run)
@@ -72,7 +71,8 @@ This README gives the commands and the settings that matter most. The details ar
 - [Tasks reference](documentation/reference/tasks_reference.md): synthetic datasets, data format, converters, losses and metrics of every task.
 - [Configuration reference](documentation/reference/configuration_reference.md): keys and values of every task, evaluation outputs, run name tokens, MLflow metrics.
 - [Tools reference](documentation/reference/tools_reference.md): checkpoint evaluation, launch comparison, embedding clustering, export, input contract and Triton.
-- [Task workflows](documentation/task%20workflows/): one run of every task followed function by function.
+- [Pretraining reference](documentation/reference/pretraining_reference.md): download of ImageNet-22k, on which the classification configurations pre-train the backbones, and its validation and test splits.
+- Task workflows: one run of every task followed function by function, such as the [classification](documentation/task%20workflows/classification_workflow.md) and [object detection](documentation/task%20workflows/object_detection_workflow.md) workflows; the Details column of the [Tasks](#tasks) table links the workflow of every task.
 
 ## Prerequisites
 
@@ -98,23 +98,7 @@ For a task to train, it needs a train, a validation and a test split folder, eac
   <img src="README/data_folder_layout.png" width="100%" />
 </p>
 
-### ImageNet-22k
-Should you need the pre-trained backbones of the classification configurations (`configuration_example.yaml` and the `*_model.yaml` files of `vision_training/configurations/classification/`) or of the self-supervised example, download ImageNet-22k with `vision_training/data/classification/imagenet_download.py`. It reads `timm/imagenet-22k-wds` from Hugging Face at a pinned revision (fall11 release, 21,841 classes, 4,608 shards of about 0.29 GB).
-1. Accept the terms of [timm/imagenet-22k-wds](https://huggingface.co/datasets/timm/imagenet-22k-wds) (non-commercial research and education only), then log in with `uv run hf auth login`.
-2. Keep about 1.3 TB free on the disk of `dataset_folder` (main block of the script, `~/Data/classifier_data/imagenet-22k` by default); the download stops below 100 GB free.
-3. Run it. It resumes shard by shard after an interruption, at about 1,500 shards an hour with 16 workers on a DGX Spark.
-
-```bash
-uv run python -m vision_training.data.classification.imagenet_download
-```
-
-<p align="center">
-  <img src="README/imagenet_22k_download.png" width="100%" />
-</p>
-
-The held-out images (18,846) are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](documentation/reference/tasks_reference.md#classification-cls).
-
-Should a machine hold `imagenet-merged`, the manifests built by an earlier version of the download (every ImageNet-22k image and the ImageNet-1k training images in training, 15,405,266 images, the ImageNet-1k validation and test images, 21,842 classes), the copies in `imagenet_merged/` of `vision_training/configurations/classification/` and `self_supervised/` train on it with the settings of their source file, testing on the 50,000 ImageNet-1k test images.
+Should the backbones of classification, object detection or segmentation start from pre-trained weights, the [pretraining reference](documentation/reference/pretraining_reference.md) describes the download of ImageNet-22k, on which the classification configurations train the backbones the other tasks load.
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
@@ -359,7 +343,7 @@ To find where a classifier fails, read its confusion matrix (percent of every tr
 </p>
 <p align="center"><em>The confusion matrix and three error folders of the synthetic shapes classifier of the README screenshots, evaluated at iteration 1500.</em></p>
 
-Should a research report need the figures of its kept classifier again, set the run, iteration and weights of the main block of `scripts/evaluation/draw_report_figures.py`, then run the command below. It writes into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` the confusion matrix, the precision-recall curves at the temperature saved from the temperature explorer with the threshold of every target precision, the training curves with the kept checkpoint and, given a manifest of the truck of every image and the `predictions.csv` of the evaluation, the balanced accuracy on the trucks seen and never seen in training, with `report_values.json`, the numbers they show. Details: [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report).
+Should a research report need the figures of its kept classifier again, set the run, iteration and weights of the main block of `scripts/evaluation/draw_report_figures.py`, then run the command below. It writes into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` the confusion matrix, the precision-recall curves at the temperature saved from the temperature explorer with the threshold of every target precision, the training curves with the kept checkpoint and, given a manifest of the group of every image (such as the camera or vehicle it comes from) and the `predictions.csv` of the evaluation, the balanced accuracy on the groups seen and never seen in training, with `report_values.json`, the numbers they show. Details: [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report).
 
 ```bash
 uv run python -m scripts.evaluation.draw_report_figures
@@ -470,7 +454,7 @@ docker compose up
 <p align="center"><em>The README classifier (512 pixels) exported with TensorRT FP32, measured on 2026-10-23 while three trainings shared the GPU (item 28 of <code>documentation/suggestions.md</code>): lower than the model gives alone, to measure again on an idle GPU.</em></p>
 
 ### Serving Formats And Precision
-Before a model goes to production, its serving path and its number format decide its latency, its throughput, its memory and how far its outputs move from the FP32 model that was evaluated. This part states what the repository exports today, what Triton, TensorRT and the reduced precisions add and cost on this machine (GB10 GPU; the Triton image `26.01-py3` ships Triton 2.65.0, CUDA 13.1.1 and TensorRT 10.14.1, [release notes](https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2670/release-notes/rel-26-01.html)), and what the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) of 2026-11-17 measured on the idle GPU.
+Before a model goes to production, its serving path and its number format decide its latency, its throughput, its memory and how far its outputs move from the FP32 model that was evaluated. This part states what the repository exports today, what Triton, TensorRT and the reduced precisions add and cost on the DGX Spark of the measurements (GB10 GPU; the Triton image `26.01-py3` ships Triton 2.65.0, CUDA 13.1.1 and TensorRT 10.14.1, [release notes](https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2670/release-notes/rel-26-01.html)), and what the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) of 2026-11-17 measured on the idle GPU.
 
 #### What Is Exported Today
 If you are looking for what can be deployed without new code, here is what `export_model.py` and `triton_configuration.py` write. The inputs and outputs of every served model stay float32 (`TYPE_FP32` in `config.pbtxt`) whatever the precision: it only changes the computation inside the engine, so a request keeps its size.
@@ -752,7 +736,7 @@ To find your way in the code, the diagram follows the packages along the path of
 │   ├── architecture_benchmarking/     # Experiment plans, copies of their results, stage figures, experiment_comparisons.yaml
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
 │   ├── pretraining_strategy.md        # Order of the classification, detection and instance segmentation pretraining of the T to XL sizes
-│   ├── reference/                     # Training, tasks, configurations and tools in detail
+│   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k) in detail
 │   ├── task workflows/                # One run of every task followed function by function
 │   ├── suggestions.md                 # Proposed improvements and repository audit
 │   └── tutorial_backlog.md            # Implemented features the tutorials do not show yet (not exhaustive)

@@ -56,9 +56,9 @@ Should a research report need its figures again, after a new evaluation of its k
 | `evaluation_folder_name` | `Checkpoint_Evaluation` (`evaluate_checkpoint.py`, where the temperature explorer saves the temperature) or `Evaluation` (the training) |
 | `class_display_names` | the name shown for every class, in the order of the curves or panels, `None` for the class names in class index order |
 | `sample_kind`, `split_name` | written in the titles, e.g. "on the 1,942 validation images" |
-| `minimum_recall` | the left end of the recall axis, 0, or close to 1 when every threshold keeps nearly every sample (0.98 for the compactor) |
-| `group_manifest_path` | a JSON Lines manifest giving the group of every training and evaluated sample (the `frames_manifest.jsonl` of a dataset built from truck images), `None` to skip the groups chart |
-| `file_name_key`, `group_key`, `group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`"file_name"`, `"truck"`, `"trucks"`) |
+| `minimum_recall` | the left end of the recall axis, 0, or close to 1 when every threshold keeps nearly every sample (e.g. 0.98) |
+| `group_manifest_path` | a JSON Lines manifest, one object per sample, giving the group of every training and evaluated sample (such as the camera or vehicle of every frame), `None` to skip the groups chart |
+| `file_name_key`, `group_key`, `group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`"file_name"`, `"truck"`, `"trucks"` in the main block) |
 | `training_labels_path` | the `labels.json` of the training split, `None` for the one of the `train_data_folder` of the run |
 | `predictions_path` | the predictions of the evaluation, `None` for its `predictions.csv` (`save_predictions = True` in `evaluate_checkpoint.py`) |
 
@@ -95,10 +95,13 @@ Every row is a launch and its weights (`evaluated_weights`: `trained`, or `ema` 
 | `table_grouping` | `"run"` for one table per run, `"columns"` for one table per set of column titles |
 | `curves_in_percent`, `number_decimals`, `output_path` | whether the curves that are rates are written as the percentages of the reports, `89.80 %` (`True` in the main block), the decimals of the other curves (3): the mean true frame rank, effective rank, standard deviation, proposals per image and keypoint pixel error of `NON_RATE_CURVE_NAMES`, or every curve with `False`; and a Markdown file receiving the tables (`None` to print only) |
 
+Say you compare two of the four runs of the main block, the synthetic shapes classifier of the README trained at two learning rates, with `table_grouping = "columns"`, the learning rate as first column and the recalls of two of its classes:
+
 ```text
-| Image Size | Best Iteration | Balanced Accuracy | Recall empty_bin | Recall not_empty | Validation Images | Train Images |
+| Learning Rate | Best Iteration | Balanced Accuracy | Recall square | Recall circle | Validation Images | Train Images |
 |---|---|---|---|---|---|---|
-| 512 | 200 | 89.80 % | 94.60 % | 85.00 % | 18,702 | 43,577 |
+| 0.0002 | 1500 | 82.64 % | 62.11 % | 70.23 % | 50,000 | 500,000 |
+| 0.001 | 600 | 41.61 % | 87.35 % | 100.00 % | 50,000 | 500,000 |
 ```
 
 A run not evaluated yet is printed in yellow and left out. A missing curve or count stops the script, listing the available ones.
@@ -118,10 +121,10 @@ Every entry of the registry gives the results file, the stage and its title, the
 If one wishes to see every convolution before the mask of the designs of stages 3 and 3b of the instance segmentation benchmark, with their cost, `scripts/models/instance_segmentation/draw_mask_head_designs.py` draws them one under the other:
 
 ```bash
-uv run python -m scripts.models.instance_segmentation.draw_mask_head_designs --configuration_path=vision_training/configurations/instance_segmentation/run-1.yaml --output_path=documentation/architecture_benchmarking/figures/instance_segmentation/mask_head_designs.png
+uv run python -m scripts.models.instance_segmentation.draw_mask_head_designs --configuration_path=vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml --output_path=/tmp/mask_head_designs.png
 ```
 
-The configuration is the launch file of the benchmark (`documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`), which is not tracked by git: another instance segmentation configuration, such as `configuration_synthetic_shapes.yaml`, can be given instead. Every design of its `DESIGNS` (the reference `[3, 32]`, stage 3 `[4, 64]`, and on it the image branch of design A, the U-Net skips of design B and the fusion convolution alone of the control) is built from the configuration file with its settings, as the training builds it; the figure reads its layers, channels, strides and residual shortcuts from the built mask heads, and its multiply-accumulates per box are counted on those layers by forward hooks on one box, printed with the parameters of the mask heads and the fine inputs.
+Any instance segmentation configuration can be given, the counts following its settings. The figure of the [instance segmentation plan](../architecture_benchmarking/instance_segmentation_experiment_plan.md), `documentation/architecture_benchmarking/figures/instance_segmentation/mask_head_designs.png`, was drawn from the launch file of the benchmark, a configuration not tracked by git. Every design of its `DESIGNS` (the reference `[3, 32]`, stage 3 `[4, 64]`, and on it the image branch of design A, the U-Net skips of design B and the fusion convolution alone of the control) is built from the configuration file with its settings, as the training builds it; the figure reads its layers, channels, strides and residual shortcuts from the built mask heads, and its multiply-accumulates per box are counted on those layers by forward hooks on one box, printed with the parameters of the mask heads and the fine inputs.
 
 ## Clustering Image Embeddings
 `scripts/embedding/cluster_image_embeddings.py` embeds images with a trained run and clusters them, to choose diverse images from a dataset of near-identical video frames.
