@@ -189,7 +189,7 @@ scenes:
     narration:
       - "To find your way, the training framework holds the entry point, the configurations, the data, the models and losses, the trainers, the evaluation, the tracking and the deployment."
       - "Next to it, the scripts folder holds the evaluation, comparison, clustering and serving benchmark scripts, the tests mirror the framework, and the documentation keeps the reference documents, the benchmark and one run of every task followed function by function."
-      - "And the tutorials folder rebuilds these videos from the repository and its runs, so that they follow the code."
+      - "And the tutorials folder rebuilds these videos from the repository alone, small copies of their runs included, so that they follow the code."
 
   - kind: summary
     title: "The foundations"
