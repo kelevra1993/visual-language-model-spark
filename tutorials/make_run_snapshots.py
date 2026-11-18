@@ -29,7 +29,7 @@ import shutil
 import yaml
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 from tensorboard.backend.event_processing.event_file_loader import RawEventFileLoader
 from tensorboard.compat.proto import event_pb2
@@ -439,7 +439,7 @@ def plan_series_entries(series_name: str, specification: Dict[str, Any], sources
         specification (Dict[str, Any]): Its snapshot_files.yaml.
         sources (Dict[str, Any]): tutorial_sources.yaml.
         experiments_folder (Path): The folder of the real runs.
-        data_root (Path): The data root of the machine, the recorded_data_root of the snapshots by default.
+        data_root (Path): The data root of the machine, the recorded_data_root of the snapshots.
         figures_folder (Path): The figures folder of the build cache.
         snapshot_root (Path): The snapshot folder.
 
@@ -557,48 +557,50 @@ def merge_planned_files(planned_by_series: Dict[str, List[Dict[str, Any]]]) -> D
     return merged_files
 
 
-def write_planned_file(planned_file: Dict[str, Any], maximum_file_bytes: int, allow_replace: bool) -> Dict[str, Any]:
+def write_planned_file(planned_file: Dict[str, Any], maximum_file_bytes: int) -> Tuple[Dict[str, Any], Path]:
     """
-    Writes one snapshot file through its reduction, into a temporary file first, and checks its size against the
-    git-friendly maximum; a file already in the snapshot with other bytes is replaced only when every series reading
-    it is written in this call, so that writing one series never changes the file of another one.
+    Writes one snapshot file through its reduction into a temporary file next to its destination and checks its size
+    against the git-friendly maximum; main moves every temporary file into place only once every file of the call is
+    written and none would replace a file a series not written in this call reads, so that a refused or failed call
+    leaves the snapshot folder as it was.
 
     Args:
         planned_file (Dict[str, Any]): The merged planned file.
         maximum_file_bytes (int): The largest size of a snapshot file.
-        allow_replace (bool): Whether a different existing file may be replaced.
 
     Returns:
-        Dict[str, Any]: Its manifest record.
+        Tuple[Dict[str, Any], Path]: Its manifest record and the temporary file holding its bytes.
 
     Raises:
-        ValueError: If the written file is too large, or would replace a different file without allow_replace.
+        ValueError: If the written file is too large.
     """
     destination = planned_file["destination"]
     temporary_path = destination.with_name(destination.name + ".snapshot_tmp")
     reduction_options = {key: value for key, value in planned_file["options"].items() if key != "compress"}
-    find_reduction(reduction_name=planned_file["reduction"])(planned_file["source"], temporary_path, reduction_options)
-    if planned_file["options"].get("compress") == "gzip":
-        compress_file(file_path=temporary_path)
+
+    # Reduce (and compress) into the temporary file, removed on a failure so that no stray file enters the snapshot
+    try:
+        find_reduction(reduction_name=planned_file["reduction"])(planned_file["source"], temporary_path,
+                                                                 reduction_options)
+        if planned_file["options"].get("compress") == "gzip":
+            compress_file(file_path=temporary_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
     written_bytes = temporary_path.stat().st_size
     if written_bytes > maximum_file_bytes:
         temporary_path.unlink()
         raise ValueError(f"{destination} would be {written_bytes / BYTES_PER_MEGABYTE:.2f} megabytes, above the "
                          f"{maximum_file_bytes / BYTES_PER_MEGABYTE:.0f} of the snapshots: reduce it in "
                          f"snapshot_files.yaml of {planned_file['series']}.")
-    written_sha256 = compute_sha256(file_path=temporary_path)
-    if destination.exists() and compute_sha256(file_path=destination) != written_sha256 and not allow_replace:
-        temporary_path.unlink()
-        raise ValueError(f"{destination} exists with other bytes and is also read by series not written now: write "
-                         f"every series (no --series) to replace it.")
-    temporary_path.replace(target=destination)
     source = planned_file["source"]
-    return {"snapshot_path": None, "source_kind": planned_file["source_kind"],
-            "source_path": planned_file["source_relative"], "reduction": planned_file["reduction"],
-            "options": planned_file["options"],
-            "source_bytes": source.stat().st_size if source.is_file() else None,
-            "source_sha256": compute_sha256(file_path=source) if source.is_file() else None,
-            "snapshot_bytes": written_bytes, "snapshot_sha256": written_sha256}
+    record = {"snapshot_path": None, "source_kind": planned_file["source_kind"],
+              "source_path": planned_file["source_relative"], "reduction": planned_file["reduction"],
+              "options": planned_file["options"],
+              "source_bytes": source.stat().st_size if source.is_file() else None,
+              "source_sha256": compute_sha256(file_path=source) if source.is_file() else None,
+              "snapshot_bytes": written_bytes, "snapshot_sha256": compute_sha256(file_path=temporary_path)}
+    return record, temporary_path
 
 
 def read_settings(repository_root: Path, arguments: argparse.Namespace) -> Tuple[Dict[str, Any], Path, Path, Path]:
@@ -620,6 +622,28 @@ def read_settings(repository_root: Path, arguments: argparse.Namespace) -> Tuple
     figures_folder = Path(arguments.figures_folder or Path(project["cache_folder"]) / "figures").expanduser()
     snapshot_root = repository_root / sources["snapshots"]["folder"]
     return sources, experiments_folder, figures_folder, snapshot_root
+
+
+def list_paths_of_unwritten_series(snapshot_root: Path, written_series: List[str]) -> Set[Path]:
+    """
+    Lists the snapshot files named by the manifests of the series not written in this call (a --series call), so that
+    main replaces a changed file only when no such series reads it: that manifest would otherwise keep the SHA-256 of
+    the old bytes, and --check would fail.
+
+    Args:
+        snapshot_root (Path): The snapshot folder.
+        written_series (List[str]): The series written in this call, the recipes pseudo-series included.
+
+    Returns:
+        Set[Path]: The absolute snapshot paths those manifests list.
+    """
+    listed_paths = set()
+    for manifest_path in sorted((snapshot_root / MANIFESTS_FOLDER_NAME).glob("*.json")):
+        if manifest_path.stem in written_series:
+            continue
+        for record in json.loads(manifest_path.read_text(encoding="utf-8"))["files"]:
+            listed_paths.add(snapshot_root / record["snapshot_path"])
+    return listed_paths
 
 
 def check_snapshot(snapshot_root: Path) -> None:
@@ -672,6 +696,9 @@ def main() -> None:
     unknown_series = sorted(set(series_names) - set(all_series))
     if unknown_series:
         raise ValueError(f"No {SPECIFICATION_FILE_NAME} for {unknown_series}; series with one: {all_series}.")
+    every_series_written = set(series_names) == set(all_series)
+    if arguments.prune and not every_series_written:
+        raise ValueError("--prune needs every series written (no --series).")
 
     # Files planned by every series, merged by destination
     data_root = Path(sources["snapshots"]["recorded_data_root"])
@@ -689,16 +716,36 @@ def main() -> None:
         snapshot_root=snapshot_root)
     merged_files = merge_planned_files(planned_by_series=planned_by_series)
 
-    # Files written, then one manifest per series listing the files it reads
+    # Every file written into its temporary file first, the temporary files removed if one fails
     maximum_file_bytes = int(sources["snapshots"]["maximum_file_megabytes"] * BYTES_PER_MEGABYTE)
-    allow_replace = arguments.series is None or set(series_names) == set(all_series)
     records_by_series: Dict[str, List[Dict[str, Any]]] = {series_name: [] for series_name in planned_by_series}
-    for destination, planned_file in sorted(merged_files.items()):
-        record = write_planned_file(planned_file=planned_file, maximum_file_bytes=maximum_file_bytes,
-                                    allow_replace=allow_replace)
-        record["snapshot_path"] = str(destination.relative_to(snapshot_root))
-        for series_name in planned_file["series"]:
-            records_by_series[series_name].append(record)
+    temporary_paths: Dict[Path, Path] = {}
+    try:
+        for destination, planned_file in sorted(merged_files.items()):
+            record, temporary_paths[destination] = write_planned_file(planned_file=planned_file,
+                                                                      maximum_file_bytes=maximum_file_bytes)
+            record["snapshot_path"] = str(destination.relative_to(snapshot_root))
+            for series_name in planned_file["series"]:
+                records_by_series[series_name].append(record)
+
+        # A changed file read by a series not written now would leave that series' manifest stale: refuse the call
+        paths_read_elsewhere = list_paths_of_unwritten_series(snapshot_root=snapshot_root,
+                                                              written_series=list(planned_by_series))
+        refused_paths = [destination for destination, temporary_path in temporary_paths.items()
+                         if destination in paths_read_elsewhere and destination.exists()
+                         and compute_sha256(file_path=destination) != compute_sha256(file_path=temporary_path)]
+        if refused_paths:
+            raise ValueError("These files changed and are also read by series not written now; add those series to "
+                             "--series (or write every series) to replace them:\n"
+                             + "\n".join(str(path.relative_to(snapshot_root)) for path in refused_paths))
+    except BaseException:
+        for temporary_path in temporary_paths.values():
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+    # Temporary files moved into place, then one manifest per series listing the files it reads
+    for destination, temporary_path in temporary_paths.items():
+        temporary_path.replace(target=destination)
     (snapshot_root / MANIFESTS_FOLDER_NAME).mkdir(parents=True, exist_ok=True)
     for series_name, records in records_by_series.items():
         manifest = {"series": series_name, "experiments_folder_label": sources["snapshots"]["experiments_label"],
@@ -709,8 +756,6 @@ def main() -> None:
 
     # Stale files removed when every series was written, then the size of the whole snapshot folder
     if arguments.prune:
-        if not allow_replace:
-            raise ValueError("--prune needs every series written (no --series).")
         written_paths = set(merged_files)
         for snapshot_path in sorted(snapshot_root.rglob("*")):
             relative_parts = snapshot_path.relative_to(snapshot_root).parts
