@@ -6,6 +6,7 @@
 - [What Lives Where](#what-lives-where)
 - [Building On A New Machine](#building-on-a-new-machine)
 - [Run Snapshots](#run-snapshots)
+- [Committed Figure Families](#committed-figure-families)
 - [Keeping The Repository Self-Sufficient](#keeping-the-repository-self-sufficient)
 - [Rules For Writing And Updating Chapters](#rules-for-writing-and-updating-chapters)
 - [Review And Rebuild Workflow](#review-and-rebuild-workflow)
@@ -106,11 +107,48 @@ snapshots again on the machine of the runs, from the repository root:
 .venv/bin/python -m tutorials.make_run_snapshots --check            # compares the folder with its manifests, reads no run
 ```
 
-The `figure_reuse/` copies come from the figures folder of the cache (`--figures-folder` to take another): build the
-figures of the series from the real runs first (`tutorials/build_tutorials.sh --series <series> --figures-only`), so
-that the committed outputs are those of the current code. Until they are written again, a build from the snapshots shows
-the outputs of the last snapshot, even if the code of their family changed since: refresh them with every change of a
-family that needs a checkpoint.
+The `figure_reuse/` copies come from the figures folder of the cache (`--figures-folder` to take another), so a build
+of the series from the real runs comes first. Until they are written again, a build from the snapshots shows the
+outputs of the last snapshot, even if the code of their family changed since; the next section lists when and how to
+write them again.
+
+## Committed Figure Families
+Each time a run, its checkpoint or the code of a family below changes, its committed outputs must be written again,
+since a build from the snapshots never recomputes them (with `--force-figures`, a family without its checkpoint either
+reuses them or stops with an error):
+
+| Series | `figure_reuse/` folder | Script | Write again after |
+|---|---|---|---|
+| foundations | `model` | `foundations/backbone_activations.py` | a retrain of the classification run, a change of the script or of `STAR_IMAGE_NAME` |
+| classification | `model` | `classification/classification_head.py` | a retrain of the classification run (its last checkpoint), a change of the head logits or hidden feature correlation code |
+| self_supervised | `representations` | `self_supervised/representation_figures.py` | a change of the run or its checkpoints, of the k-NN or InfoNCE code; the 10 mosaic images of its `snapshot_files.yaml` (the `knn.nearest_<iteration>` indices of `representation_facts.json` for the first and last evaluated iterations, mapped through the reference order) change with them |
+| object_detection | `inference` | `object_detection/detector_inference.py` | a change of the run or checkpoint, of the inference outputs (facts, figures, sampling, the postprocessing called) or of `INFERENCE_FACTS_VERSION` |
+| instance_segmentation | `masks` | `instance_segmentation/mask_figures.py` | a change of the run or checkpoint or of the mask outputs; this family has no version key, so stale masks are reused without warning |
+| keypoint_detection | `inference` | `keypoint_detection/keypoint_inference.py` | a change of the run, of checkpoint 6000 or of the heatmap, candidate and grouping code |
+| semantic_segmentation | `inference` | `semantic_segmentation/segmentation_inference.py` | a change of the run, of checkpoint 2000 or of the activation and class map code |
+| sequence_classification | `model`, `batch`, `animations` | `sequence_classification/model_figures.py`, `batch_animation.py` | a retrain or new evaluation of the run, a change of the truncation inference or of the animated batch, a change of the sequence generator (the batch draws the current generator) |
+| sequence_comparison | `batch`, `animations` | `sequence_comparison/pair_batch_animation.py` | a retrain of the run or a change of the pair batch |
+| sequence_labelling | `dataset`, `listings`, `evaluation` | `sequence_labelling/dataset_figures.py`, `evaluation_figures.py` | a retrain or new evaluation of the run, a change of these families; they need the training labels of the dataset, which the snapshots leave out |
+| frame_selection | `selection` | `frame_selection/selection_figures.py` | a retrain or new evaluation of the run, a change of the wrong picks figure |
+
+To refresh one, build its series from the real runs into an empty scratch cache, then write the snapshot from that
+cache; the shared cache may hold outputs of older code that the reuse check accepts:
+```bash
+tutorials/build_tutorials.sh --series <series> --figures-only --cache-folder <empty scratch folder>
+.venv/bin/python -m tutorials.make_run_snapshots --series <series> <other series reading the same files> \
+  --figures-folder <empty scratch folder>/figures
+```
+
+Other points to keep in mind when a run or a figure script changes:
+- `run_folder_listing.tsv` of the classification run (foundations): the folder trees of the first chapter and the checkpoint and evaluation counts; write it again when the run gains or loses a checkpoint or an evaluation.
+- The transfer console of `foundations/backbone_transfer.py` loads a stand-in of the classification run holding random weights, which is exact as long as the console prints only the configuration, the checkpoint label and the tensor shapes.
+- The reduced training manifest of the synthetic shapes (classification and self_supervised): its first 3 samples and the k-NN references picked by `select_reference_samples`; write it again when `evaluation.number_reference_images_per_class` (50, `reference_samples_per_category` of the entry) changes.
+- The gzipped `predictions.csv` of the classification run: the CSV size quoted on screen comes from `source_bytes` of the manifest, so a new evaluation of the run means a new snapshot.
+- `Checkpoint_Evaluation/Iteration_2000` of the segmentation run is copied whole, since a listing prints the size of every file.
+- In snapshot mode a restored family checks at most a version key (`INFERENCE_FACTS_VERSION` of the detector inference) or the run name (sequence labelling), most check only that their files exist, so stale committed outputs go unnoticed there: the table above is the only safeguard.
+- `datasets/sequence_data/synthetic_changing_shapes/test_10000/data` is a relative link to `../test/data`, committed by hand: the writer resolves links, so the frames are declared under `test/data`; `--check` and `--prune` leave the link alone.
+- Removing an entry from a `snapshot_files.yaml` and writing one series leaves its old files on disk; `--check` lists them as not in any manifest, and `--prune` (every series) deletes them.
+- One fact, `loss_prior_stride_2_other_cells` of the keypoint series (`keypoint_detection/network_figures.py`), varies with the number of threads of the build; compare builds made with the same `--threads`.
 
 ## Keeping The Repository Self-Sufficient
 Whenever a figure script, a storyboard or a run starts reading a file that is not in the repository, make it
@@ -172,6 +210,6 @@ and `rclone check`); never create a public link to them.
 
 ## Known Gaps
 Should you have to train a run again, these are the pieces the repository cannot give back yet:
-- **Datasets are not reproducible.** `vision_training/data/synthetic/create_synthetic_dataset.py` draws every chunk from an unseeded `np.random.default_rng()`, and its class sets changed since several runs were trained (the classification shapes went from 9 to 35 classes, the instance segmentation shapes from 20 to 35, the keypoint shapes from 33 to 37, the segmentation shapes from 9 to 35; the moving shapes now draw 2 to 12 frames instead of 8). A run trained again on a regenerated dataset gets another run name (`MC<classes>`), other numbers and other sample images; the scenes naming a given image (`STAR_IMAGE_NAME = test_005452.png` and similar constants of the figure scripts) must then be reviewed. The snapshot keeps only the dataset files the figures read.
+- **Datasets are not reproducible.** `vision_training/data/synthetic/create_synthetic_dataset.py` draws every chunk from an unseeded `np.random.default_rng()`, and its class sets changed since several runs were trained (the classification shapes went from 9 to 35 classes, the instance segmentation shapes from 20 to 35, the keypoint shapes from 33 to 37, the segmentation shapes from 9 to 35; the moving shapes now draw 2 to 12 frames instead of 8). A run trained again on a regenerated dataset gets another run name (`MC<classes>`), other numbers and other sample images; the scenes naming a given image (`STAR_IMAGE_NAME = test_005452.png` and similar constants of the figure scripts) must then be reviewed. The snapshot keeps only the dataset files the figures read, the only copies of these datasets outside this machine.
 - **Untracked launch files.** The detection benchmark runs (`run_9`, `run_10`, `run_21`, `run_22`) were launched from launch files that are not in git; their exact recipe is the `training_configuration.yaml` of each run, kept in the snapshot.
 - **Committed figures age.** The `figure_reuse/` outputs show the code of their last snapshot until written again from the real checkpoints.
