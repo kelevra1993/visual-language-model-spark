@@ -27,7 +27,7 @@ Whenever a change lands on `main` with a behaviour the tutorials do not show, ad
 ## Evaluation Summary And Curves Of A Run
 So that the test results of a run can be followed without TensorBoard, every evaluation adds its row to `Evaluation/evaluation_summary.csv` (`Checkpoint_Evaluation/` for `evaluate_checkpoint.py`) and draws `evaluation_curves.png` again next to `Results.txt`: the headline metric of the trained and averaged weights at every evaluation, the best iteration of each ringed and the windows of the moving average shaded (`BaseTrainer.update_evaluation_curves`, `vision_training/evaluation/evaluation_curves.py`).
 
-- **Added**: 2026-11-18, on branch `worktree-agent-a3d1cb4f381fe5f3c`; the merge commit on `main` is to be written here at the merge.
+- **Added**: `main` 611a882, 2026-11-19.
 - **Documented in**: [README, Run Folder](../README.md#run-folder), [training reference, Run Folder](reference/training_reference.md#run-folder) and [tools reference, Evaluating Checkpoints](reference/tools_reference.md#evaluating-checkpoints).
 - **Tutorial status**: the run folder listing of `01_foundations/01_repository_and_first_run.yaml` lacks both files, and `01_foundations/06_after_the_training.yaml` shows `evaluation_summary.csv` as the summary of `iteration = "all"` only, without the figure.
 - **Where it would fit**: both scenes, the figure drawn from the Test and Test_EMA curves of a run snapshot of `tutorials/run_snapshots/` (`seed_evaluation_summary`, then `draw_summary_curves`); no training.
