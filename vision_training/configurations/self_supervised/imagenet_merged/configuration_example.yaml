@@ -89,7 +89,8 @@ Optimization:
   exponential_moving_average:
     # Turns the weight moving average on.
     activated: False
-    # Share of the average kept per update, strictly between 0 and 1.
+    # Share of the average kept per update, strictly between 0 and 1: the average looks back about 1 / (1 - decay)
+    # iterations (1,000 at 0.999, 5,000 at 0.9998), reached after a warm-up of about 9 / (1 - decay) iterations.
     decay: 0.9998
 
 Data:

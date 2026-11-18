@@ -194,8 +194,10 @@ Before training an architecture, `ExperimentConfiguration.diagnosis_modes.benchm
 | `Test_EMA` | every evaluation, with the moving average on | the `Test` tags of the averaged weights, drawn on the same charts |
 
 ## Moving Average Of The Weights
+Should you need a model smoothed over its last iterations, `Optimization.exponential_moving_average` keeps an average of the weights next to the trained ones (`ExponentialMovingAverage` of `vision_training/trainers/weight_averaging.py`).
 - After every optimizer step: `ema_weights = decay × ema_weights + (1 − decay) × current_weights`, the batch normalization statistics included.
-- It follows roughly the last 1 / (1 − decay) iterations: about 1,000 at 0.999, 5,000 at 0.9998 and 10,000 at 0.9999. The n-th update uses min(decay, (1 + n) / (10 + n)), so the random starting weights fade quickly.
+- It looks back about 1 / (1 − decay) iterations, which carry about 63 % of its weight, the weights of k iterations ago counting with a factor decay^k: about 100 at 0.99, 1,000 at 0.999, 5,000 at 0.9998 and 10,000 at 0.9999.
+- The n-th update uses min(decay, (1 + n) / (10 + n)), so the random starting weights fade quickly. Until the decay is reached, after about 9 / (1 − decay) updates (9,000 at 0.999, 45,000 at 0.9998), the average looks back about (10 + n) / 9 iterations: a run of 15,000 iterations at 0.9998 ends on a decay of 0.9994, about 1,670 iterations.
 - It costs the memory of one more model, and a small fraction of a training step.
 - It is saved in every checkpoint and restored on resume. It gives no run name token: turned on mid-run, it starts from the weights of the checkpoint.
 - The validation curves and the [export](tools_reference.md#export) use the trained weights, the export taking the averaged ones with `use_averaged_weights`.
