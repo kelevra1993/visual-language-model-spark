@@ -1,0 +1,11 @@
+image_classifier_onnx/1/model.onnx
+image_classifier_onnx/1/model.onnx.data
+image_classifier_onnx/1/preprocessing.json
+image_classifier_onnx/config.pbtxt
+image_classifier_torchscript/1/model.pt
+image_classifier_torchscript/1/preprocessing.json
+image_classifier_torchscript/config.pbtxt
+object_detector_onnx/1/model.onnx
+object_detector_onnx/1/model.onnx.data
+object_detector_onnx/1/preprocessing.json
+object_detector_onnx/config.pbtxt

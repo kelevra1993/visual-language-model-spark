@@ -100,18 +100,15 @@ repository_files:
   serving_benchmark_results: documentation/architecture_benchmarking/serving_benchmark_results.csv
   serving_benchmark_test_metrics: documentation/architecture_benchmarking/serving_benchmark_test_metrics.csv
   serving_benchmark_plan: documentation/architecture_benchmarking/serving_benchmark_plan.md
-# Outputs read by the figure scripts that are neither runs nor files of the repository, kept outside both, with how they
-# were made: the raw outputs of the serving benchmark, read by tutorials/figures/deployment
-outside_folders:
-  # The model repositories of every precision setting, the loads, logs and results of the sweep of 2026-11-17; the
-  # deployment figures list the folder tree of model_repositories/onnxruntime_cuda (the export of the README
-  # classifier, the run_9 detector and the sequence labelling run in TorchScript and ONNX)
-  serving_benchmark:
-    folder: ~/Data/serving_benchmark
-    made_with: "scripts/deployment/benchmark_serving_formats.py with the settings of its main block (the classification, object_detection_benchmark_joint_a and sequence_labelling runs above, maximum_batch_size 16), 2026-11-17 13:44 to 15:29, then scripts/deployment/evaluate_served_formats.py, 15:29 to 17:31, on the idle GPU"
-  # The run_9 detector exported again with its NMS without offsets (suppress_stacked_groups): the deployment figures read
-  # its test_metrics.csv (eager, TensorRT FP32 and FP16 on the 10,000 test images) and the perf_analyzer reports of
-  # loads/ (batch 1 and 16 with one client, single images at 1, 4 and 16 requests in flight, batching on and off)
-  serving_benchmark_nms_fix:
-    folder: ~/Data/serving_benchmark_nms_fix
-    made_with: "the run_9 export of the serving benchmark repeated on 2026-11-17 from 18:10 to 19:10 after suppress_stacked_groups and DIoU-NMS on boxes in fractions of the image (section Detector NMS Without Offsets of serving_benchmark_plan.md), test metric by scripts/deployment/evaluate_served_formats.py, loads by perf_analyzer over system shared memory"
+  # Tree of model_repositories/onnxruntime_cuda of ~/Data/serving_benchmark (the export of the README classifier in
+  # TorchScript and ONNX and of the run_9 detector in ONNX), one file path per line, written from that folder on
+  # 2026-11-18; the serving chapter draws it as the layout of a model repository
+  serving_benchmark_model_repository_files: documentation/architecture_benchmarking/serving_benchmark_model_repository_files.txt
+  # The run_9 detector exported again on 2026-11-17 from 18:10 to 19:10 with its NMS without offsets
+  # (suppress_stacked_groups) and DIoU-NMS on boxes in fractions of the image (section Detector NMS Without Offsets of
+  # serving_benchmark_plan.md): committed copies of its test_metrics.csv (eager, TensorRT FP32 and FP16 on the
+  # 10,000 test images, by scripts/deployment/evaluate_served_formats.py) and of the perf_analyzer reports of its loads/
+  # over system shared memory (batch 1 and 16 with one client, single images at 1, 4 and 16 requests in flight, batching
+  # on and off), kept in ~/Data/serving_benchmark_nms_fix
+  serving_benchmark_nms_fix_test_metrics: documentation/architecture_benchmarking/serving_benchmark_nms_fix_test_metrics.csv
+  serving_benchmark_nms_fix_loads: documentation/architecture_benchmarking/serving_benchmark_nms_fix_loads

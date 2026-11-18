@@ -65,7 +65,7 @@ Should a result need checking, its raw files are under `~/Data/serving_benchmark
 
 | Folder | Content |
 |---|---|
-| `model_repositories/<setting>/` | the exports of the three models for `onnxruntime_cuda` (TorchScript and ONNX), `tensorrt_fp32` and `tensorrt_fp16` (ONNX) |
+| `model_repositories/<setting>/` | the exports of the three models for `onnxruntime_cuda` (TorchScript and ONNX), `tensorrt_fp32` and `tensorrt_fp16` (ONNX); the file list of the README classifier and detector folders of `onnxruntime_cuda` is copied next to this plan as `serving_benchmark_model_repository_files.txt`, drawn by the deployment tutorials |
 | `tensorrt_engine_cache/<setting>/` | the engines built by ONNX Runtime, mounted into the Triton container |
 | `inputs/<model>/` | the preprocessed test sample sent by `perf_analyzer` (one raw float32 file per input) and its source images |
 | `loads/<model>/` | one file per load: the `perf_analyzer` CSV report and the log of its runs for shared memory, the JSON measure and latencies of the client for gRPC |
@@ -221,6 +221,8 @@ Once the cause was found, the exported NMS of the detectors stopped moving the g
 | Triton, ONNX with TensorRT FP32, after | 86.77 % (+0.01) | 68.28 % (+0.01) | 87.53 % | 7.5 | 189 |
 | Triton, ONNX with TensorRT FP16, before | 78.89 % (-7.88) | 62.54 % (-5.73) | 87.31 % | 17.6 | 246 |
 | Triton, ONNX with TensorRT FP16, after | 86.97 % (+0.21) | 68.32 % (+0.05) | 87.72 % | 7.7 | 189 |
+
+These rows come from `~/Data/serving_benchmark_nms_fix/`, whose `test_metrics.csv` and `perf_analyzer` reports of `loads/` are copied next to this plan as `serving_benchmark_nms_fix_test_metrics.csv` and `serving_benchmark_nms_fix_loads/`.
 
 Both engines now match the eager model, the small gap of FP32 having come from the same offsets. One image takes half the time, likely because every suppression now compares the 250 boxes of one class instead of the 8,500 pairs of the image; at batch 16 both precisions take the same 83 milliseconds of server compute, so FP16 no longer gains there (its 246 images per second before were measured with the broken suppression). The dynamic batcher no longer helps DET either: with single images over shared memory at 1, 4 and 16 requests in flight, the FP16 engine serves 125, 160 and 153 images per second with it and 149, 166 and 166 without (171 against 64 before the fix).
 

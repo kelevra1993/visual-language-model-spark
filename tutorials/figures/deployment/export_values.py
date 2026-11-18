@@ -7,8 +7,9 @@ get_export_specification of export_specifications.py, given stand-ins holding th
 files the export writes for the README classifier and for the benchmark detector (write_triton_configuration on their
 export specifications, into a temporary folder), the input contract of the README classifier (build_input_contract,
 no file written), the size of the float32 requests, the ports and image of the Triton docker compose file, and the
-layout of a real model repository of the serving benchmark (~/Data/serving_benchmark). The listings are text files drawn
-by the listing elements of the diagram scenes; the facts are quoted as {{deployment.<name>}}.
+layout of a real model repository of the serving benchmark (its file list committed next to the plan of the benchmark,
+serving_benchmark_model_repository_files.txt). The listings are text files drawn by the listing elements of the diagram
+scenes; the facts are quoted as {{deployment.<name>}}.
 """
 
 import json
@@ -19,12 +20,12 @@ import yaml
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from tutorial_builder.figure_context import find_repository_root
 from tutorials.figures.classification.data_listings import write_listing
-from tutorials.figures.figure_utilities import (find_run_folder, load_classification_model, read_run_configuration,
-                                                read_tutorial_sources)
+from tutorials.figures.figure_utilities import (find_repository_file, find_run_folder, load_classification_model,
+                                                read_run_configuration)
 from tutorials.figures.foundations.code_values import read_main_block_value, read_triton_host_ports
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.deployment.export_specifications import (build_inference_model, build_input_specification,
@@ -62,8 +63,7 @@ STAND_IN_ATTRIBUTES = {"input_image_size": 64, "number_classes": 2, "maximum_det
 TOLERANCE_TASKS = ["classification", "object_detection", "instance_segmentation", "semantic_segmentation",
                    "keypoint_detection", "self_supervised", "sequence_labelling"]
 
-# Precision setting and model folders of the real model repository of the serving benchmark listed as a tree
-LISTED_PRECISION_SETTING = "onnxruntime_cuda"
+# Model folders of the real model repository of the serving benchmark (its onnxruntime_cuda setting) listed as a tree
 LISTED_MODEL_FOLDERS = ["image_classifier_onnx", "image_classifier_torchscript", "object_detector_onnx"]
 
 # Lines of a config.pbtxt holding a numeric setting the narration quotes, with the pattern of its value
@@ -354,34 +354,42 @@ def describe_compose_file(repository_folder: Path) -> Dict[str, Any]:
     return facts
 
 
-def list_folder_tree(folder: Path, prefix: str) -> List[str]:
+def list_path_tree(relative_paths: List[Tuple[str, ...]], prefix: str) -> List[str]:
     """
-    Gives the lines of a folder tree drawn with box characters, the files and folders sorted by name.
+    Gives the lines of a folder tree drawn with box characters from the file paths it holds, the files and folders of
+    every level sorted by name, so that the serving chapter shows the layout of a real model repository from its
+    committed file list rather than from a folder that only exists on the machine of the benchmark.
 
     Args:
-        folder (Path): The folder to list.
+        relative_paths (List[Tuple[str, ...]]): The parts of every file path, relative to the folder drawn.
         prefix (str): The characters drawn before every line of this level.
 
     Returns:
         List[str]: The lines of the tree under the folder.
     """
-    # Entries of one folder, sorted by their paths, which differ only by their names
+    # Entries of this level: a name is a folder when a path continues under it
+    entry_children = {}
+    for path_parts in relative_paths:
+        entry_children.setdefault(path_parts[0], [])
+        if len(path_parts) > 1:
+            entry_children[path_parts[0]].append(path_parts[1:])
     lines = []
-    entries = sorted(folder.iterdir())
-    for entry_index, entry in enumerate(entries):
+    entry_names = sorted(entry_children)
+    for entry_index, entry_name in enumerate(entry_names):
         # One line per entry, its sub-tree indented under it when it is a folder
-        is_last = entry_index == len(entries) - 1
-        lines.append(f"{prefix}{'└── ' if is_last else '├── '}{entry.name}{'/' if entry.is_dir() else ''}")
-        if entry.is_dir():
-            lines += list_folder_tree(folder=entry, prefix=prefix + ("    " if is_last else "│   "))
+        is_last = entry_index == len(entry_names) - 1
+        children = entry_children[entry_name]
+        lines.append(f"{prefix}{'└── ' if is_last else '├── '}{entry_name}{'/' if children else ''}")
+        if children:
+            lines += list_path_tree(relative_paths=children, prefix=prefix + ("    " if is_last else "│   "))
     return lines
 
 
 def describe_model_repository(output_folder: Path) -> Dict[str, Any]:
     """
     Writes the tree of a real model repository written by the export for the serving benchmark (its ONNX Runtime CUDA
-    setting: the classifier in both formats and the detector in ONNX), the folder named under serving_benchmark of
-    the outside_folders of tutorial_sources.yaml.
+    setting: the classifier in both formats and the detector in ONNX), from its file list committed next to the plan of
+    the benchmark (serving_benchmark_model_repository_files of the repository_files of tutorial_sources.yaml).
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -390,19 +398,15 @@ def describe_model_repository(output_folder: Path) -> Dict[str, Any]:
         Dict[str, Any]: The fact repository.listed_model_count.
 
     Raises:
-        FileNotFoundError: If a listed model folder is missing.
+        ValueError: If the file list does not hold exactly the listed model folders.
     """
-    benchmark_folder = Path(read_tutorial_sources()["outside_folders"]["serving_benchmark"]["folder"]).expanduser()
-    repository_folder = benchmark_folder / "model_repositories" / LISTED_PRECISION_SETTING
-    lines = ["served_models/"]
-    for model_index, model_folder_name in enumerate(LISTED_MODEL_FOLDERS):
-        model_folder = repository_folder / model_folder_name
-        if not model_folder.is_dir():
-            raise FileNotFoundError(f"No model folder {model_folder}: the serving benchmark of "
-                                    f"scripts/deployment/benchmark_serving_formats.py writes it.")
-        is_last = model_index == len(LISTED_MODEL_FOLDERS) - 1
-        lines.append(f"{'└── ' if is_last else '├── '}{model_folder_name}/")
-        lines += list_folder_tree(folder=model_folder, prefix="    " if is_last else "│   ")
+    # File paths of the model repository, one per line, grouped by their model folder
+    files_path = find_repository_file(file_key="serving_benchmark_model_repository_files")
+    relative_paths = [tuple(line.split("/")) for line in files_path.read_text(encoding="utf-8").splitlines() if line]
+    listed_folders = sorted({path_parts[0] for path_parts in relative_paths})
+    if listed_folders != sorted(LISTED_MODEL_FOLDERS):
+        raise ValueError(f"{files_path} lists the model folders {listed_folders}, expected {LISTED_MODEL_FOLDERS}.")
+    lines = ["served_models/"] + list_path_tree(relative_paths=relative_paths, prefix="")
     write_listing(lines=lines, output_path=output_folder / "listings" / "model_repository_tree.txt")
     return {"repository.listed_model_count": len(LISTED_MODEL_FOLDERS)}
 

@@ -6,7 +6,7 @@
 # the dynamic batching and the instances of a model are changed. Coordinates of the html scenes are in pixels of the
 # content area (1760 x 740, origin at its top left corner); the facts named deployment.* are made by
 # tutorials/figures/deployment from the code and from the serving benchmark (serving_benchmark_results.csv and the
-# model repository of ~/Data/serving_benchmark named under outside_folders of tutorial_sources.yaml).
+# file list of its model repository, serving_benchmark_model_repository_files.txt, committed next to its plan).
 series: deployment
 series_title: "Export And Deployment"
 chapter: 2

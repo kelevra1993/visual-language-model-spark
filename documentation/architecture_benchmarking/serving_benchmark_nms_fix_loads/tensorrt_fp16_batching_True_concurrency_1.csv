@@ -1,0 +1,2 @@
+Concurrency,Inferences/Second,Client Send,Network+Server Send/Recv,Server Queue,Server Compute Input,Server Compute Infer,Server Compute Output,Client Recv,p50 latency,p90 latency,p95 latency,p99 latency,Avg latency,request/response,response wait,Avg GPU Utilization,Avg GPU Power Usage,Max GPU Memory Usage,Total GPU Memory
+1,125.483,5,506,1184,271,5969,11,2,7699,8728,9451,11375,7952,7,7934,GPU-22852066-760c-eb1f-2892-0f596486c804:0.52875;,GPU-22852066-760c-eb1f-2892-0f596486c804:22.0659;,GPU-22852066-760c-eb1f-2892-0f596486c804:0;,GPU-22852066-760c-eb1f-2892-0f596486c804:0;

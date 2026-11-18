@@ -4,12 +4,13 @@ tutorials/figures/deployment/figures.py from the results of the serving benchmar
 (documentation/architecture_benchmarking/serving_benchmark_plan.md): the committed copies of its speed results and test
 metrics (serving_benchmark_results.csv and serving_benchmark_test_metrics.csv, the repository_files of
 tutorials/tutorial_sources.yaml), the table of the false positives of the detector by request size written in the plan,
-and the raw outputs of the detector exported again with its NMS without offsets (~/Data/serving_benchmark_nms_fix, outside the repository, named under
-outside_folders of tutorial_sources.yaml): its test metrics and its perf_analyzer reports. It draws the latency and
-throughput of every row of every model, the test metric of every served format against the eager model in points,
-and the images per second of TensorRT FP16 under the four server settings, and gives the numbers the narration quotes
-as {{deployment.<name>}}: the rows as the plan reads them, the first requests building the TensorRT engines, the cost
-of the dynamic batcher, the batches of the eager detector, and the float16 overflow of the group offsets of its NMS.
+and the committed copies of the outputs of the detector exported again with its NMS without offsets
+(serving_benchmark_nms_fix_test_metrics.csv and the perf_analyzer reports of serving_benchmark_nms_fix_loads/). It
+draws the latency and throughput of every row of every model, the test metric of every served format against the
+eager model in points, and the images per second of TensorRT FP16 under the four server settings, and gives the
+numbers the narration quotes as {{deployment.<name>}}: the rows as the plan reads them, the first requests building the
+TensorRT engines, the cost of the dynamic batcher, the batches of the eager detector, and the float16 overflow of the
+group offsets of its NMS.
 """
 
 import csv
@@ -28,8 +29,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from tutorials.figures.figure_utilities import (CHART_WIDTH, DOTS_PER_INCH, GRID_COLOUR, POINTS_PER_PIXEL,
                                                 SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR,
                                                 compute_pixel_box, find_repository_file, find_run_folder,
-                                                format_thousands, read_run_configuration, read_tutorial_sources,
-                                                register_fonts, round_fact, save_figure, style_chart_panel)
+                                                format_thousands, read_run_configuration, register_fonts, round_fact,
+                                                save_figure, style_chart_panel)
 from tutorial_builder.figure_context import find_repository_root
 from tutorial_builder.layout import NAMED_COLOURS
 from tutorials.figures.foundations.code_values import read_main_block_value
@@ -323,7 +324,8 @@ def describe_test_metrics(metric_rows: List[Dict[str, str]], fixed_metric_rows: 
 
     Args:
         metric_rows (List[Dict[str, str]]): The rows of serving_benchmark_test_metrics.csv.
-        fixed_metric_rows (List[Dict[str, str]]): The rows of test_metrics.csv of the detector exported again.
+        fixed_metric_rows (List[Dict[str, str]]): The rows of serving_benchmark_nms_fix_test_metrics.csv, the detector
+            exported again.
 
     Returns:
         Dict[str, Any]: The facts metric.<model>.* and metric.DET_fixed.*.
@@ -369,7 +371,7 @@ def describe_fixed_detector_speed(loads_folder: Path) -> Dict[str, Any]:
     client, and the images per second of TensorRT FP16 with single images at every concurrency, batching on and off.
 
     Args:
-        loads_folder (Path): The loads folder of the detector exported again.
+        loads_folder (Path): The serving_benchmark_nms_fix_loads folder, the loads of the detector exported again.
 
     Returns:
         Dict[str, Any]: The facts fixed.<row>.* and fixed.settings.batching_<on|off>.concurrency_<n>.
@@ -743,8 +745,7 @@ def make_serving_benchmark_figures(output_folder: Path, experiments_folder: Path
     result_rows = read_csv_rows(csv_path=find_repository_file(file_key="serving_benchmark_results"))
     metric_rows = read_csv_rows(csv_path=find_repository_file(file_key="serving_benchmark_test_metrics"))
     plan_text = find_repository_file(file_key="serving_benchmark_plan").read_text(encoding="utf-8")
-    fixed_folder = Path(read_tutorial_sources()["outside_folders"]["serving_benchmark_nms_fix"]["folder"]).expanduser()
-    fixed_metric_rows = read_csv_rows(csv_path=fixed_folder / "test_metrics.csv")
+    fixed_metric_rows = read_csv_rows(csv_path=find_repository_file(file_key="serving_benchmark_nms_fix_test_metrics"))
     detection_run_folder = find_run_folder(experiments_folder=experiments_folder,
                                            run_key="object_detection_benchmark_joint_a")
 
@@ -770,7 +771,8 @@ def make_serving_benchmark_figures(output_folder: Path, experiments_folder: Path
     facts.update(describe_speed(result_rows=result_rows, batch_sizes=batch_sizes))
     facts.update(describe_server_settings(result_rows=result_rows, concurrencies=concurrencies))
     facts.update(describe_test_metrics(metric_rows=metric_rows, fixed_metric_rows=fixed_metric_rows))
-    facts.update(describe_fixed_detector_speed(loads_folder=fixed_folder / "loads"))
+    fixed_loads_folder = find_repository_file(file_key="serving_benchmark_nms_fix_loads")
+    facts.update(describe_fixed_detector_speed(loads_folder=fixed_loads_folder))
     facts.update(describe_group_offsets(detection_run_folder=detection_run_folder))
     facts.update(describe_false_positives(plan_text=plan_text))
     facts.update(describe_benchmark_models(experiments_folder=experiments_folder))

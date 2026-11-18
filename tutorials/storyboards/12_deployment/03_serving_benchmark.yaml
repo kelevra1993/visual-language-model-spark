@@ -5,8 +5,9 @@
 # server settings (dynamic batching and instances), the batches of the eager detector, and the measurement pitfalls.
 # Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the
 # figures and facts named deployment.* are made by tutorials/figures/deployment/serving_benchmark.py from the committed
-# copies of the results (serving_benchmark_results.csv, serving_benchmark_test_metrics.csv), the plan, and the raw
-# outputs of the detector exported again (~/Data/serving_benchmark_nms_fix, outside_folders of tutorial_sources.yaml).
+# copies of the results (serving_benchmark_results.csv, serving_benchmark_test_metrics.csv), the plan, and the
+# committed copies of the outputs of the detector exported again (serving_benchmark_nms_fix_test_metrics.csv and the
+# perf_analyzer reports of serving_benchmark_nms_fix_loads/).
 series: deployment
 series_title: "Export And Deployment"
 chapter: 3

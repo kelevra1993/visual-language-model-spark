@@ -6,8 +6,8 @@
 # thresholds) and of the frame selector (decoder and ensembles). Coordinates of the html scenes are in pixels of the
 # content area (1760 x 740, origin at its top left corner); the facts named deployment.* and the listings under
 # figures:deployment/listings are made by tutorials/figures/deployment from the code, the README classifier, the
-# run_9 detector and the sequence labelling run of tutorial_sources.yaml, and the model repository of the serving
-# benchmark (outside_folders of tutorial_sources.yaml).
+# run_9 detector and the sequence labelling run of tutorial_sources.yaml, and the file list of a model repository of
+# the serving benchmark (serving_benchmark_model_repository_files.txt, committed next to its plan).
 series: deployment
 series_title: "Export And Deployment"
 chapter: 1
