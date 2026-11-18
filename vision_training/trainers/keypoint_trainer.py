@@ -50,7 +50,7 @@ class KeypointTrainer(CocoSplitTrainer):
         """
         Reads the keypoint definition of every class and the grouping settings of the keypoint candidates, builds the
         channel table of the grouping and the sigmas of the object keypoint similarity, then prepares the training run
-        through the general trainer.
+        through the general trainer, which builds the tables again for the classes of a resumed run.
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
@@ -58,13 +58,9 @@ class KeypointTrainer(CocoSplitTrainer):
                 'keypoint_categories', Backbone, HRNet, KeypointHead).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
-        # Keypoint definition of every class, injected by the configuration loader from the training labels.json, with
-        # the heatmap channel of every keypoint of every class, which the grouping reads the candidates with
-        self.keypoint_categories = {int(class_index): definition for class_index, definition
-                                    in model_configuration["Data"]["keypoint_categories"].items()}
-        self.maximum_keypoints = max(len(definition["keypoints"]) for definition in self.keypoint_categories.values())
-        channel_table, _ = build_keypoint_channel_table(keypoint_categories=self.keypoint_categories)
-        self.channel_table = channel_table.numpy()
+        # Keypoint tables of the classes of the mapping file, needed before the general trainer starts
+        self.build_keypoint_tables(experiment_configuration=experiment_configuration,
+                                   model_configuration=model_configuration)
 
         # Grouping of the candidates into objects: the evaluation keeps every object for the precision-recall curves,
         # the sample images only those reaching the object score threshold of the deployment
@@ -72,6 +68,32 @@ class KeypointTrainer(CocoSplitTrainer):
         self.keypoint_threshold = inference_configuration["keypoint_threshold"]
         self.tag_threshold = inference_configuration["tag_threshold"]
         self.object_score_threshold = inference_configuration["object_score_threshold"]
+        super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
+                         configuration_path=configuration_path)
+
+    def build_keypoint_tables(self, experiment_configuration: Dict[str, Any],
+                              model_configuration: Dict[str, Any]) -> None:
+        """
+        Builds the keypoint tables of the evaluation and the sample images from the keypoint definitions of the
+        classes: the definitions themselves (keypoint names and skeletons, which name the per-keypoint metrics and draw
+        the objects), the heatmap channel of every keypoint of every class, which the grouping reads the candidates
+        with, and the sigmas of the object keypoint similarity. Called before the general trainer starts, then again
+        once a resumed run has restored its own classes, so that the grouping and the scores follow the classes the
+        model and the loaders use.
+
+        Args:
+            experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section, giving the
+                keypoint sigmas.
+            model_configuration (Dict[str, Any]): The processed model sections, whose 'Data.keypoint_categories' give
+                the keypoint definitions indexed by class.
+        """
+        # Keypoint definition of every class, injected by the configuration loader from the training labels.json, with
+        # the heatmap channel of every keypoint of every class
+        self.keypoint_categories = {int(class_index): definition for class_index, definition
+                                    in model_configuration["Data"]["keypoint_categories"].items()}
+        self.maximum_keypoints = max(len(definition["keypoints"]) for definition in self.keypoint_categories.values())
+        channel_table, _ = build_keypoint_channel_table(keypoint_categories=self.keypoint_categories)
+        self.channel_table = channel_table.numpy()
 
         # Tolerance of the object keypoint similarity of every keypoint of every class
         evaluation_configuration = experiment_configuration["evaluation"]
@@ -79,8 +101,17 @@ class KeypointTrainer(CocoSplitTrainer):
                                                       default_sigma=evaluation_configuration["default_keypoint_sigma"],
                                                       keypoint_sigmas=evaluation_configuration["keypoint_sigmas"],
                                                       maximum_keypoints=self.maximum_keypoints)
-        super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
-                         configuration_path=configuration_path)
+
+    def restore_run_label_dictionary(self) -> None:
+        """
+        Keeps the classes of a resumed run through the general trainer, whose restore reads the keypoint definitions
+        again for the restored classes, then builds the keypoint tables again from them: built from the mapping file
+        before the general trainer started, they would otherwise read the heatmap channels and name the keypoints of
+        other classes than the model and the loaders.
+        """
+        super().restore_run_label_dictionary()
+        self.build_keypoint_tables(experiment_configuration=self.experiment_configuration,
+                                   model_configuration=self.model_configuration)
 
     def build_dataloaders(self) -> Tuple[Iterable, Optional[Iterable], Iterable]:
         """

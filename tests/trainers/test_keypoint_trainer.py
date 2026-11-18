@@ -3,10 +3,13 @@ Smoke test of KeypointTrainer of vision_training/trainers/keypoint_trainer.py on
 dataset, on the CPU: training on the whole images saves checkpoints, evaluates the objects found in the test images
 with the object keypoint similarity (the average precision tables, the matched objects, PCK and mean OKS, the
 per-class and per-keypoint tables, their CSV files and the sample images), its rates written as percentages in the
-report, and resumes from its last checkpoint.
+report, and resumes from its last checkpoint, with the keypoint tables of its own classes when the mapping file
+changed since.
 """
 
 import csv
+import json
+import numpy as np
 import pytest
 import torch
 import yaml
@@ -17,6 +20,7 @@ from typing import Dict, List
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.evaluation.keypoints.object_keypoint_similarity import CORRECT_KEYPOINTS_NAME
+from vision_training.models.keypoints.keypoint_detector import build_keypoint_channel_table
 from vision_training.trainers.keypoint_trainer import KeypointTrainer
 from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
 
@@ -224,3 +228,48 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = first_run_output + capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_resumed_run_builds_the_keypoint_tables_of_its_own_classes(tmp_path: Path) -> None:
+    """
+    Verifies that a run resumed after its mapping file swapped two classes with different numbers of keypoints groups
+    and scores its keypoints with the definitions of the classes it keeps (restore_run_label_dictionary of the base
+    trainer): the keypoint categories, the heatmap channel table of the grouping and the maximum number of keypoints of
+    the trainer are those of the restored classes, not those of the edited mapping file.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    dataset_folder = tmp_path / "synthetic_keypoints"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 4, "validation": 2, "test": 2}, maximum_objects=2,
+                             minimum_frames=1, maximum_frames=1, number_workers=1, task="keypoint_detection")
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2))
+    trainer.run_training_loop()
+    trained_keypoint_categories = trainer.keypoint_categories
+
+    # Swap in the mapping file the classes of two categories holding different numbers of keypoints
+    mapping_path = dataset_folder / "label_mapping.json"
+    label_mapping = json.loads(s=mapping_path.read_text())
+    category_by_class = {class_index: category for category, class_index in label_mapping.items()}
+    first_class, second_class = next(
+        (first_index, second_index) for first_index in sorted(trained_keypoint_categories)
+        for second_index in sorted(trained_keypoint_categories)
+        if len(trained_keypoint_categories[first_index]["keypoints"])
+        != len(trained_keypoint_categories[second_index]["keypoints"]))
+    label_mapping[category_by_class[first_class]] = second_class
+    label_mapping[category_by_class[second_class]] = first_class
+    mapping_path.write_text(data=json.dumps(obj=label_mapping))
+
+    # The resumed run keeps its classes, and the tables of its grouping and scoring follow them
+    resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4))
+    assert resumed_trainer.start_iteration == 3
+    assert resumed_trainer.label_dictionary == trainer.label_dictionary
+    assert resumed_trainer.keypoint_categories == trained_keypoint_categories
+    assert resumed_trainer.keypoint_categories == resumed_trainer.data_configuration["keypoint_categories"]
+    restored_channel_table, _ = build_keypoint_channel_table(keypoint_categories=trained_keypoint_categories)
+    assert np.array_equal(resumed_trainer.channel_table, restored_channel_table.numpy())
+    assert np.array_equal(resumed_trainer.channel_table, trainer.channel_table)
+    assert resumed_trainer.maximum_keypoints == trainer.maximum_keypoints
