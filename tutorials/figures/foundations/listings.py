@@ -5,8 +5,10 @@ copy, records, checkpoints, logs, report and evaluation folders, one checkpoint 
 the configuration backups left by the converter of saved runs), and the summary panels the trainer prints at launch
 for that run (backbone, receptive field, model size), captured from the code of the repository on the CPU from the
 saved configuration of the run, without any training. The storyboards show them as text excerpts (source file
-figures:foundations/listings/...). It also gives the facts of the chapter on the
-backbone read from that model (the receptive field, parameters and residual pairs of every block), those of the chapter
+figures:foundations/listings/...). A run read from the committed run snapshots, which hold no checkpoint nor large
+file, gives the same tree from the listing of the real run folder committed with it (RUN_FOLDER_LISTING_NAME). It also
+gives the facts of the chapter on the backbone read from that model (the receptive field, parameters and residual
+pairs of every block), those of the chapter
 on the data pipeline read from the configuration file that chapter shows (the augmentation types activated and the
 share of the training images they change), and the counts of the repository quoted by the overview and the closing
 chapter (tasks, image and sequence tasks, test files), so that their narration and drawings follow the run and the
@@ -18,11 +20,11 @@ import io
 import re
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, NamedTuple, Tuple
 
 import torch
 
-from tutorials.figures.figure_utilities import round_fact
+from tutorials.figures.figure_utilities import is_snapshot_folder, round_fact
 from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.configuration_processing.configuration_loader import (load_configuration,
                                                                           load_experiment_configuration)
@@ -48,6 +50,24 @@ CONFIGURATION_BACKUP_PATTERN = re.compile(pattern=r"training_configuration_befor
 RUN_NAME_BACKBONE_SECTION = 2
 RUN_NAME_BLOCKS_TOKEN_PATTERN = re.compile(pattern=r"B\d+x\d+(?:\.\d+x\d+)*")
 
+# Listing of the real run folder committed in the snapshot of the run (the folder_listing entry of snapshot_files.yaml
+# of this folder), read instead of the folder for a run read from the snapshots, whose checkpoints, large records and
+# evaluation files are not committed
+RUN_FOLDER_LISTING_NAME = "run_folder_listing.tsv"
+
+
+class FolderEntry(NamedTuple):
+    """
+    Entry of a folder of a run drawn by the run folder scenes, read from the folder itself or from the committed
+    listing of a run read from the snapshots (list_folder_entries).
+
+    Args:
+        name (str): The name of the file or folder.
+        is_folder (bool): Whether it is a folder.
+    """
+    name: str
+    is_folder: bool
+
 
 def read_iteration_number(folder_name: str) -> int:
     """
@@ -63,18 +83,80 @@ def read_iteration_number(folder_name: str) -> int:
     return int(match.group(1)) if match else -1
 
 
-def order_folder_entry(entry: Path) -> Tuple[bool, int, str]:
+def order_folder_entry(entry: FolderEntry) -> Tuple[bool, int, str]:
     """
     Gives the sort key of an entry of a run folder in the tree: the folders first, then the files, the iteration
     folders by their iteration and the others by name.
 
     Args:
-        entry (Path): The file or folder.
+        entry (FolderEntry): The name of the file or folder and whether it is a folder.
 
     Returns:
         Tuple[bool, int, str]: Whether it is a file, its iteration and its name.
     """
-    return entry.is_file(), read_iteration_number(folder_name=entry.name), entry.name
+    return not entry.is_folder, read_iteration_number(folder_name=entry.name), entry.name
+
+
+def read_run_folder_listing(run_folder: Path) -> Dict[str, List[FolderEntry]]:
+    """
+    Reads the listing of the real run folder committed with a run snapshot (RUN_FOLDER_LISTING_NAME, written by the
+    folder_listing entry of snapshot_files.yaml: one "type, size in bytes, relative path" line per entry, tab
+    separated), so that the run folder scenes show the checkpoints, the large records and the evaluation files the
+    snapshot leaves out.
+
+    Args:
+        run_folder (Path): The folder of the run in the snapshot folder.
+
+    Returns:
+        Dict[str, List[FolderEntry]]: The entries of every folder of the run, keyed by its path relative to the run
+            folder ("" for the run folder itself).
+
+    Raises:
+        FileNotFoundError: If the snapshot of the run has no listing.
+        ValueError: If a line of the listing is not a folder or file entry with its size.
+    """
+    listing_path = run_folder / RUN_FOLDER_LISTING_NAME
+    if not listing_path.is_file():
+        raise FileNotFoundError(f"No listing {listing_path} in the snapshot of the run: write it with "
+                                f"tutorials/make_run_snapshots.py --series foundations.")
+    entries_by_folder: Dict[str, List[FolderEntry]] = {}
+    for line in listing_path.read_text(encoding="utf-8").splitlines():
+        entry_type, entry_size, relative_path = line.split(sep="\t")
+        if entry_type not in ["folder", "file"] or not entry_size.isdigit():
+            raise ValueError(f"Expected a folder or file entry with its size in {listing_path}, got {line!r}.")
+        # Every entry filed under the folder holding it, the part of its path before its name
+        parent_path, _, entry_name = relative_path.rpartition("/")
+        entries_by_folder.setdefault(parent_path, []).append(FolderEntry(name=entry_name,
+                                                                         is_folder=entry_type == "folder"))
+    return entries_by_folder
+
+
+def list_folder_entries(run_folder: Path, relative_folder: str) -> List[FolderEntry]:
+    """
+    Gives the entries of a folder of the run in the order of the tree (order_folder_entry): read from the folder itself
+    for a real run, from the committed listing of the real run folder (read_run_folder_listing) for a run read from
+    the snapshots, whose checkpoints and large files are not committed.
+
+    Args:
+        run_folder (Path): The folder of the run.
+        relative_folder (str): The folder inside it, "" for the run folder itself, e.g. "Weights/Iteration_1500".
+
+    Returns:
+        List[FolderEntry]: The entries of the folder.
+
+    Raises:
+        FileNotFoundError: If the listing of a snapshot run does not hold the folder.
+    """
+    if is_snapshot_folder(folder=run_folder):
+        entries_by_folder = read_run_folder_listing(run_folder=run_folder)
+        if relative_folder not in entries_by_folder:
+            raise FileNotFoundError(f"No folder {relative_folder!r} in the listing {RUN_FOLDER_LISTING_NAME} of "
+                                    f"{run_folder}.")
+        entries = entries_by_folder[relative_folder]
+    else:
+        entries = [FolderEntry(name=entry.name, is_folder=entry.is_dir())
+                   for entry in (run_folder / relative_folder).iterdir()]
+    return sorted(entries, key=order_folder_entry)
 
 
 def list_run_folder_tree(run_folder: Path) -> List[str]:
@@ -84,7 +166,8 @@ def list_run_folder_tree(run_folder: Path) -> List[str]:
     afterwards by scripts/evaluation/evaluate_checkpoint.py (Checkpoint_Evaluation and its NMS variants), which the
     chapter on the tools after the training shows; in Weights and Evaluation the first and last iteration folders with
     "..." between them, the last checkpoint expanded (the last evaluation is listed apart by list_evaluation_folder); in
-    Tensorboard the log folder of every split.
+    Tensorboard the log folder of every split. The entries come from list_folder_entries, so that a run read from the
+    snapshots gives the tree of the real run.
 
     Args:
         run_folder (Path): The folder of the run.
@@ -94,16 +177,16 @@ def list_run_folder_tree(run_folder: Path) -> List[str]:
     """
     lines = [f"{run_folder.name}/"]
     # Entries written by the training, without the configuration backups and the standalone evaluations
-    top_entries = sorted((entry for entry in run_folder.iterdir()
-                          if not CONFIGURATION_BACKUP_PATTERN.fullmatch(string=entry.name)
-                          and not entry.name.startswith(CHECKPOINT_EVALUATION_FOLDER_NAME)), key=order_folder_entry)
+    top_entries = [entry for entry in list_folder_entries(run_folder=run_folder, relative_folder="")
+                   if not CONFIGURATION_BACKUP_PATTERN.fullmatch(string=entry.name)
+                   and not entry.name.startswith(CHECKPOINT_EVALUATION_FOLDER_NAME)]
     for top_index, top_entry in enumerate(top_entries):
         top_is_last = top_index == len(top_entries) - 1
-        lines.append(f"{'└── ' if top_is_last else '├── '}{top_entry.name}{'/' if top_entry.is_dir() else ''}")
-        if not top_entry.is_dir():
+        lines.append(f"{'└── ' if top_is_last else '├── '}{top_entry.name}{'/' if top_entry.is_folder else ''}")
+        if not top_entry.is_folder:
             continue
         child_prefix = "    " if top_is_last else "│   "
-        children = sorted(top_entry.iterdir(), key=order_folder_entry)
+        children = list_folder_entries(run_folder=run_folder, relative_folder=top_entry.name)
 
         # Iteration folders: the first and the last, the last expanded; other folders: every entry
         iteration_children = [child for child in children if read_iteration_number(folder_name=child.name) >= 0]
@@ -118,31 +201,34 @@ def list_run_folder_tree(run_folder: Path) -> List[str]:
             if child is None:
                 lines.append(f"{child_prefix}├── ...")
                 continue
-            lines.append(f"{child_prefix}{branch}{child.name}{'/' if child.is_dir() else ''}")
-            if child.is_dir() and iteration_children and child == iteration_children[-1] and \
+            lines.append(f"{child_prefix}{branch}{child.name}{'/' if child.is_folder else ''}")
+            if child.is_folder and iteration_children and child == iteration_children[-1] and \
                     top_entry.name != "Evaluation":
-                grandchildren = sorted(child.iterdir(), key=order_folder_entry)
+                # Last checkpoint expanded with its files
+                grandchildren = list_folder_entries(run_folder=run_folder,
+                                                    relative_folder=f"{top_entry.name}/{child.name}")
                 for grandchild_index, grandchild in enumerate(grandchildren):
                     grandchild_branch = "└── " if grandchild_index == len(grandchildren) - 1 else "├── "
                     lines.append(f"{child_prefix}{'    ' if child_is_last else '│   '}{grandchild_branch}"
-                                 f"{grandchild.name}{'/' if grandchild.is_dir() else ''}")
+                                 f"{grandchild.name}{'/' if grandchild.is_folder else ''}")
     return lines
 
 
-def list_evaluation_folder(evaluation_folder: Path) -> List[str]:
+def list_evaluation_folder(run_folder: Path, evaluation_name: str) -> List[str]:
     """
     Lists the files of one evaluation folder of a run, written for every evaluated checkpoint, as a tree under its
-    name.
+    name, its entries coming from list_folder_entries (the committed listing for a run read from the snapshots).
 
     Args:
-        evaluation_folder (Path): The evaluation folder of one checkpoint.
+        run_folder (Path): The folder of the run.
+        evaluation_name (str): The evaluation folder of one checkpoint in its Evaluation folder, e.g. "Iteration_1500".
 
     Returns:
         List[str]: The lines of the tree.
     """
-    entries = sorted(evaluation_folder.iterdir(), key=order_folder_entry)
-    return [f"Evaluation/{evaluation_folder.name}/"] + [
-        f"{'└── ' if entry_index == len(entries) - 1 else '├── '}{entry.name}{'/' if entry.is_dir() else ''}"
+    entries = list_folder_entries(run_folder=run_folder, relative_folder=f"Evaluation/{evaluation_name}")
+    return [f"Evaluation/{evaluation_name}/"] + [
+        f"{'└── ' if entry_index == len(entries) - 1 else '├── '}{entry.name}{'/' if entry.is_folder else ''}"
         for entry_index, entry in enumerate(entries)]
 
 
@@ -376,13 +462,15 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
     listings_folder.mkdir(parents=True, exist_ok=True)
 
     # Tree of the run folder, its checkpoints and evaluations counted for the narration
-    checkpoint_names = sorted((entry.name for entry in (run_folder / "Weights").iterdir() if entry.is_dir()),
-                              key=read_iteration_number)
-    evaluation_names = sorted((entry.name for entry in (run_folder / "Evaluation").iterdir() if entry.is_dir()),
-                              key=read_iteration_number)
+    checkpoint_names = sorted((entry.name for entry in list_folder_entries(run_folder=run_folder,
+                                                                          relative_folder="Weights")
+                               if entry.is_folder), key=read_iteration_number)
+    evaluation_names = sorted((entry.name for entry in list_folder_entries(run_folder=run_folder,
+                                                                          relative_folder="Evaluation")
+                               if entry.is_folder), key=read_iteration_number)
     tree_lines = list_run_folder_tree(run_folder=run_folder)
     (listings_folder / "run_folder_tree.txt").write_text(data="\n".join(tree_lines) + "\n", encoding="utf-8")
-    evaluation_lines = list_evaluation_folder(evaluation_folder=run_folder / "Evaluation" / evaluation_names[-1])
+    evaluation_lines = list_evaluation_folder(run_folder=run_folder, evaluation_name=evaluation_names[-1])
     (listings_folder / "evaluation_folder_tree.txt").write_text(data="\n".join(evaluation_lines) + "\n",
                                                                 encoding="utf-8")
 

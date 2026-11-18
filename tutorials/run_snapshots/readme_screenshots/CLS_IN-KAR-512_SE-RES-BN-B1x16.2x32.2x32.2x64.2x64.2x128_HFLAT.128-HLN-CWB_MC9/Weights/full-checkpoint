@@ -1,0 +1,7 @@
+model_checkpoint_path: "Iteration_1500"
+all_model_checkpoint_paths: "Iteration_250"
+all_model_checkpoint_paths: "Iteration_500"
+all_model_checkpoint_paths: "Iteration_750"
+all_model_checkpoint_paths: "Iteration_1000"
+all_model_checkpoint_paths: "Iteration_1250"
+all_model_checkpoint_paths: "Iteration_1500"
