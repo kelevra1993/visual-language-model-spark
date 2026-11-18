@@ -87,6 +87,8 @@ runs:
 # Files of the repository read by the figure scripts
 repository_files:
   benchmark_results: documentation/architecture_benchmarking/results.csv
+  # Plan of the classification benchmark, whose stage 13 section gives the decay of the moving average launches, the
+  # window 1 / (1 - decay) of which the foundations moving average chart shades
   benchmark_plan: documentation/architecture_benchmarking/experiment_plan.md
   # Results of the detection benchmark, whose stage 7 curves the proposal selection scenes draw
   object_detection_benchmark_results: documentation/architecture_benchmarking/object_detection_results.csv

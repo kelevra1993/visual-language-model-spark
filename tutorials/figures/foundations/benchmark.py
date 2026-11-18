@@ -9,8 +9,11 @@ every chart is written twice, its empty axes with the legend (the base image of 
 overlay, whose curves the scene uncovers while they are explained); the boxes of the panels and the means of the
 launches are the facts of the storyboards, with the launches counted per setting, the evaluated iterations, and the
 image size, layers and classes of the benchmark read from the run names of results.csv (describe_benchmark_run_name,
-also used by the classification figures). The test accuracies are written as the percentages of the reports of the
-repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
+also used by the classification figures). The moving average chart also shades the iterations the average looks back
+at the last evaluation, 1 / (1 - decay) for the decay of its last update, the decay of the launches being read from
+the section of their stage in experiment_plan.md (the benchmark_plan file of tutorial_sources.yaml) and lowered by the
+warm-up of ExponentialMovingAverage.get_current_decay. The test accuracies are written as the percentages of the
+reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
 
 import csv
@@ -22,7 +25,9 @@ import numpy
 from matplotlib import pyplot
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
+from matplotlib.transforms import Bbox
 from pathlib import Path
+from torch import nn
 from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, GRID_COLOUR,
@@ -31,6 +36,8 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
+from vision_training.trainers.weight_averaging import (AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY,
+                                                       ExponentialMovingAverage)
 
 # Evaluated iterations of every launch, the columns of results.csv
 EVALUATED_ITERATIONS = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
@@ -55,6 +62,15 @@ STALLED_LEARNING_RATES = ["5e-4", "1e-3", "2e-3"]
 STALLED_LAST_ITERATION = 750
 LAUNCH_NOISE_LAUNCHES = {"squeeze-and-excitation off": ["run_23", "run_23b", "run_23c", "run_24", "run_24b", "run_24c"],
                          "squeeze-and-excitation on": ["run_13", "run_13b", "run_13c", "run_14", "run_14b", "run_14c"]}
+
+# Heading of the section of experiment_plan.md on the moving average stage, and its sentence giving the decay of the
+# stage launches, the record of their recipe the repository keeps since their launch files were deleted with the stage
+MOVING_AVERAGE_STAGE_HEADING = "### Stage 13: Moving Average Of The Weights"
+MOVING_AVERAGE_DECAY_PATTERN = re.compile(pattern=r"the configured decay being (\d+\.\d+)")
+
+# Pixels added on every side of the bracket and labels of the shaded window of the moving average chart, for the
+# highlight box of the window
+WINDOW_BOX_MARGIN = 10
 
 # Parts of a run name of the benchmark, its sections joined by "_": the image size ending the input section
 # (IN-KAR-256), the layers and filters of every block after the B of the backbone section (B1x64.2x64...), and the
@@ -457,17 +473,145 @@ def draw_learning_rate_chart(output_folder: Path, launches: Dict[Tuple[str, str]
     return facts
 
 
-def draw_moving_average_chart(output_folder: Path, launches: Dict[Tuple[str, str], List[float]]) -> Dict[str, Any]:
+def read_moving_average_stage_decay(plan_path: Path) -> float:
+    """
+    Reads the decay of the moving average of the stage 13 launches from the section of their stage in
+    experiment_plan.md, the record of their recipe the repository keeps, so that the window the moving average chart
+    shades follows the decay they were trained with rather than a typed value.
+
+    Args:
+        plan_path (Path): The experiment_plan.md of the benchmark, the benchmark_plan file of tutorial_sources.yaml.
+
+    Returns:
+        float: The decay of the launches.
+
+    Raises:
+        ValueError: If the plan has no section of the stage, or if the section does not give the decay exactly once.
+    """
+    plan_text = plan_path.read_text(encoding="utf-8")
+    if MOVING_AVERAGE_STAGE_HEADING not in plan_text:
+        raise ValueError(f"{plan_path} has no section '{MOVING_AVERAGE_STAGE_HEADING}'.")
+
+    # Text of the section, from its heading to the next heading of the plan
+    section_text = plan_text.split(sep=MOVING_AVERAGE_STAGE_HEADING, maxsplit=1)[1]
+    next_heading = re.search(pattern=r"^#", string=section_text, flags=re.MULTILINE)
+    section_text = section_text if next_heading is None else section_text[:next_heading.start()]
+    decay_values = MOVING_AVERAGE_DECAY_PATTERN.findall(string=section_text)
+    if len(decay_values) != 1:
+        raise ValueError(f"The section '{MOVING_AVERAGE_STAGE_HEADING}' of {plan_path} gives the decay "
+                         f"{len(decay_values)} times instead of once ('{MOVING_AVERAGE_DECAY_PATTERN.pattern}').")
+    return float(decay_values[0])
+
+
+def compute_last_update_decay(decay: float, number_updates: int) -> float:
+    """
+    Gives the decay of the last update of a moving average after a number of updates, through
+    ExponentialMovingAverage.get_current_decay of the trainer, so that the window the moving average chart shades
+    follows the warm-up of the code: min(decay, (1 + n) / (10 + n)) for the update n, counted from 0.
+
+    Args:
+        decay (float): The configured decay of the average.
+        number_updates (int): The updates made, one per training iteration for a launch keeping its average from its
+            first iteration.
+
+    Returns:
+        float: The decay of the last of these updates.
+    """
+    # An average holding every update but the last one, its next update being the last one of the launch
+    moving_average = ExponentialMovingAverage(model=nn.Identity(), decay=decay)
+    moving_average.load_state_dict(state_dictionary={AVERAGED_MODEL_STATE_KEY: {},
+                                                     NUMBER_UPDATES_KEY: number_updates - 1})
+    return moving_average.get_current_decay()
+
+
+def compute_artist_box(figure: matplotlib.figure.Figure, artists: List[matplotlib.artist.Artist],
+                       margin: int) -> List[int]:
+    """
+    Gives the box holding some drawn artists of a chart in pixels of its PNG file from the top left corner, the box
+    format of the storyboards, for a highlight on a part of a panel such as the bracket and labels of the window the
+    moving average chart shades.
+
+    Args:
+        figure (matplotlib.figure.Figure): The drawn figure.
+        artists (List[matplotlib.artist.Artist]): The artists the box holds.
+        margin (int): The pixels added on every side.
+
+    Returns:
+        List[int]: The left, top, right and bottom of the box.
+    """
+    renderer = figure.canvas.get_renderer()
+    box = Bbox.union(bboxes=[artist.get_window_extent(renderer=renderer) for artist in artists])
+
+    # Matplotlib measures from the bottom left corner, the storyboards from the top left corner
+    figure_height = figure.bbox.height
+    return [int(numpy.floor(box.x0)) - margin, int(numpy.floor(figure_height - box.y1)) - margin,
+            int(numpy.ceil(box.x1)) + margin, int(numpy.ceil(figure_height - box.y0)) + margin]
+
+
+def draw_moving_average_window(axes_list: List[matplotlib.axes.Axes], decay: float,
+                               last_iteration: int) -> Dict[str, Any]:
+    """
+    Shades on every panel of the moving average chart the iterations the average looks back at the last evaluation,
+    1 / (1 - decay) for the decay of its last update, and labels the window on the last panel with the formula, the
+    launches keeping their average from their first iteration (one update per iteration).
+
+    Args:
+        axes_list (List[matplotlib.axes.Axes]): The panels, the window labelled on the last one.
+        decay (float): The decay of the launches.
+        last_iteration (int): The last evaluated iteration, the updates made by then.
+
+    Returns:
+        Dict[str, Any]: The decay of the last update, the window in iterations and the bracket and labels of the
+            labelled panel ("labels"), whose box is the highlight of the window.
+    """
+    last_update_decay = compute_last_update_decay(decay=decay, number_updates=last_iteration)
+    window_iterations = 1.0 / (1.0 - last_update_decay)
+
+    # Window shaded behind the curves of every panel, in the colour of the averaged weights
+    for axes in axes_list:
+        axes.axvspan(xmin=last_iteration - window_iterations, xmax=last_iteration, color=SERIES_COLOURS[1], alpha=0.16,
+                     linewidth=0, zorder=0)
+
+    # Bracket of the window under the curves of the labelled panel, the formula above it in the primary grey and the
+    # decay it is computed with below the formula in the secondary grey, both right-aligned on the last evaluation;
+    # the decay has 4 decimals and the window is rounded to the tens, which the exact decay and the written one both give
+    labelled_axes = axes_list[-1]
+    bottom, top = labelled_axes.get_ylim()
+    bracket_height = bottom + 0.12 * (top - bottom)
+    bracket = labelled_axes.annotate(text="", xy=(last_iteration - window_iterations, bracket_height),
+                                     xytext=(last_iteration, bracket_height),
+                                     arrowprops={"arrowstyle": "|-|", "color": SERIES_COLOURS[1],
+                                                 "linewidth": 2 * POINTS_PER_PIXEL, "mutation_scale": 6,
+                                                 "shrinkA": 0, "shrinkB": 0})
+    formula_label = labelled_axes.annotate(
+        text=f"1 / (1 − {last_update_decay:.4f}) ≈ {round(window_iterations, -1):,.0f} iterations",
+        xy=(last_iteration, bracket_height), xytext=(-4 * POINTS_PER_PIXEL, 52 * POINTS_PER_PIXEL),
+        textcoords="offset points", ha="right", va="bottom", color=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL)
+    decay_label = labelled_axes.annotate(
+        text=f"decay of update {last_iteration:,}, lowered by the warm-up", xy=(last_iteration, bracket_height),
+        xytext=(-4 * POINTS_PER_PIXEL, 16 * POINTS_PER_PIXEL), textcoords="offset points", ha="right", va="bottom",
+        color=TEXT_SECONDARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
+    return {"last_update_decay": last_update_decay, "window_iterations": window_iterations,
+            "labels": [bracket.arrow_patch, formula_label, decay_label]}
+
+
+def draw_moving_average_chart(output_folder: Path, launches: Dict[Tuple[str, str], List[float]],
+                              decay: float) -> Dict[str, Any]:
     """
     Draws the moving average chart of stage 13: the test accuracy of the trained weights and of the averaged weights
-    of the same two launches, over the whole training and over its last 1,000 iterations.
+    of the same two launches, over the whole training and over its last 1,000 iterations, with the iterations the
+    average looks back at the last evaluation shaded on both panels, 1 / (1 - decay) for the decay of its last update,
+    which the warm-up of the trainer still holds below the decay of the launches.
 
     Args:
         output_folder (Path): The benchmark folder of the series.
         launches (Dict[Tuple[str, str], List[float]]): The test accuracies of every launch.
+        decay (float): The decay of the moving average of the launches (read_moving_average_stage_decay).
 
     Returns:
-        Dict[str, Any]: The boxes of the panels and the mean curves of both weights.
+        Dict[str, Any]: The boxes of the panels and of the bracket and labels of the shaded window, the mean curves of
+            both weights, the decay of the launches and of their last update, and the window in iterations, rounded to
+            the tens.
     """
     figure, (whole_axes, zoom_axes) = create_figure(column_count=2)
     add_header(figure=figure, description="Synthetic shapes, the same 2 launches (faint) and their mean",
@@ -493,12 +637,21 @@ def draw_moving_average_chart(output_folder: Path, launches: Dict[Tuple[str, str
                 text=format_percentage(value=trained_mean[-1]), offset=(-30, -40), colour=SERIES_COLOURS[0])
     label_point(axes=zoom_axes, iteration=2000, value=averaged_mean[-1],
                 text=format_percentage(value=averaged_mean[-1]), offset=(-30, 40), colour=SERIES_COLOURS[1])
+
+    # Iterations the average looks back at the last evaluation, shaded on both panels and labelled on the zoom
+    window = draw_moving_average_window(axes_list=[whole_axes, zoom_axes], decay=decay,
+                                        last_iteration=EVALUATED_ITERATIONS[-1])
     save_figure(figure=figure, output_path=output_folder / "benchmark_moving_average.png")
     facts = measure_panels(figure=figure, chart_name="moving_average", panels={"whole": whole_axes, "zoom": zoom_axes})
+    facts["benchmark.moving_average.window_box"] = compute_artist_box(figure=figure, artists=window["labels"],
+                                                                      margin=WINDOW_BOX_MARGIN)
     pyplot.close(fig=figure)
     facts.update(name_curve_values(fact_prefix="benchmark.moving_average.trained_weights", curve=trained_mean))
     facts.update(name_curve_values(fact_prefix="benchmark.moving_average.averaged_weights", curve=averaged_mean))
-    facts["benchmark.moving_average.launch_count"] = len(MOVING_AVERAGE_LAUNCHES)
+    facts.update({"benchmark.moving_average.launch_count": len(MOVING_AVERAGE_LAUNCHES),
+                  "benchmark.moving_average.decay": decay,
+                  "benchmark.moving_average.last_update_decay": round_fact(value=window["last_update_decay"]),
+                  "benchmark.moving_average.window_iterations": int(round(window["window_iterations"], -1))})
     return facts
 
 
@@ -652,15 +805,17 @@ def draw_launch_noise_chart(output_folder: Path, results_path: Path) -> Dict[str
     return facts
 
 
-def make_benchmark_figures(output_folder: Path, results_path: Path) -> Dict[str, Any]:
+def make_benchmark_figures(output_folder: Path, results_path: Path, plan_path: Path) -> Dict[str, Any]:
     """
-    Draws the four benchmark charts into the benchmark folder of the series, from the launches of results.csv, and
-    gives their facts, with the settings shared by the launches of the model chart (image size, layers, classes), the
-    fewest launches of a setting of the model, learning rate and moving average charts, and the evaluated iterations.
+    Draws the four benchmark charts into the benchmark folder of the series, from the launches of results.csv and the
+    decay of the moving average stage given by the plan, and gives their facts, with the settings shared by the
+    launches of the model chart (image size, layers, classes), the fewest launches of a setting of the model, learning
+    rate and moving average charts, and the evaluated iterations.
 
     Args:
         output_folder (Path): The figures folder of the series.
         results_path (Path): The results.csv of the benchmark, the benchmark_results file of tutorial_sources.yaml.
+        plan_path (Path): The experiment_plan.md of the benchmark, the benchmark_plan file of tutorial_sources.yaml.
 
     Returns:
         Dict[str, Any]: The facts of the charts, named benchmark.*.
@@ -672,7 +827,8 @@ def make_benchmark_figures(output_folder: Path, results_path: Path) -> Dict[str,
     launches = read_launches(results_path=results_path)
     facts = draw_model_settings_chart(output_folder=benchmark_folder, launches=launches)
     facts.update(draw_learning_rate_chart(output_folder=benchmark_folder, launches=launches))
-    facts.update(draw_moving_average_chart(output_folder=benchmark_folder, launches=launches))
+    facts.update(draw_moving_average_chart(output_folder=benchmark_folder, launches=launches,
+                                           decay=read_moving_average_stage_decay(plan_path=plan_path)))
     facts.update(draw_launch_noise_chart(output_folder=benchmark_folder, results_path=results_path))
 
     # Image size, layers and classes shared by the launches of the model chart, read from their run names

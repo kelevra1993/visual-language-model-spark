@@ -55,7 +55,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_aspect_ratio_figures(output_folder=output_folder),
         make_augmentation_examples(output_folder=output_folder, run_folder=classification_run_folder, force=force),
         make_benchmark_figures(output_folder=output_folder, results_path=find_repository_file(
-            file_key="benchmark_results")),
+            file_key="benchmark_results"), plan_path=find_repository_file(file_key="benchmark_plan")),
         make_backbone_figures(output_folder=output_folder, run_folder=classification_run_folder, force=force),
         make_backbone_transfer_listing(output_folder=output_folder, run_folder=classification_run_folder),
         describe_code_values(repository_folder=find_repository_root(), configuration_path=find_repository_file(
