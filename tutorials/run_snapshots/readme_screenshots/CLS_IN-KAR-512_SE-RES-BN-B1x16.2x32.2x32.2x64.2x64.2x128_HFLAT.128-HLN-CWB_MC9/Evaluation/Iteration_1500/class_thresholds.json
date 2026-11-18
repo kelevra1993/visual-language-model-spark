@@ -1,0 +1,38 @@
+{
+    "target_precision": 0.99,
+    "classes": {
+        "square": {
+            "threshold": 0.8945904970169067,
+            "recall": 0.0007216308858019123
+        },
+        "circle": {
+            "threshold": 0.4267778992652893,
+            "recall": 0.7760708476414242
+        },
+        "triangle": {
+            "threshold": 0.05534270033240318,
+            "recall": 0.9853446716120862
+        },
+        "rectangle": null,
+        "pentagon": {
+            "threshold": 0.8739873170852661,
+            "recall": 0.001973448152134912
+        },
+        "hexagon": {
+            "threshold": 0.8207817673683167,
+            "recall": 0.02327647476901208
+        },
+        "plus_sign": {
+            "threshold": 0.23535595834255219,
+            "recall": 0.9994700582935877
+        },
+        "star": {
+            "threshold": 0.7613787055015564,
+            "recall": 0.9957272565426384
+        },
+        "octagon": {
+            "threshold": 0.7884043455123901,
+            "recall": 0.026795479402114474
+        }
+    }
+}

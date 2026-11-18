@@ -7,7 +7,7 @@ that probability can separate them; on the right, the probabilities of pentagon 
 the most confused pair of the run, which shows a confusion between two classes taking the probability mass from each
 other. The boxes of the two panels and the numbers the narration quotes are the facts of the scene. The shares of the
 images of a group are written as the percentages of the reports of the repository (ticks "20 %"), the probabilities
-keeping their decimals.
+keeping their decimals. A build from the run snapshots reads the gzipped copy of the predictions file.
 """
 
 import csv
@@ -19,6 +19,7 @@ from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List
 
+from tutorials.figures.classification.snapshot_helpers import open_predictions_file
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 compute_pixel_box, register_fonts, round_fact, save_figure,
@@ -53,7 +54,8 @@ FIGURE_NAME = "prediction_confidence_iteration_1500.png"
 def read_predictions(predictions_path: Path) -> Dict[str, Any]:
     """
     Reads the predictions file of an evaluation: the true and predicted class of every test image, whether it is right
-    and the probability of every class, the columns named probability_<class>.
+    and the probability of every class, the columns named probability_<class>; in a run read from the snapshots, from
+    the gzipped copy of the file (open_predictions_file).
 
     Args:
         predictions_path (Path): The predictions.csv file.
@@ -65,9 +67,8 @@ def read_predictions(predictions_path: Path) -> Dict[str, Any]:
     Raises:
         FileNotFoundError: If the file is missing (save_predictions was off).
     """
-    if not predictions_path.exists():
-        raise FileNotFoundError(f"No predictions file {predictions_path}: the evaluation needs save_predictions.")
-    with open(file=predictions_path, encoding="utf-8", newline="") as predictions_file:
+    # The CSV of the evaluation, or its gzipped copy in the snapshots, refused when missing
+    with open_predictions_file(predictions_path=predictions_path, newline="") as predictions_file:
         reader = csv.DictReader(predictions_file)
         probability_columns = [column for column in reader.fieldnames if column.startswith("probability_")]
         rows = list(reader)

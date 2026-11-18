@@ -10,7 +10,8 @@ tutorial_sources.yaml, written by scripts/evaluation/evaluate_checkpoint.py with
 the report scene shows, the size of the predictions file, and the temperatures of the slider of the temperature
 explorer page with the port of the script serving it. Nothing is drawn: the scenes draw these values with the grid and
 bars elements of the diagram engine. The labels of the bars write the F1 and recalls as the percentages of the reports
-of the repository ("94.03 %"), the facts keeping every rate between 0 and 1.
+of the repository ("94.03 %"), the facts keeping every rate between 0 and 1. A build from the run snapshots reads
+the gzipped copy of the predictions file, the size of the original coming from the manifest of the series.
 """
 
 import csv
@@ -21,6 +22,7 @@ import numpy
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from tutorials.figures.classification.snapshot_helpers import measure_predictions_bytes, open_predictions_file
 from tutorials.figures.figure_utilities import round_fact
 from tutorials.figures.foundations.code_values import read_main_block_value
 from tutorials.figures.foundations.training_curves import read_scalars
@@ -208,7 +210,8 @@ def describe_class_metrics(run_folder: Path) -> Dict[str, Any]:
 def describe_headline_metrics(run_folder: Path) -> Dict[str, Any]:
     """
     Gives the headline metrics of every evaluated checkpoint, read from the Test logs of TensorBoard (the values of
-    the report blocks of Results.txt), and the size of the predictions file of the last checkpoint.
+    the report blocks of Results.txt), and the size of the predictions file of the last checkpoint (its rows and the
+    megabytes of the CSV, whose gzipped copy in the snapshots gives the same numbers).
 
     Args:
         run_folder (Path): The folder of the classification run.
@@ -224,10 +227,10 @@ def describe_headline_metrics(run_folder: Path) -> Dict[str, Any]:
 
     # Rows of the predictions file: one per test image under its header line
     predictions_path = run_folder / "Evaluation" / f"Iteration_{LAST_ITERATION}" / "predictions.csv"
-    with open(file=predictions_path, encoding="utf-8") as predictions_file:
+    with open_predictions_file(predictions_path=predictions_path, newline=None) as predictions_file:
         line_count = sum(1 for _ in predictions_file)
-    facts.update({"predictions_file.rows": line_count - 1,
-                  "predictions_file.megabytes": round_fact(value=predictions_path.stat().st_size / 1e6)})
+    facts.update({"predictions_file.rows": line_count - 1, "predictions_file.megabytes": round_fact(
+        value=measure_predictions_bytes(predictions_path=predictions_path) / 1e6)})
     return facts
 
 
