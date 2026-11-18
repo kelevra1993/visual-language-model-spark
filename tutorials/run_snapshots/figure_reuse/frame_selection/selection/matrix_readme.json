@@ -1,0 +1,90 @@
+{
+ "row_labels": [
+  "frame 1",
+  "frame 2",
+  "frame 3"
+ ],
+ "column_labels": [
+  "A",
+  "B",
+  "unselected"
+ ],
+ "values": {
+  "probabilities": [
+   [
+    0.5,
+    0.45,
+    0.05
+   ],
+   [
+    0.45,
+    0.05,
+    0.5
+   ],
+   [
+    0.02,
+    0.08,
+    0.9
+   ]
+  ],
+  "gains": [
+   [
+    2.3,
+    2.2,
+    null
+   ],
+   [
+    -0.11,
+    -2.3,
+    null
+   ],
+   [
+    -3.81,
+    -2.42,
+    null
+   ]
+  ],
+  "selection": [
+   [
+    0.515,
+    0.776,
+    null
+   ],
+   [
+    0.464,
+    0.086,
+    null
+   ],
+   [
+    0.021,
+    0.138,
+    null
+   ]
+  ]
+ },
+ "picks": {
+  "hungarian": [
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "greedy": [
+   [
+    0,
+    0
+   ],
+   [
+    2,
+    1
+   ]
+  ]
+ },
+ "true_cells": [],
+ "hungarian_labelling_probability": 0.1823,
+ "greedy_labelling_probability": 0.02
+}

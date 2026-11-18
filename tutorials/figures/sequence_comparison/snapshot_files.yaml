@@ -1,0 +1,66 @@
+# Files of the runs the sequence comparison figures read, copied into tutorials/run_snapshots by
+# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). No checkpoint is committed: the
+# comparator is rebuilt from its configuration for the parameter counts of its components, and the animated pair batch,
+# which runs the trained weights, is committed from the build cache under figure_reuse.
+runs:
+  # Comparator run: settings, checkpoint registry, training, validation and test curves, evaluation report, figures,
+  # predictions, thresholds and per-class metrics of its last evaluation, two of its sample images and its console log
+  - run: sequence_comparison
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      - path: Weights/full-checkpoint
+      - path: Tensorboard/Train/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Tensorboard/Validation/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Checkpoint_Evaluation/Results.txt
+      - path: Checkpoint_Evaluation/Iteration_1000/confusion_matrix.png
+      - path: Checkpoint_Evaluation/Iteration_1000/roc_curves.png
+      - path: Checkpoint_Evaluation/Iteration_1000/precision_recall_curves.png
+      - path: Checkpoint_Evaluation/Iteration_1000/precision_recall_thresholds.png
+      - path: Checkpoint_Evaluation/Iteration_1000/predictions.csv
+      - path: Checkpoint_Evaluation/Iteration_1000/class_thresholds.json
+      - path: Checkpoint_Evaluation/Iteration_1000/class_metrics.csv
+      - path: Checkpoint_Evaluation/Iteration_1000/Samples/test_000000.png
+      - path: Checkpoint_Evaluation/Iteration_1000/Samples/test_000003.png
+      - path: ../sequence_comparison.log
+  # Sequence classification run, shared with sequence_classification: the frame size of the classifier the console
+  # chapter compares with, and its console log
+  - run: sequence_classification
+    files:
+      - path: training_configuration.yaml
+      - path: ../sequence_classification_flatten.log
+# Object loss pairs data set: label mapping and labels of every split, the frames of the test pair shown with its sample
+# image and of the training pairs drawn by the data figures, those of the animated pair batch being committed with its
+# outputs (the generator seeds its chunks from the system, so the data set cannot be made again identically)
+datasets:
+  - path: sequence_data/synthetic_object_loss_pairs/label_mapping.json
+  - path: sequence_data/synthetic_object_loss_pairs/train/labels.json
+  - path: sequence_data/synthetic_object_loss_pairs/validation/labels.json
+  - path: sequence_data/synthetic_object_loss_pairs/test/labels.json
+  - path: sequence_data/synthetic_object_loss_pairs/test/data/test_000003/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000000/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000114/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000155/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000216/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000305/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000381/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000400/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000581/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000865/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000920/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001026/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001274/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001288/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001361/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001449/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001671/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001748/**/*.png
+# Family run with the trained weights (the animated pair batch and its layout), reused from these committed outputs
+# when the checkpoint is absent
+figure_reuse:
+  - family: batch
+  - family: animations

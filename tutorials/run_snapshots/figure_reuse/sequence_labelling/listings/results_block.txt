@@ -1,0 +1,18 @@
+Iteration 2000 · 10000 Test Sequences, 69918 Labelled Frames · EMA Weights · 2026-11-15 17:18 ──────────────────────────
+  Accuracy               77.60 %   Balanced Accuracy         74.32 %
+  Macro F1               67.49 %   Top-5 Accuracy            96.96 %
+  Macro ROC AUC          99.50 %   Macro Average Precision   74.82 %
+  Sequence Exact Match   20.18 %   Edit Score                73.50 %
+  Segment F1@10          76.20 %   Segment F1@25             76.19 %
+  Segment F1@50          75.89 %
+  Segments : 58133 true and 60741 predicted in 10000 test sequences, an unlabelled frame ending a segment
+  Sample Images : 8 fixed test sequences
+
+  Per Class Metrics
+                                                                                         Average   Threshold     Recall
+   Class                          Frames   Precision     Recall        F1    ROC AUC   Precision     @ P99 %    @ P99 %
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   appearing_trapezoid               567      6.90 %     0.35 %    0.67 %    98.22 %     19.58 %      0.2133     0.18 %
+   disappearing_trapezoid            534      7.02 %     0.75 %    1.35 %    98.36 %     20.57 %           —          —
+   ...
+   no_change                       32843     99.82 %    81.14 %   89.51 %    99.58 %     99.56 %      0.0365    93.41 %

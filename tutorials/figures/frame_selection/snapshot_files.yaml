@@ -1,0 +1,35 @@
+# Files of the run the frame selection figures read, copied into tutorials/run_snapshots by
+# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). No checkpoint is committed: the
+# wrong picks of iteration 1000 and their matrix data, which run the trained weights, are committed from the build
+# cache under figure_reuse.
+runs:
+  # Frame selection run: settings, the class counts of data.json, training and validation curves, and the report,
+  # thresholds and selections of both evaluations
+  - run: frame_selection
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      - path: data.json
+        reduction: json_keys
+        keys: [created, classes]
+      - path: Tensorboard/Train/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Tensorboard/Validation/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Checkpoint_Evaluation/Results.txt
+      - path: Checkpoint_Evaluation/Iteration_1000/class_thresholds.json
+      - path: Checkpoint_Evaluation/Iteration_1000/selections.csv
+      - path: Checkpoint_Evaluation/Iteration_2000/class_thresholds.json
+      - path: Checkpoint_Evaluation/Iteration_2000/selections.csv
+# Selected shapes data set: label mapping, training and test labels, and the frames of the test sequence drawn by the
+# data figures, those of the wrong picks being committed with their outputs (the generator seeds its chunks from the
+# system, so the data set cannot be made again identically)
+datasets:
+  - path: sequence_data/synthetic_selected_shapes/label_mapping.json
+  - path: sequence_data/synthetic_selected_shapes/train/labels.json
+  - path: sequence_data/synthetic_selected_shapes/test/labels.json
+  - path: sequence_data/synthetic_selected_shapes/test/data/test_000057/*.png
+# Family run with the trained weights (the wrong picks and the matrix data of the decoding animations), reused from
+# these committed outputs when the checkpoint is absent
+figure_reuse:
+  - family: selection

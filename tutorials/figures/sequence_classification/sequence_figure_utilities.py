@@ -7,7 +7,10 @@ curves, predictions and console logs of the runs, the frames of the datasets cop
 HTML scenes can show them, the frame vectors drawn as small heat squares, the composites of the evaluation images of
 the runs, the layout files of the animated batch scenes (animations/07_sequence_classification/frame_batches.js), and
 the probability axis of the charts drawing a rate in percent and probabilities on one scale (the truncation figure of
-this series, the frame position panel of the sequence labelling series).
+this series, the frame position panel of the sequence labelling series). For a run read from the committed snapshots
+(tutorials/run_snapshots, without checkpoints), the models whose structure only is read are built from the
+configuration with random weights, and the checkpoint sizes the narration quotes are read from the listing of the
+Weights folder the snapshot holds.
 """
 
 import ast
@@ -31,10 +34,13 @@ from tutorials.figures.figure_utilities import (POINTS_PER_PIXEL, TEXT_SECONDARY
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, NAMED_COLOURS,
                                      SANS_BOLD_FONT_PATH, SANS_FONT_PATH, TERMINAL_COLOUR, TEXT_COLOUR)
 from tutorial_builder.figure_context import find_sources_file, read_thread_count
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic import create_synthetic_dataset
 from vision_training.models.model_loading import load_trained_model
+from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import EVALUATION_FOLDER_NAME
+from vision_training.trainers.checkpointing import get_checkpoint_file
 
 # Escape sequences of the coloured console output and of its terminal hyperlinks, removed from the logs of the runs
 # before they are shown, the hyperlinks keeping the text they display
@@ -51,6 +57,10 @@ COMPOSITE_HEADING_FONT_SIZE = 34
 COMPOSITE_NOTE_FONT_SIZE = 24
 COMPOSITE_HEADER_HEIGHT = 110
 COMPOSITE_GAP = 40
+
+# Listing of the Weights folder of a run kept by the committed snapshots in place of its checkpoints (the folder_listing
+# entry of snapshot_files.yaml), one "type, size in bytes, relative path" line per entry, tab separated
+WEIGHTS_LISTING_NAME = "weights_listing.txt"
 
 
 def find_comparison_run_folder(experiments_folder: Path, run_key: str, comparison_key: str) -> Path:
@@ -113,28 +123,86 @@ def find_console_log(experiments_folder: Path, run_key: str, comparison_key: Opt
     return log_path
 
 
-def load_sequence_model(run_folder: Path, iteration: int) -> TaskModel:
+def build_untrained_model(run_folder: Path) -> TaskModel:
+    """
+    Builds the model of a run from its saved configuration without reading its checkpoint, on the CPU and in
+    evaluation mode, which is enough for the facts that read its structure only (the parameters of its components,
+    the shapes of its export): the flatten run at 512 pixels has a checkpoint of about 600 MB, and the runs read from
+    the committed snapshots have none.
+
+    Args:
+        run_folder (Path): The run folder.
+
+    Returns:
+        TaskModel: The model with random weights.
+    """
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=run_folder / "training_configuration.yaml")
+    model = TASK_MODEL_CLASSES[experiment_configuration["task"]](configuration=model_configuration,
+                                                                device=torch.device("cpu"), dtype=MODEL_DTYPE)
+    return model.eval()
+
+
+def load_sequence_model(run_folder: Path, iteration: int, allow_untrained: bool) -> TaskModel:
     """
     Rebuilds the trained model of a sequence run at one of its checkpoints, on the CPU and in evaluation mode, with
     the loader of the evaluation and deployment scripts, so that the model figures show what the trained network
-    computes; the threads of PyTorch are limited to those of the build.
+    computes; the threads of PyTorch are limited to those of the build. A run read from the committed snapshots has
+    no checkpoint: a caller reading only the structure of the model gets it built from the configuration
+    (build_untrained_model), the figures computed from the trained weights being restored from the snapshots.
 
     Args:
         run_folder (Path): The run folder, with its training_configuration.yaml and Weights folder.
         iteration (int): The iteration of the checkpoint.
+        allow_untrained (bool): Whether a missing checkpoint gives the model with random weights instead of an error.
 
     Returns:
-        TaskModel: The trained model.
+        TaskModel: The trained model, or the untrained one when the checkpoint is missing and allow_untrained is set.
 
     Raises:
-        FileNotFoundError: If the checkpoint is missing.
+        FileNotFoundError: If the checkpoint is missing and allow_untrained is not set.
     """
     torch.set_num_threads(read_thread_count())
-    checkpoint_path = run_folder / "Weights" / f"Iteration_{iteration}" / f"model_{iteration:06d}.pt"
+    checkpoint_path = get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=iteration)
     if not checkpoint_path.exists():
+        if allow_untrained:
+            return build_untrained_model(run_folder=run_folder)
         raise FileNotFoundError(f"No checkpoint {checkpoint_path} in the run {run_folder.name}.")
     return load_trained_model(configuration_path=run_folder / "training_configuration.yaml",
                               checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)
+
+
+def read_checkpoint_bytes(run_folder: Path, iteration: int) -> int:
+    """
+    Gives the size in bytes of the checkpoint of a run at an iteration, which the narration quotes in megabytes (the
+    checkpoint of a flattened frame vector growing with the frame size): the size of the file, or, for a run read from
+    the committed snapshots, the size the listing of its Weights folder recorded (WEIGHTS_LISTING_NAME), so that both
+    builds quote the same number.
+
+    Args:
+        run_folder (Path): The run folder.
+        iteration (int): The iteration of the checkpoint.
+
+    Returns:
+        int: The size of the checkpoint in bytes.
+
+    Raises:
+        FileNotFoundError: If neither the checkpoint nor the listing holding it exists.
+    """
+    weights_folder = run_folder / "Weights"
+    checkpoint_path = get_checkpoint_file(weights_directory=weights_folder, iteration=iteration)
+    if checkpoint_path.exists():
+        return checkpoint_path.stat().st_size
+
+    # Without the checkpoint, the line of the listing naming it: "file", its size, its path relative to Weights
+    listing_path = weights_folder / WEIGHTS_LISTING_NAME
+    relative_path = checkpoint_path.relative_to(weights_folder).as_posix()
+    if listing_path.exists():
+        for line in listing_path.read_text(encoding="utf-8").splitlines():
+            entry_type, entry_bytes, entry_path = line.split("\t")
+            if entry_type == "file" and entry_path == relative_path:
+                return int(entry_bytes)
+    raise FileNotFoundError(f"No checkpoint {checkpoint_path}, nor a line naming it in {listing_path}.")
 
 
 def read_scalar_curve(run_folder: Path, split: str, tag: str) -> Tuple[numpy.ndarray, numpy.ndarray]:

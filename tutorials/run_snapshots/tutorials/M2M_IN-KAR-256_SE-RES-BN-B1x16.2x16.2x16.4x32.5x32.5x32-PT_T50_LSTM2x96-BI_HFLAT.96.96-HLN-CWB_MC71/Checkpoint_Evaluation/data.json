@@ -1,0 +1,857 @@
+{
+  "created": "2026-11-15 17:10:31",
+  "classes": [
+    {
+      "class_index": 0,
+      "class_name": "no_change",
+      "category_ids": [
+        1
+      ],
+      "frames": {
+        "train": 819173,
+        "validation": 164172,
+        "test": 32843
+      }
+    },
+    {
+      "class_index": 1,
+      "class_name": "appearing_square",
+      "category_ids": [
+        2
+      ],
+      "frames": {
+        "train": 13222,
+        "validation": 2693,
+        "test": 559
+      }
+    },
+    {
+      "class_index": 2,
+      "class_name": "appearing_circle",
+      "category_ids": [
+        3
+      ],
+      "frames": {
+        "train": 13336,
+        "validation": 2636,
+        "test": 514
+      }
+    },
+    {
+      "class_index": 3,
+      "class_name": "appearing_triangle",
+      "category_ids": [
+        4
+      ],
+      "frames": {
+        "train": 13341,
+        "validation": 2654,
+        "test": 507
+      }
+    },
+    {
+      "class_index": 4,
+      "class_name": "appearing_rectangle",
+      "category_ids": [
+        5
+      ],
+      "frames": {
+        "train": 13232,
+        "validation": 2621,
+        "test": 545
+      }
+    },
+    {
+      "class_index": 5,
+      "class_name": "appearing_pentagon",
+      "category_ids": [
+        6
+      ],
+      "frames": {
+        "train": 13223,
+        "validation": 2770,
+        "test": 539
+      }
+    },
+    {
+      "class_index": 6,
+      "class_name": "appearing_hexagon",
+      "category_ids": [
+        7
+      ],
+      "frames": {
+        "train": 13450,
+        "validation": 2682,
+        "test": 518
+      }
+    },
+    {
+      "class_index": 7,
+      "class_name": "appearing_plus_sign",
+      "category_ids": [
+        8
+      ],
+      "frames": {
+        "train": 13066,
+        "validation": 2579,
+        "test": 528
+      }
+    },
+    {
+      "class_index": 8,
+      "class_name": "appearing_star",
+      "category_ids": [
+        9
+      ],
+      "frames": {
+        "train": 13354,
+        "validation": 2640,
+        "test": 553
+      }
+    },
+    {
+      "class_index": 9,
+      "class_name": "appearing_octagon",
+      "category_ids": [
+        10
+      ],
+      "frames": {
+        "train": 13199,
+        "validation": 2548,
+        "test": 546
+      }
+    },
+    {
+      "class_index": 10,
+      "class_name": "appearing_rhombus",
+      "category_ids": [
+        11
+      ],
+      "frames": {
+        "train": 13535,
+        "validation": 2696,
+        "test": 531
+      }
+    },
+    {
+      "class_index": 11,
+      "class_name": "appearing_parallelogram",
+      "category_ids": [
+        12
+      ],
+      "frames": {
+        "train": 13413,
+        "validation": 2649,
+        "test": 539
+      }
+    },
+    {
+      "class_index": 12,
+      "class_name": "appearing_trapezoid",
+      "category_ids": [
+        13
+      ],
+      "frames": {
+        "train": 13180,
+        "validation": 2590,
+        "test": 567
+      }
+    },
+    {
+      "class_index": 13,
+      "class_name": "appearing_kite",
+      "category_ids": [
+        14
+      ],
+      "frames": {
+        "train": 13127,
+        "validation": 2647,
+        "test": 501
+      }
+    },
+    {
+      "class_index": 14,
+      "class_name": "appearing_heptagon",
+      "category_ids": [
+        15
+      ],
+      "frames": {
+        "train": 13250,
+        "validation": 2677,
+        "test": 541
+      }
+    },
+    {
+      "class_index": 15,
+      "class_name": "appearing_nonagon",
+      "category_ids": [
+        16
+      ],
+      "frames": {
+        "train": 13390,
+        "validation": 2656,
+        "test": 514
+      }
+    },
+    {
+      "class_index": 16,
+      "class_name": "appearing_ellipse",
+      "category_ids": [
+        17
+      ],
+      "frames": {
+        "train": 13158,
+        "validation": 2713,
+        "test": 522
+      }
+    },
+    {
+      "class_index": 17,
+      "class_name": "appearing_semicircle",
+      "category_ids": [
+        18
+      ],
+      "frames": {
+        "train": 13474,
+        "validation": 2680,
+        "test": 560
+      }
+    },
+    {
+      "class_index": 18,
+      "class_name": "appearing_annulus",
+      "category_ids": [
+        19
+      ],
+      "frames": {
+        "train": 13199,
+        "validation": 2644,
+        "test": 516
+      }
+    },
+    {
+      "class_index": 19,
+      "class_name": "appearing_capsule",
+      "category_ids": [
+        20
+      ],
+      "frames": {
+        "train": 13326,
+        "validation": 2635,
+        "test": 507
+      }
+    },
+    {
+      "class_index": 20,
+      "class_name": "appearing_l_shape",
+      "category_ids": [
+        21
+      ],
+      "frames": {
+        "train": 13269,
+        "validation": 2655,
+        "test": 505
+      }
+    },
+    {
+      "class_index": 21,
+      "class_name": "appearing_hollow_square",
+      "category_ids": [
+        22
+      ],
+      "frames": {
+        "train": 13570,
+        "validation": 2655,
+        "test": 516
+      }
+    },
+    {
+      "class_index": 22,
+      "class_name": "appearing_hollow_triangle",
+      "category_ids": [
+        23
+      ],
+      "frames": {
+        "train": 13293,
+        "validation": 2731,
+        "test": 569
+      }
+    },
+    {
+      "class_index": 23,
+      "class_name": "appearing_hollow_rectangle",
+      "category_ids": [
+        24
+      ],
+      "frames": {
+        "train": 13483,
+        "validation": 2656,
+        "test": 545
+      }
+    },
+    {
+      "class_index": 24,
+      "class_name": "appearing_hollow_pentagon",
+      "category_ids": [
+        25
+      ],
+      "frames": {
+        "train": 13237,
+        "validation": 2638,
+        "test": 516
+      }
+    },
+    {
+      "class_index": 25,
+      "class_name": "appearing_hollow_hexagon",
+      "category_ids": [
+        26
+      ],
+      "frames": {
+        "train": 13293,
+        "validation": 2618,
+        "test": 526
+      }
+    },
+    {
+      "class_index": 26,
+      "class_name": "appearing_hollow_octagon",
+      "category_ids": [
+        27
+      ],
+      "frames": {
+        "train": 13379,
+        "validation": 2696,
+        "test": 517
+      }
+    },
+    {
+      "class_index": 27,
+      "class_name": "appearing_hollow_rhombus",
+      "category_ids": [
+        28
+      ],
+      "frames": {
+        "train": 13299,
+        "validation": 2715,
+        "test": 524
+      }
+    },
+    {
+      "class_index": 28,
+      "class_name": "appearing_hollow_parallelogram",
+      "category_ids": [
+        29
+      ],
+      "frames": {
+        "train": 13417,
+        "validation": 2673,
+        "test": 509
+      }
+    },
+    {
+      "class_index": 29,
+      "class_name": "appearing_hollow_trapezoid",
+      "category_ids": [
+        30
+      ],
+      "frames": {
+        "train": 13367,
+        "validation": 2631,
+        "test": 501
+      }
+    },
+    {
+      "class_index": 30,
+      "class_name": "appearing_hollow_kite",
+      "category_ids": [
+        31
+      ],
+      "frames": {
+        "train": 13366,
+        "validation": 2626,
+        "test": 531
+      }
+    },
+    {
+      "class_index": 31,
+      "class_name": "appearing_hollow_heptagon",
+      "category_ids": [
+        32
+      ],
+      "frames": {
+        "train": 13165,
+        "validation": 2772,
+        "test": 525
+      }
+    },
+    {
+      "class_index": 32,
+      "class_name": "appearing_hollow_nonagon",
+      "category_ids": [
+        33
+      ],
+      "frames": {
+        "train": 13258,
+        "validation": 2783,
+        "test": 570
+      }
+    },
+    {
+      "class_index": 33,
+      "class_name": "appearing_hollow_ellipse",
+      "category_ids": [
+        34
+      ],
+      "frames": {
+        "train": 13200,
+        "validation": 2631,
+        "test": 489
+      }
+    },
+    {
+      "class_index": 34,
+      "class_name": "appearing_hollow_semicircle",
+      "category_ids": [
+        35
+      ],
+      "frames": {
+        "train": 13178,
+        "validation": 2674,
+        "test": 530
+      }
+    },
+    {
+      "class_index": 35,
+      "class_name": "appearing_hollow_capsule",
+      "category_ids": [
+        36
+      ],
+      "frames": {
+        "train": 13359,
+        "validation": 2696,
+        "test": 530
+      }
+    },
+    {
+      "class_index": 36,
+      "class_name": "disappearing_square",
+      "category_ids": [
+        37
+      ],
+      "frames": {
+        "train": 13373,
+        "validation": 2652,
+        "test": 535
+      }
+    },
+    {
+      "class_index": 37,
+      "class_name": "disappearing_circle",
+      "category_ids": [
+        38
+      ],
+      "frames": {
+        "train": 13224,
+        "validation": 2587,
+        "test": 564
+      }
+    },
+    {
+      "class_index": 38,
+      "class_name": "disappearing_triangle",
+      "category_ids": [
+        39
+      ],
+      "frames": {
+        "train": 13347,
+        "validation": 2658,
+        "test": 506
+      }
+    },
+    {
+      "class_index": 39,
+      "class_name": "disappearing_rectangle",
+      "category_ids": [
+        40
+      ],
+      "frames": {
+        "train": 13295,
+        "validation": 2717,
+        "test": 543
+      }
+    },
+    {
+      "class_index": 40,
+      "class_name": "disappearing_pentagon",
+      "category_ids": [
+        41
+      ],
+      "frames": {
+        "train": 13321,
+        "validation": 2765,
+        "test": 566
+      }
+    },
+    {
+      "class_index": 41,
+      "class_name": "disappearing_hexagon",
+      "category_ids": [
+        42
+      ],
+      "frames": {
+        "train": 13437,
+        "validation": 2604,
+        "test": 521
+      }
+    },
+    {
+      "class_index": 42,
+      "class_name": "disappearing_plus_sign",
+      "category_ids": [
+        43
+      ],
+      "frames": {
+        "train": 13199,
+        "validation": 2726,
+        "test": 537
+      }
+    },
+    {
+      "class_index": 43,
+      "class_name": "disappearing_star",
+      "category_ids": [
+        44
+      ],
+      "frames": {
+        "train": 13356,
+        "validation": 2620,
+        "test": 523
+      }
+    },
+    {
+      "class_index": 44,
+      "class_name": "disappearing_octagon",
+      "category_ids": [
+        45
+      ],
+      "frames": {
+        "train": 13111,
+        "validation": 2686,
+        "test": 525
+      }
+    },
+    {
+      "class_index": 45,
+      "class_name": "disappearing_rhombus",
+      "category_ids": [
+        46
+      ],
+      "frames": {
+        "train": 13382,
+        "validation": 2637,
+        "test": 527
+      }
+    },
+    {
+      "class_index": 46,
+      "class_name": "disappearing_parallelogram",
+      "category_ids": [
+        47
+      ],
+      "frames": {
+        "train": 13270,
+        "validation": 2690,
+        "test": 533
+      }
+    },
+    {
+      "class_index": 47,
+      "class_name": "disappearing_trapezoid",
+      "category_ids": [
+        48
+      ],
+      "frames": {
+        "train": 13121,
+        "validation": 2727,
+        "test": 534
+      }
+    },
+    {
+      "class_index": 48,
+      "class_name": "disappearing_kite",
+      "category_ids": [
+        49
+      ],
+      "frames": {
+        "train": 13132,
+        "validation": 2598,
+        "test": 517
+      }
+    },
+    {
+      "class_index": 49,
+      "class_name": "disappearing_heptagon",
+      "category_ids": [
+        50
+      ],
+      "frames": {
+        "train": 13335,
+        "validation": 2627,
+        "test": 544
+      }
+    },
+    {
+      "class_index": 50,
+      "class_name": "disappearing_nonagon",
+      "category_ids": [
+        51
+      ],
+      "frames": {
+        "train": 13262,
+        "validation": 2672,
+        "test": 529
+      }
+    },
+    {
+      "class_index": 51,
+      "class_name": "disappearing_ellipse",
+      "category_ids": [
+        52
+      ],
+      "frames": {
+        "train": 13167,
+        "validation": 2658,
+        "test": 530
+      }
+    },
+    {
+      "class_index": 52,
+      "class_name": "disappearing_semicircle",
+      "category_ids": [
+        53
+      ],
+      "frames": {
+        "train": 13278,
+        "validation": 2676,
+        "test": 547
+      }
+    },
+    {
+      "class_index": 53,
+      "class_name": "disappearing_annulus",
+      "category_ids": [
+        54
+      ],
+      "frames": {
+        "train": 13369,
+        "validation": 2644,
+        "test": 505
+      }
+    },
+    {
+      "class_index": 54,
+      "class_name": "disappearing_capsule",
+      "category_ids": [
+        55
+      ],
+      "frames": {
+        "train": 13504,
+        "validation": 2714,
+        "test": 549
+      }
+    },
+    {
+      "class_index": 55,
+      "class_name": "disappearing_l_shape",
+      "category_ids": [
+        56
+      ],
+      "frames": {
+        "train": 13190,
+        "validation": 2708,
+        "test": 501
+      }
+    },
+    {
+      "class_index": 56,
+      "class_name": "disappearing_hollow_square",
+      "category_ids": [
+        57
+      ],
+      "frames": {
+        "train": 13195,
+        "validation": 2660,
+        "test": 543
+      }
+    },
+    {
+      "class_index": 57,
+      "class_name": "disappearing_hollow_triangle",
+      "category_ids": [
+        58
+      ],
+      "frames": {
+        "train": 13329,
+        "validation": 2545,
+        "test": 503
+      }
+    },
+    {
+      "class_index": 58,
+      "class_name": "disappearing_hollow_rectangle",
+      "category_ids": [
+        59
+      ],
+      "frames": {
+        "train": 13235,
+        "validation": 2659,
+        "test": 513
+      }
+    },
+    {
+      "class_index": 59,
+      "class_name": "disappearing_hollow_pentagon",
+      "category_ids": [
+        60
+      ],
+      "frames": {
+        "train": 13287,
+        "validation": 2736,
+        "test": 567
+      }
+    },
+    {
+      "class_index": 60,
+      "class_name": "disappearing_hollow_hexagon",
+      "category_ids": [
+        61
+      ],
+      "frames": {
+        "train": 13515,
+        "validation": 2608,
+        "test": 536
+      }
+    },
+    {
+      "class_index": 61,
+      "class_name": "disappearing_hollow_octagon",
+      "category_ids": [
+        62
+      ],
+      "frames": {
+        "train": 13155,
+        "validation": 2648,
+        "test": 513
+      }
+    },
+    {
+      "class_index": 62,
+      "class_name": "disappearing_hollow_rhombus",
+      "category_ids": [
+        63
+      ],
+      "frames": {
+        "train": 13246,
+        "validation": 2743,
+        "test": 524
+      }
+    },
+    {
+      "class_index": 63,
+      "class_name": "disappearing_hollow_parallelogram",
+      "category_ids": [
+        64
+      ],
+      "frames": {
+        "train": 13395,
+        "validation": 2657,
+        "test": 560
+      }
+    },
+    {
+      "class_index": 64,
+      "class_name": "disappearing_hollow_trapezoid",
+      "category_ids": [
+        65
+      ],
+      "frames": {
+        "train": 13109,
+        "validation": 2688,
+        "test": 480
+      }
+    },
+    {
+      "class_index": 65,
+      "class_name": "disappearing_hollow_kite",
+      "category_ids": [
+        66
+      ],
+      "frames": {
+        "train": 13264,
+        "validation": 2735,
+        "test": 518
+      }
+    },
+    {
+      "class_index": 66,
+      "class_name": "disappearing_hollow_heptagon",
+      "category_ids": [
+        67
+      ],
+      "frames": {
+        "train": 13192,
+        "validation": 2658,
+        "test": 560
+      }
+    },
+    {
+      "class_index": 67,
+      "class_name": "disappearing_hollow_nonagon",
+      "category_ids": [
+        68
+      ],
+      "frames": {
+        "train": 13181,
+        "validation": 2718,
+        "test": 547
+      }
+    },
+    {
+      "class_index": 68,
+      "class_name": "disappearing_hollow_ellipse",
+      "category_ids": [
+        69
+      ],
+      "frames": {
+        "train": 13394,
+        "validation": 2659,
+        "test": 529
+      }
+    },
+    {
+      "class_index": 69,
+      "class_name": "disappearing_hollow_semicircle",
+      "category_ids": [
+        70
+      ],
+      "frames": {
+        "train": 13361,
+        "validation": 2686,
+        "test": 532
+      }
+    },
+    {
+      "class_index": 70,
+      "class_name": "disappearing_hollow_capsule",
+      "category_ids": [
+        71
+      ],
+      "frames": {
+        "train": 13378,
+        "validation": 2730,
+        "test": 504
+      }
+    }
+  ]
+}

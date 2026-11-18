@@ -1,0 +1,14 @@
+{
+    "logit_temperature": 1.0,
+    "target_precision": 0.99,
+    "classes": {
+        "loss_of_object": {
+            "threshold": 0.29117467999458313,
+            "recall": 0.9814814814814815
+        },
+        "same_number_of_objects": {
+            "threshold": 0.9879810214042664,
+            "recall": 0.6847826086956522
+        }
+    }
+}

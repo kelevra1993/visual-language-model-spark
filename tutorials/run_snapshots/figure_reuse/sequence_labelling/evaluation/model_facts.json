@@ -1,0 +1,39 @@
+{
+  "facts": {
+    "model.backbone_channels": 32,
+    "model.backbone_map_size": 8,
+    "model.backbone_parameters": 151264,
+    "model.backbone_shape": "[20, 32, 8, 8]",
+    "model.flatten_features": 2048,
+    "model.frame_features_shape": "[4, 7, 2048]",
+    "model.head": "ClassificationHead(\n  (fully_connected_block): FullyConnectedBlock(\n    (0): Dropout(p=0.2, inplace=False)\n    (1): Linear(in_features=192, out_features=96, bias=True)\n    (2): LayerNorm((96,), eps=1e-05, elementwise_affine=True, bias=True)\n    (3): ReLU(inplace=True)\n    (4): Dropout(p=0.2, inplace=False)\n    (5): Linear(in_features=96, out_features=96, bias=True)\n    (6): LayerNorm((96,), eps=1e-05, elementwise_affine=True, bias=True)\n    (7): ReLU(inplace=True)\n  )\n  (dropout): Dropout(p=0.2, inplace=False)\n  (classifier): Linear(in_features=96, out_features=71, bias=True)\n)",
+    "model.head_layers": "Dropout \u00b7 Linear(192, 96) \u00b7 LayerNorm \u00b7 ReLU\nDropout \u00b7 Linear(96, 96) \u00b7 LayerNorm \u00b7 ReLU\nDropout \u00b7 Linear(96, 71)",
+    "model.head_parameters": 35111,
+    "model.input_shape": "[4, 7, 3, 256, 256]",
+    "model.logits_shape": "[4, 7, 71]",
+    "model.padding_zero_vectors": [
+      2,
+      4,
+      2,
+      0
+    ],
+    "model.pooled_shape": "[20, 2048]",
+    "model.residual_block_count": 5,
+    "model.residual_blocks": [
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "model.run_name": "M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71",
+    "model.source": "Weights/Iteration_2000",
+    "model.source_fingerprint": "model_002000.pt:33208117:1794758681673648602",
+    "model.temporal_features": 192,
+    "model.temporal_parameters": 1870848,
+    "model.temporal_shape": "[4, 7, 192]",
+    "model.total_megabytes": 8.22889,
+    "model.total_parameters": 2057223
+  },
+  "figures": []
+}

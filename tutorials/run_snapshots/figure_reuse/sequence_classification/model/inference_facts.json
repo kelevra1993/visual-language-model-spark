@@ -1,0 +1,239 @@
+{
+  "facts": {
+    "invariance.inverse_bound": 1000000000,
+    "invariance.lengths": [
+      3,
+      5,
+      7,
+      8
+    ],
+    "invariance.maximum_difference": 6.984919309616089e-10,
+    "invariance.padded_probabilities": [
+      [
+        0.0018,
+        0.962,
+        0.0141,
+        0.022
+      ],
+      [
+        0.0015,
+        0.0012,
+        0.9968,
+        0.0006
+      ],
+      [
+        0.0006,
+        0.0001,
+        0.9993,
+        0.0
+      ],
+      [
+        0.9998,
+        0.0,
+        0.0001,
+        0.0001
+      ]
+    ],
+    "invariance.sequences": [
+      "test_000000",
+      "test_000001",
+      "test_000002",
+      "test_000003"
+    ],
+    "similarity.average.features": 64,
+    "similarity.average.mean": 1.0,
+    "similarity.average.minimum": 1.0,
+    "similarity.average.values": [
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    ],
+    "similarity.flatten.features": 4096,
+    "similarity.flatten.mean": 0.589876,
+    "similarity.flatten.minimum": 0.0584287,
+    "similarity.flatten.values": [
+      [
+        1.0,
+        0.934356,
+        0.745733,
+        0.53971,
+        0.38321,
+        0.209275,
+        0.116924,
+        0.0584287
+      ],
+      [
+        0.934356,
+        1.0,
+        0.920415,
+        0.753124,
+        0.579617,
+        0.356309,
+        0.21866,
+        0.121294
+      ],
+      [
+        0.745733,
+        0.920415,
+        1.0,
+        0.92989,
+        0.791181,
+        0.563491,
+        0.382938,
+        0.234567
+      ],
+      [
+        0.53971,
+        0.753124,
+        0.92989,
+        1.0,
+        0.952992,
+        0.790139,
+        0.603453,
+        0.411268
+      ],
+      [
+        0.38321,
+        0.579617,
+        0.791181,
+        0.952992,
+        1.0,
+        0.926478,
+        0.766163,
+        0.565695
+      ],
+      [
+        0.209275,
+        0.356309,
+        0.563491,
+        0.790139,
+        0.926478,
+        1.0,
+        0.935392,
+        0.783179
+      ],
+      [
+        0.116924,
+        0.21866,
+        0.382938,
+        0.603453,
+        0.766163,
+        0.935392,
+        1.0,
+        0.942636
+      ],
+      [
+        0.0584287,
+        0.121294,
+        0.234567,
+        0.411268,
+        0.565695,
+        0.783179,
+        0.942636,
+        1.0
+      ]
+    ],
+    "similarity.sequence": "test_000000",
+    "truncation.frames_2.accuracy": 0.61,
+    "truncation.frames_2.mean_true_probability": 0.532777,
+    "truncation.frames_3.accuracy": 0.79,
+    "truncation.frames_3.mean_true_probability": 0.718819,
+    "truncation.frames_4.accuracy": 0.93,
+    "truncation.frames_4.mean_true_probability": 0.869431,
+    "truncation.frames_5.accuracy": 0.995,
+    "truncation.frames_5.mean_true_probability": 0.948348,
+    "truncation.frames_6.accuracy": 0.995,
+    "truncation.frames_6.mean_true_probability": 0.9794,
+    "truncation.frames_7.accuracy": 0.995,
+    "truncation.frames_7.mean_true_probability": 0.990344,
+    "truncation.frames_8.accuracy": 1.0,
+    "truncation.frames_8.mean_true_probability": 0.99595,
+    "truncation.panel_box": [
+      14,
+      63,
+      1682,
+      682
+    ],
+    "truncation.sequences": 200
+  },
+  "figures": [
+    "truncation.png"
+  ]
+}

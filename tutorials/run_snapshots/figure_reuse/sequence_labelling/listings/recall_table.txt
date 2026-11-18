@@ -1,0 +1,16 @@
+  Per Class Recall
+                                                             95 %       95 %
+   Class                              Frames     Recall     Lower      Upper
+  ───────────────────────────────────────────────────────────────────────────
+   appearing_trapezoid                   567     0.35 %    0.04 %     1.27 %
+   disappearing_trapezoid                534     0.75 %    0.20 %     1.92 %
+   disappearing_hollow_parallelogr…      560     0.89 %    0.29 %     2.09 %
+   ...
+   no_change                           32843    81.14 %   80.71 %    81.56 %
+   ...
+   disappearing_pentagon                 566   100.00 %   99.34 %   100.00 %
+   disappearing_hollow_rectangle         513   100.00 %   99.26 %   100.00 %
+
+  Worst Recall first, ties in class order. 95 % Lower and Upper : Korn-Graubard interval, exact at the effective sample
+  size of the variance of 1000 bootstrap resamples of the test sequences (fixed seed), or over the test sequences
+  holding the class when they all have the same recall. — : no frames of the class.

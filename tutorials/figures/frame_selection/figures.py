@@ -6,13 +6,14 @@ test sequence frame by frame, the labels listings and the error of the selection
 two losses against the losses of equal logits, the wrong picks of iteration 1000 drawn by the selection image of the
 repository with the matrix data of the decoding animations, and the evaluation listing and thresholds figure. Every
 figure family is a module of this folder writing into a subfolder of the output folder, its facts gathered here into the
-facts.json the storyboards quote as {{frame_selection.<name>}}, with the settings the run was trained with.
+facts.json the storyboards quote as {{frame_selection.<name>}}, with the settings the run was trained with. The run is
+read from the experiments folder of the build, the real runs or the committed snapshots (tutorials/run_snapshots).
 """
 
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_run_folder, merge_facts
+from tutorials.figures.figure_utilities import describe_run_label, find_run_folder, merge_facts
 from tutorials.figures.frame_selection.dataset_figures import make_dataset_figures
 from tutorials.figures.frame_selection.evaluation_figures import make_evaluation_figures
 from tutorials.figures.frame_selection.selection_figures import make_selection_figures
@@ -53,14 +54,14 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
 
     Args:
         output_folder (Path): The figures folder of the series in the cache of the build.
-        experiments_folder (Path): The folder of the real runs.
+        experiments_folder (Path): The folder of the real runs, or the committed snapshots.
         force (bool): Whether the reused figures are made again.
 
     Returns:
         Dict[str, Any]: The facts of every figure family, keyed by their dotted names.
     """
     run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="frame_selection")
-    run_label = f"{experiments_folder.name}/{run_folder.relative_to(experiments_folder)}"
+    run_label = describe_run_label(experiments_folder=experiments_folder, run_folder=run_folder)
     dataset_facts = make_dataset_figures(output_folder=output_folder, run_folder=run_folder)
     return merge_facts(fact_groups=[
         dataset_facts,

@@ -5,7 +5,10 @@ test sequences of the moving shapes dataset: the cosine similarities between the
 for the average pooling run (64 features) and the flatten run (4,096 features), the probabilities of four test
 sequences cut to different lengths alone and padded in one batch (the padding invariance), the accuracy of the
 flatten run on the first frames of every test sequence, and the parameters and checkpoint sizes of the three runs.
-The inference is reused from the previous build unless forced; its facts are the numbers the narration quotes. The
+The inference is reused from the previous build unless forced; its facts are the numbers the narration quotes. A build
+from the committed snapshots (tutorials/run_snapshots, without checkpoints) reuses the committed outputs of the
+inference (figure_reuse/sequence_classification/model), counts the parameters on models built from the configurations
+and reads the checkpoint sizes from the listings of the Weights folders. The
 accuracies written on the truncation figure, and its left axis, are the percentages of the reports of the repository
 ("94.03 %", ticks "20 %"), its right axis giving the same scale with the decimals of the probabilities, the facts
 keeping every value between 0 and 1.
@@ -21,22 +24,23 @@ from matplotlib import pyplot
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, read_reused_facts,
-                                                register_fonts, round_fact, save_figure, style_chart_panel,
-                                                write_reused_facts)
+                                                register_fonts, restore_committed_figures, round_fact, save_figure,
+                                                style_chart_panel, write_reused_facts)
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (add_probability_axis,
+                                                                                 build_untrained_model,
                                                                                  compute_cosine_similarities,
-                                                                                 load_sequence_model)
-from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+                                                                                 load_sequence_model,
+                                                                                 read_checkpoint_bytes)
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences, read_sequence_frames
 from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
-from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.task_model import TaskModel
+from vision_training.trainers.checkpointing import get_checkpoint_file
 
 # Test sequence whose frame vectors are compared, the first of the test manifest
 SIMILARITY_SEQUENCE_INDEX = 0
@@ -92,23 +96,6 @@ def count_parameters(module: torch.nn.Module) -> int:
         int: Its number of parameters.
     """
     return sum(parameter.numel() for parameter in module.parameters())
-
-
-def build_untrained_model(run_folder: Path) -> TaskModel:
-    """
-    Builds the model of a run from its saved configuration without reading its checkpoint, which is enough to count
-    its parameters (the flatten run at 512 pixels has a checkpoint of about 600 MB).
-
-    Args:
-        run_folder (Path): The run folder.
-
-    Returns:
-        TaskModel: The model with random weights.
-    """
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=run_folder / "training_configuration.yaml")
-    return TASK_MODEL_CLASSES[experiment_configuration["task"]](configuration=model_configuration,
-                                                                device=torch.device("cpu"), dtype=MODEL_DTYPE)
 
 
 def compute_inference_facts(flatten_model: TaskModel, average_model: TaskModel, flatten_split: Dict[str, Any],
@@ -257,8 +244,9 @@ def make_model_figures(output_folder: Path, flatten_model: TaskModel, run_folder
                        checkpoint_iterations: Dict[str, int], test_folder: Path, label_dictionary: Dict[int, int],
                        force: bool) -> Dict[str, Any]:
     """
-    Makes the model figures and gives their facts: the inference facts (reused from the previous build unless forced),
-    the parameters of the backbone, temporal module and head of the three runs, and the size of their last checkpoint.
+    Makes the model figures and gives their facts: the inference facts (reused from the previous build unless forced,
+    and restored from the committed snapshots when the checkpoints of the inference are missing), the parameters of
+    the backbone, temporal module and head of the three runs, and the size of their last checkpoint.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -276,12 +264,21 @@ def make_model_figures(output_folder: Path, flatten_model: TaskModel, run_folder
     model_folder.mkdir(parents=True, exist_ok=True)
     facts_path = model_folder / "inference_facts.json"
     truncation_path = model_folder / "truncation.png"
-    facts = read_reused_facts(facts_path=facts_path, required_paths=[truncation_path], force=force)
+
+    # The inference needs the checkpoints of the flatten and average runs: without them (a build from the committed
+    # snapshots) the committed outputs of the family are restored and reused, --force having nothing to compute from
+    checkpoints_present = all(get_checkpoint_file(weights_directory=run_folders[run_name] / "Weights",
+                                                  iteration=checkpoint_iterations[run_name]).exists()
+                              for run_name in ["flatten_128", "average_512"])
+    if not checkpoints_present:
+        restore_committed_figures(output_folder=output_folder, family_folder="model")
+    facts = read_reused_facts(facts_path=facts_path, required_paths=[truncation_path],
+                              force=force and checkpoints_present)
     if facts is None:
         flatten_split = read_test_split(test_folder=test_folder, label_dictionary=label_dictionary, image_size=128,
                                         sequence_count=10 ** 6)
         average_model = load_sequence_model(run_folder=run_folders["average_512"],
-                                            iteration=checkpoint_iterations["average_512"])
+                                            iteration=checkpoint_iterations["average_512"], allow_untrained=False)
         average_split = read_test_split(test_folder=test_folder, label_dictionary=label_dictionary, image_size=512,
                                         sequence_count=SIMILARITY_SEQUENCE_INDEX + 1)
         facts = compute_inference_facts(flatten_model=flatten_model, average_model=average_model,
@@ -300,7 +297,8 @@ def make_model_figures(output_folder: Path, flatten_model: TaskModel, run_folder
                   "invariance.row_labels": [f"{length} frames" for length in facts["invariance.lengths"]],
                   "truncation.lengths": TRUNCATION_LENGTHS})
 
-    # Parameters of every component of the three runs, and the size of their last checkpoint
+    # Parameters of every component of the three runs, and the size of their last checkpoint (from the listing of its
+    # Weights folder for a run read from the committed snapshots)
     for run_name, run_folder in run_folders.items():
         model = flatten_model if run_name == "flatten_128" else build_untrained_model(run_folder=run_folder)
         for component_name in ["backbone", "temporal_module", "classification_head"]:
@@ -312,8 +310,8 @@ def make_model_figures(output_folder: Path, flatten_model: TaskModel, run_folder
         facts[f"parameters.{run_name}.total_millions"] = round(count_parameters(module=model) / 1e6, 2)
         facts[f"parameters.{run_name}.frame_features"] = int(model.temporal_module.recurrent_network.input_size)
         iteration = checkpoint_iterations[run_name]
-        checkpoint_path = run_folder / "Weights" / f"Iteration_{iteration}" / f"model_{iteration:06d}.pt"
-        facts[f"checkpoints.{run_name}.bytes"] = checkpoint_path.stat().st_size
-        facts[f"checkpoints.{run_name}.megabytes"] = round_fact(value=checkpoint_path.stat().st_size / 1e6)
+        checkpoint_bytes = read_checkpoint_bytes(run_folder=run_folder, iteration=iteration)
+        facts[f"checkpoints.{run_name}.bytes"] = checkpoint_bytes
+        facts[f"checkpoints.{run_name}.megabytes"] = round_fact(value=checkpoint_bytes / 1e6)
         facts[f"checkpoints.{run_name}.iteration"] = iteration
     return facts
