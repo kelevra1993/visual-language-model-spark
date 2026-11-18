@@ -1,7 +1,7 @@
 # Serving Benchmark Plan
 
 - **Drivers:** `scripts/deployment/benchmark_serving_formats.py` (exports, speed and memory) and `scripts/deployment/evaluate_served_formats.py` (test metric), their settings in their main blocks, run from the repository root with `.venv/bin/python -m scripts.deployment.<name>`, one after the other; each resumes from its results file, so a stopped sweep restarts where it stopped.
-- **Outputs:** `~/Data/serving_benchmark/`, outside the repository: the Triton model repositories of every precision setting, the TensorRT engine caches, the inputs sent to the models, the raw file of every load, the logs, `results.csv` and `test_metrics.csv`. Only this plan and the copies of the two results files next to it (`serving_benchmark_results.csv`, `serving_benchmark_test_metrics.csv`) are committed.
+- **Outputs:** `~/Data/serving_benchmark/`, outside the repository: the Triton model repositories of every precision setting, the TensorRT engine caches, the inputs sent to the models, the raw file of every load, the logs, `results.csv` and `test_metrics.csv`. Only this plan and the copies next to it are committed: the two results files of the sweep (`serving_benchmark_results.csv`, `serving_benchmark_test_metrics.csv`), the listing of the model repositories (`serving_benchmark_model_repository_files.txt`) and the results of the exported NMS fix (`serving_benchmark_nms_fix_test_metrics.csv`, `serving_benchmark_nms_fix_loads/`).
 - **Machine:** DGX Spark (GB10, unified memory), Triton `nvcr.io/nvidia/tritonserver:26.01-py3` (Triton 2.65.0, ONNX Runtime 1.23.2, TensorRT 10.14.1), `perf_analyzer` of `nvcr.io/nvidia/tritonserver:26.01-py3-sdk`, no training running.
 
 ## Table Of Content

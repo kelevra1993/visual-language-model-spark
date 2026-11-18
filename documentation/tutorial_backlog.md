@@ -43,7 +43,7 @@ In order to show what the finer inputs of the instance segmentation mask heads b
 
 - **Added**: `main` 0ef5cbd, 2026-11-15; skip rules `main` d536467, 2026-11-18; design A recorded `main` 45fbc73, 2026-11-17; design B recorded `main` e493e63, 2026-11-18.
 - **Documented in**: [tasks reference](reference/tasks_reference.md), [configuration reference](reference/configuration_reference.md) and stage 3b of the [instance segmentation plan](architecture_benchmarking/instance_segmentation_experiment_plan.md).
-- **Tutorial status**: `04_instance_segmentation/01_from_boxes_to_masks.yaml` names the settings, off in the run shown, and states the skip rules; `04_instance_segmentation/02_scoring_and_shipping_masks.yaml` says in one sentence, without figure or number, that the image branch drew finer borders. No chapter shows the stage 3b figures, the design figure or design B (design A reaches a mask mAP of 0.8865 and design B 0.8859, a tie, against 0.8145 for the heads of stage 3).
+- **Tutorial status**: `04_instance_segmentation/01_from_boxes_to_masks.yaml` names the settings, off in the run shown, and states the skip rules; `04_instance_segmentation/02_scoring_and_shipping_masks.yaml` says in one sentence, without figure or number, that the image branch and the backbone skips both drew finer borders. No chapter shows the stage 3b figures or the design figure (design A reaches a mask mAP of 0.8865 and design B 0.8859, a tie, against 0.8145 for the heads of stage 3).
 - **Where it would fit**: the mask head scene of `04_instance_segmentation/01_from_boxes_to_masks.yaml` or the benchmark sentence of chapter 2, with the stage 3b figures and `mask_head_designs.png`, once the control is run (user decision); no new tutorial run.
 
 ## ImageNet-22k Download
