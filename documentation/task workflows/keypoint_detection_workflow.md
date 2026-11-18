@@ -148,14 +148,16 @@ main()
 │
 ├── KeypointTrainer(experiment_configuration, model_configuration, configuration_path)   [STAGE 2]
 │   │   Reads the keypoint categories and the grouping settings of 'KeypointHead.inference'.
-│   ├── build_keypoint_channel_table()                             channel_table [34, 18] for the grouping
-│   ├── build_keypoint_sigma_table()                               OKS sigma of every keypoint of every class
+│   ├── build_keypoint_tables()
+│   │   ├── build_keypoint_channel_table()                         channel_table [34, 18] for the grouping
+│   │   └── build_keypoint_sigma_table()                           OKS sigma of every keypoint of every class
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() -> build_keypoint_sections()
 │       ├── DataAugmenter()
 │       ├── restore_run_label_dictionary() / setup_training_paths()
 │       │       the classes of a resumed run kept from its label_dictionary.json (its keypoint definitions read
-│       │       again), then the run folder with the configuration and label_dictionary.json
+│       │       again, build_keypoint_tables() run again for them), then the run folder with the configuration
+│       │       and label_dictionary.json
 │       ├── build_dataloaders()                                    class_names from the test labels.json
 │       │   └── get_keypoint_dataloaders()
 │       │       └── CocoDetectionDataset(load_keypoints=True) per split    one whole image per sample
@@ -353,12 +355,12 @@ get_trainer_class(task="keypoint_detection") -> <class 'vision_training.trainers
 
 > The examples below are real outputs from building the trainer on the redirected configuration with the iterations of Stage 3 (batch size 8), the run folder redirected to a temporary folder and the MLflow tracking off. The whole construction took 0.86 s on CPU.
 
-### Step 2.1 — `KeypointTrainer.__init__()` → `build_keypoint_channel_table()` + `build_keypoint_sigma_table()`
-The trainer turns the keys of `keypoint_categories` into integers and sets `maximum_keypoints`, the keypoint count of the largest class (18, the hollow nonagon): every per-object keypoint tensor of the batches has 18 positions, the classes with fewer keypoints being padded. It then builds the tables indexed by class:
+### Step 2.1 — `KeypointTrainer.__init__()` → `build_keypoint_tables()`
+Through `build_keypoint_tables()`, the trainer turns the keys of `keypoint_categories` into integers and sets `maximum_keypoints`, the keypoint count of the largest class (18, the hollow nonagon): every per-object keypoint tensor of the batches has 18 positions, the classes with fewer keypoints being padded. It then builds the tables indexed by class:
 - `channel_table` [34, 18], from `build_keypoint_channel_table()` (Step 2.8), as a NumPy array: the heatmap channel of every keypoint of every class, which `group_keypoint_candidates()` reads the candidates of a class with.
 - `sigma_table` [34, 18], from `build_keypoint_sigma_table()`: the OKS sigma of every keypoint of every class, `default_keypoint_sigma` unless `keypoint_sigmas` names the keypoint.
 
-It also keeps the three thresholds of `KeypointHead.inference` for the grouping. The constructor of `BaseTrainer` runs last, since it builds the loaders and the model.
+It also keeps the three thresholds of `KeypointHead.inference` for the grouping. The constructor of `BaseTrainer` runs last, since it builds the loaders and the model. For a resumed run whose mapping file now gives other classes, `KeypointTrainer.restore_run_label_dictionary()` runs `build_keypoint_tables()` again once the classes of the run and their keypoint definitions are restored, so that the grouping reads the heatmap channels of the classes the model was trained with.
 
 **Example: the attributes after the construction**
 ```text
@@ -390,7 +392,7 @@ KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256
 ```
 
 ### Step 2.4 — `DataAugmenter()` + `setup_training_paths()`
-The augmenter of every task. Its geometric types move the keypoints of the objects with the image (Step 3.4). The run folder is created as for every task (see `classification_workflow.md`, Step 2.6), with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run: before it, a resumed run keeps the classes of its `label_dictionary.json` when the mapping file now gives others, its keypoint definitions, indexed by class, being read again for them (`restore_run_label_dictionary()`). The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`).
+The augmenter of every task. Its geometric types move the keypoints of the objects with the image (Step 3.4). The run folder is created as for every task (see `classification_workflow.md`, Step 2.6), with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run: before it, a resumed run keeps the classes of its `label_dictionary.json` when the mapping file now gives others, its keypoint definitions, indexed by class, being read again for them and the tables of Step 2.1 built again (`restore_run_label_dictionary()`). The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`).
 
 ### Step 2.5 — `build_dataloaders()` → `get_keypoint_dataloaders()` → `CocoDetectionDataset(load_keypoints=True)`
 `build_dataloaders()` calls `read_test_manifest()` of `CocoSplitTrainer`, which reads `class_names` from the test `labels.json` (`get_class_names()`), gives every class a colour for the sample images and keeps the file name of every test image, then calls `get_keypoint_dataloaders()`. It builds one `CocoDetectionDataset` per split (the validation one only when the run reads it, `classification_workflow.md`, Step 2.7: built here, the shortened configuration reading a validation batch every 10 iterations, none with the `validation_iteration_ratio` of 0 of the synthetic configuration), the dataset of the object detection, which packs the image and annotation records of its manifest into one read-only byte buffer (`SerializedRecords`, read by `get_image_record()`, `object_detection_workflow.md`, Step 2.9), with `load_keypoints=True` and `maximum_keypoints=18`, and with `load_ignored_regions=True` for the training and validation splits when `KeypointHead.ignore_unlabelled_objects` is on (off here; never for the test split, which computes no loss). The sample is **one whole image** with all its objects, as for the detection. The dataset reads the number of keypoints of every category from the `categories` of the split (0 for the distractors).
