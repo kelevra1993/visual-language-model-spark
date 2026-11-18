@@ -19,7 +19,8 @@ overview video gives the whole repository in one chapter (the ten tasks, each to
 right tool, how they differ and what they share), a foundations series covers what every task shares (the repository
 and a first run, the configuration and the training loop, the data pipeline, the backbone, the optimization, the
 evaluation and the deployment), then one series per task covers its data, model, targets, losses, evaluation outputs
-and pitfalls.
+and pitfalls, and a deployment series covers the export and its checks, the serving with Triton and the serving
+benchmark.
 
 The videos are not stored in the repository: everything needed to rebuild them is. The builder is the private
 repository [tutorial-video-builder](https://github.com/kelevra1993/tutorial-video-builder), installed in the environment
