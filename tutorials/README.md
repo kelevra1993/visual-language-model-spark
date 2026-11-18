@@ -20,7 +20,7 @@ right tool, how they differ and what they share), a foundations series covers wh
 and a first run, the configuration and the training loop, the data pipeline, the backbone, the optimization, the
 evaluation and the deployment), then one series per task covers its data, model, targets, losses, evaluation outputs
 and pitfalls, and a deployment series covers the export and its checks, the serving with Triton and the serving
-benchmark.
+benchmark: 13 series of 38 chapters in all, in the order of `storyboards/series.yaml`.
 
 The videos are not stored in the repository: everything needed to rebuild them is. The builder is the private
 repository [tutorial-video-builder](https://github.com/kelevra1993/tutorial-video-builder), installed in the environment
@@ -42,8 +42,8 @@ To find your way in this folder, what each file holds:
 | `pyproject.toml`, `uv.lock` | Environment of the build, the builder pinned to its release tag |
 | `storyboards/` | `series.yaml` (the series in order) and one folder of chapters per series |
 | `animations/` | HTML pages of the animated scenes of some chapters, using the engine `common/` of the builder |
-| `figures/` | Figure scripts of every series, run with the repository environment |
-| `tutorial_sources.yaml` | Real runs read by the figure scripts, and how to train them again |
+| `figures/` | Figure scripts of every series (the overview uses those of the foundations), run with the repository environment; each package declares in `snapshot_files.yaml` the files of its run snapshot |
+| `tutorial_sources.yaml` | Real runs read by the figure scripts and how to train them again (`runs`), the repository files they read such as the benchmark results (`repository_files`), and the folder and size limits of the run snapshots (`snapshots`) |
 | `run_configurations/` | Configurations of the runs trained for the tutorials only, and in `pretraining/` those of the shape pretrainers |
 | `run_snapshots/` | Small copies of the runs (at the paths of the experiments folder), of their dataset files and of the figures that need a checkpoint, with one manifest per series; `pretrained/README.md` lists the shape pretrainers |
 | `make_run_snapshots.py` | Writer of `run_snapshots/` from the `snapshot_files.yaml` of every figure package |
@@ -132,7 +132,9 @@ served from the builder next to the pages of this folder, and adds animated part
 If you are looking for where a number of the narration comes from, it is a fact of a figure script.
 `figures/<series>/figures.py` holds `make_figures(output_folder, experiments_folder, force)`, called by
 `figures/make_figures.py` (`figures_module` of `tutorial_project.yaml`) with the repository Python from the repository
-root, on the CPU. It reads its runs through `figures/figure_utilities.py` and `tutorial_sources.yaml`, writes its PNG
+root, on the CPU. It reads its runs through `figures/figure_utilities.py` and `tutorial_sources.yaml` (from
+`run_snapshots/`, a run without its checkpoint takes its dataset files from `datasets/` and the figures that need the
+checkpoint from `figure_reuse/`, through `resolve_dataset_path` and `restore_committed_figures`), writes its PNG
 files into the output folder, reuses its expensive figures unless forced, and returns its facts (numbers, and the pixel
 boxes of its panels for the highlights and reveals of the storyboards). Figures are drawn at the size they are shown
 (1720 x 700 for a figure filling the card) with the palette and fonts of `tutorial_builder.layout`; the repository root,
