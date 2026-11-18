@@ -163,7 +163,8 @@ main()
 │   │     - model_configuration = all the other sections: how to load data, how to build the network, how to optimize
 │   │   It then fixes the values YAML reads with the wrong type: folders become Path objects, "1e10" becomes an int,
 │   │   the learning rate becomes a float, and the optimization numbers written without a dot become numbers. It adds
-│   │   tracking_root and run_name (None) to experiment_configuration, then label_mode and label_dictionary to 'Data'
+│   │   tracking_root, run_name (None) and standalone_evaluation_folder (None) to experiment_configuration, then
+│   │   label_mode and label_dictionary to 'Data'
 │   │   (taken from the label_dictionary.json of the folder of the YAML when it is a run folder), and runs the checks.
 │   │   It returns both dictionaries to main().
 │   │
@@ -703,7 +704,7 @@ trainer.run_training_loop()
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It then converts the values YAML reads with the wrong type (the folders, the iteration counts, the learning rate, and the optimization numbers written without a dot such as `weight_decay: 1e-4`), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) and `run_name` (None, the name of the run folder then being built from the settings, Step 2.4) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5). There is no data type to convert: every model is built in float32 (`MODEL_DTYPE` of `vision_training/models/model_registry.py`, Step 2.3).
+This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It then converts the values YAML reads with the wrong type (the folders, the iteration counts, the learning rate, and the optimization numbers written without a dot such as `weight_decay: 1e-4`), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) and `run_name` (None, the name of the run folder then being built from the settings, Step 2.4) and `standalone_evaluation_folder` (None for a training, `Checkpoint_Evaluation` set by the standalone evaluation, Step 5.2) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5). There is no data type to convert: every model is built in float32 (`MODEL_DTYPE` of `vision_training/models/model_registry.py`, Step 2.3).
 
 **Example: how the dictionaries are split**
 ```text
@@ -711,7 +712,7 @@ experiment_configuration keys: task, experiment_folder, run_name_suffix, train_d
                                test_data_folder, batch_size, information_dump, weight_saving_iterations,
                                intermediate_weight_saving_iterations, number_iterations, validation_iteration_ratio,
                                evaluation, tracking, learning_rate, allow_data_change_on_resume,
-                               diagnosis_modes, tracking_root, run_name
+                               diagnosis_modes, tracking_root, run_name, standalone_evaluation_folder
 model_configuration keys:      Optimization, Data, Backbone, ClassificationHead
 Data keys after loading:       image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
 ```
