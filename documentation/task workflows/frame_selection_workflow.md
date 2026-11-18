@@ -151,7 +151,7 @@ main()
 │       │   │       unselected); a sequence longer than maximum_sequence_length is left out with a red warning, and a
 │       │   │       sequence without exactly frames_per_class frames of every wanted class stops the training with
 │       │   │       the list of such sequences.
-│       │   └── unselected_class_index + get_wanted_class_indices()   the same unselected class in the 3 splits
+│       │   └── unselected_class_index + get_wanted_class_indices()   the same unselected class in the built splits
 │       ├── check_loaders_give_batches()                             refuses a split whose loader gives no batch
 │       ├── save_data_record()                                       data.json, the frames of unmapped categories
 │       │                                                            counted as unselected (get_unmapped_class_index())
@@ -369,7 +369,7 @@ data.json    179,097 bytes   keys ['created', 'classes', 'splits']
 The record and the run folder of Step 2.6 were taken again with the current code on a dataset generated with the same settings (4,044 training frames instead of the 3,950 of Step 2.8).
 
 ### Step 2.8 — `SequenceDataset.__init__()` → `describe_selection_problem()`
-With the `selection` label type, the dataset finds the class of the unselected category, gives it to the frames of unmapped categories, and keeps every sequence whole, each frame keeping its class. A sequence longer than `maximum_sequence_length` frames is left out with a red warning, and a total per split, as for every sequence task. `describe_selection_problem()` then checks every kept sequence: it must hold exactly `frames_per_class` frames of every wanted class, since the decodings always choose that many frames per class. All the invalid sequences are listed at once and the training stops.
+With the `selection` label type, the dataset finds the class of the unselected category, gives it to the frames of unmapped categories, and keeps every sequence whole, each frame keeping its class. A sequence longer than `maximum_sequence_length` frames is left out with a red warning, and a total per split, as for every sequence task. `describe_selection_problem()` then checks every kept sequence: it must hold exactly `frames_per_class` frames of every wanted class, since the decodings always choose that many frames per class. The invalid sequences are reported in one error, the first 20 listed and the others counted (`MAXIMUM_LISTED_INVALID_SEQUENCES`), and the training stops.
 
 **Example: a manifest sequence, the first sequence after shuffling, and the sample the loader gets from it**
 ```text

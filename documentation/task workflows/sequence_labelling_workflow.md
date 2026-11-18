@@ -799,9 +799,9 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 ```
 In `class_thresholds.json` (`target_precision` 0.99), `no_change` reaches a precision of 0.99 from a probability of 0.0201 (recall 0.0097) and `disappearing_hollow_semicircle` from 0.0142 (recall 0.25); most of the other classes are `null`.
 
-With `per_class_report`, the current header has two more columns, filled from the curves of every class:
+With `per_class_report`, the current header has two more columns, `roc_auc` and `average_precision`, filled from the curves of every class (`build_class_metrics_rows()`); the row of the README screenshot run below predates `recall_lower` and `recall_upper`:
 ```text
-class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
+class_index,class,samples,precision,recall,recall_lower,recall_upper,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
 0,no_change,32843,0.469736,1.000000,0.639211,0.657150,0.712039,0.407468,0.307585        <- README screenshot run, iteration 2000
 ```
 
