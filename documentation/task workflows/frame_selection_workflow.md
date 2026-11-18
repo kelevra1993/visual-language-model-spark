@@ -529,7 +529,7 @@ model_state: 95 tensors, the first 'class_weights', 'wanted_class_mask', then 'b
 mlflow_run_id: None (iterations 3 and 6), '618a35766a1b4c60a9f2703b93255530' (iterations 9 and 12)
 wanted_class_mask in every checkpoint: [0.0, 1.0, 1.0, 1.0]
 ```
-The file sizes were measured before the checkpoints held the label dictionary of the run (2026-10-21): the 64 more bytes of iterations 9 and 12 come with their MLflow run identifier. The checkpoint of iteration 2000 of the README screenshot run of this configuration (`suggestions.md` K), the same 95 tensors at 256 pixels with its label dictionary and MLflow run identifier, holds 4,292,067 bytes.
+The checkpoints written by the current code also hold `pretrained_backbone_blocks` (the backbone blocks loaded from a shorter source backbone, `classification_workflow.md`, Step 2.19), which would be `None` for this run. The file sizes were measured before the checkpoints held the label dictionary of the run (2026-10-21): the 64 more bytes of iterations 9 and 12 come with their MLflow run identifier. The checkpoint of iteration 2000 of the README screenshot run of this configuration (`suggestions.md` K), the same 95 tensors at 256 pixels with its label dictionary and MLflow run identifier, holds 4,292,067 bytes.
 
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
