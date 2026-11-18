@@ -10,7 +10,9 @@ both checkpoints; the cosine similarities of the embeddings of the two views of 
 of chapter 2; the views similarity of the star at every evaluated checkpoint; and the positive pair accuracy of an
 untrained and of the trained network on colour and on grayscale views, the cue the two views share. The shares of the
 vote are written as the percentages of the reports of the repository ("45.23 %"), the facts keeping every rate between 0
-and 1. The encoding takes minutes on a shared CPU, so the figures are reused unless forced.
+and 1. The encoding takes minutes on a shared CPU, so the figures are reused unless forced; a run read from the run
+snapshots, without its checkpoints, reuses the outputs committed in figure_reuse/self_supervised/representations of the
+snapshot folder, the mosaic being drawn again from the reduced manifests and images committed under its datasets/.
 """
 
 import json
@@ -26,7 +28,8 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR,
                                                 read_reused_facts, read_run_configuration, register_fonts,
-                                                round_fact, save_figure, write_reused_facts)
+                                                restore_committed_figures, round_fact, save_figure,
+                                                write_reused_facts)
 from tutorials.figures.self_supervised.ssl_sources import (build_view_augmenter, draw_sample_views, encode_images,
                                                           find_sample, list_evaluated_iterations,
                                                           load_self_supervised_model, read_image_settings,
@@ -38,6 +41,7 @@ from vision_training.evaluation.self_supervised.representation_metrics import (
     NEAREST_NEIGHBOUR_TEMPERATURE, compute_nearest_neighbour_predictions)
 from vision_training.losses.self_supervised_losses import compute_info_nce_loss
 from vision_training.models.self_supervised.self_supervised_model import SelfSupervisedModel
+from vision_training.trainers.checkpointing import get_checkpoint_file
 
 # Test image whose neighbourhood among the reference training images the figures show: the star of the sample images
 QUERY_NAME = "test_000000.png"
@@ -58,8 +62,10 @@ GRAYSCALE_WEIGHTS = (0.114, 0.587, 0.299)
 # Colours of the nine classes in the animated page and the mosaic captions, the series colours of the frames first
 CLASS_COLOURS = ["#3987e5", "#199e70", "#c98500", "#d55181", "#9085e9", "#e66767", "#7dc4ff", "#f0c878", "#78dc78"]
 
-# Name of the JSON file keeping the facts of the figures for their reuse
+# Name of the JSON file keeping the facts of the figures for their reuse, and the folder of the figures in the figures
+# folder of the series, under which the run snapshots commit them
 FACTS_FILE_NAME = "representation_facts.json"
+REPRESENTATION_FAMILY_FOLDER = "representations"
 
 # Fact written only since the neighbourhood is drawn among the reference training images, so that facts kept by a
 # build made when it was drawn among the test images are made again instead of being reused
@@ -383,6 +389,22 @@ def measure_views_similarity(model: SelfSupervisedModel, augmenter: Any, sample:
     return float(torch.nn.functional.cosine_similarity(x1=representations[0:1], x2=representations[1:2], dim=1))
 
 
+def has_every_checkpoint(run_folder: Path, iterations: List[int]) -> bool:
+    """
+    Tells whether the weight files of the evaluated checkpoints of the run are on disk, every one of them being loaded
+    when the representation figures are made again; the run snapshots hold none of them.
+
+    Args:
+        run_folder (Path): The folder of the self-supervised run.
+        iterations (List[int]): The evaluated iterations (list_evaluated_iterations).
+
+    Returns:
+        bool: Whether the checkpoint of every iteration exists.
+    """
+    return all(get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=iteration).exists()
+               for iteration in iterations)
+
+
 def add_first_and_last_names(facts: Dict[str, Any]) -> Dict[str, Any]:
     """
     Gives the facts measured at the first and last evaluated checkpoints a second name ending in _first or _last
@@ -408,7 +430,7 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
     """
     Makes the representation figures of the series from the checkpoints of the run on the CPU and gives their facts,
     the figures of the previous build being reused unless forced or incomplete, or made when the neighbourhood was
-    drawn among the test images.
+    drawn among the test images; a run without its checkpoints (the run snapshots) reuses the committed ones.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -418,8 +440,11 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
     Returns:
         Dict[str, Any]: The facts, named knn.*, matrix.*, cue.* and similarity.*.
     """
-    representation_folder = output_folder / "representations"
+    # Figures of the previous build, or those committed in the run snapshots for a run without its checkpoints
+    representation_folder = output_folder / REPRESENTATION_FAMILY_FOLDER
     facts_path = representation_folder / FACTS_FILE_NAME
+    if not has_every_checkpoint(run_folder=run_folder, iterations=list_evaluated_iterations(run_folder=run_folder)):
+        restore_committed_figures(output_folder=output_folder, family_folder=REPRESENTATION_FAMILY_FOLDER)
     reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force)
     if reused_facts is not None and REFERENCE_FACT_NAME in reused_facts:
         make_neighbour_mosaic(output_folder=output_folder, run_folder=run_folder, facts=reused_facts)

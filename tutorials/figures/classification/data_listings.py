@@ -6,7 +6,8 @@ first samples), its label mapping file, and the classes of its data.json, one co
 category and its image count in every split. The listings are text files drawn by the listing element of the diagram
 scenes; the facts give the counts the narration quotes, the category and class of the first sample of the manifest
 (the one the scene follows through the mapping), and the number of shape classes, the image size and the most shapes
-of a multi-label image of the synthetic dataset generator of the repository as it draws them now.
+of a multi-label image of the synthetic dataset generator of the repository as it draws them now. A build from the
+run snapshots reads a training manifest reduced to a few samples, whose recorded sample count the listing quotes.
 """
 
 import json
@@ -14,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from tutorials.figures.classification.snapshot_helpers import count_manifest_samples
 from tutorials.figures.figure_utilities import read_run_configuration
 from tutorials.figures.foundations.code_values import read_main_block_value
 from tutorial_builder.figure_context import find_repository_root
@@ -56,7 +58,8 @@ def list_labels_manifest(labels_path: Path) -> List[str]:
     lines += [f"    ...  {len(manifest['categories'])} categories", "  ],", '  "samples": [']
     for sample in manifest["samples"][:LISTED_SAMPLE_COUNT]:
         lines.append(f"    {json.dumps(obj=sample)},")
-    lines += [f"    ...  {len(manifest['samples']):,} samples", "  ]", "}"]
+    # Samples of the split, recorded by a manifest reduced for the run snapshots
+    lines += [f"    ...  {count_manifest_samples(manifest=manifest):,} samples", "  ]", "}"]
     return lines
 
 

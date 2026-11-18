@@ -1,0 +1,219 @@
+{
+  "facts": {
+    "backbone.blocks_without_shortcut": [
+      2,
+      4,
+      6
+    ],
+    "backbone.blocks_without_shortcut_text": "2, 4 and 6",
+    "class_weights.circle.training_images": 55373,
+    "class_weights.circle.weight": 1.0033,
+    "class_weights.class_names": [
+      "square",
+      "circle",
+      "triangle",
+      "rectangle",
+      "pentagon",
+      "hexagon",
+      "plus_sign",
+      "star",
+      "octagon"
+    ],
+    "class_weights.hexagon.training_images": 56166,
+    "class_weights.hexagon.weight": 0.989131,
+    "class_weights.maximum": 1.00992,
+    "class_weights.minimum": 0.989131,
+    "class_weights.octagon.training_images": 55437,
+    "class_weights.octagon.weight": 1.00214,
+    "class_weights.pentagon.training_images": 55635,
+    "class_weights.pentagon.weight": 0.998572,
+    "class_weights.plus_sign.training_images": 55662,
+    "class_weights.plus_sign.weight": 0.998088,
+    "class_weights.rectangle.training_images": 55375,
+    "class_weights.rectangle.weight": 1.00326,
+    "class_weights.square.training_images": 55540,
+    "class_weights.square.weight": 1.00028,
+    "class_weights.star.training_images": 55802,
+    "class_weights.star.weight": 0.995584,
+    "class_weights.training_images": [
+      55540,
+      55373,
+      55010,
+      55375,
+      55635,
+      56166,
+      55662,
+      55802,
+      55437
+    ],
+    "class_weights.triangle.training_images": 55010,
+    "class_weights.triangle.weight": 1.00992,
+    "class_weights.weight_rows": [
+      [
+        1.00028,
+        1.0033,
+        1.00992,
+        1.00326,
+        0.998572,
+        0.989131,
+        0.998088,
+        0.995584,
+        1.00214
+      ]
+    ],
+    "class_weights.weights": [
+      1.00028,
+      1.0033,
+      1.00992,
+      1.00326,
+      0.998572,
+      0.989131,
+      0.998088,
+      0.995584,
+      1.00214
+    ],
+    "head.average_pooling_parameters": 17929,
+    "head.classifier_parameters": 1161,
+    "head.dropout_rate": 0.2,
+    "head.final_map_channels": 128,
+    "head.final_map_size": 16,
+    "head.first_linear_parameters": 4194432,
+    "head.first_linear_share": 0.9051,
+    "head.flatten_features_at_half_size": 8192,
+    "head.half_image_final_map_size": 8,
+    "head.half_image_size": 256,
+    "head.hidden_units": 128,
+    "head.image_size": 512,
+    "head.input_channels": 3,
+    "head.input_features": 32768,
+    "head.normalization_parameters": 256,
+    "head.number_classes": 9,
+    "head.untrained_cross_entropy": 2.19722,
+    "hidden_features.batch_noise_floor": 258.032,
+    "hidden_features.batch_size": 64,
+    "hidden_features.decorrelation_loss": 2.55564,
+    "hidden_features.decorrelation_weight": 0.001,
+    "hidden_features.hidden_layer": 1,
+    "hidden_features.image_count": 256,
+    "hidden_features.mean_absolute_correlation": 0.329719,
+    "hidden_features.noise_floor": 63.749,
+    "hidden_features.strong_pair_fraction": 0.225394,
+    "hidden_features.unit_count": 128,
+    "parameters.backbone": 438368,
+    "parameters.block_1": 736,
+    "parameters.block_2": 16064,
+    "parameters.block_3": 20672,
+    "parameters.block_4": 63872,
+    "parameters.block_5": 82304,
+    "parameters.block_6": 254720,
+    "parameters.blocks": [
+      736,
+      16064,
+      20672,
+      63872,
+      82304,
+      254720
+    ],
+    "parameters.head": 4195849,
+    "parameters.total": 4634217,
+    "star_image.checkpoint_iteration": 1500,
+    "star_image.cross_entropy": 0.0100311,
+    "star_image.file_name": "test_005452.png",
+    "star_image.logits.circle": -2.75178,
+    "star_image.logits.hexagon": -1.37419,
+    "star_image.logits.octagon": -2.49121,
+    "star_image.logits.pentagon": -0.200703,
+    "star_image.logits.plus_sign": -0.42384,
+    "star_image.logits.rectangle": -3.3976,
+    "star_image.logits.square": -3.19893,
+    "star_image.logits.star": 5.35393,
+    "star_image.logits.triangle": -1.68682,
+    "star_image.predicted_class": "star",
+    "star_image.probabilities.circle": 0.000298798,
+    "star_image.probabilities.hexagon": 0.00118483,
+    "star_image.probabilities.octagon": 0.00038774,
+    "star_image.probabilities.pentagon": 0.00383085,
+    "star_image.probabilities.plus_sign": 0.0030647,
+    "star_image.probabilities.rectangle": 0.00015664,
+    "star_image.probabilities.square": 0.000191066,
+    "star_image.probabilities.star": 0.990019,
+    "star_image.probabilities.triangle": 0.00086673,
+    "star_image.sorted_class_names": [
+      "star",
+      "pentagon",
+      "plus_sign",
+      "hexagon",
+      "triangle",
+      "octagon",
+      "circle",
+      "square",
+      "rectangle"
+    ],
+    "star_image.sorted_logit_rows": [
+      [
+        5.35393
+      ],
+      [
+        -0.200703
+      ],
+      [
+        -0.42384
+      ],
+      [
+        -1.37419
+      ],
+      [
+        -1.68682
+      ],
+      [
+        -2.49121
+      ],
+      [
+        -2.75178
+      ],
+      [
+        -3.19893
+      ],
+      [
+        -3.3976
+      ]
+    ],
+    "star_image.sorted_logits": [
+      5.35393,
+      -0.200703,
+      -0.42384,
+      -1.37419,
+      -1.68682,
+      -2.49121,
+      -2.75178,
+      -3.19893,
+      -3.3976
+    ],
+    "star_image.sorted_probabilities": [
+      0.990019,
+      0.00383085,
+      0.0030647,
+      0.00118483,
+      0.00086673,
+      0.00038774,
+      0.000298798,
+      0.000191066,
+      0.00015664
+    ],
+    "star_image.sorted_probability_labels": [
+      "0.9900",
+      "0.0038",
+      "0.0031",
+      "0.0012",
+      "0.0009",
+      "0.0004",
+      "0.0003",
+      "0.0002",
+      "0.0002"
+    ]
+  },
+  "figures": [
+    "hidden_feature_correlation.png",
+    "input_star.png"
+  ]
+}

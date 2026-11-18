@@ -1,0 +1,194 @@
+ExperimentConfiguration:
+  task: classification
+  experiment_folder: /home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots
+  run_name_suffix: lr-0.0005
+  train_data_folder: /home/robert_kelevra/Data/classifier_data/synthetic_shapes/train
+  validation_data_folder: /home/robert_kelevra/Data/classifier_data/synthetic_shapes/validation
+  test_data_folder: /home/robert_kelevra/Data/classifier_data/synthetic_shapes/test
+  batch_size: 64
+  information_dump: 10
+  weight_saving_iterations: 600
+  intermediate_weight_saving_iterations: 300
+  number_iterations: 600
+  validation_iteration_ratio: 1
+  evaluation:
+    per_class_report: true
+    number_sample_images: 8
+    target_precision: 0.99
+    save_predictions: true
+    error_dumps:
+      activated: false
+      maximum_per_class_pair: 20
+  tracking:
+    activated: true
+    tracking_uri: null
+    experiment_name: null
+  learning_rate: 0.0005
+  allow_data_change_on_resume: false
+  diagnosis_modes:
+    compute_receptive_field: true
+    view_input_images: false
+    # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,
+    # at the configured and largest batch sizes that fit, then exits without training; no run folder is created.
+    benchmark_speed: False
+Optimization:
+  optimizer: adam
+  weight_decay: 0.0
+  learning_rate_schedule: constant
+  warmup_iterations: 0
+  decay_iterations: 100000
+  minimum_learning_rate_ratio: 0.01
+  exponential_moving_average:
+    activated: false
+    decay: 0.9998
+Data:
+  image_settings:
+    size: 512
+    keep_ratio: true
+  label_mapping:
+    mode: multi_class
+    mapping_file_path: /home/robert_kelevra/Data/classifier_data/synthetic_shapes/label_mapping.json
+  data_augmentation:
+    activated: true
+    probability: 0.4
+    types:
+      random_crop:
+        activated: true
+        probability: 0.3
+      random_aspect_crop:
+        activated: false
+        probability: 0.3
+      random_zoom_out:
+        activated: false
+        probability: 0.3
+      random_translation:
+        activated: false
+        probability: 0.5
+      random_left_right_flip:
+        activated: true
+        probability: 0.5
+      random_up_down_flip:
+        activated: false
+        probability: 0.5
+      random_rotation:
+        activated: true
+        probability: 0.3
+      random_90_rotation:
+        activated: false
+        probability: 0.3
+      random_perspective:
+        activated: false
+        probability: 0.3
+      random_jigsaw:
+        activated: false
+        probability: 0.3
+      brightness_contrast_saturation:
+        activated: true
+        probability: 0.3
+      random_hue:
+        activated: false
+        probability: 0.5
+      clahe_augment:
+        activated: false
+        probability: 0.3
+      sharp_augment:
+        activated: false
+        probability: 0.3
+      equalize_histogram_augment:
+        activated: false
+        probability: 0.3
+      equalize_bgr_histogram_augment:
+        activated: false
+        probability: 0.3
+      random_noise:
+        activated: true
+        probability: 0.3
+      gray_scale_augment:
+        activated: false
+        probability: 0.3
+      random_colour_augmentation:
+        activated: false
+        probability: 0.3
+      random_gamma:
+        activated: false
+        probability: 0.3
+      random_linear_illumination:
+        activated: false
+        probability: 0.3
+      random_plasma_shadow:
+        activated: false
+        probability: 0.3
+      random_blur:
+        activated: false
+        probability: 0.3
+      random_motion_blur:
+        activated: false
+        probability: 0.3
+      random_haze:
+        activated: true
+        probability: 0.3
+      random_solarize:
+        activated: false
+        probability: 0.2
+      random_black_out:
+        activated: false
+        probability: 0.3
+        grid_size: 8
+      random_erasing:
+        activated: false
+        probability: 0.3
+Backbone:
+  input_channels: 3
+  convolutions:
+    '1':
+    - 1
+    - 16
+    '2':
+    - 2
+    - 32
+    '3':
+    - 2
+    - 32
+    '4':
+    - 2
+    - 64
+    '5':
+    - 2
+    - 64
+    '6':
+    - 2
+    - 128
+  last_max_pooling: false
+  normalization:
+    input_normalization: true
+    per_sample_normalization: false
+    feature_map_normalization: batch
+  modules:
+    residual_nets: true
+    residual_nets_v2: false
+    inception: false
+    squeeze_and_excite: true
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    freeze_normalization_parameters: false
+    learning_rate_multiplier: 1.0
+ClassificationHead:
+  global_pooling: flatten
+  fully_connected:
+  - 128
+  fully_connected_normalization: layer
+  dropout_rate: 0.2
+  output_mode: multi_class
+  label_smoothing: 0.0
+  class_weighting: balanced
+  decorrelation:
+    activated: false
+    weight: 0.001
+    hidden_layer: 1
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    learning_rate_multiplier: 1.0
