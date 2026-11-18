@@ -1,0 +1,53 @@
+{
+  "created": "2026-10-23 05:38:46",
+  "classes": [
+    {
+      "class_index": 0,
+      "class_name": "unselected",
+      "category_ids": [
+        1
+      ],
+      "frames": {
+        "train": 9898,
+        "validation": 952,
+        "test": 1039
+      }
+    },
+    {
+      "class_index": 1,
+      "class_name": "circle",
+      "category_ids": [
+        2
+      ],
+      "frames": {
+        "train": 2000,
+        "validation": 200,
+        "test": 200
+      }
+    },
+    {
+      "class_index": 2,
+      "class_name": "triangle",
+      "category_ids": [
+        3
+      ],
+      "frames": {
+        "train": 2000,
+        "validation": 200,
+        "test": 200
+      }
+    },
+    {
+      "class_index": 3,
+      "class_name": "star",
+      "category_ids": [
+        4
+      ],
+      "frames": {
+        "train": 2000,
+        "validation": 200,
+        "test": 200
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+Iteration 1000 · 200 Test Sequences, 1639 Frames · 2026-11-16 00:00 ────────────────────────────────────────────────────
+  Hungarian Selection Accuracy     99.50 %    Hungarian Fully Right Sequences   98.50 %
+  Hungarian Unselected Precision   99.71 %    Hungarian Unselected Recall       99.71 %
+  Greedy Selection Accuracy        99.50 %    Greedy Fully Right Sequences      98.50 %
+  Greedy Unselected Precision      99.71 %    Greedy Unselected Recall          99.71 %
+  Top-2 Selection Accuracy         100.00 %   Mean True Frame Rank              1.0050
+  Frame Accuracy                   99.51 %    Frame Balanced Accuracy           99.20 %
+  Frame Macro F1                   99.40 %
+  Images, Thresholds And Confusion Matrix : hungarian decoding ('Selection.decoding')
+  Sample Images : 8 fixed test sequences
+
+  Per Class Selection
+                            Hungarian     Greedy      Top-2     Mean   Threshold     Recall
+   Class      True Frames    Accuracy   Accuracy   Accuracy     Rank     @ P99 %    @ P99 %
+  ──────────────────────────────────────────────────────────────────────────────────────────
+   triangle           200     98.50 %    98.50 %   100.00 %   1.0150      0.1830    98.50 %
+   circle             200    100.00 %   100.00 %   100.00 %   1.0000      0.8978   100.00 %
+   star               200    100.00 %   100.00 %   100.00 %   1.0000      0.7974   100.00 %
+  Worst hungarian accuracy first, ties in class order. Accuracy : share of the true frames of the class chosen for it.
+  Rank : mean rank of the true frames among the frames ordered by their probability for the class, 1 being the best.
+  Threshold : probability from which the hungarian choices reach the precision 99 %, with the share of the true frames
+  kept. — : never reached.
+
+  Per Class Recall
+                            Hungarian      95 %       95 %
+   Class      True Frames    Accuracy     Lower      Upper
+  ─────────────────────────────────────────────────────────
+   triangle           200     98.50 %   95.65 %    99.69 %
+   circle             200    100.00 %   98.17 %   100.00 %
+   star               200    100.00 %   98.17 %   100.00 %
+  Hungarian selection accuracy of every wanted class: the share of its true frames chosen for it, its recall. Worst
+  Hungarian Accuracy first, ties in class order. 95 % Lower and Upper : Korn-Graubard interval, exact at the effective
+  sample size of the variance of 1000 bootstrap resamples of the test sequences (fixed seed), or over the test sequences
+  holding the class when they all have the same recall. — : no true frames of the class.
+
+Iteration 2000 · 200 Test Sequences, 1639 Frames · 2026-11-16 00:00 ────────────────────────────────────────────────────
+  Hungarian Selection Accuracy     100.00 %   Hungarian Fully Right Sequences   100.00 %
+  Hungarian Unselected Precision   100.00 %   Hungarian Unselected Recall       100.00 %
+  Greedy Selection Accuracy        100.00 %   Greedy Fully Right Sequences      100.00 %
+  Greedy Unselected Precision      100.00 %   Greedy Unselected Recall          100.00 %
+  Top-2 Selection Accuracy         100.00 %   Mean True Frame Rank              1.0000
+  Frame Accuracy                   99.69 %    Frame Balanced Accuracy           99.88 %
+  Frame Macro F1                   99.63 %
+  Images, Thresholds And Confusion Matrix : hungarian decoding ('Selection.decoding')
+  Sample Images : 8 fixed test sequences
+
+  Per Class Selection
+                            Hungarian     Greedy      Top-2     Mean   Threshold     Recall
+   Class      True Frames    Accuracy   Accuracy   Accuracy     Rank     @ P99 %    @ P99 %
+  ──────────────────────────────────────────────────────────────────────────────────────────
+   circle             200    100.00 %   100.00 %   100.00 %   1.0000      0.8482   100.00 %
+   triangle           200    100.00 %   100.00 %   100.00 %   1.0000      0.7548   100.00 %
+   star               200    100.00 %   100.00 %   100.00 %   1.0000      0.9927   100.00 %
+  Worst hungarian accuracy first, ties in class order. Accuracy : share of the true frames of the class chosen for it.
+  Rank : mean rank of the true frames among the frames ordered by their probability for the class, 1 being the best.
+  Threshold : probability from which the hungarian choices reach the precision 99 %, with the share of the true frames
+  kept. — : never reached.
+
+  Per Class Recall
+                            Hungarian      95 %       95 %
+   Class      True Frames    Accuracy     Lower      Upper
+  ─────────────────────────────────────────────────────────
+   circle             200    100.00 %   98.17 %   100.00 %
+   triangle           200    100.00 %   98.17 %   100.00 %
+   star               200    100.00 %   98.17 %   100.00 %
+  Hungarian selection accuracy of every wanted class: the share of its true frames chosen for it, its recall. Worst
+  Hungarian Accuracy first, ties in class order. 95 % Lower and Upper : Korn-Graubard interval, exact at the effective
+  sample size of the variance of 1000 bootstrap resamples of the test sequences (fixed seed), or over the test sequences
+  holding the class when they all have the same recall. — : no true frames of the class.
+

@@ -1,0 +1,70 @@
+{
+  "facts": {
+    "predictions.first_frame_accuracy": 0.5274,
+    "predictions.first_frame_count": 10000,
+    "predictions.first_mean": 0.37357,
+    "predictions.first_minimum": 4.45028e-05,
+    "predictions.frame_count": 69918,
+    "predictions.histogram_panel_box": [
+      53,
+      97,
+      894,
+      676
+    ],
+    "predictions.later_change_frames_mean": 0.00222761,
+    "predictions.later_frame_accuracy": 0.817467,
+    "predictions.later_frame_count": 59918,
+    "predictions.later_maximum": 0.93493,
+    "predictions.later_mean": 0.27374,
+    "predictions.later_minimum": 3.28929e-06,
+    "predictions.later_no_change_frames_mean": 0.714414,
+    "predictions.later_no_change_recall": 0.935691,
+    "predictions.later_true_no_change_count": 22843,
+    "predictions.later_true_no_change_share": 0.381238,
+    "predictions.macro_roc_auc_all_frames": 0.995017,
+    "predictions.macro_roc_auc_later_frames": 0.994532,
+    "predictions.mean_by_position": [
+      0.37357,
+      0.277628,
+      0.283015,
+      0.284126,
+      0.272812,
+      0.269915,
+      0.267879,
+      0.262141,
+      0.271438,
+      0.262429,
+      0.25747,
+      0.246199
+    ],
+    "predictions.position_panel_box": [
+      928,
+      97,
+      1693,
+      676
+    ],
+    "predictions.predicted_class_count": 71,
+    "predictions.predicted_no_change_frames": 26696,
+    "predictions.predicted_no_change_share": 0.381819,
+    "predictions.run_name": "M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71",
+    "predictions.source": "Checkpoint_Evaluation/Iteration_2000/EMA",
+    "predictions.source_fingerprint": "predictions.csv:77763411:1794759492349549494",
+    "predictions.true_share_by_position": [
+      1.0,
+      0.3887,
+      0.385224,
+      0.385746,
+      0.380168,
+      0.379235,
+      0.377046,
+      0.370928,
+      0.387115,
+      0.365127,
+      0.376957,
+      0.350225
+    ]
+  },
+  "figures": [
+    "no_change_probabilities.png"
+  ]
+}

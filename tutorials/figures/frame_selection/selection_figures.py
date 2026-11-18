@@ -8,7 +8,8 @@ and greedy decodings of the repository, are written as the data of the matrix an
 tasks reference (documentation/reference/tasks_reference.md, formerly in the README) decoded the same way. The
 probabilities of the CPU run are checked against selections.csv of the evaluation of that iteration, so that the
 figures show what the evaluation saw: the standalone evaluation of the run in its Checkpoint_Evaluation folder
-(EVALUATION_FOLDER_NAME), whose report the evaluation chapter lists.
+(EVALUATION_FOLDER_NAME), whose report the evaluation chapter lists. A build from the committed snapshots
+(tutorials/run_snapshots, without the checkpoint) reuses the committed figures and matrix data.
 """
 
 import csv
@@ -21,7 +22,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 from typing import Any, Dict, List, Tuple
 
-from tutorials.figures.figure_utilities import read_reused_facts, round_fact, write_reused_facts
+from tutorials.figures.figure_utilities import (read_reused_facts, restore_committed_figures, round_fact,
+                                                write_reused_facts)
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
                                                                      count_model_parameters, load_sequence_model,
                                                                      load_thumbnail_fonts, predict_sequences)
@@ -31,6 +33,7 @@ from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.sequence.frame_selection_decoding import (decode_frame_selection, flag_low_confidence,
                                                                       gather_frame_probabilities,
                                                                       get_wanted_class_indices)
+from vision_training.trainers.checkpointing import get_checkpoint_file
 from vision_training.utilities.visualization import build_frame_selection_image, convert_image_to_array
 
 # Folder of the evaluations the figures read, inside the run folder: both checkpoints evaluated again with the code of
@@ -278,7 +281,8 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
     """
     Runs the checkpoint of SELECTION_ITERATION on the CPU on the sequences of its wrong picks, checks it against the
     evaluation, draws their selection images, writes the matrix data of the animations and gives the facts of the
-    picks, of the decodings and of the model. Reused from the previous build unless forced.
+    picks, of the decodings and of the model. Reused from the previous build unless forced, and restored from the
+    committed snapshots when the checkpoint is absent (a run read from tutorials/run_snapshots).
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -292,7 +296,14 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
     figure_path = selection_folder / "wrong_picks.png"
     data_paths = [selection_folder / "matrix_real.json", selection_folder / "matrix_readme.json"]
     reused_facts_path = selection_folder / "selection_facts.json"
-    reused_facts = read_reused_facts(facts_path=reused_facts_path, required_paths=data_paths, force=force)
+
+    # Without the checkpoint (a run read from the snapshots) the committed figures and facts are reused, even if forced
+    checkpoint_present = get_checkpoint_file(weights_directory=run_folder / "Weights",
+                                             iteration=SELECTION_ITERATION).exists()
+    if not checkpoint_present:
+        restore_committed_figures(output_folder=output_folder, family_folder="selection")
+    reused_facts = read_reused_facts(facts_path=reused_facts_path, required_paths=data_paths,
+                                     force=force and checkpoint_present)
     if reused_facts is not None:
         return reused_facts
 
