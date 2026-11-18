@@ -164,3 +164,58 @@ object_detection,triton_tensorrt_fp32,Proposals Per Image/block_6,0.0,False,1000
 object_detection,triton_tensorrt_fp32,Proposal Recall@0.5/block_7,0.0,False,10000 Test Images,448.3504145145416,2026-11-17 18:35:54
 object_detection,triton_tensorrt_fp32,Proposal Recall@0.7/block_7,0.0,False,10000 Test Images,448.3504145145416,2026-11-17 18:35:54
 object_detection,triton_tensorrt_fp32,Proposals Per Image/block_7,0.0,False,10000 Test Images,448.3504145145416,2026-11-17 18:35:54
+object_detection,triton_onnxruntime_cuda,mAP@0.5/area,0.8677489353234161,True,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.75/area,0.8376401090195711,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.95/area,0.016039219274727585,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95]/area,0.6828240120436033,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.5/11_point,0.841506149688908,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.75/11_point,0.8027575123228711,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.95/11_point,0.029620132473396676,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95]/11_point,0.6661205497451049,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.5/101_point,0.8637761187752518,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.75/101_point,0.8340111010789073,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.95/101_point,0.01748398922962696,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95]/101_point,0.6806192882583713,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.5 By Size/small,0.7387556301585164,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95] By Size/small,0.5543353278851824,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.5 By Size/medium,0.9303906823998184,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95] By Size/medium,0.7355001624833835,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@0.5 By Size/large,0.8752996727566458,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAP@[0.5:0.95] By Size/large,0.7053236783810318,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.5/all,0.8753837245847051,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.75/all,0.8527467855203174,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.95/all,0.096331101802161,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/all,0.7272804260268946,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.5/small,0.7511185617843585,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.75/small,0.7207219814130573,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.95/small,0.03202549501577231,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/small,0.5954790772995071,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.5/medium,0.9351354000008544,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.75/medium,0.9128260112835642,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.95/medium,0.0799288816153708,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/medium,0.773921251647646,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.5/large,0.8860764129181476,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.75/large,0.8672127128239568,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@0.95/large,0.12969634550075618,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,mAR@[0.5:0.95]/large,0.7500159296394766,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/all,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/all,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/all,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/small,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/small,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/medium,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/medium,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/large,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/large,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_4,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_4,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_4,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_5,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_5,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_5,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_6,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_6,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_6,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.5/block_7,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposal Recall@0.7/block_7,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
+object_detection,triton_onnxruntime_cuda,Proposals Per Image/block_7,0.0,False,10000 Test Images,555.5220243930817,2026-11-18 14:39:42
