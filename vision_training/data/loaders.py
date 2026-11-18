@@ -35,8 +35,9 @@ def uses_pinned_memory() -> bool:
     which a discrete GPU copies a batch faster, so that build_native_loader pins them only where it helps. An
     integrated GPU, such as the GB10 of the DGX Spark, shares one memory with the processor: a pinned copy only adds a
     second copy of every batch and a cache of pinned blocks that grows with the batch sizes (2.54 GB per launch of the
-    instance segmentation benchmark at iteration 9000), without a faster training (on its hard dataset, 39.85 images
-    per second without against 40.17 with, the two launches with it 0.88 apart). Without a CUDA GPU nothing is pinned.
+    instance segmentation benchmark at iteration 9000), without a faster training (on its 1024 pixel dataset, 39.85
+    images per second without against 40.17 with, the two launches with it 0.88 apart). Without a CUDA GPU nothing is
+    pinned.
 
     Returns:
         bool: True with a discrete CUDA GPU, False with an integrated one or without any.

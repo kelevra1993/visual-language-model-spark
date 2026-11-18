@@ -1,5 +1,5 @@
-# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", visible parts run length encoded), 64
-# pixels to a third of the side; 20 classes (square to L-shape), made before the 15 hollow SHAPE_CATEGORIES were added.
+# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", visible parts run length encoded), 5
+# to 6 shapes per image, 16 pixels to 80% of the side, mostly hidden ones unlabelled; the 35 SHAPE_CATEGORIES classes.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "instance_segmentation" trains the Mask R-CNN-like segmenter;
   # needs RegionProposal, DetectionLevels, Detector, MaskHead and COCO 'segmentation' labels (crowds as objects).

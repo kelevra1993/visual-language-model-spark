@@ -10,7 +10,7 @@ resolution (loader, geometric augmentations). With 'Data.instance_index_maps', t
 whose masks never overlap are painted into one uint8 instance index map instead (build_instance_index_map), whose
 objects and boxes the loader reads with find_index_map_objects and which the trainer expands back into the masks on the
 GPU (expand_instance_index_maps). The encoding functions write the visible parts of the synthetic instance
-segmentation objects, compressed so that the labels of the large hard datasets fit in memory.
+segmentation objects, compressed so that the labels of the large 1024 pixel datasets fit in memory.
 """
 
 import cv2
@@ -195,7 +195,7 @@ def compress_counts(counts: List[int]) -> str:
     """
     Writes run lengths as the string of a compressed COCO run length encoding, the inverse of decode_compressed_counts,
     so that the synthetic instance segmentation labels take about a third of the disk space and a seventh of the
-    memory of the uncompressed list once loaded by CocoDetectionDataset (the hard 1024 pixel datasets).
+    memory of the uncompressed list once loaded by CocoDetectionDataset (the 1024 pixel benchmark datasets).
 
     Args:
         counts (List[int]): The run lengths, alternating background and object pixels.

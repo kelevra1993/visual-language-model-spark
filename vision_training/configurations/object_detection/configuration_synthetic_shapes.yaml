@@ -1,5 +1,5 @@
-# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", boxes of the visible parts), 64 pixels
-# to a third of the side; 20 classes (square to L-shape), made before the 15 hollow SHAPE_CATEGORIES were added.
+# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", boxes of the visible parts), 5 to 6
+# shapes per image, 16 pixels to 80% of the side, mostly hidden ones unlabelled; the 35 SHAPE_CATEGORIES classes.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
   # DetectionLevels and Detector. Labels: COCO annotations, crowd ones (iscrowd 1) as ordinary objects.

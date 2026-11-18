@@ -1,4 +1,4 @@
-# Self-supervised training on the synthetic shapes classification dataset (one shape per image, first 9 SHAPE_CATEGORIES
+# Self-supervised training on the synthetic shapes classification dataset (one shape per image, the 35 SHAPE_CATEGORIES
 # classes), classes only for the test k-NN; its backbone initialises the classification runs (Backbone.pretrained).
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "self_supervised": label-free backbone training on two random

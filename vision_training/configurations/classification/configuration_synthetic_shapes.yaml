@@ -1,5 +1,5 @@
-# Synthetic shapes classification dataset (create_synthetic_dataset.py "classification"), one shape per image, 64 pixels
-# to a third of the side; 9 classes (square to octagon), made before 26 of the 35 SHAPE_CATEGORIES were added.
+# Synthetic shapes classification dataset (create_synthetic_dataset.py "classification"), one shape per image, 16 pixels
+# to 80% of the side, cut by the border, on flat or textured backgrounds; the 35 SHAPE_CATEGORIES classes.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.

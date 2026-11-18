@@ -1,5 +1,5 @@
-# Synthetic shapes segmentation dataset (create_synthetic_dataset.py "semantic_segmentation"), up to 6 shapes per image,
-# 64 pixels to a third of the side; 9 classes (square to octagon), made before 26 of the 35 SHAPE_CATEGORIES were added.
+# Synthetic shapes segmentation dataset (create_synthetic_dataset.py "semantic_segmentation"), 5 to 6 shapes per image,
+# 16 pixels to 80% of the side, every shape 85% visible; the 35 SHAPE_CATEGORIES classes and the background.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "semantic_segmentation" trains the U-Net semantic segmenter
   # (one class per pixel); needs SegmentationDecoder and SegmentationLoss.

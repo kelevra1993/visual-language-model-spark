@@ -5,8 +5,8 @@ byte buffer of pickled records with their offsets, instead of millions of Python
 workers, forked from the main process, read a record by slicing the buffer and unpickling it, so they never write to the
 reference counts of Python objects of the main process and never copy its pages (the copy-on-access of Python objects
 that the PyTorch documentation of multi-process data loading warns about, issue 13246): a worker reading every record
-of the 50,000 validation images of the hard instance segmentation dataset copied 0.64 GB of the main process with the
-parsed manifest, and copies 0.05 GB with the packed records; one reading the 1.27 million training samples of
+of the 50,000 validation images of the instance segmentation benchmark dataset copied 0.64 GB of the main process with
+the parsed manifest, and copies 0.05 GB with the packed records; one reading the 1.27 million training samples of
 ImageNet-1k copied 0.40 GB, and copies nothing. Used by CocoDetectionDataset of data/detection/coco_dataset.py, and by
 ClassificationDataset, SegmentationDataset, SequenceDataset and SequencePairDataset, which also find a record by its
 identifier to name the evaluated samples, and list the records of the smallest identifiers, the input samples drawn
@@ -38,9 +38,9 @@ class SerializedRecords(Sequence):
         of the pickler being cleared after each record so that every record unpickles alone. The stream grows in place
         and becomes the buffer without any copy, allocated by the C library rather than by NumPy, whose huge page advice
         stalls the first writes of a large array while the kernel compacts fragmented memory (3.7 seconds to fill the
-        0.31 GB of the validation split of the hard instance segmentation dataset while two trainings ran). A generator
-        of records lets the caller free every source record as soon as it is pickled. With an identifier key, the
-        identifiers of the records are sorted once with the index of their record, for find_record.
+        0.31 GB of the validation split of the instance segmentation benchmark dataset while two trainings ran). A
+        generator of records lets the caller free every source record as soon as it is pickled. With an identifier key,
+        the identifiers of the records are sorted once with the index of their record, for find_record.
 
         Args:
             records (Iterable[Any]): The picklable records, in the order of their indices.
