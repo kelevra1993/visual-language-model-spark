@@ -801,8 +801,8 @@ committed): every image can be taken again from them without training, except wh
   memory of the GB10 this competes with the GPU, and a small `/dev/shm` kills workers.
 - **Fix:** send polygons, RLE or box-cropped masks from the workers and rasterise on the device, or pack the bits.
 - **Done for disjoint masks:** `Data.instance_index_maps` sends one uint8 map of object numbers per image, expanded on
-  the device by `prepare_batch` (a ninth of the bytes on the hard synthetic dataset). Overlapping masks (COCO) still
-  go one per object.
+  the device by `prepare_batch` (a ninth of the bytes on the instance segmentation benchmark dataset). Overlapping
+  masks (COCO) still go one per object.
 
 #### L20. GPU memory peaks in the original-resolution SEG evaluation — PLAUSIBLE
 - **Where:** `segmentation_trainer.py:352-362`: a float32 `[K, H, W]` probability map per image at the original

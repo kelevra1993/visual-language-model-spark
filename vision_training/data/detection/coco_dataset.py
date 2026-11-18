@@ -256,7 +256,8 @@ class CocoDetectionDataset(Dataset):
 
         # Every image entry and its annotations packed as one pickled record of a NumPy byte buffer, in the shuffled
         # order: the loader workers never touch, hence never copy, Python objects of the main process (0.05 GB copied
-        # instead of 0.64 GB by a worker reading the 50,000 validation images of the hard instance segmentation dataset)
+        # instead of 0.64 GB by a worker reading the 50,000 validation images of the instance segmentation benchmark
+        # dataset)
         self.image_records = SerializedRecords(records=((image_information,
                                                           image_to_annotations.pop(image_information['id'], []))
                                                          for image_information in images))

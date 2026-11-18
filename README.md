@@ -130,15 +130,17 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 |---|---|---|
 | CLS | one of 35 shapes per image | `classification/configuration_synthetic_shapes.yaml` |
 | CLS (multi-label) | 5 to 10 shapes per image labelled with their distinct classes (`task = "multi_label_classification"`) | `classification/configuration_synthetic_counted_shapes.yaml` |
-| DET | the INS images (`task = "object_detection"` generates the harder images of the detection benchmark) | `object_detection/configuration_synthetic_shapes.yaml` |
-| INS | up to 6 shapes per image with their masks | `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| DET | the INS images (`task = "object_detection"` generates the 1024 pixel images of 5 to 12 shapes of the detection benchmark) | `object_detection/configuration_synthetic_shapes.yaml` |
+| INS | 5 to 6 shapes per image with their masks | `instance_segmentation/configuration_synthetic_shapes.yaml` |
 | KPT | 2 to 5 objects per image (shapes, stick figure, house) with their keypoints | `keypoint_detection/configuration_synthetic_shapes.yaml` |
-| SEG | up to 6 shapes per image with their class mask | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
+| SEG | 5 to 6 shapes per image with their class mask | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
 | M2O | one shape moving left, right, up or down over 2 to 12 frames | `sequence_classification/configuration_synthetic_sequences.yaml` |
 | M2M | 5 to 10 shapes per frame, at most one appearing or disappearing per frame | `sequence_labelling/configuration_synthetic_sequences.yaml` |
 | CMP | a before and an after member, the after one having lost a shape or not | `sequence_comparison/configuration_synthetic_pairs.yaml` |
 | SEL | one shape per frame, the largest circle, triangle and star to select | `frame_selection/configuration_synthetic_sequences.yaml` |
 | SSL | the CLS dataset, or 5 to 10 counted shapes per image | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
+
+Should you need to know what a model of these datasets has to cope with, every task draws its shapes the same way: sizes from 16 pixels up to 80 % of the image side (as many per scale octave), the small shapes over the large ones, shapes cut by the image border, half of the images and sequences on a textured background, and a fifth of the shapes of a flat background in a colour close to it. The labels follow what the image shows: the DET, INS and KPT labels leave out the shapes mostly hidden, and the other tasks keep 85 % of the pixels of every shape visible ([tasks reference](documentation/reference/tasks_reference.md#synthetic-datasets)).
 
 <p align="center">
   <img src="README/synthetic_datasets.gif" width="100%" />

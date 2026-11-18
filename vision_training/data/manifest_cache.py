@@ -3,10 +3,11 @@ Reading of the 'labels.json' manifests of the data splits, parsed once per train
 of the COCO tasks, the record of the data of the run (data_record.py), the description of the splits
 (split_description.py), the test manifest of the COCO trainers, the keypoint definitions and the resume check read the
 same files while the trainer is built, which parsed the manifest of a training split up to five times (each time about
-30 seconds and 11 GB of memory at its peak for the 3.79 GB manifest of the 512,000 training images of the hard instance
-segmentation dataset). Within read_manifests_once, used around the construction of the trainer by vision_training/main.py
-and scripts/evaluation/evaluate_checkpoint.py, a manifest is parsed once and shared by its readers, then freed with its
-heap memory before the first batch forks the loader workers; outside it, every read parses its file. The readers never
+30 seconds and 11 GB of memory at its peak for the 3.79 GB manifest of the 512,000 training images of the instance
+segmentation benchmark dataset). Within read_manifests_once, used around the construction of the trainer by
+vision_training/main.py and scripts/evaluation/evaluate_checkpoint.py, a manifest is parsed once and shared by its
+readers, then freed with its heap memory before the first batch forks the loader workers; outside it, every read parses
+its file. The readers never
 modify a shared manifest.
 """
 

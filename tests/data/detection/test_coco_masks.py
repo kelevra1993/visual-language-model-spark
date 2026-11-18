@@ -104,7 +104,7 @@ def test_compressed_encoding_writes_the_coco_string_and_decodes_back() -> None:
     """
     Verifies the compressed encoding written by the synthetic instance segmentation generator: hand-worked strings of
     COCO (a run as one character, a negative difference with the run two places before, a long run over two
-    characters), and small masks, an empty mask and a 1024 pixel mask with a hole, the size of the hard images,
+    characters), and small masks, an empty mask and a 1024 pixel mask with a hole, the size of the benchmark images,
     decoded back exactly from their compressed string.
     """
     # Runs 3 and 2 are the characters '3' and '2'; the fourth run 2 is written as 2 - 5 = -3, the character 'M'
