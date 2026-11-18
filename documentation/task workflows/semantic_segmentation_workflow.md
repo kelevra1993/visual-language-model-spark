@@ -620,7 +620,7 @@ model.class_weights = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 ```
 
 ### Step 2.19 — `initialise_pretrained_components()`
-The segmentation can transfer the backbone and the decoder of other runs. The segmentation head and the deep supervision heads stay outside the decoder, so that a decoder serves runs of other classes; with `SegmentationDecoder.pretrained.load_class_layers` they are loaded too (`load_segmentation_class_layers()`), the classes of the source run being the first ones of this run, the new classes keeping the random rows the layers of this run were built with, and the deep supervision levels the source run does not have keeping their random weights.
+The segmentation can transfer the backbone and the decoder of other runs. The segmentation head and the deep supervision heads stay outside the decoder, so that a decoder serves runs of other classes; with `SegmentationDecoder.pretrained.load_class_layers` they are loaded too (`load_segmentation_class_layers()`), the classes of the source run being the first ones of this run, the new classes keeping the random rows the layers of this run were built with, and the deep supervision levels the source run does not have keeping their random weights. A backbone deeper than its source backbone loads its first blocks only, as for every task (`loaded_backbone_blocks`, see `classification_workflow.md`, Step 2.19).
 
 **Example: a run from scratch**
 ```text
@@ -759,7 +759,7 @@ MLflow Run Created In The Experiment 'semantic_segmentation' : 6a88ad94d2d2440f9
 ```
 
 ### Step 3.5 — `save_model()` → `save_checkpoint()`
-Saved right after the training step of iterations 3, 6, 9 and 12, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6). The checkpoint stores the label dictionary of the run and the source runs of the two transferable components of the segmentation.
+Saved right after the training step of iterations 3, 6, 9 and 12, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6). The checkpoint stores the label dictionary of the run, the source runs of the two transferable components of the segmentation and the number of backbone blocks loaded from a shorter source backbone (`pretrained_backbone_blocks`, `None` otherwise).
 
 **Example: the checkpoints and the keys of the last one**
 ```text
@@ -770,6 +770,7 @@ Weights/full-checkpoint               model_checkpoint_path: "Iteration_12", all
  'mlflow_run_id', 'pretrained_backbone', 'pretrained_segmentation_decoder']
 model_state: 175 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'
 ```
+This run was saved before the checkpoints held `pretrained_backbone_blocks`: a checkpoint of the current code also has that key after `pretrained_segmentation_decoder`, `None` for this run.
 
 ### Step 3.6 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration, after its checkpoint, and at iteration 12 after its summary too, the summaries coming every 4 iterations (see `classification_workflow.md`, Step 3.7), see Stage 4.
