@@ -7,6 +7,7 @@ Keys, values and outputs of the configurations, completing the [Configurations](
   - [Keys Per Task](#keys-per-task)
   - [Values Per Task](#values-per-task)
   - [Fixed Settings](#fixed-settings)
+  - [Checking Without Training](#checking-without-training)
   - [Evaluation Outputs](#evaluation-outputs)
 - [Run Names](#run-names)
 - [MLflow Tracking](#mlflow-tracking)
@@ -84,6 +85,18 @@ The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, remo
 - A file holding another value than the fixed one is listed with the values its runs change to (e.g. `ExperimentConfiguration.resume_training False -> True`), and a backbone whose inception modules start at another block than 3 is refused, the code no longer building its layers.
 - A file holding another value than the fixed one of a setting the code no longer trains (`RECORD_ONLY_SETTINGS`: `RegionProposal.box_loss` `"complete_iou"`, run_13 to run_16 of the detection benchmark, an `Optimization.gradient_clipping_norm` other than `null`, held by no saved run, and `RegionProposal.anchor_centres` `"cell_centres"`, run_23 and run_24) is reported and left as it is, its runs staying as records, the other files being converted.
 - `write_files = False` only lists the files to convert.
+
+### Checking Without Training
+Whenever a pipeline has to decide whether a configuration file can start a training, `vision_training/check_configuration.py` runs the loading and the checks of a training (`prepare_experiment_configuration` of `vision_training/configuration_processing/configuration_loader.py`) on every file given, without building a model or a loader:
+
+```bash
+uv run python -m vision_training.check_configuration --configuration_path=<file> [--configuration_path=<file> ...] [--check_paths]
+```
+
+- Every file is checked, the next ones too after an invalid one. An invalid file prints the red block of the trainings, `Invalid Configuration File : <file>` and one line per problem; a valid one prints `Valid Configuration File : <file> | Run Name : <run name>`, the folder it would train in inside `experiment_folder` ([Run Names](#run-names)).
+- The exit code is 0 when every file is valid, 1 otherwise, and 2 for a malformed command line (no `--configuration_path`, an unknown option).
+- Without `--check_paths`, the check reads what the loading reads: the label mapping file of the `multi_class` mode (or the `label_dictionary.json` next to the configuration of a run folder) and, for KPT, the `labels.json` of the training split. A file the loading cannot read is reported with the name of its error, e.g. `FileNotFoundError: Label mapping file not found at: <path>` (also a missing or unparsable file, no `ExperimentConfiguration`, a null folder or count).
+- `--check_paths` then requires, once the settings pass the checks, the paths a new training reads: the three split folders with their `labels.json` and `data/` folder (and `masks/` for SEG), the mapping file of the `multi_class` mode, and for every section whose `pretrained.experiment_folder` is set, that run folder, its `training_configuration.yaml` and the checkpoint of `pretrained.iteration` (null: its last checkpoint, found as the transfer finds it). `experiment_folder` may not exist yet, the training creating it. A run resuming from its own checkpoints does not load its pretrained runs again, but the check requires them all.
 
 ### Evaluation Outputs
 Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`, headed `Iteration <n> · <evaluated samples> · <date and time>`, with its global metrics, notes and tables, the per-class table and the per-class recall table sorted worst first. Its files go to `<run>/Evaluation/Iteration_<n>/`, and those of the moving average to its `EMA/` subfolder; `scripts/evaluation/evaluate_checkpoint.py` writes its `Results.txt` and iteration folders in `<run>/Checkpoint_Evaluation/` instead. Every task writes the rates of the report as percentages (`94.03 %`, a target precision `99 %`, a confidence level `95 %`), the thresholds, ranks, counts, pixel errors, effective rank and standard deviations keeping their values, and the files below keep every rate between 0 and 1. `ExperimentConfiguration.evaluation.per_class_report: False` keeps the global metrics only, for runs with many classes, the files keeping the details.
