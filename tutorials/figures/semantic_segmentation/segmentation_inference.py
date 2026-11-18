@@ -4,7 +4,9 @@ videos, the expensive step of tutorials/figures/semantic_segmentation/figures.py
 reused between builds unless forced: the checkpoint of iteration 2000 of the synthetic segmentation run, on the test
 image of the chapters with its mask, gives in one forward pass the skip connections of the encoder and the output of
 every decoder level (kept as the mean absolute activation of their channels, through forward hooks), the class logits
-and probabilities, the losses of the image, and the shapes and parameters of the model.
+and probabilities, the losses of the image, and the shapes and parameters of the model. A run without its checkpoint
+(read from the committed snapshots, tutorials/run_snapshots) reuses the outputs of the inference committed in
+figure_reuse/semantic_segmentation/inference of the snapshots.
 """
 
 import numpy
@@ -14,15 +16,18 @@ from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import read_reused_facts, round_fact, write_reused_facts
-from tutorials.figures.semantic_segmentation.segmentation_sources import CHECKPOINT_ITERATION
+from tutorials.figures.figure_utilities import (read_reused_facts, restore_committed_figures, round_fact,
+                                                write_reused_facts)
+from tutorials.figures.semantic_segmentation.segmentation_sources import CHECKPOINT_ITERATION, has_checkpoint
 from tutorial_builder.figure_context import read_thread_count
 from vision_training.models.model_loading import load_trained_model
 from vision_training.trainers.checkpointing import get_checkpoint_path
 
-# Files of the inference in the figures folder, the arrays and the facts that let the next build reuse them
-INFERENCE_ARRAYS_NAME = "inference/segmentation_inference.npz"
-INFERENCE_FACTS_NAME = "inference/segmentation_inference_facts.json"
+# Folder of the inference in the figures folder (the family committed in the snapshots), and its files: the arrays and
+# the facts that let the next build reuse them
+INFERENCE_FOLDER_NAME = "inference"
+INFERENCE_ARRAYS_NAME = f"{INFERENCE_FOLDER_NAME}/segmentation_inference.npz"
+INFERENCE_FACTS_NAME = f"{INFERENCE_FOLDER_NAME}/segmentation_inference_facts.json"
 
 
 class ActivationRecorder:
@@ -91,7 +96,9 @@ def run_segmentation_inference(output_folder: Path, run_folder: Path, sample_rec
     """
     Runs the trained segmenter on the test image once, or reuses the previous run, and gives its facts: the shapes of
     the encoder outputs and of every decoder level, the parameters of every component, the receptive field of the
-    encoder, the losses and the pixel accuracy of the image. The maps are saved in INFERENCE_ARRAYS_NAME.
+    encoder, the losses and the pixel accuracy of the image. The maps are saved in INFERENCE_ARRAYS_NAME. A run without
+    its checkpoint reuses the committed outputs of the snapshots, even when forced, since the forward pass cannot run
+    again.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -104,7 +111,13 @@ def run_segmentation_inference(output_folder: Path, run_folder: Path, sample_rec
     """
     arrays_path = output_folder / INFERENCE_ARRAYS_NAME
     facts_path = output_folder / INFERENCE_FACTS_NAME
-    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[arrays_path], force=force)
+
+    # Committed outputs of the inference copied into the figures folder when the checkpoint is absent
+    checkpoint_missing = not has_checkpoint(run_folder=run_folder)
+    if checkpoint_missing:
+        restore_committed_figures(output_folder=output_folder, family_folder=INFERENCE_FOLDER_NAME)
+    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[arrays_path],
+                                     force=force and not checkpoint_missing)
     if reused_facts is not None:
         return reused_facts
 

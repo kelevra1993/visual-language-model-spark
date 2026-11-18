@@ -1,0 +1,42 @@
+# Files of the synthetic keypoint run and of its dataset the keypoint detection figures read, copied into
+# tutorials/run_snapshots by tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The
+# checkpoint stays out: the outputs of the inference on the test image are committed under figure_reuse/ and the
+# channel table check against the checkpoint is skipped when the run has none.
+runs:
+  - run: keypoint_detection
+    files:
+      # Model sections compared with the repository configuration, and the settings of the run quoted as facts
+      - path: training_configuration.yaml
+      # Total, heatmap and tag losses of the training curves (scalars only)
+      - path: Tensorboard/Train/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      # Metrics grid of the trained and averaged weights at every evaluated checkpoint (scalars only, the sample
+      # images of the logs are not read)
+      - path: Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Checkpoint_Evaluation/Tensorboard/Test_EMA/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      # Test image and object counts of the first report block
+      - path: Checkpoint_Evaluation/Results.txt
+      # Worst classes and key points of the last checkpoint
+      - path: Checkpoint_Evaluation/Iteration_6000/class_metrics.csv
+      - path: Checkpoint_Evaluation/Iteration_6000/keypoint_metrics.csv
+      # Sample image of the test image: boxes of its objects, and the image of the sample scene (storyboard runs:)
+      - path: Checkpoint_Evaluation/Iteration_6000/Samples/test_000000.png
+      # Throughput of the training, read from the summaries of the log two levels above the run folder
+      - path: ../../training.log
+        reduction: text_lines
+        pattern: "Throughput: "
+datasets:
+  # Label dictionary of the repository configuration
+  - path: keypoint_data/synthetic_shapes/label_mapping.json
+  # Test image of the chapters, and its records with the keypoint categories (the other images left out)
+  - path: keypoint_data/synthetic_shapes/test/data/test_000000.png
+  - path: keypoint_data/synthetic_shapes/test/labels.json
+    reduction: manifest_subset
+    images: [test_000000.png]
+    other_images: drop
+    other_annotations: drop
+figure_reuse:
+  # Heatmaps, candidates and facts of the forward pass of checkpoint 6000 on the test image
+  - family: inference

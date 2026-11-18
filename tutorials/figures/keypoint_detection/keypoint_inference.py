@@ -5,7 +5,9 @@ reused between builds unless forced: the checkpoint of iteration 6000 of the syn
 of the chapters with its ground truth, gives in one forward pass the heatmaps of both strides, the tags, the losses of
 the image, the keypoint candidates (extract_keypoint_candidates, as in the evaluation and the exports) and, through
 forward hooks, the shape of every tensor of the network and the parameters of its components. The arrays the figures
-draw are kept for the channels of the classes of the image only.
+draw are kept for the channels of the classes of the image only (the tag maps, which no figure draws, are left out).
+A run without its checkpoint (read from the committed snapshots, tutorials/run_snapshots) reuses the outputs of the
+inference committed in figure_reuse/keypoint_detection/inference of the snapshots.
 """
 
 import numpy
@@ -15,9 +17,10 @@ from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import read_reused_facts, round_fact, write_reused_facts
+from tutorials.figures.figure_utilities import (read_reused_facts, restore_committed_figures, round_fact,
+                                                write_reused_facts)
 from tutorials.figures.keypoint_detection.keypoint_sources import (CHECKPOINT_ITERATION, REPOSITORY_CONFIGURATION_PATH,
-                                                                  describe_sample_objects)
+                                                                  describe_sample_objects, has_checkpoint)
 from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.keypoints.heatmap_targets import build_keypoint_targets
 from vision_training.losses.keypoint_losses import compute_heatmap_loss, compute_tag_losses
@@ -26,9 +29,11 @@ from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE, e
 from vision_training.models.model_loading import load_trained_model
 from vision_training.trainers.checkpointing import get_checkpoint_path
 
-# Files of the inference in the figures folder, the arrays and the facts that let the next build reuse them
-INFERENCE_ARRAYS_NAME = "inference/keypoint_inference.npz"
-INFERENCE_FACTS_NAME = "inference/keypoint_inference_facts.json"
+# Folder of the inference in the figures folder (the family committed in the snapshots), and its files: the arrays and
+# the facts that let the next build reuse them
+INFERENCE_FOLDER_NAME = "inference"
+INFERENCE_ARRAYS_NAME = f"{INFERENCE_FOLDER_NAME}/keypoint_inference.npz"
+INFERENCE_FACTS_NAME = f"{INFERENCE_FOLDER_NAME}/keypoint_inference_facts.json"
 
 # Exponents of the focal heatmap loss, those of compute_heatmap_loss, used to split its value into the part of the
 # keypoint cells and the part of the other cells; the split is checked against compute_heatmap_loss
@@ -192,7 +197,9 @@ def run_keypoint_inference(output_folder: Path, run_folder: Path, sample_record:
     """
     Runs the trained detector on the test image once, or reuses the previous run, and gives its facts: the shapes of
     the network, the parameters of its components, the losses of the image (split by keypoint and other cells), the
-    tag losses, the candidates above the keypoint threshold. The arrays are saved in INFERENCE_ARRAYS_NAME.
+    tag losses, the candidates above the keypoint threshold. The arrays are saved in INFERENCE_ARRAYS_NAME. A run
+    without its checkpoint reuses the committed outputs of the snapshots, even when forced, since the forward pass
+    cannot run again.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -208,7 +215,13 @@ def run_keypoint_inference(output_folder: Path, run_folder: Path, sample_record:
     """
     arrays_path = output_folder / INFERENCE_ARRAYS_NAME
     facts_path = output_folder / INFERENCE_FACTS_NAME
-    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[arrays_path], force=force)
+
+    # Committed outputs of the inference copied into the figures folder when the checkpoint is absent
+    checkpoint_missing = not has_checkpoint(run_folder=run_folder)
+    if checkpoint_missing:
+        restore_committed_figures(output_folder=output_folder, family_folder=INFERENCE_FOLDER_NAME)
+    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[arrays_path],
+                                     force=force and not checkpoint_missing)
     if reused_facts is not None:
         return reused_facts
 
@@ -258,13 +271,13 @@ def run_keypoint_inference(output_folder: Path, run_folder: Path, sample_record:
         valid = targets["tag_valid"][0, object_index]
         sample_object["tags"] = [round_fact(value=tag) for tag in keypoint_tags[object_index][valid].tolist()]
 
-    # Channels of the classes of the image, whose heatmaps and tags the figures draw
+    # Channels of the classes of the image, whose heatmaps the figures draw, with the candidates of every channel; the
+    # tag maps are left out, the figures reading the tags of the keypoints from the facts and those of the candidates
     shown_channels = sorted({channel for sample_object in objects for channel in sample_object["channels"]})
     arrays_path.parent.mkdir(parents=True, exist_ok=True)
     numpy.savez_compressed(file=arrays_path, channels=numpy.array(shown_channels),
                            heatmaps=outputs["heatmaps"][0, shown_channels].numpy(),
                            higher_resolution_heatmaps=outputs["higher_resolution_heatmaps"][0, shown_channels].numpy(),
-                           tags=outputs["tags"][0, shown_channels].numpy(),
                            candidate_positions=candidates["candidate_positions"][0].numpy(),
                            candidate_scores=candidates["candidate_scores"][0].numpy(),
                            candidate_tags=candidates["candidate_tags"][0].numpy())

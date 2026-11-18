@@ -3,7 +3,10 @@ Sources shared by the figure families of the semantic segmentation series of the
 (tutorials/figures/semantic_segmentation/figures.py): the synthetic segmentation run of tutorials/tutorial_sources.yaml
 and its saved configuration, its test split, the test image the chapters follow (test_000028.png, a sample image of
 every evaluation of the run: a circle, a rectangle, a pentagon and an octagon), read with the segmentation dataset of
-the repository, the label dictionary and class names of the run, and the class colours of its sample images.
+the repository, the label dictionary and class names of the run, and the class colours of its sample images. The saved
+configuration is read with read_run_configuration of figure_utilities.py, which points the dataset paths of a run read
+from the committed snapshots (tutorials/run_snapshots) at the dataset files of the snapshots; such a run has no
+checkpoint (has_checkpoint), its inference outputs being committed with the snapshots.
 """
 
 import json
@@ -13,10 +16,10 @@ import numpy
 from pathlib import Path
 from typing import Any, Dict
 
-from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.trainers.checkpointing import get_checkpoint_file
 from vision_training.utilities.visualization import build_class_colours
 
 # Task of the run, and the test image followed by the chapters, one of the eight sample images of the run
@@ -38,17 +41,18 @@ SYNTHETIC_CONFIGURATION_PATH = ("vision_training/configurations/semantic_segment
                                 "configuration_synthetic_shapes.yaml")
 
 
-def read_run_configuration(run_folder: Path) -> Dict[str, Any]:
+def has_checkpoint(run_folder: Path) -> bool:
     """
-    Reads the training configuration saved in the folder of the segmentation run, as plain YAML.
+    Tells whether the segmentation run holds the checkpoint of CHECKPOINT_ITERATION, which the inference of the model
+    figures reads; a run read from the committed snapshots has none, its inference outputs being committed.
 
     Args:
         run_folder (Path): The folder of the segmentation run.
 
     Returns:
-        Dict[str, Any]: The configuration of the run.
+        bool: Whether the checkpoint file exists.
     """
-    return load_configuration(configuration_path=run_folder / "training_configuration.yaml")
+    return get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=CHECKPOINT_ITERATION).exists()
 
 
 def find_test_split(configuration: Dict[str, Any]) -> Path:
