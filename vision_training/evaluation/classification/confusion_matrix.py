@@ -314,7 +314,7 @@ def save_confusion_matrix_table(confusion_matrix: torch.Tensor, class_names: Lis
     'confusion_matrix.csv', one row per true class and one column per predicted class; a sparse one (the
     classification above MAXIMUM_DENSE_CONFUSION_CLASSES classes) as 'confusion_cells.csv', one row per non-zero cell
     (true_class, predicted_class, count) sorted by true class, then predicted class, a few MB where the dense table of
-    the 21,842 classes of imagenet-merged takes about 955 MB, its counts adding up to the evaluated samples.
+    the 21,841 classes of ImageNet-22k takes about 955 MB, its counts adding up to the evaluated samples.
 
     Args:
         confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes),

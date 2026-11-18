@@ -1,5 +1,5 @@
-# ImageNet-22k classification with the classic backbone (blocks of 1x64, 2x64, 2x64, 4x64, 5x64, 5x64 filters), the
-# other settings as configuration_large_model.yaml; manifests: vision_training/data/classification/imagenet_download.py.
+# ImageNet-22k classification, classic backbone (blocks of 1x64, 2x64, 2x64, 4x64, 5x64, 5x64 filters), head [512, 256],
+# the rest as configuration_small_model.yaml; manifests: vision_training/data/classification/imagenet_download.py.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.

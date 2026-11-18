@@ -83,8 +83,8 @@ def build_positive_masks(labels: torch.Tensor, output_mode: str, number_classes:
     Tells for every sample whether it belongs to every class, the positives of the class thresholds of every evaluation
     (ClassificationTrainer.compute_evaluation_results) and of the histograms and thresholds of the page: the one-hot
     labels of a single class per sample, the labels from 0.5 in multi-label mode. The one-hot booleans are set directly,
-    without the int64 [N, K] array of torch.nn.functional.one_hot, 8.7 GB at the 50,000 test images of imagenet-merged
-    over its 21,842 classes where the booleans take 1.1 GB.
+    without the int64 [N, K] array of torch.nn.functional.one_hot, 8.7 GB for 50,000 test images over the
+    21,841 classes of ImageNet-22k, where the booleans take 1.1 GB.
 
     Args:
         labels (torch.Tensor): The [N] class indices, or the [N, K] multi-hot labels in multi-label mode.

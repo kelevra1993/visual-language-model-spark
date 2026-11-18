@@ -2,7 +2,7 @@
 Metrics of the classification-like tasks: confusion matrix, per-class precision, recall, F1 and support, accuracy,
 top-k accuracy and the multi-label metrics. Used by the classification trainer, from which the sequence classification
 and comparison trainers inherit, to evaluate a checkpoint on the test split, and by the k-NN evaluation of the
-self-supervised trainer. Above MAXIMUM_DENSE_CONFUSION_CLASSES classes (imagenet-merged, ImageNet-22k), these two
+self-supervised trainer. Above MAXIMUM_DENSE_CONFUSION_CLASSES classes (ImageNet-22k), these two
 evaluations count only the non-zero cells of the confusion matrix, a sparse tensor giving the same metrics.
 """
 
@@ -15,8 +15,8 @@ from typing import Any, Dict
 TOP_K_ACCURACY_CLASSES = 5
 
 # Largest number of classes whose classification and k-NN evaluations count the dense [K, K] confusion matrix: 8 MB at
-# the 1,000 classes of ImageNet-1k, whose evaluations stay as they were, but 3.8 GB at the 21,842 classes of
-# imagenet-merged, of which at most one cell per test image is non-zero; above, only the non-zero cells are counted
+# the 1,000 classes of ImageNet-1k, whose evaluations stay as they were, but 3.8 GB at the 21,841 classes of
+# ImageNet-22k, of which at most one cell per test image is non-zero; above, only the non-zero cells are counted
 MAXIMUM_DENSE_CONFUSION_CLASSES = 1000
 
 
