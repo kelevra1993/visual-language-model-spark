@@ -124,15 +124,15 @@ def reset_recurrent_dispatch_caches() -> None:
 
 def find_fixed_dynamic_dimensions(model_proto: onnx.ModelProto, specification: Dict[str, Any]) -> List[str]:
     """
-    Lists the input dimensions of an exported ONNX model that the export specification declares dynamic (the batch
-    dimension of every input, and the number of frames of the sequence inputs) but that the export wrote as fixed
-    values. Such a model would only accept requests of the traced sizes, an error that Triton would only report once
-    serving.
+    Lists the dimensions of an exported ONNX model that the export specification declares dynamic (the batch
+    dimension of every input and output, the number of frames of the sequence inputs and of the outputs per frame) but
+    that the export wrote as fixed values. Such a model would only accept requests of the traced sizes, or Triton would
+    refuse to load it, errors that would only show once serving.
 
     Args:
         model_proto (onnx.ModelProto): The exported model, loaded without its external weights.
         specification (Dict[str, Any]): The export specification of the task, giving the inputs and their dynamic
-            dimensions.
+            dimensions, and the output dimensions without the batch (-1 for the frames).
 
     Returns:
         List[str]: A description of every fixed dimension, empty when every declared dynamic dimension is dynamic.
@@ -150,7 +150,61 @@ def find_fixed_dynamic_dimensions(model_proto: onnx.ModelProto, specification: D
             if input_dimensions[axis].HasField("dim_value"):
                 fixed_dimensions.append(f"the {axis_name} dimension of '{input_specification['name']}' is fixed to "
                                         f"{input_dimensions[axis].dim_value}")
+
+    # The batch dimension of every output, and its frame dimension where the specification declares -1
+    graph_outputs = {graph_output.name: graph_output for graph_output in model_proto.graph.output}
+    for output_specification in specification["outputs"]:
+        output_dimensions = graph_outputs[output_specification["name"]].type.tensor_type.shape.dim
+        dynamic_axes = [0] + [axis + 1 for axis, size in enumerate(output_specification["dimensions"]) if size == -1]
+        for axis in dynamic_axes:
+            if output_dimensions[axis].HasField("dim_value"):
+                fixed_dimensions.append(f"axis {axis} of the output '{output_specification['name']}' is fixed to "
+                                        f"{output_dimensions[axis].dim_value}")
     return fixed_dimensions
+
+
+def restore_dynamic_output_frames(model_proto: onnx.ModelProto, specification: Dict[str, Any]) -> List[str]:
+    """
+    Gives back their dynamic number of frames to the outputs per frame of an exported sequence model (the sequence
+    labeller and the frame selector): the dynamo export of a recurrent layer writes the frame count of its trace into
+    the shapes after it, the graph still computing one row per input frame, so that Triton refuses an output declared
+    [-1, 50, 71] in the file against [-1, -1, 71] in config.pbtxt. Every output axis that the specification declares -1
+    but the file fixes takes the frame dimension of the first sequence input, and the intermediate shapes written by
+    the export are dropped (ONNX Runtime and TensorRT infer them again). Called by export_onnx before its dimension
+    check.
+
+    Args:
+        model_proto (onnx.ModelProto): The exported model, loaded without its external weights, changed in place.
+        specification (Dict[str, Any]): The export specification of the task, giving the output dimensions.
+
+    Returns:
+        List[str]: The restored outputs, as '<name> axis <axis>: <fixed size>', empty when nothing was changed.
+
+    Raises:
+        ValueError: If an output to restore has no sequence input to take its frame dimension from.
+    """
+    # Name of the frame dimension of the first sequence input, [batch, frames, channels, height, width]
+    frame_dimension_names = [graph_input.type.tensor_type.shape.dim[1].dim_param for graph_input in
+                             model_proto.graph.input if len(graph_input.type.tensor_type.shape.dim) == 5]
+
+    # Output axes declared -1 by the specification but fixed in the file
+    graph_outputs = {graph_output.name: graph_output for graph_output in model_proto.graph.output}
+    restored_outputs = []
+    for output_specification in specification["outputs"]:
+        output_dimensions = graph_outputs[output_specification["name"]].type.tensor_type.shape.dim
+        for axis, size in enumerate(output_specification["dimensions"], start=1):
+            if size != -1 or not output_dimensions[axis].HasField("dim_value"):
+                continue
+            if not frame_dimension_names or not frame_dimension_names[0]:
+                raise ValueError(f"Expected a sequence input with a dynamic frame dimension to restore the fixed axis "
+                                 f"{axis} of the output '{output_specification['name']}'.")
+            restored_outputs.append(f"{output_specification['name']} axis {axis}: {output_dimensions[axis].dim_value}")
+            output_dimensions[axis].dim_param = frame_dimension_names[0]
+
+    # Intermediate shapes of the export dropped once an output changed
+    if restored_outputs:
+        del model_proto.graph.value_info[:]
+    return restored_outputs
 
 
 def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tensor], output_path: Path,
@@ -186,7 +240,7 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
         dynamic_shapes[input_specification["name"]] = dynamic_dimensions
 
     # The recurrent operators are traced again for this export, the stacked group suppression of the detectors written
-    # as a batched NonMaxSuppression, then the dynamic dimensions of the file are checked
+    # as a batched NonMaxSuppression
     reset_recurrent_dispatch_caches()
     torch.onnx.export(inference_model, args=tuple(example_inputs.values()), f=str(output_path),
                       input_names=list(example_inputs),
@@ -194,8 +248,13 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
                       dynamic_shapes=dynamic_shapes, opset_version=18, dynamo=True, verbose=False,
                       custom_translation_table={STACKED_GROUP_SUPPRESSION_OPERATOR:
                                                 translate_stacked_group_suppression})
-    fixed_dimensions = find_fixed_dynamic_dimensions(
-        model_proto=onnx.load(f=str(output_path), load_external_data=False), specification=specification)
+
+    # Frames of the outputs per frame made dynamic again where the export fixed them, the external weights file left
+    # untouched, then the dynamic dimensions of the file checked
+    model_proto = onnx.load(f=str(output_path), load_external_data=False)
+    if restore_dynamic_output_frames(model_proto=model_proto, specification=specification):
+        onnx.save(proto=model_proto, f=str(output_path))
+    fixed_dimensions = find_fixed_dynamic_dimensions(model_proto=model_proto, specification=specification)
     if fixed_dimensions:
         raise RuntimeError(f"The ONNX Export Wrote Fixed Dimensions : {format_path_link(path=output_path)}\n" +
                            "\n".join(fixed_dimensions))

@@ -21,7 +21,7 @@ references:
   - "scripts/deployment/benchmark_serving_formats.py · run_perf_analyzer"
   - "scripts/deployment/benchmark_serving_formats.py · run_client_load"
   - "scripts/deployment/benchmark_serving_formats.py · wait_for_idle_machine"
-  - "scripts/deployment/benchmark_serving_formats.py · repair_onnx_output_frames"
+  - "vision_training/deployment/export_formats.py · restore_dynamic_output_frames"
   - "vision_training/models/detection/postprocessing.py · suppress_groups_apart"
   - "vision_training/models/detection/postprocessing.py · suppress_stacked_groups"
   - "vision_training/models/detection/postprocessing.py · suppress_every_pair_by_distance"
@@ -208,8 +208,8 @@ scenes:
         lines:
           - "M2M ONNX: outputs fixed to the"
           - "  {{deployment.export.traced_frames}} traced frames by the dynamo export,"
-          - "  refused by Triton, repaired by"
-          - "  repair_onnx_output_frames (README TODO)"
+          - "  refused by Triton, now made dynamic"
+          - "  by restore_dynamic_output_frames"
           - ""
           - "TensorRT engines rebuilt by every"
           - "  new container: cache not mounted"
@@ -217,7 +217,7 @@ scenes:
       - "Here are the pitfalls the benchmark hit, which any new measurement will hit too."
       - "Perf analyzer without shared memory keeps every request it sent in memory until the end of its run, which filled the memory of the machine twice in the pilot, so gRPC was measured with the client of the repository, one process per request in flight."
       - "Over gRPC, building and sending large requests costs more than the model: one client sending classifier batches gets {{deployment.speed.CLS.tensorrt_fp16.grpc_images_per_second_batch_16:.0f}} images per second, against {{deployment.speed.CLS.tensorrt_fp16.images_per_second_batch_16:,.0f}} over shared memory."
-      - "The ONNX export of the bidirectional LSTM writes the {{deployment.export.traced_frames}} traced frames into its output shape, so Triton refuses the model; the driver repairs its copies, and the export fix waits in the to do list of the README."
+      - "The dynamo export of the bidirectional LSTM writes the {{deployment.export.traced_frames}} traced frames into its output shape, so Triton refused the model; the driver repaired its copies, and the export now makes that axis dynamic itself."
 
   - kind: summary
     title: "What the benchmark decided"

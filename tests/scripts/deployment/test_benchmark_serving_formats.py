@@ -2,16 +2,14 @@
 Tests of scripts/deployment/benchmark_serving_formats.py, the serving benchmark of the exported models: the settings
 of the server given at load time (dynamic batching and instances) leave the exported configuration unchanged, the
 perf_analyzer report is read in milliseconds, the test sample is linked in its frame order, results.csv keeps every
-measurement so that a relaunch skips the recorded ones, every row gets the loads of its groups, the gRPC loads read
-the metrics and statistics of the server, and the fixed frame count of an exported sequence model is made dynamic.
+measurement so that a relaunch skips the recorded ones, every row gets the loads of its groups, and the gRPC loads
+read the metrics and statistics of the server.
 """
 
 import json
 import numpy as np
-import onnx
 import pytest
 
-from onnx import TensorProto, helper
 from pathlib import Path
 
 from scripts.deployment.benchmark_serving_formats import (RESULT_COLUMNS, append_result,
@@ -20,7 +18,7 @@ from scripts.deployment.benchmark_serving_formats import (RESULT_COLUMNS, append
                                                           get_repository_formats, get_row_name,
                                                           parse_perf_analyzer_report, parse_triton_gpu_metrics,
                                                           plan_served_loads, read_completed_keys, repeat_request,
-                                                          repair_onnx_output_frames, select_test_sample)
+                                                          select_test_sample)
 
 # Configuration of an exported model as the configuration endpoint of Triton returns it, reduced to the fields the
 # server settings change
@@ -224,60 +222,3 @@ def test_gpu_metrics_and_server_times_of_a_grpc_load() -> None:
                             "server_compute_microseconds": pytest.approx(5000.0)}
     with pytest.raises(ValueError, match="requests executed"):
         average_server_microseconds(statistics_before=statistics_before, statistics_after=statistics_before)
-
-
-def write_served_onnx_model(model_folder: Path, input_shape: list, output_shape: list,
-                            configured_output_dimensions: str) -> None:
-    """
-    Writes a served ONNX model whose output shape is declared like the export writes it, with its config.pbtxt
-    output line, the frame count of a sequence model possibly fixed in the file while the configuration keeps it -1.
-
-    Args:
-        model_folder (Path): The folder of the served model, receiving 'config.pbtxt' and '1/model.onnx'.
-        input_shape (list): The declared input shape, names for the dynamic dimensions.
-        output_shape (list): The declared output shape, names for the dynamic dimensions.
-        configured_output_dimensions (str): The output dimensions of config.pbtxt, batch excluded, e.g. '-1, 3'.
-    """
-    # Mean over the pixels of every frame, its output and an intermediate shape declared as given
-    reduced_axes = [3, 4] if len(input_shape) == 5 else [2, 3]
-    node = helper.make_node(op_type="ReduceMean", inputs=["images"], outputs=["class_probabilities"],
-                            axes=reduced_axes, keepdims=0)
-    graph = helper.make_graph(nodes=[node], name="served_model",
-                              inputs=[helper.make_tensor_value_info("images", TensorProto.FLOAT, input_shape)],
-                              outputs=[helper.make_tensor_value_info("class_probabilities", TensorProto.FLOAT,
-                                                                     output_shape)],
-                              value_info=[helper.make_tensor_value_info("intermediate", TensorProto.FLOAT,
-                                                                        output_shape)])
-    (model_folder / "1").mkdir(parents=True)
-    onnx.save(helper.make_model(graph=graph, opset_imports=[helper.make_opsetid(domain="", version=13)]),
-              str(model_folder / "1" / "model.onnx"))
-    output_line = f'{{ name: "class_probabilities" data_type: TYPE_FP32 dims: [ {configured_output_dimensions} ] }}'
-    (model_folder / "config.pbtxt").write_text(f"output [\n  {output_line}\n]\n")
-
-
-def test_fixed_output_frames_of_a_sequence_model_become_dynamic(tmp_path: Path) -> None:
-    """
-    An output whose frame count the export fixed (50) while config.pbtxt declares it -1 gets the frame dimension of
-    the sequence input, the intermediate shapes are dropped, and a second repair changes nothing; an image model
-    whose outputs match its configuration is left as it is.
-
-    Args:
-        tmp_path (Path): The temporary folder of the test.
-    """
-    sequence_folder = tmp_path / "sequence_labeller_onnx"
-    write_served_onnx_model(model_folder=sequence_folder, input_shape=["batch", "images_frames", 3, 2, 2],
-                            output_shape=["batch", 50, 3], configured_output_dimensions="-1, 3")
-    assert repair_onnx_output_frames(model_folder=sequence_folder) == ["class_probabilities axis 1: 50"]
-    repaired_model = onnx.load(str(sequence_folder / "1" / "model.onnx"))
-    output_dimensions = repaired_model.graph.output[0].type.tensor_type.shape.dim
-    assert [dimension.dim_param or dimension.dim_value for dimension in output_dimensions] == ["batch",
-                                                                                             "images_frames", 3]
-    assert len(repaired_model.graph.value_info) == 0
-    assert repair_onnx_output_frames(model_folder=sequence_folder) == []
-
-    # Image model: its fixed number of classes is the configured one
-    image_folder = tmp_path / "image_classifier_onnx"
-    write_served_onnx_model(model_folder=image_folder, input_shape=["batch", 3, 2, 2], output_shape=["batch", 3],
-                            configured_output_dimensions="3")
-    assert repair_onnx_output_frames(model_folder=image_folder) == []
-    assert len(onnx.load(str(image_folder / "1" / "model.onnx")).graph.value_info) == 1

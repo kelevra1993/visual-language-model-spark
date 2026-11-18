@@ -1,11 +1,13 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
 and ONNX exports of the recurrent comparison model and of the comparison model with sequence normalization match the
-eager model, a second recurrent export keeps its dynamic frames, the comparisons of the segmenter and keypoint detector
-outputs report their differences, the inference models match the training path on full sequences, the logit
-temperature of the classifier softens its probabilities in the eager model and both exports, the exports of the
-detector keep its DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection
-of the proposals level by level, and the exports of the instance segmenter keep the finer inputs of its mask heads.
+eager model, a second recurrent export keeps its dynamic frames, the ONNX outputs of the bidirectional sequence
+labeller and frame selector keep their dynamic frames, the comparisons of the segmenter and keypoint detector outputs
+report their differences, the inference models match the training path on full sequences, the logit temperature of
+the classifier softens its probabilities in the eager model and both exports, the exports of the detector keep its
+DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection of the proposals
+level by level, its ONNX suppressions see the boxes of the image only, and the exports of the instance segmenter keep
+the finer inputs of its mask heads.
 """
 
 import numpy as np
@@ -19,7 +21,7 @@ from torch import nn
 from typing import Optional
 
 from vision_training.deployment.export_formats import (export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
-                                                       hide_known_export_warnings)
+                                                       hide_known_export_warnings, restore_dynamic_output_frames)
 from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS, TASK_INPUT_NAMES,
                                                               build_inference_model, compare_keypoints,
                                                               compare_segmentations,
@@ -587,6 +589,50 @@ def test_second_recurrent_export_keeps_dynamic_frames(tmp_path: Path) -> None:
         onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
         assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                                 **specification["comparison_tolerances"]) == []
+
+
+@pytest.mark.parametrize(argnames=("task", "temporal_type"),
+                         argvalues=[("sequence_labelling", "lstm"), ("sequence_labelling", "gru"),
+                                    ("frame_selection", "gru")])
+def test_frame_outputs_of_the_onnx_export_keep_dynamic_frames(tmp_path: Path, task: str, temporal_type: str) -> None:
+    """
+    Verifies that the ONNX export of the bidirectional sequence labeller and frame selector declares the frames of
+    their output with the frame dimension of their input, where the dynamo export writes the traced frames after the
+    recurrent layer (Triton then refusing the model against the dynamic frames of its config.pbtxt), and that the
+    dimension check of the export reports an output frame axis left fixed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task (str): The sequence task with one output row per frame.
+        temporal_type (str): The bidirectional recurrent module of the model.
+    """
+    hide_known_export_warnings()
+    inference_model = build_inference_model(task=task, model=build_test_model(
+        task=task, temporal_type=temporal_type, fusion_type=None, global_pooling="average"))
+    specification = get_export_specification(task=task, inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    model_path = tmp_path / "model.onnx"
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=model_path,
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+
+    # The output takes the batch and frame dimensions of the input, and a second restore changes nothing
+    model_proto = onnx.load(f=str(model_path))
+    input_dimensions = model_proto.graph.input[0].type.tensor_type.shape.dim
+    output_dimensions = model_proto.graph.output[0].type.tensor_type.shape.dim
+    assert [dimension.dim_param or dimension.dim_value for dimension in output_dimensions] == [
+        input_dimensions[0].dim_param, input_dimensions[1].dim_param, specification["outputs"][0]["dimensions"][1]]
+    assert restore_dynamic_output_frames(model_proto=model_proto, specification=specification) == []
+
+    # An output frame axis fixed again is reported by the check, then restored with the intermediate shapes dropped
+    output_dimensions[1].dim_value = 4
+    assert find_fixed_dynamic_dimensions(model_proto=model_proto, specification=specification) == [
+        "axis 1 of the output 'class_probabilities' is fixed to 4"]
+    assert restore_dynamic_output_frames(model_proto=model_proto, specification=specification) == [
+        "class_probabilities axis 1: 4"]
+    assert output_dimensions[1].dim_param == input_dimensions[1].dim_param
+    assert len(model_proto.graph.value_info) == 0
 
 
 @pytest.mark.parametrize(argnames=("task", "temporal_type"), argvalues=[("sequence_labelling", "transformer")])

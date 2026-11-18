@@ -23,9 +23,8 @@ from typing import Any, Callable, Dict, List
 
 from scripts.deployment.benchmark_serving_formats import (GRPC_ADDRESS, get_repository_formats, get_row_name,
                                                           load_served_model, read_served_model_name,
-                                                          repair_onnx_output_frames, start_triton_server,
-                                                          stop_triton_server, unload_served_model,
-                                                          wait_for_idle_machine)
+                                                          start_triton_server, stop_triton_server,
+                                                          unload_served_model, wait_for_idle_machine)
 from scripts.evaluation.evaluate_checkpoint import apply_save_predictions
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
@@ -307,10 +306,6 @@ def run_served_evaluations(models: List[Dict[str, Any]], benchmark_folder: Path,
                     if (model["name"], row_name) in measured_rows:
                         continue
                     model_name = f"{served_model_name}_{export_format}"
-                    # The fixed output frames of an exported sequence model made dynamic, as for the speed sweep
-                    if export_format == "onnx":
-                        repair_onnx_output_frames(model_folder=benchmark_folder / "model_repositories" /
-                                                  precision_setting / model_name)
                     load_served_model(model_name=model_name, configuration=None)
                     # Served names of the outputs ('<name>__<index>' for TorchScript), in the order of output_names
                     served_output_names = get_triton_output_names(client=client, model_name=model_name,

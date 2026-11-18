@@ -14,14 +14,12 @@ import csv
 import json
 import multiprocessing
 import os
-import re
 import shutil
 import subprocess
 import time
 import urllib.error
 import urllib.request
 import numpy as np
-import onnx
 import torch
 import tritonclient.grpc as triton_client
 
@@ -411,55 +409,6 @@ def get_repository_formats(precision_setting: str) -> List[str]:
         List[str]: The export formats of the repository.
     """
     return ["torchscript", "onnx"] if precision_setting == "onnxruntime_cuda" else ["onnx"]
-
-
-def repair_onnx_output_frames(model_folder: Path) -> List[str]:
-    """
-    Gives back their dynamic number of frames to the outputs of an exported sequence model whose ONNX file fixed it,
-    so that Triton loads it: the dynamo export of the bidirectional LSTM of the sequence labeller writes the frame
-    count of its trace (50) into the shapes after the recurrent layer, the graph still computing one row per input
-    frame, and Triton refuses an output declared [-1, 50, 71] in the file and [-1, -1, 71] in config.pbtxt. Every
-    output dimension that config.pbtxt declares -1 but the file fixes becomes the frame dimension of the first
-    sequence input, and the intermediate shapes written by the export are dropped (ONNX Runtime and TensorRT infer
-    them again). A file without such an output is left as it is. To be removed once the export writes the outputs
-    dynamic itself.
-
-    Args:
-        model_folder (Path): The folder of a served ONNX model, holding 'config.pbtxt' and '1/model.onnx'.
-
-    Returns:
-        List[str]: The repaired outputs, as '<name> axis <axis>: <fixed size>', empty when nothing was changed.
-
-    Raises:
-        ValueError: If an output to repair has no sequence input to take its frame dimension from.
-    """
-    # Output dimensions of config.pbtxt, without the batch dimension
-    configuration_text = (model_folder / "config.pbtxt").read_text()
-    configured_dimensions = {name: [int(size) for size in dimensions.split(",")] for name, dimensions in re.findall(
-        pattern=r'\{ name: "(\w+)" data_type: \w+ dims: \[ ([^\]]*) \]', string=configuration_text)}
-
-    # Outputs fixing a dimension that the configuration declares dynamic
-    model_path = model_folder / "1" / "model.onnx"
-    model_proto = onnx.load(str(model_path), load_external_data=False)
-    frame_dimension_names = [value.type.tensor_type.shape.dim[1].dim_param for value in model_proto.graph.input
-                             if len(value.type.tensor_type.shape.dim) == 5]
-    repaired_outputs = []
-    for output in model_proto.graph.output:
-        for axis, dimension in enumerate(output.type.tensor_type.shape.dim[1:], start=1):
-            if configured_dimensions[output.name][axis - 1] != -1 or not dimension.HasField("dim_value"):
-                continue
-            if not frame_dimension_names or not frame_dimension_names[0]:
-                raise ValueError(f"Expected a sequence input with a dynamic frame dimension in {model_path} to repair "
-                                 f"the fixed axis {axis} of the output '{output.name}'.")
-            repaired_outputs.append(f"{output.name} axis {axis}: {dimension.dim_value}")
-            dimension.dim_param = frame_dimension_names[0]
-    if not repaired_outputs:
-        return []
-
-    # Intermediate shapes of the export dropped, the external weights file left untouched
-    del model_proto.graph.value_info[:]
-    onnx.save(model_proto, str(model_path))
-    return repaired_outputs
 
 
 def get_row_name(precision_setting: str, export_format: str) -> str:
@@ -1282,14 +1231,6 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
                     "repository": repository, "formats": formats,
                     "tensorrt_precision": precision_values["tensorrt_precision"],
                     "maximum_batch_size": maximum_batch_size})
-
-    # Frame dimension of the outputs of the exported sequence models given back where the export fixed it
-    for precision_setting in precision_settings:
-        for model_folder in sorted((benchmark_folder / "model_repositories" / precision_setting).glob("*_onnx")):
-            repaired_outputs = repair_onnx_output_frames(model_folder=model_folder)
-            if repaired_outputs:
-                print_color(color="yellow", output=f"{model_folder.name} ({precision_setting}) : output frames made "
-                                                   f"dynamic ({', '.join(repaired_outputs)})")
 
     if run_in_process:
         for model in models:
