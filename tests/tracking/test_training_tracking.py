@@ -1,7 +1,8 @@
 """
 Tests of the MLflow tracking of the trainings: on the dummy task, a recording tracker checks the hooks of the general
 trainer (run opened at the start of the loop, interval averages, test evaluations, configuration, training data
-analysis, data record and Results.txt artifacts, run identifier in the checkpoints, status of the end of the training).
+analysis, data record, evaluation summary and curves and Results.txt artifacts, run identifier in the checkpoints,
+status of the end of the training).
 """
 
 import pytest
@@ -107,7 +108,8 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     loop opens the run with the settings, derived values and tags of the run, then receives the training and
     validation averages, learning rate and throughput of every console summary, the test scalars of the evaluated
     checkpoint with the per-class ones and its headline metric, the configuration and the files of the analysis of
-    the training data at the start and Results.txt at the end, and is closed as finished, its run identifier being
+    the training data at the start, the evaluation summary and curves after the evaluation and Results.txt at the end,
+    and is closed as finished, its run identifier being
     stored in the checkpoints. A resumed training opens the run as resumed and sends its configuration and its analysis
     files under the name of the resumption.
 
@@ -161,11 +163,14 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     assert any(metric_name.startswith("test_class/Recall/") for metric_name in test_metrics[0][1])
     assert recording_tracker.best_metrics == [("Accuracy", test_metrics[0][1]["test/Accuracy"], 4, "test")]
 
-    # Configuration, analysis of the training data and record of the data at the start, Results.txt at the end, then
-    # the run closed as finished
+    # Configuration, analysis of the training data and record of the data at the start, the evaluation summary and
+    # curves after the evaluation of iteration 4, Results.txt at the end, then the run closed as finished
     assert recording_tracker.artifacts == [(trainer.configuration_path, "configuration", None),
                                            (analysis_file_path, "analysis", None),
                                            (trainer.data_record_path, "data", None),
+                                           (trainer.experiment_folder / "Evaluation" / "evaluation_summary.csv", None,
+                                            None),
+                                           (trainer.experiment_folder / "evaluation_curves.png", None, None),
                                            (trainer.experiment_folder / "Results.txt", None, None)]
     assert recording_tracker.close_statuses == [FINISHED_STATUS]
     checkpoint = torch.load(f=trainer.weights_directory / "Iteration_5" / "model_000005.pt", map_location="cpu",

@@ -18,11 +18,12 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from scripts.evaluation.collect_experiment_results import TEST_FOLDERS, read_setting, read_test_curves
+from scripts.evaluation.collect_experiment_results import TEST_FOLDERS, read_setting
 from vision_training.data.data_record import (CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME,
                                               build_class_records)
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.data.sequence.sequence_dataset import find_unselected_class_index
+from vision_training.evaluation.evaluation_curves import read_test_curves
 from vision_training.evaluation.report_formatting import format_percentage
 from vision_training.utilities.os_utilities import format_path_link, print_color, read_json
 

@@ -658,16 +658,17 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 │       Read Weights/full-checkpoint of the trained run: all the recorded iterations, evaluated from the last one
 │       ("all"), or only the last one (None). An integer iteration is used as given.
 └── evaluate_checkpoints()
-    │   Opens the MLflow run of the evaluation, evaluates the checkpoints, sends the summary, and closes the run.
+    │   Opens the MLflow run of the evaluation, evaluates the checkpoints, and closes the run.
     │
     ├── start_evaluation_tracking()
     │       With tracking: a new MLflow run '<run name>-evaluation' in the backend of the trained run, tagged with the
     │       MLflow run of the training ('evaluation_of'). The MLflow run of the training is never modified.
     └── summarise_checkpoint_evaluations()
         │   For each iteration: skips it with a warning if its file is missing, loads its weights (and their moving
-        │   average when on) into the trainer's model, runs the test evaluation, and keeps the scalars. At the end
-        │   writes evaluation_summary.csv (one row per iteration, the averaged weights in ema_ columns) and
-        │   prints the best iteration of the headline metric for every kind of weights, tied iterations listed.
+        │   average when on) into the trainer's model and runs the test evaluation, whose report adds the row of the
+        │   iteration to evaluation_summary.csv (the averaged weights in ema_ columns), draws evaluation_curves.png
+        │   again and sends both to the MLflow run. At the end prints the best iteration of the headline metric for
+        │   every kind of weights, tied iterations listed.
         │
         └── run_test_evaluation()  for each checkpoint  -> [STAGE 4]
                 The same function as in the training loop, so the same Results.txt block, TensorBoard Test curves,
@@ -1965,7 +1966,7 @@ iteration = "all"  -> evaluated_iterations = [12, 9, 6, 3]
 ```
 
 ### Step 5.4 — `evaluate_checkpoints()` → `start_evaluation_tracking()`
-This function wraps the evaluations in an MLflow run of their own. `start_evaluation_tracking()` creates it when the tracking is on: a new run named `<run name>-evaluation`, in the database (or server) and the MLflow experiment of the trained run, with the parameters of the trainer and tags naming the evaluated run folder, the evaluated split, the evaluated iterations and, through `mlflow_run.json` of the trained run, its MLflow run (`evaluation_of`). The MLflow run of the training is only read, so that an evaluation on another split never mixes into its curves. `evaluate_checkpoints()` then runs Step 5.5, sends `evaluation_summary.csv` to the MLflow run, and closes it with its status, whatever ends the evaluation.
+This function wraps the evaluations in an MLflow run of their own. `start_evaluation_tracking()` creates it when the tracking is on: a new run named `<run name>-evaluation`, in the database (or server) and the MLflow experiment of the trained run, with the parameters of the trainer and tags naming the evaluated run folder, the evaluated split, the evaluated iterations and, through `mlflow_run.json` of the trained run, its MLflow run (`evaluation_of`). The MLflow run of the training is only read, so that an evaluation on another split never mixes into its curves. `evaluate_checkpoints()` then runs Step 5.5, every evaluation sending `evaluation_summary.csv` and `evaluation_curves.png` to the MLflow run again as soon as they are written, and closes the run with its status, whatever ends the evaluation.
 
 **Example: the MLflow run of the evaluation**
 ```text
@@ -1979,22 +1980,24 @@ metrics:  test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-2 Accur
 artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3 files each), evaluation_summary.csv,
            metric_names.json
 ```
-`test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric (`bug_standards.md` B15, dropped). These artifacts also predate the curves, which add `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to every `evaluation/iteration_<n>/` with `per_class_report`.
+`test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric (`bug_standards.md` B15, dropped). These artifacts also predate the curves, which add `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to every `evaluation/iteration_<n>/` with `per_class_report`, and `evaluation_curves.png` next to `evaluation_summary.csv`.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Checkpoint_Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value; the value is written like in the report, as a percentage when the headline metric is one of the `percent_metrics` of the results (`Accuracy 82.73 %` for the README run), while `evaluation_summary.csv` keeps every scalar between 0 and 1. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the headline metric of the results. Every evaluation adds the row of its iteration to `Checkpoint_Evaluation/evaluation_summary.csv`, one column per scalar, the rows in increasing iteration order with those of the earlier launches into the folder, and draws `Checkpoint_Evaluation/evaluation_curves.png` again (`BaseTrainer.update_evaluation_curves`, [training reference, Run Folder](../reference/training_reference.md#run-folder)). After the last checkpoint, the function prints the summary and the curves, then the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value; the value is written like in the report, as a percentage when the headline metric is one of the `percent_metrics` of the results (`Accuracy 82.73 %` for the README run), while `evaluation_summary.csv` keeps every scalar between 0 and 1. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns with their number of updates in `ema_number_updates`, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
 
 **Example output** (after the four evaluations)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/evaluation_summary.csv
+  - Evaluation Curves : file:///.../runs/CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/evaluation_curves.png
   - Best Checkpoint : iteration 9 (Accuracy 11.33 %)
 
-evaluation_summary.csv (32 columns: iteration, the 4 global scalars, the 27 per-class scalars):
+evaluation_summary.csv (32 columns: iteration, the 4 global scalars, the 27 per-class scalars), rows in increasing
+iteration order:
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/square,Recall/square,F1/square, ...
-12,0.1,0.1111111111111111,0.020202020202020204,0.21333333333333335,0.0,0.0,0.0, ...
-9,0.11333333333333333,0.1111111111111111,0.02262142381902861,0.21333333333333335,0.0,0.0,0.0, ...
-6,0.1,0.1111111111111111,0.020202020202020204,0.24666666666666667,0.0,0.0,0.0, ...
 3,0.09,0.1111111111111111,0.018348623853211007,0.19,0.0,0.0,0.0, ...
+6,0.1,0.1111111111111111,0.020202020202020204,0.24666666666666667,0.0,0.0,0.0, ...
+9,0.11333333333333333,0.1111111111111111,0.02262142381902861,0.21333333333333335,0.0,0.0,0.0, ...
+12,0.1,0.1111111111111111,0.020202020202020204,0.21333333333333335,0.0,0.0,0.0, ...
 ```
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint

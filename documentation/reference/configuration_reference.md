@@ -111,7 +111,7 @@ Every evaluated checkpoint is reported in the console and in `<run>/Results.txt`
 | `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/`, `Errors/<TRUE>-TO-<PREDICTED>/` | DET, INS | with `error_dumps.activated` |
 | `Samples/<sample>.png` and its Test image `Samples/<sample>` (table below) | all | with `number_sample_images` above 0 |
 | `Predicted_Masks/<image>.png` | SEG | with `save_predicted_masks` |
-| `Checkpoint_Evaluation/evaluation_summary.csv` of `scripts/evaluation/evaluate_checkpoint.py`, one row per evaluated checkpoint (every checkpoint with `iteration = "all"`) | all | per-class columns with `per_class_report` |
+| `evaluation_summary.csv` in `Evaluation/` (`Checkpoint_Evaluation/` for `scripts/evaluation/evaluate_checkpoint.py`), one row per evaluated iteration with every scalar, `ema_` columns for the averaged weights with their number of updates `ema_number_updates`, and `evaluation_curves.png` next to `Results.txt`, the headline metric of every evaluation ([Run Folder](training_reference.md#run-folder)) | all | every evaluation; per-class columns with `per_class_report` |
 
 | Tasks | Columns of `class_metrics.csv` |
 |---|---|
@@ -255,7 +255,7 @@ With `ExperimentConfiguration.tracking.activated: True`, every run is recorded i
 | The configuration as parameters, the number of model parameters and of samples | all |
 | `train/<metric>`, `validation/<metric>`, `learning_rate`, `train/throughput` | all |
 | `train/frame_throughput`, the real frames per second | M2O, M2M, CMP, SEL |
-| `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
+| `test/best_<headline metric>`, `Results.txt` and the configuration file; `evaluation_summary.csv` and `evaluation_curves.png`, sent again after every evaluation | all |
 | `test_ema/` and `test_ema_class/` metrics, and the files under `evaluation/iteration_<n>/ema/` | all, with the moving average on |
 | `test/mAP@0.5`, `mAP@0.75`, `mAP@0.95`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test/mAP@0.5 By Size/<size>`, `mAP@[0.5:0.95] By Size/<size>`; `test/Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>`, `Proposals Per Image/<group>`; `test_class/AP@0.5/<class>`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `proposal_recall.csv`; `anchor_recall.csv` under `analysis/` (`anchor_recall_resume_<n>.csv` for a resume from iteration n) | DET, INS (with the `Mask` metrics) |
 | `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`), `Macro ROC AUC`, `Macro Average Precision`; `test_class/Precision`, `Recall`, `F1`, `ROC AUC`, `Average Precision`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` | CLS, M2O, M2M, CMP |

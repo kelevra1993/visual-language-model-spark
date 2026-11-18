@@ -2,10 +2,13 @@
 Exponential moving average (EMA) of the weights of a training, set by 'Optimization.exponential_moving_average': a
 second copy of the task model, never trained itself, moved towards the trained weights after every optimizer step,
 so that it averages the jitter of the last steps. The base trainer updates it, stores it in every checkpoint, restores
-it on a resume and evaluates it on the test split next to the trained weights.
+it on a resume and evaluates it on the test split next to the trained weights. The decay of every update, lowered
+during a warm-up, and the share of the weight of the average carried by its last updates are given here too, for the
+windows of the average shaded on the evaluation curves (evaluation/evaluation_curves.py).
 """
 
 import copy
+import math
 import torch
 
 from torch import nn
@@ -17,6 +20,49 @@ NUMBER_UPDATES_KEY = "number_updates"
 
 # Suffixes of the buffers averaged like the parameters: the running statistics of the batch normalization layers
 AVERAGED_BUFFER_SUFFIXES = ("running_mean", "running_var")
+
+
+def compute_update_decay(decay: float, update_index: int) -> float:
+    """
+    Gives the decay of an update of the moving average of the weights, used by every update of the trainer
+    (ExponentialMovingAverage.get_current_decay) and by the windows of the average shaded on the evaluation curves:
+    the configured decay, lowered during a warm-up so that the average forgets the random starting weights quickly.
+    The configured decay is only reached after about 9 / (1 − decay) updates, 44,990 for a decay of 0.9998, the update
+    15,000 using (1 + 14,999) / (10 + 14,999) ≈ 0.9994 instead.
+
+    Args:
+        decay (float): The configured decay of the average, strictly between 0 and 1.
+        update_index (int): The index n of the update, counted from 0.
+
+    Returns:
+        float: min(decay, (1 + n) / (10 + n)).
+    """
+    return min(decay, (1 + update_index) / (10 + update_index))
+
+
+def compute_recent_updates_weight(decay: float, number_updates: int, recent_updates: int) -> float:
+    """
+    Gives the share of the weight of a moving average of the weights carried by its last updates, written next to the
+    window of the average on the evaluation curves: every update multiplies the weight of everything before it by its
+    decay, so the starting weights and the updates before the last k keep the product of the decays of these k
+    updates, about 1/e (37 %) for the last 1 / (1 − decay) updates once the warm-up is over, the last k the rest.
+
+    Args:
+        decay (float): The configured decay of the average, strictly between 0 and 1.
+        number_updates (int): The number of updates of the average.
+        recent_updates (int): The number k of last updates, between 1 and number_updates.
+
+    Returns:
+        float: The share of the weight of the average carried by the last k updates, between 0 and 1.
+
+    Raises:
+        ValueError: If recent_updates is not between 1 and number_updates.
+    """
+    if not 1 <= recent_updates <= number_updates:
+        raise ValueError(f"Expected between 1 and {number_updates} last updates of the moving average, got "
+                         f"{recent_updates}.")
+    return 1.0 - math.prod(compute_update_decay(decay=decay, update_index=update_index)
+                           for update_index in range(number_updates - recent_updates, number_updates))
 
 
 class ExponentialMovingAverage:
@@ -66,9 +112,9 @@ class ExponentialMovingAverage:
         forgets the random starting weights quickly.
 
         Returns:
-            float: min(decay, (1 + n) / (10 + n)) for the n-th update, n counted from 0.
+            float: min(decay, (1 + n) / (10 + n)) for the n-th update, n counted from 0 (compute_update_decay).
         """
-        return min(self.decay, (1 + self.number_updates) / (10 + self.number_updates))
+        return compute_update_decay(decay=self.decay, update_index=self.number_updates)
 
     @torch.no_grad()
     def update(self, model: nn.Module) -> None:

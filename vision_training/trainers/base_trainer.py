@@ -45,6 +45,11 @@ from vision_training.data.label_mapping import (RUN_LABEL_DICTIONARY_FILE_NAME, 
 from vision_training.data.loaders import uses_pinned_memory
 from vision_training.deployment.export_specifications import (INFERENCE_MODEL_CLASSES, build_inference_model,
                                                               get_export_specification)
+from vision_training.evaluation.evaluation_curves import (AVERAGED_WEIGHTS_COLUMN_PREFIX,
+                                                          AVERAGED_WEIGHTS_UPDATES_COLUMN,
+                                                          EVALUATION_CURVES_FIGURE_NAME, EVALUATION_SUMMARY_FILE_NAME,
+                                                          build_summary_columns, draw_summary_curves,
+                                                          seed_evaluation_summary, write_summary_columns)
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
@@ -2653,8 +2658,9 @@ class BaseTrainer(ABC):
         """
         Reports the evaluation of a checkpoint to the console, the Test TensorBoard writer (created at the first
         evaluation, Test_EMA for the averaged weights, with the same tags so that TensorBoard overlays both curves) and
-        the Results.txt file of the run, with its per-class outputs when the per-class report is on, then sends it to
-        the MLflow run.
+        the Results.txt file of the run, with its per-class outputs when the per-class report is on, sends it to the
+        MLflow run, then writes it into the evaluation summary and redraws the evaluation curves
+        (update_evaluation_curves).
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
@@ -2673,6 +2679,56 @@ class BaseTrainer(ABC):
                                   results_path=Path(self.experiment_folder) / "Results.txt",
                                   per_class_report=self.per_class_report)
         self.track_evaluation(iteration=iteration, results=results)
+        self.update_evaluation_curves(iteration=iteration, results=results)
+
+    def update_evaluation_curves(self, iteration: int, results: EvaluationResults) -> None:
+        """
+        Keeps the evaluation summary and the evaluation curves of the run up to date after every test evaluation, the
+        trained weights then the averaged ones, so that the test results can be read at a glance without TensorBoard:
+        the scalars of the evaluated weights go into the row of the iteration of 'evaluation_summary.csv'
+        (evaluation_root, '<run>/Evaluation/' for a training, '<run>/Checkpoint_Evaluation/' for a standalone
+        evaluation; the averaged weights in 'ema_' columns with their number of updates 'ema_number_updates', an
+        iteration evaluated again replacing its row), then 'evaluation_curves.png', next to Results.txt, is drawn again
+        from the summary: the headline metric of both weights, the best iteration of each ringed, and the windows of
+        the averaged weights of the highest evaluated iteration, given by their number of updates. A summary missing
+        while the TensorBoard test folders hold evaluations (a run evaluated before the summary existed) is first
+        started from them. With the tracking on, both files are sent to the MLflow run, replacing their previous
+        version.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint.
+            results (EvaluationResults): The results of the evaluation.
+        """
+        # Earlier evaluations of a run evaluated before the summary existed, read once from its TensorBoard test curves
+        summary_path = self.evaluation_root / EVALUATION_SUMMARY_FILE_NAME
+        if not summary_path.is_file():
+            seed_evaluation_summary(summary_path=summary_path, test_folders={
+                "": self.tensorboard_directory / "Test",
+                AVERAGED_WEIGHTS_COLUMN_PREFIX: self.tensorboard_directory / AVERAGED_WEIGHTS_TENSORBOARD_FOLDER},
+                current_iteration=iteration)
+
+        # Row of the iteration started by the trained weights and completed by the averaged ones, with their number of
+        # updates (restored with the checkpoint), which gives the warm-up of their decay
+        column_prefix = AVERAGED_WEIGHTS_COLUMN_PREFIX if self.evaluating_averaged_weights else ""
+        columns = build_summary_columns(results=results, prefix=column_prefix, per_class_report=self.per_class_report)
+        if self.evaluating_averaged_weights:
+            columns[AVERAGED_WEIGHTS_UPDATES_COLUMN] = self.exponential_moving_average.number_updates
+        write_summary_columns(summary_path=summary_path, iteration=iteration, columns=columns,
+                              starts_row=not self.evaluating_averaged_weights)
+
+        # Figure of the headline metric drawn again from every row, with the windows of the moving average when it is
+        # on
+        figure_path = Path(self.experiment_folder) / EVALUATION_CURVES_FIGURE_NAME
+        moving_average_decay = (self.exponential_moving_average.decay if self.exponential_moving_average is not None
+                                else None)
+        draw_summary_curves(summary_path=summary_path, figure_path=figure_path, metric_name=results["headline_metric"],
+                            in_percent=results["headline_metric"] in results["percent_metrics"],
+                            moving_average_decay=moving_average_decay)
+        print_color(color="green", output=f"Evaluation Curves : {format_path_link(path=figure_path)}", indent=1)
+
+        # Both files sent to the MLflow run, at its root next to Results.txt
+        self.experiment_tracker.log_artifact(file_path=summary_path, artifact_folder=None)
+        self.experiment_tracker.log_artifact(file_path=figure_path, artifact_folder=None)
 
     def save_model(self, iteration: int) -> None:
         """
