@@ -7,7 +7,9 @@ comparator, and the training and evaluation figures. Every figure family is a mo
 subfolder of the output folder (dataset/, batch/, evaluation/, ...), its facts gathered here into the facts.json the
 storyboards quote as {{sequence_comparison.<name>}}, with the settings the run was trained with, the counts of fusion
 and temporal module types of the code, the settings of the generator and the throughput of the sequence classification
-run the console chapter compares with. The helpers are those of the sequence classification series.
+run the console chapter compares with. The helpers are those of the sequence classification series. A build from the
+committed snapshots (tutorials/run_snapshots, without the checkpoint) counts the components on the comparator built
+from its configuration and reuses the committed outputs of the animated batch.
 """
 
 import math
@@ -29,7 +31,7 @@ from vision_training.configuration_processing.configuration_loader import load_e
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, MemberFusion
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 from vision_training.models.task_model import TaskModel
-from vision_training.trainers.checkpointing import get_last_checkpoint_iteration
+from vision_training.trainers.checkpointing import get_checkpoint_file, get_last_checkpoint_iteration
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 
 # Run of the series in tutorial_sources.yaml, and the sequence classification run the console chapter compares with
@@ -138,7 +140,7 @@ def read_classifier_facts(experiments_folder: Path) -> Dict[str, Any]:
     sequences per second so that the narration can say it ran at more than that.
 
     Args:
-        experiments_folder (Path): The folder of the real runs.
+        experiments_folder (Path): The folder of the real runs, or the committed snapshots.
 
     Returns:
         Dict[str, Any]: The facts, named classifier.*.
@@ -161,7 +163,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
 
     Args:
         output_folder (Path): The figures folder of the series in the cache of the build.
-        experiments_folder (Path): The folder of the real runs.
+        experiments_folder (Path): The folder of the real runs, or the committed snapshots.
         force (bool): Whether the expensive figures are made again even when the previous build left them.
 
     Returns:
@@ -176,7 +178,11 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     _, model_configuration = load_experiment_configuration(configuration_path=run_folder /
                                                            "training_configuration.yaml")
     label_dictionary = model_configuration["Data"]["label_dictionary"]
-    model = load_sequence_model(run_folder=run_folder, iteration=iteration)
+
+    # Comparator with its trained weights, or built from its configuration when the run is read from the committed
+    # snapshots, its components having the same sizes and the animated batch being restored from the snapshots
+    model = load_sequence_model(run_folder=run_folder, iteration=iteration, allow_untrained=True)
+    has_trained_weights = get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=iteration).exists()
     train_folder = Path(experiment_configuration["train_data_folder"])
     image_settings = run_configuration["Data"]["image_settings"]
     image_size = image_settings["size"]
@@ -191,8 +197,9 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                   label_dictionary=label_dictionary, batch_size=experiment_configuration["batch_size"]),
         make_pair_batch_animation(output_folder=output_folder, model=model, train_folder=train_folder,
                                   label_dictionary=label_dictionary, image_size=image_size,
-                                  keep_ratio=image_settings["keep_ratio"], force=force),
+                                  keep_ratio=image_settings["keep_ratio"], has_trained_weights=has_trained_weights,
+                                  force=force),
         make_pair_evaluation_figures(output_folder=output_folder, run_folder=run_folder, log_path=log_path,
-                                     iteration=iteration, test_folder=Path(experiment_configuration["test_data_folder"]),
-                                     class_count=len(set(label_dictionary.values())),
+                                     iteration=iteration, class_count=len(set(label_dictionary.values())),
+                                     test_folder=Path(experiment_configuration["test_data_folder"]),
                                      information_dump=experiment_configuration["information_dump"])]))

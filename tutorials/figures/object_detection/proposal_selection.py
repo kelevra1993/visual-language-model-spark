@@ -2,10 +2,11 @@
 Facts of the proposal selection scenes of the object detection tutorials (chapter 1, the joint selection against the
 per-level one), read at every build by tutorials/figures/object_detection/figures.py from stage 7 of the detection
 benchmark of the repository (documentation/architecture_benchmarking/object_detection_experiment_plan.md): the anchors
-of every level and the proposal counts of the benchmark detector, rebuilt on the CPU from a checkpoint of a per-level
-launch; the proposals per image and the proposal recall of every level of the averaged weights at the compared
-iteration, read from the test curves of the two launches of each selection (the object_detection_benchmark_* runs of
-tutorials/tutorial_sources.yaml); the test mAP of the averaged weights at every evaluation, read from the committed
+of every level and the proposal counts of the benchmark detector, built untrained on the CPU from the configuration of
+a per-level launch (the anchors and counts do not depend on the weights, so no checkpoint is read); the proposals
+per image and the proposal recall of every level of the averaged weights at the compared iteration, read from the test
+curves of the two launches of each selection (the object_detection_benchmark_* runs of tutorials/tutorial_sources.yaml);
+the test mAP of the averaged weights at every evaluation, read from the committed
 results of the benchmark (object_detection_benchmark_results, object_detection_results.csv), averaged over the two
 launches of each selection as the plan compares them, with the gap between the two launches of a selection (the noise
 of a training); and the inference-only preview of the per-level selection on the weights of a joint launch. Nothing
@@ -23,7 +24,7 @@ from typing import Any, Dict, List
 
 from scripts.evaluation.collect_experiment_results import read_test_curves
 from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, round_fact
-from tutorials.figures.object_detection.detection_sources import load_run_model
+from tutorials.figures.object_detection.detection_sources import load_untrained_run_model
 from vision_training.evaluation.report_formatting import (convert_to_percentage, format_percentage,
                                                           format_percentage_label)
 
@@ -82,19 +83,22 @@ def read_selection_curves(results_path: Path, launch_names: List[str]) -> Dict[s
 
 def describe_benchmark_levels(run_folder: Path) -> Dict[str, Any]:
     """
-    Rebuilds the detector of a launch of the benchmark on the CPU to give the anchors of every level and the proposal
-    counts of its filter, the numbers the pipelines of the joint and per-level selections show, read from the model
-    rather than computed from the configuration so that they follow the anchor generator of the repository.
+    Builds the detector of a launch of the benchmark untrained on the CPU from its saved configuration to give the
+    anchors of every level and the proposal counts of its filter, the numbers the pipelines of the joint and per-level
+    selections show, read from the model rather than computed from the configuration so that they follow the anchor
+    generator of the repository; the anchors are not weights, so no checkpoint is needed and the facts come out the
+    same from the run snapshots.
 
     Args:
-        run_folder (Path): The run folder of a per-level launch, holding its configuration and checkpoints.
+        run_folder (Path): The run folder of a per-level launch, holding its configuration and label dictionary.
 
     Returns:
         Dict[str, Any]: The levels, their anchors, the evaluation and training counts, and the candidates reaching a
             suppression with each selection, named proposal_selection.*.
     """
-    # Rebuild the detector of the launch and read the anchors of every level from its region proposers
-    model = load_run_model(run_folder=run_folder, iteration=COMPARED_ITERATION)
+    # Build the detector of the launch from its configuration and read the anchors of every level from its region
+    # proposers
+    model = load_untrained_run_model(run_folder=run_folder)
     level_names = list(model.region_proposer_dictionary)
     level_anchor_counts = [int(region_proposer.region_proposal_anchor_object.anchors.shape[0])
                            for region_proposer in model.region_proposer_dictionary.values()]

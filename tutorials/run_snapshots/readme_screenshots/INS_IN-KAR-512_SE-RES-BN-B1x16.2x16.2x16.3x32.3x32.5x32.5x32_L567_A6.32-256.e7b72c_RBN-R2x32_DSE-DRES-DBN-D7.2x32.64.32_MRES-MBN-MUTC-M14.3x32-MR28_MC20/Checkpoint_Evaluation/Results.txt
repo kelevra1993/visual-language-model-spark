@@ -1,0 +1,362 @@
+Iteration 5000 · 20000 Test Images · 2026-11-15 23:52 ──────────────────────────────────────────────────────────────────
+  Confusion Matrix : score >= 0.50, IoU >= 0.5 (masks), 36975 right, 3792 wrong class, 2875 false positives, 28915
+  missed
+  Sample Images : 8 fixed test images
+
+  Mask Mean Average Precision
+   Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────
+   Area        76.34 %    67.66 %     2.02 %          58.70 %
+   11 Point    73.49 %    66.51 %     3.16 %          57.63 %
+   101 Point   76.11 %    67.49 %     2.13 %          58.59 %
+  The mask mAP@0.5 of the area method compares the checkpoints of the run.
+
+  Mask Mean Average Precision By Object Size (Area)
+   Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   Small (< 32²)             911    7.71 %     6.01 %     0.00 %           4.81 %
+   Medium (32² to 96²)     50627   74.57 %    65.70 %     1.39 %          56.83 %
+   Large (>= 96²)          18144   78.46 %    70.29 %     2.83 %          60.85 %
+  COCO sizes by mask area in network input pixels, the objects of the other sizes and the detections finding them being
+  ignored. — : no object of the size.
+
+  Box Mean Average Precision
+   Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────
+   Area        76.70 %    71.15 %     0.34 %          57.05 %
+   11 Point    73.56 %    69.43 %     0.89 %          55.80 %
+   101 Point   76.45 %    70.97 %     0.39 %          56.93 %
+  Box average precisions of the same detections, comparable with the object detection runs.
+
+  Box Mean Average Precision By Object Size (Area)
+   Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   Small (< 32²)             184    2.37 %     0.03 %     0.00 %           0.77 %
+   Medium (32² to 96²)     33579   73.31 %    67.32 %     0.44 %          53.80 %
+   Large (>= 96²)          35919   78.64 %    73.18 %     0.33 %          58.83 %
+  COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
+  ignored. — : no object of the size.
+
+  Mask Mean Average Recall
+   Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   All                     69682   97.24 %    87.98 %     6.65 %          77.08 %
+   Small (< 32²)             911   20.45 %    10.89 %     0.00 %          10.64 %
+   Medium (32² to 96²)     50627   97.29 %    87.71 %     6.16 %          76.74 %
+   Large (>= 96²)          18144   99.38 %    94.57 %     7.41 %          80.60 %
+  Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by mask area in network
+  input pixels. — : no object of the size.
+
+  Box Mean Average Recall
+   Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   All                     69682   97.81 %    90.82 %     4.19 %          75.82 %
+   Small (< 32²)             184    3.51 %     0.20 %     0.00 %           1.09 %
+   Medium (32² to 96²)     33579   96.93 %    88.89 %     4.30 %          74.18 %
+   Large (>= 96²)          35919   99.09 %    92.93 %     4.14 %          77.45 %
+  Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
+  input pixels. — : no object of the size.
+
+  Proposal Recall
+                                                           Proposals
+   Objects               Count   Recall@0.5   Recall@0.7   Per Image
+  ───────────────────────────────────────────────────────────────────
+   All Objects           69682      99.66 %      97.46 %    249.9987
+   Small (< 32²)           184      34.24 %       8.15 %           —
+   Medium (32² to 96²)   33579      99.72 %      96.68 %           —
+   Large (>= 96²)        35919      99.95 %      98.64 %           —
+   Block 5 Proposals     69682      80.41 %      48.68 %    183.7678
+   Block 6 Proposals     69682      80.94 %      29.98 %     38.2540
+   Block 7 Proposals     69682      69.92 %      41.41 %     27.9770
+  Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
+  area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
+
+  Mask Per Class Average Precision (Area)
+                   Ground                                                 Threshold    Recall
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P99 %   @ P99 %
+  ────────────────────────────────────────────────────────────────────────────────────────────
+   kite              3471   36.68 %   34.88 %    0.33 %         29.60 %      0.5423    0.09 %
+   trapezoid         3546   40.64 %   38.44 %    0.13 %         32.16 %      0.4835    0.23 %
+   rhombus           3436   49.65 %   48.22 %    0.12 %         40.16 %      0.5648    1.31 %
+   octagon           3454   59.23 %   57.98 %    1.18 %         50.11 %      0.4533    0.29 %
+   nonagon           3533   62.77 %   61.68 %    7.22 %         54.78 %      0.4726    0.11 %
+   capsule           3344   63.33 %   61.03 %    0.76 %         52.29 %      0.7025    4.49 %
+   ellipse           3408   64.21 %   62.78 %    0.71 %         53.62 %      0.6765    4.64 %
+   parallelogram     3503   68.22 %   63.68 %    0.01 %         50.67 %      0.7798    8.85 %
+   heptagon          3466   76.63 %   75.59 %    0.03 %         66.08 %      0.4688    6.06 %
+   semicircle        3478   77.10 %   75.34 %    0.31 %         63.33 %      0.6285   13.51 %
+   triangle          3512   86.68 %   74.25 %    0.02 %         61.52 %      0.8563   54.58 %
+   hexagon           3471   87.47 %   86.14 %    0.03 %         74.29 %      0.6057   27.23 %
+   circle            3566   89.23 %   87.88 %   23.98 %         79.62 %      0.7119   60.43 %
+   l_shape           3528   89.27 %   63.56 %    0.00 %         54.78 %      0.7347   54.37 %
+   pentagon          3475   92.29 %   90.94 %    0.37 %         77.43 %      0.6517   66.33 %
+   rectangle         3494   95.21 %   90.68 %    2.22 %         76.62 %      0.9401   77.93 %
+   star              3549   96.44 %   19.02 %    0.00 %         44.36 %      0.8192   89.94 %
+   plus_sign         3442   96.82 %   83.89 %    0.00 %         65.08 %      0.6545   93.23 %
+   square            3545   97.25 %   92.40 %    3.08 %         78.31 %      0.8120   90.41 %
+   annulus           3461   97.64 %   84.78 %    0.00 %         69.24 %      0.6865   93.50 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 99 % is never reached.
+
+  Mask Per Class Recall
+                                    Recall      95 %      95 %    Recall      95 %      95 %
+   Class           Ground Truths      @0.5     Lower     Upper     @0.75     Lower     Upper
+  ───────────────────────────────────────────────────────────────────────────────────────────
+   l_shape                  3528   95.32 %   94.57 %   96.00 %   71.20 %   69.68 %   72.69 %
+   parallelogram            3503   95.80 %   95.09 %   96.44 %   87.44 %   86.30 %   88.52 %
+   triangle                 3512   96.16 %   95.47 %   96.77 %   82.20 %   80.90 %   83.46 %
+   ellipse                  3408   96.54 %   95.87 %   97.13 %   92.69 %   91.77 %   93.55 %
+   kite                     3471   96.80 %   96.16 %   97.36 %   91.44 %   90.46 %   92.35 %
+   semicircle               3478   96.81 %   96.17 %   97.37 %   92.67 %   91.75 %   93.51 %
+   star                     3549   97.18 %   96.58 %   97.70 %   37.90 %   36.30 %   39.52 %
+   capsule                  3344   97.22 %   96.60 %   97.75 %   92.58 %   91.64 %   93.45 %
+   trapezoid                3546   97.26 %   96.67 %   97.78 %   91.62 %   90.66 %   92.52 %
+   rectangle                3494   97.40 %   96.81 %   97.90 %   92.30 %   91.37 %   93.16 %
+   plus_sign                3442   97.44 %   96.86 %   97.94 %   85.42 %   84.19 %   86.58 %
+   circle                   3566   97.45 %   96.88 %   97.94 %   94.92 %   94.15 %   95.62 %
+   rhombus                  3436   97.50 %   96.92 %   97.99 %   92.17 %   91.22 %   93.05 %
+   octagon                  3454   97.60 %   97.03 %   98.08 %   93.95 %   93.10 %   94.72 %
+   nonagon                  3533   97.62 %   97.06 %   98.10 %   95.13 %   94.37 %   95.82 %
+   heptagon                 3466   97.81 %   97.26 %   98.27 %   95.35 %   94.60 %   96.03 %
+   annulus                  3461   98.06 %   97.55 %   98.50 %   86.04 %   84.85 %   87.18 %
+   pentagon                 3475   98.07 %   97.56 %   98.50 %   95.51 %   94.77 %   96.18 %
+   square                   3545   98.11 %   97.61 %   98.53 %   93.23 %   92.35 %   94.04 %
+   hexagon                  3471   98.62 %   98.17 %   98.98 %   95.85 %   95.13 %   96.49 %
+  Share of the ground truths matched by a detection at an overlap of 0.5 or 0.75, whatever its score. Worst Recall @0.5
+  first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples being
+  independent. — : no ground truths of the class.
+
+  Box Per Class Average Precision (Area)
+                   Ground
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]
+  ──────────────────────────────────────────────────────────────────────
+   kite              3471   36.79 %   34.48 %    0.05 %         26.98 %
+   trapezoid         3546   40.74 %   37.64 %    0.09 %         30.31 %
+   rhombus           3436   49.72 %   47.17 %    0.03 %         36.40 %
+   octagon           3454   59.31 %   54.14 %    0.05 %         42.57 %
+   nonagon           3533   62.81 %   61.19 %    0.39 %         50.10 %
+   capsule           3344   63.31 %   55.99 %    0.13 %         45.52 %
+   ellipse           3408   64.19 %   60.76 %    0.06 %         46.61 %
+   parallelogram     3503   68.39 %   60.49 %    0.02 %         45.03 %
+   heptagon          3466   76.78 %   75.47 %    0.51 %         62.23 %
+   semicircle        3478   77.06 %   73.42 %    0.09 %         57.42 %
+   triangle          3512   87.04 %   70.39 %    0.03 %         57.34 %
+   hexagon           3471   87.58 %   86.35 %    2.21 %         73.03 %
+   circle            3566   89.29 %   87.47 %    0.39 %         71.33 %
+   l_shape           3528   91.35 %   71.60 %    0.01 %         58.40 %
+   pentagon          3475   92.49 %   91.05 %    0.58 %         74.28 %
+   rectangle         3494   95.11 %   88.26 %    0.29 %         71.71 %
+   square            3545   97.61 %   93.23 %    1.31 %         76.81 %
+   plus_sign         3442   97.78 %   92.45 %    0.03 %         73.05 %
+   star              3549   98.20 %   85.74 %    0.00 %         64.35 %
+   annulus           3461   98.52 %   95.73 %    0.50 %         77.59 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class.
+
+  Box Per Class Recall
+                                    Recall      95 %      95 %    Recall      95 %      95 %
+   Class           Ground Truths      @0.5     Lower     Upper     @0.75     Lower     Upper
+  ───────────────────────────────────────────────────────────────────────────────────────────
+   parallelogram            3503   96.37 %   95.70 %   96.97 %   85.38 %   84.17 %   86.54 %
+   ellipse                  3408   96.51 %   95.84 %   97.10 %   90.23 %   89.18 %   91.21 %
+   semicircle               3478   96.89 %   96.26 %   97.45 %   90.45 %   89.43 %   91.41 %
+   triangle                 3512   96.92 %   96.30 %   97.47 %   80.78 %   79.44 %   82.07 %
+   kite                     3471   97.29 %   96.70 %   97.81 %   90.78 %   89.77 %   91.72 %
+   capsule                  3344   97.31 %   96.70 %   97.83 %   87.38 %   86.21 %   88.49 %
+   rectangle                3494   97.37 %   96.78 %   97.87 %   90.21 %   89.18 %   91.18 %
+   l_shape                  3528   97.59 %   97.03 %   98.07 %   79.48 %   78.11 %   80.80 %
+   circle                   3566   97.67 %   97.12 %   98.14 %   94.73 %   93.94 %   95.44 %
+   trapezoid                3546   97.77 %   97.23 %   98.23 %   90.19 %   89.16 %   91.15 %
+   nonagon                  3533   97.79 %   97.25 %   98.25 %   94.62 %   93.83 %   95.34 %
+   octagon                  3454   97.80 %   97.25 %   98.26 %   90.76 %   89.75 %   91.71 %
+   rhombus                  3436   97.88 %   97.34 %   98.33 %   90.66 %   89.64 %   91.61 %
+   heptagon                 3466   98.21 %   97.71 %   98.63 %   95.53 %   94.79 %   96.19 %
+   square                   3545   98.50 %   98.05 %   98.88 %   94.10 %   93.28 %   94.86 %
+   plus_sign                3442   98.52 %   98.06 %   98.89 %   93.06 %   92.16 %   93.88 %
+   pentagon                 3475   98.62 %   98.17 %   98.98 %   95.94 %   95.23 %   96.57 %
+   hexagon                  3471   98.91 %   98.50 %   99.22 %   96.49 %   95.82 %   97.07 %
+   annulus                  3461   99.05 %   98.66 %   99.34 %   96.19 %   95.49 %   96.80 %
+   star                     3549   99.18 %   98.83 %   99.45 %   89.38 %   88.32 %   90.37 %
+  Share of the ground truths matched by a detection at an overlap of 0.5 or 0.75, whatever its score. Worst Recall @0.5
+  first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples being
+  independent. — : no ground truths of the class.
+
+Iteration 5000 · 20000 Test Images · EMA Weights · 2026-11-15 23:59 ────────────────────────────────────────────────────
+  Confusion Matrix : score >= 0.50, IoU >= 0.5 (masks), 31944 right, 1915 wrong class, 1758 false positives, 35823
+  missed
+  Sample Images : 8 fixed test images
+
+  Mask Mean Average Precision
+   Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────
+   Area        73.75 %    64.64 %     3.70 %          57.45 %
+   11 Point    71.15 %    63.76 %     5.17 %          56.57 %
+   101 Point   73.54 %    64.52 %     3.83 %          57.36 %
+  The mask mAP@0.5 of the area method compares the checkpoints of the run.
+
+  Mask Mean Average Precision By Object Size (Area)
+   Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   Small (< 32²)             911    7.38 %     6.00 %     0.00 %           4.82 %
+   Medium (32² to 96²)     50627   71.77 %    62.18 %     2.96 %          55.29 %
+   Large (>= 96²)          18144   74.39 %    67.80 %     4.52 %          59.15 %
+  COCO sizes by mask area in network input pixels, the objects of the other sizes and the detections finding them being
+  ignored. — : no object of the size.
+
+  Box Mean Average Precision
+   Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────
+   Area        74.05 %    70.35 %     2.64 %          58.90 %
+   11 Point    71.22 %    68.91 %     4.38 %          57.83 %
+   101 Point   73.85 %    70.16 %     2.82 %          58.80 %
+  Box average precisions of the same detections, comparable with the object detection runs.
+
+  Box Mean Average Precision By Object Size (Area)
+   Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   Small (< 32²)             184    2.46 %     0.06 %     0.00 %           0.85 %
+   Medium (32² to 96²)     33579   70.38 %    66.10 %     1.27 %          54.63 %
+   Large (>= 96²)          35919   76.27 %    72.99 %     3.45 %          61.42 %
+  COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
+  ignored. — : no object of the size.
+
+  Mask Mean Average Recall
+   Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   All                     69682   97.53 %    87.71 %    11.74 %          78.43 %
+   Small (< 32²)             911   22.33 %    11.44 %     0.00 %          11.68 %
+   Medium (32² to 96²)     50627   97.58 %    87.20 %    11.36 %          78.01 %
+   Large (>= 96²)          18144   99.46 %    95.05 %    11.38 %          81.92 %
+  Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by mask area in network
+  input pixels. — : no object of the size.
+
+  Box Mean Average Recall
+   Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   All                     69682   98.03 %    92.29 %    11.84 %          80.14 %
+   Small (< 32²)             184    5.18 %     0.48 %     0.00 %           1.78 %
+   Medium (32² to 96²)     33579   97.26 %    90.46 %     8.95 %          77.89 %
+   Large (>= 96²)          35919   99.13 %    94.42 %    13.30 %          82.17 %
+  Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
+  input pixels. — : no object of the size.
+
+  Proposal Recall
+                                                           Proposals
+   Objects               Count   Recall@0.5   Recall@0.7   Per Image
+  ───────────────────────────────────────────────────────────────────
+   All Objects           69682      99.65 %      97.41 %    249.9923
+   Small (< 32²)           184      34.24 %       6.52 %           —
+   Medium (32² to 96²)   33579      99.70 %      96.74 %           —
+   Large (>= 96²)        35919      99.94 %      98.51 %           —
+   Block 5 Proposals     69682      81.42 %      49.41 %    173.6157
+   Block 6 Proposals     69682      81.42 %      27.01 %     45.8371
+   Block 7 Proposals     69682      68.30 %      42.45 %     30.5395
+  Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
+  area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
+
+  Mask Per Class Average Precision (Area)
+                   Ground                                                 Threshold    Recall
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P99 %   @ P99 %
+  ────────────────────────────────────────────────────────────────────────────────────────────
+   kite              3471   35.35 %   33.70 %    1.71 %         28.90 %      0.5629    0.03 %
+   trapezoid         3546   41.02 %   38.40 %    0.17 %         31.79 %      0.4367    0.65 %
+   rhombus           3436   45.81 %   44.72 %    1.31 %         38.23 %      0.4970    1.34 %
+   octagon           3454   55.42 %   54.33 %    4.50 %         48.11 %      0.3952    0.12 %
+   nonagon           3533   57.51 %   56.54 %    8.29 %         50.43 %      0.4701    0.03 %
+   capsule           3344   57.65 %   55.91 %    5.15 %         49.16 %      0.6039    6.04 %
+   ellipse           3408   59.52 %   58.54 %   10.60 %         52.69 %      0.6342    1.26 %
+   parallelogram     3503   67.14 %   63.82 %    0.11 %         53.34 %      0.7590    4.60 %
+   semicircle        3478   68.38 %   67.07 %    1.15 %         57.40 %      0.5120    3.48 %
+   heptagon          3466   69.00 %   68.13 %    0.03 %         59.56 %      0.4763    0.55 %
+   hexagon           3471   81.47 %   80.49 %    0.10 %         69.86 %      0.5596   20.22 %
+   triangle          3512   85.87 %   76.00 %    0.06 %         64.22 %      0.7894   44.33 %
+   circle            3566   87.31 %   86.03 %   27.11 %         78.42 %      0.6417   50.98 %
+   l_shape           3528   87.77 %   60.62 %    0.00 %         53.55 %      0.7029   53.37 %
+   pentagon          3475   92.23 %   90.65 %    1.19 %         77.62 %      0.5268   67.74 %
+   rectangle         3494   95.44 %   90.14 %    4.09 %         77.75 %      0.9240   78.65 %
+   star              3549   96.52 %    9.75 %    0.00 %         41.19 %      0.8203   86.70 %
+   plus_sign         3442   96.75 %   80.80 %    0.00 %         65.28 %      0.6998   91.28 %
+   square            3545   97.24 %   92.75 %    8.43 %         81.28 %      0.7957   89.90 %
+   annulus           3461   97.58 %   84.48 %    0.02 %         70.27 %      0.7075   92.34 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 99 % is never reached.
+
+  Mask Per Class Recall
+                                    Recall      95 %      95 %    Recall      95 %      95 %
+   Class           Ground Truths      @0.5     Lower     Upper     @0.75     Lower     Upper
+  ───────────────────────────────────────────────────────────────────────────────────────────
+   l_shape                  3528   95.63 %   94.91 %   96.29 %   69.67 %   68.12 %   71.19 %
+   triangle                 3512   96.10 %   95.40 %   96.72 %   83.57 %   82.30 %   84.78 %
+   parallelogram            3503   96.75 %   96.10 %   97.31 %   89.04 %   87.96 %   90.05 %
+   ellipse                  3408   97.04 %   96.41 %   97.58 %   93.63 %   92.76 %   94.43 %
+   circle                   3566   97.48 %   96.91 %   97.97 %   95.06 %   94.30 %   95.75 %
+   octagon                  3454   97.51 %   96.93 %   98.00 %   94.18 %   93.35 %   94.94 %
+   star                     3549   97.52 %   96.95 %   98.01 %   29.30 %   27.81 %   30.83 %
+   kite                     3471   97.55 %   96.98 %   98.04 %   91.67 %   90.70 %   92.57 %
+   semicircle               3478   97.61 %   97.05 %   98.09 %   93.85 %   93.00 %   94.62 %
+   plus_sign                3442   97.62 %   97.05 %   98.10 %   82.83 %   81.53 %   84.08 %
+   capsule                  3344   97.64 %   97.06 %   98.13 %   93.33 %   92.43 %   94.15 %
+   rectangle                3494   97.65 %   97.10 %   98.13 %   91.87 %   90.92 %   92.76 %
+   trapezoid                3546   97.69 %   97.14 %   98.16 %   91.43 %   90.46 %   92.33 %
+   nonagon                  3533   97.76 %   97.22 %   98.23 %   95.16 %   94.40 %   95.84 %
+   rhombus                  3436   97.85 %   97.30 %   98.31 %   93.31 %   92.42 %   94.12 %
+   heptagon                 3466   97.86 %   97.33 %   98.32 %   95.18 %   94.42 %   95.87 %
+   square                   3545   98.14 %   97.64 %   98.56 %   93.48 %   92.62 %   94.27 %
+   annulus                  3461   98.24 %   97.74 %   98.65 %   86.04 %   84.85 %   87.18 %
+   pentagon                 3475   98.33 %   97.85 %   98.73 %   95.45 %   94.71 %   96.12 %
+   hexagon                  3471   98.65 %   98.20 %   99.00 %   96.17 %   95.48 %   96.78 %
+  Share of the ground truths matched by a detection at an overlap of 0.5 or 0.75, whatever its score. Worst Recall @0.5
+  first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples being
+  independent. — : no ground truths of the class.
+
+  Box Per Class Average Precision (Area)
+                   Ground
+   Class           Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]
+  ──────────────────────────────────────────────────────────────────────
+   kite              3471   35.46 %   33.40 %    0.28 %         27.50 %
+   trapezoid         3546   41.17 %   37.84 %    0.54 %         31.51 %
+   rhombus           3436   45.86 %   44.13 %    0.70 %         36.79 %
+   octagon           3454   55.48 %   54.19 %    5.80 %         45.78 %
+   capsule           3344   57.54 %   54.80 %    0.60 %         45.09 %
+   nonagon           3533   57.55 %   56.15 %    1.49 %         45.53 %
+   ellipse           3408   59.53 %   57.65 %    0.96 %         48.25 %
+   parallelogram     3503   67.15 %   62.80 %    0.86 %         52.15 %
+   semicircle        3478   68.32 %   65.30 %    0.71 %         53.42 %
+   heptagon          3466   69.14 %   68.11 %    8.51 %         59.05 %
+   hexagon           3471   81.54 %   80.69 %    5.17 %         69.23 %
+   triangle          3512   86.36 %   77.79 %    0.43 %         64.28 %
+   circle            3566   87.41 %   83.91 %    3.43 %         68.42 %
+   l_shape           3528   89.67 %   75.61 %    0.19 %         61.72 %
+   pentagon          3475   92.38 %   91.06 %    2.73 %         77.00 %
+   rectangle         3494   95.24 %   88.28 %    1.30 %         73.82 %
+   square            3545   97.32 %   93.98 %    5.92 %         80.85 %
+   plus_sign         3442   97.63 %   92.71 %    6.24 %         79.89 %
+   star              3549   98.01 %   92.42 %    0.87 %         75.49 %
+   annulus           3461   98.31 %   96.28 %    6.09 %         82.25 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class.
+
+  Box Per Class Recall
+                                    Recall      95 %      95 %    Recall      95 %      95 %
+   Class           Ground Truths      @0.5     Lower     Upper     @0.75     Lower     Upper
+  ───────────────────────────────────────────────────────────────────────────────────────────
+   parallelogram            3503   97.00 %   96.38 %   97.54 %   88.15 %   87.04 %   89.21 %
+   triangle                 3512   97.15 %   96.55 %   97.68 %   85.85 %   84.65 %   86.99 %
+   ellipse                  3408   97.18 %   96.57 %   97.71 %   91.49 %   90.50 %   92.41 %
+   capsule                  3344   97.58 %   97.00 %   98.07 %   92.14 %   91.17 %   93.03 %
+   semicircle               3478   97.67 %   97.11 %   98.15 %   91.49 %   90.51 %   92.40 %
+   l_shape                  3528   97.68 %   97.12 %   98.15 %   82.62 %   81.33 %   83.86 %
+   rectangle                3494   97.68 %   97.13 %   98.15 %   89.95 %   88.91 %   90.93 %
+   octagon                  3454   97.71 %   97.16 %   98.19 %   94.70 %   93.90 %   95.43 %
+   circle                   3566   97.76 %   97.22 %   98.22 %   94.00 %   93.17 %   94.76 %
+   nonagon                  3533   97.96 %   97.44 %   98.40 %   94.54 %   93.74 %   95.26 %
+   kite                     3471   98.07 %   97.56 %   98.50 %   91.07 %   90.07 %   92.00 %
+   rhombus                  3436   98.17 %   97.66 %   98.59 %   92.32 %   91.38 %   93.19 %
+   square                   3545   98.22 %   97.73 %   98.63 %   94.61 %   93.82 %   95.33 %
+   heptagon                 3466   98.30 %   97.81 %   98.70 %   95.53 %   94.79 %   96.19 %
+   trapezoid                3546   98.31 %   97.83 %   98.71 %   90.81 %   89.81 %   91.74 %
+   plus_sign                3442   98.52 %   98.06 %   98.89 %   93.29 %   92.40 %   94.10 %
+   pentagon                 3475   98.71 %   98.27 %   99.05 %   96.17 %   95.48 %   96.79 %
+   hexagon                  3471   98.93 %   98.53 %   99.25 %   96.69 %   96.04 %   97.26 %
+   annulus                  3461   99.02 %   98.63 %   99.32 %   96.82 %   96.18 %   97.38 %
+   star                     3549   99.07 %   98.70 %   99.36 %   93.52 %   92.66 %   94.31 %
+  Share of the ground truths matched by a detection at an overlap of 0.5 or 0.75, whatever its score. Worst Recall @0.5
+  first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples being
+  independent. — : no ground truths of the class.
+

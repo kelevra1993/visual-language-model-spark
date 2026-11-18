@@ -553,7 +553,7 @@ def draw_worst_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     draw_dot_plot(axes=class_axes, labels=[row["class"].replace("_", " ") for row in class_rows],
                   values=[float(row["oks_average_precision_50"]) for row in class_rows],
                   value_labels=[format_percentage(value=float(row["oks_average_precision_50"])) for row in class_rows],
-                  colour=SERIES_COLOURS[0], title=f"Worst classes, OKS AP@0.5", x_label="AP@0.5")
+                  colour=SERIES_COLOURS[0], title="Worst classes, OKS AP@0.5", x_label="AP@0.5")
     draw_dot_plot(axes=keypoint_axes, labels=[f"{row['class'].replace('_', ' ')} · {row['keypoint'].replace('_', ' ')}"
                                               for row in keypoint_rows],
                   values=[float(row["percentage_correct_keypoints"]) for row in keypoint_rows],

@@ -6,11 +6,14 @@ one cell of every detection level and the best anchor of every object (the data 
 animations/03_object_detection/anchor_grid.html), the proposals of the image before and after the non-maximum
 suppression of the proposal filter with the final detections, the labels the anchors of the image get for the region
 proposal loss, and the proposals the detection heads are trained on, every count by level, with the objects the final
-detections find and the layers of the region proposal heads the diagrams draw. The functions of the repository do the
-work (forward_detection_stages, select_best_proposals, batch_assign_targets_to_anchors, add_ground_truth_proposals,
-batch_assign_targets_to_proposals, sample_positive_and_negative_training_targets), so that the figures show what the
-code computes. The inference is reused from the previous build unless forced, or unless that build ran another run,
-another checkpoint or a checkpoint file replaced since.
+detections find; and, outside the reused inference, the architecture facts of the detector (parameters, layers of the
+region proposal heads the diagrams draw), read from the model built untrained from the configuration of the run
+(describe_model). The functions of the repository do the work (forward_detection_stages, select_best_proposals,
+batch_assign_targets_to_anchors, add_ground_truth_proposals, batch_assign_targets_to_proposals,
+sample_positive_and_negative_training_targets), so that the figures show what the code computes. The inference is
+reused from the previous build unless forced, or unless that build ran another run, another checkpoint or a checkpoint
+file replaced since; a run read from the run snapshots (tutorials/run_snapshots, no checkpoint) takes the inference
+committed under figure_reuse/object_detection/inference of the snapshots by a build from the real runs.
 """
 
 import json
@@ -23,7 +26,8 @@ from PIL import Image, ImageDraw
 from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fingerprint, read_reused_facts,
-                                                read_run_configuration, round_fact, write_reused_facts)
+                                                read_run_configuration, restore_committed_figures, round_fact,
+                                                write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, SAMPLE_IMAGE_NAME, draw_box,
                                                                   find_test_folder,
                                                                   hexadecimal_to_rgb, load_caption_fonts,
@@ -41,7 +45,7 @@ from vision_training.models.detection.target_assignment import (add_ground_truth
                                                                 batch_assign_targets_to_proposals,
                                                                 sample_positive_and_negative_training_targets)
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
-from vision_training.trainers.checkpointing import get_checkpoint_path
+from vision_training.trainers.checkpointing import get_checkpoint_file
 
 # Object whose best anchor of every level gives the cell whose anchors the animated page draws, the star in the middle
 # of the image
@@ -51,9 +55,14 @@ ANCHOR_CELL_OBJECT = "star"
 # stay the same from one build to the next
 SAMPLING_SEED = 0
 
-# Version of the facts of the inference, raised whenever a fact is added, so that a build reusing the inference of an
-# older build (inference_facts.json) makes it again instead of missing the new facts
-INFERENCE_FACTS_VERSION = 3
+# Version of the facts of the inference, raised whenever a fact is added or removed, so that a build reusing the
+# inference of an older build (inference_facts.json) makes it again instead of missing the new facts; 4 since the
+# architecture facts (describe_model) left the reused inference for the untrained model of the configuration
+INFERENCE_FACTS_VERSION = 4
+
+# Folder of the inference figures in the figures folder of the series, also the family committed under figure_reuse/
+# of the run snapshots for the builds without the checkpoint
+INFERENCE_FAMILY_FOLDER = "inference"
 
 # Layout of the figures of three image panels: the side of every panel, the gap between them, and the bands of the
 # headings above the panels and of their notes below them, the figure being 1720 x 700 pixels
@@ -443,14 +452,16 @@ def count_parameters(module: torch.nn.Module) -> int:
 
 def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
     """
-    Gives the facts of the architecture of the trained detector: the parameters of every component (the neck among
-    them) and of the heads of every level, the RoIAlign settings and the flattened size of the detection heads, the
-    channels of the maps the heads of every level read, the kernels and output channels of the layers of the region
+    Gives the facts of the architecture of the detector of the DET run: the parameters of every component (the neck
+    among them) and of the heads of every level, the RoIAlign settings and the flattened size of the detection heads,
+    the channels of the maps the heads of every level read, the kernels and output channels of the layers of the region
     proposal heads that the diagrams of the first chapter draw, and the stride of the max pooling dividing the
-    resolution of the backbone from one block to the next.
+    resolution of the backbone from one block to the next. None of them depends on the weights, so figures.py gives it
+    the model built untrained from the configuration of the run (load_untrained_run_model), outside the reused
+    inference, and the facts come out the same with or without the checkpoint.
 
     Args:
-        model (TwoStageDetector): The trained detector.
+        model (TwoStageDetector): The detector of the run, trained or untrained.
 
     Returns:
         Dict[str, Any]: The facts, named inference.model.*.
@@ -505,12 +516,46 @@ def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
     return facts
 
 
+def read_committed_inference_facts(output_folder: Path, facts_path: Path) -> Dict[str, Any]:
+    """
+    Gives the inference of the DET run for a build without its checkpoint (a build from the run snapshots of
+    tutorials/run_snapshots): the inference figures and facts committed under figure_reuse/object_detection/inference
+    of the snapshots by a build from the real runs, copied into the figures folder (restore_committed_figures) and read
+    back like a reused inference, so that the facts and figures are those of the real checkpoint.
+
+    Args:
+        output_folder (Path): The figures folder of the series.
+        facts_path (Path): The inference_facts.json of the inference figures in it.
+
+    Returns:
+        Dict[str, Any]: The facts of the inference, named inference.*.
+
+    Raises:
+        FileNotFoundError: If no committed inference is found, or one of the figures it lists is missing.
+        ValueError: If the inference found was written by another version of the facts than INFERENCE_FACTS_VERSION.
+    """
+    restore_committed_figures(output_folder=output_folder, family_folder=INFERENCE_FAMILY_FOLDER)
+    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=False)
+    if reused_facts is None:
+        raise FileNotFoundError(f"No checkpoint in the DET run and no committed inference for {facts_path}: build the "
+                                f"object_detection figures from the real runs, then write the snapshots again "
+                                f"(tutorials/make_run_snapshots.py --series object_detection).")
+
+    # A committed inference of another version of the facts would give missing or stale facts
+    if reused_facts["inference.facts_version"] != INFERENCE_FACTS_VERSION:
+        raise ValueError(f"The inference of {facts_path} has facts version {reused_facts['inference.facts_version']}, "
+                         f"not {INFERENCE_FACTS_VERSION}: empty the figures folder of the build, or build the "
+                         f"object_detection figures from the real runs and write the snapshots again.")
+    return reused_facts
+
+
 def make_detector_inference_figures(output_folder: Path, run_folder: Path, iteration: int,
                                     force: bool) -> Dict[str, Any]:
     """
     Runs the trained detector of the DET run on the CPU on the test image of the series, draws the proposal filter and
     anchor label figures, writes the image the animated page of the anchors shows, and gives their facts, reused from
-    the previous build unless forced.
+    the previous build unless forced; a run without its checkpoint (read from the run snapshots) gives the inference
+    committed in the snapshots instead (read_committed_inference_facts).
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -521,14 +566,22 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     Returns:
         Dict[str, Any]: The facts of the inference, named inference.*.
     """
-    figure_folder = output_folder / "inference"
+    figure_folder = output_folder / INFERENCE_FAMILY_FOLDER
     facts_path = figure_folder / "inference_facts.json"
+
+    # A run without the checkpoint (read from the run snapshots) takes the inference committed by a build from the
+    # real runs, whose facts keep the fingerprint of the real checkpoint
+    checkpoint_path = get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=iteration)
+    if not checkpoint_path.exists():
+        if force:
+            print(f"No checkpoint {checkpoint_path}: --force cannot run the detector again, the committed inference "
+                  f"of the run snapshots is reused")
+        return read_committed_inference_facts(output_folder=output_folder, facts_path=facts_path)
 
     # An inference left by a build writing an older version of the facts, or made from another run, another checkpoint
     # or a checkpoint file replaced since (a run trained again under the same name), is made again, as when forced
     checkpoint_name = f"{run_folder.name}/Iteration_{iteration}"
-    checkpoint_fingerprint = compute_file_fingerprint(file_paths=[get_checkpoint_path(experiment_folder=run_folder,
-                                                                                      iteration=iteration)])
+    checkpoint_fingerprint = compute_file_fingerprint(file_paths=[checkpoint_path])
     inference_key = {"inference.facts_version": INFERENCE_FACTS_VERSION, "inference.checkpoint_name": checkpoint_name,
                      "inference.checkpoint_fingerprint": checkpoint_fingerprint}
     previous_facts = json.loads(facts_path.read_text(encoding="utf-8"))["facts"] if facts_path.exists() else {}
@@ -693,7 +746,6 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     for detection_index, detection in enumerate(detections):
         facts[f"inference.detection_{detection_index + 1}.name"] = detection["name"]
         facts[f"inference.detection_{detection_index + 1}.score"] = round_fact(value=detection["score"])
-    facts.update(describe_model(model=model))
 
     write_reused_facts(facts_path=facts_path, figure_paths=[image_path, figure_folder / "proposal_filter.png",
                                                             figure_folder / "anchor_labels.png"], facts=facts)

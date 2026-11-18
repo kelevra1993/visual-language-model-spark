@@ -1,0 +1,10 @@
+true \ predicted,square,circle,triangle,rectangle,pentagon,hexagon,plus_sign,star,octagon
+square,3030,0,1,2472,0,0,40,0,0
+circle,0,1794,0,0,19,1074,0,0,2646
+triangle,0,0,5390,19,2,0,40,76,0
+rectangle,836,0,5,4508,0,0,82,0,0
+pentagon,0,0,518,0,4874,9,0,173,0
+hexagon,0,2,14,0,4955,647,0,6,4
+plus_sign,0,0,4,3,0,0,5619,35,0
+star,0,0,7,0,0,0,4,5606,0
+octagon,0,45,0,0,675,4244,0,0,522

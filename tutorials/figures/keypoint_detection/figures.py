@@ -5,14 +5,16 @@ tutorials/tutorial_sources.yaml, its dataset and the code of the repository: the
 first chapter (dataset_figures.py), the shapes, parameters, losses, tags and training curves of the second
 (network_figures.py), and the heatmaps, grouping, similarity curves, metrics and sample boxes of the third
 (evaluation_figures.py). The forward pass of the trained detector on the CPU (keypoint_inference.py) is the only
-expensive step, reused between builds unless forced. Every family writes its figures into a subfolder of the output
-folder and gives its facts, gathered here into the facts.json the storyboards quote as {{keypoint_detection.<name>}}.
+expensive step, reused between builds unless forced, and taken from the committed snapshots (tutorials/run_snapshots,
+snapshot_files.yaml) when the run read has no checkpoint. Every family writes its figures into a subfolder of the
+output folder and gives its facts, gathered here into the facts.json the storyboards quote as
+{{keypoint_detection.<name>}}.
 """
 
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_run_folder, merge_facts
+from tutorials.figures.figure_utilities import describe_run_label, find_run_folder, merge_facts
 from tutorials.figures.keypoint_detection.dataset_figures import (draw_labelled_image, make_target_figures,
                                                                   write_channel_table, write_labels_listing)
 from tutorials.figures.keypoint_detection.evaluation_figures import (describe_metrics,
@@ -67,7 +69,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=True,
                          tag_loss_weight=architecture_facts["tag_loss_weight"])
     run_configuration = load_configuration(configuration_path=run_folder / "training_configuration.yaml")
-    run_label = f"{experiments_folder.name}/{run_folder.relative_to(experiments_folder)}"
+    run_label = describe_run_label(experiments_folder=experiments_folder, run_folder=run_folder)
 
     # Facts of every family, with the settings of the run and the largest rotation of the augmentations of the
     # supervised tasks (SUPERVISED_AUGMENTATION_STRENGTHS, whose computed values a constant placeholder cannot read)

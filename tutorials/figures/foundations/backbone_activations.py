@@ -5,7 +5,8 @@ the scenes show what the trained backbone really computes: the input of a test s
 the output of three blocks, the most active channels of each on a grid of tiles. The facts are the shapes and values of
 those maps, the place of the strongest final feature (the centre of the receptive field squares) and the
 squeeze-and-excitation gates of one layer for the star. The checkpoint inference is reused from the previous build
-unless forced.
+unless forced; a build from the committed run snapshots, which hold no checkpoint, reuses the outputs of this family
+committed in figure_reuse/foundations/model/ of the snapshots.
 """
 
 import functools
@@ -19,8 +20,10 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (STAR_IMAGE_NAME, find_star_image, load_classification_model,
                                                 read_network_input, read_reused_facts, read_run_configuration,
-                                                round_fact, write_network_input, write_reused_facts)
+                                                restore_committed_figures, round_fact, write_network_input,
+                                                write_reused_facts)
 from tutorial_builder.layout import CARD_COLOUR, NAMED_COLOURS
+from vision_training.trainers.checkpointing import get_checkpoint_file, get_last_checkpoint_iteration
 
 # Blocks whose output feature maps are drawn, with the most active channels of each laid out on a grid of tiles
 SHOWN_BLOCK_NUMBERS = [1, 3, 6]
@@ -40,6 +43,10 @@ FEATURE_RAMP = numpy.array([CARD_COLOUR, NAMED_COLOURS["blue"], (232, 240, 255)]
 
 # Name of the JSON file keeping the facts of the figures for their reuse
 FACTS_FILE_NAME = "backbone_facts.json"
+
+# Folder of the family in the figures folder of the series, and in figure_reuse/foundations/ of the run snapshots,
+# whose committed outputs (the figure_reuse entry of snapshot_files.yaml) a build without the checkpoint reuses
+MODEL_FAMILY_FOLDER = "model"
 
 
 def keep_first_output(kept_outputs: List[torch.Tensor], module: torch.nn.Module, inputs: Any,
@@ -113,11 +120,31 @@ def draw_feature_map_grid(block_output: numpy.ndarray, output_path: Path) -> Lis
     return shown_channels
 
 
+def has_last_checkpoint(run_folder: Path) -> bool:
+    """
+    Tells whether the classification run holds the weight file of the last checkpoint of its registry, which the
+    backbone figures run: a real run does, a run read from the committed run snapshots (its registry copied, never its
+    weights) does not, and then takes the committed outputs of the family.
+
+    Args:
+        run_folder (Path): The folder of the classification run.
+
+    Returns:
+        bool: Whether the weight file of the last checkpoint exists.
+    """
+    weights_directory = run_folder / "Weights"
+    last_iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
+    return last_iteration > 0 and get_checkpoint_file(weights_directory=weights_directory,
+                                                      iteration=last_iteration).exists()
+
+
 def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Runs the backbone of the last checkpoint of the classification run on the test star, writes the input and the
     feature map grids of the shown blocks into the model folder of the series, and gives the facts of the maps and of
-    the squeeze-and-excitation gates; the figures of the previous build are reused unless forced or incomplete.
+    the squeeze-and-excitation gates; the figures of the previous build are reused unless forced or incomplete. A run
+    without its checkpoint (read from the committed run snapshots) reuses the outputs committed in figure_reuse/ of the
+    snapshots instead (restore_committed_figures), whatever the force flag.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -129,14 +156,26 @@ def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) ->
             drawn for each) and squeeze_excitation.*.
 
     Raises:
+        FileNotFoundError: If the run has no checkpoint and the run snapshots hold no committed outputs of the family.
         RuntimeError: If the squeeze-and-excitation layer is not called once by the forward pass.
     """
-    # Figures of the previous build
-    model_folder = output_folder / "model"
+    model_folder = output_folder / MODEL_FAMILY_FOLDER
     facts_path = model_folder / FACTS_FILE_NAME
     figure_paths = [model_folder / "input_star.png"] + [model_folder / f"feature_maps_block_{block_number}.png"
                                                         for block_number in SHOWN_BLOCK_NUMBERS]
-    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=figure_paths, force=force)
+
+    # A run without its checkpoint (read from the run snapshots) takes the committed outputs of the family, which it
+    # cannot make again, even when forced; a run with its checkpoint behaves as before
+    checkpoint_available = has_last_checkpoint(run_folder=run_folder)
+    if not checkpoint_available and not restore_committed_figures(output_folder=output_folder,
+                                                                  family_folder=MODEL_FAMILY_FOLDER):
+        raise FileNotFoundError(f"No checkpoint in {run_folder / 'Weights'} and no committed outputs of the "
+                                f"{MODEL_FAMILY_FOLDER} family in the run snapshots: build the foundations figures "
+                                f"from the real run, then write them with tutorials/make_run_snapshots.py.")
+
+    # Figures of the previous build, or the committed ones
+    reused_facts = read_reused_facts(facts_path=facts_path, required_paths=figure_paths,
+                                     force=force and checkpoint_available)
     if reused_facts is not None:
         return reused_facts
 

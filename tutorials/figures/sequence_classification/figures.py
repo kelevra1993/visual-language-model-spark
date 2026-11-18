@@ -6,7 +6,9 @@ pixels it is compared with), their moving shapes dataset and the code of the rep
 listings, the animated padded batch drawn by the current generator, the model figures computed with the checkpoints on
 the CPU, and the training and evaluation figures. Every figure family is a module of this folder writing into a
 subfolder of the output folder (dataset/, batch/, model/, evaluation/, ...), its facts gathered here into the
-facts.json the storyboards quote as {{sequence_classification.<name>}}.
+facts.json the storyboards quote as {{sequence_classification.<name>}}. A build from the committed snapshots
+(tutorials/run_snapshots, without checkpoints) builds the flatten run from its configuration for the facts of its
+structure and reuses the committed outputs of the families computed with the trained weights.
 """
 
 from pathlib import Path
@@ -23,7 +25,7 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
                                                                                  load_sequence_model)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
-from vision_training.trainers.checkpointing import get_last_checkpoint_iteration
+from vision_training.trainers.checkpointing import get_checkpoint_file, get_last_checkpoint_iteration
 
 # Run of the series in tutorial_sources.yaml, and the names of its compared runs in the facts
 RUN_KEY = "sequence_classification"
@@ -37,7 +39,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
 
     Args:
         output_folder (Path): The figures folder of the series in the cache of the build.
-        experiments_folder (Path): The folder of the real runs.
+        experiments_folder (Path): The folder of the real runs, or the committed snapshots.
         force (bool): Whether the expensive figures are made again even when the previous build left them.
 
     Returns:
@@ -62,8 +64,13 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         configuration_path=run_folders["flatten_128"] / "training_configuration.yaml")
     label_dictionary = model_configuration["Data"]["label_dictionary"]
     image_size = run_configuration["Data"]["image_settings"]["size"]
+
+    # Flatten run with its trained weights, or built from its configuration when the run is read from the committed
+    # snapshots, the facts of its structure being the same and those of its weights restored from the snapshots
     flatten_model = load_sequence_model(run_folder=run_folders["flatten_128"],
-                                        iteration=checkpoint_iterations["flatten_128"])
+                                        iteration=checkpoint_iterations["flatten_128"], allow_untrained=True)
+    flatten_has_trained_weights = get_checkpoint_file(weights_directory=run_folders["flatten_128"] / "Weights",
+                                                      iteration=checkpoint_iterations["flatten_128"]).exists()
     facts = {"run.name": run_folders["flatten_128"].name, "run.batch_size": experiment_configuration["batch_size"],
              "run.image_size": image_size, "run.number_iterations": checkpoint_iterations["flatten_128"],
              "run.number_sample_images": experiment_configuration["evaluation"]["number_sample_images"],
@@ -90,7 +97,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                              train_folder=Path(experiment_configuration["train_data_folder"]),
                              batch_size=experiment_configuration["batch_size"]),
         make_batch_animation(output_folder=output_folder, model=flatten_model, label_dictionary=label_dictionary,
-                             image_size=image_size,
+                             image_size=image_size, has_trained_weights=flatten_has_trained_weights,
                              keep_ratio=run_configuration["Data"]["image_settings"]["keep_ratio"]),
         make_model_figures(output_folder=output_folder, flatten_model=flatten_model, run_folders=run_folders,
                            checkpoint_iterations=checkpoint_iterations,

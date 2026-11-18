@@ -2,10 +2,12 @@
 Writer of the committed run snapshots of the tutorials (tutorials/run_snapshots, the 'snapshots' section of
 tutorials/tutorial_sources.yaml): it copies from the experiments folder of the runs, the datasets of the machine and the
 figures folder of the build cache the small files every series declares in
-tutorials/figures/<series>/snapshot_files.yaml, reduced where a whole file would be too large for git (scalars of the TensorBoard logs, keys of a JSON file, lines of a
-console log, records of a dataset manifest), into the snapshot folder at the paths the figure scripts and storyboards
-read, and writes one manifest per series (source, sizes and SHA-256 of every file). A machine without the runs then
-builds every series with `tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots`.
+tutorials/figures/<series>/snapshot_files.yaml, reduced where a whole file would be too large for git (scalars of the
+TensorBoard logs, keys of a JSON file, lines of a console log, columns of a CSV file, records of a dataset manifest),
+into the snapshot folder at the paths the figure scripts and storyboards read, adds the saved training configurations
+of every run of tutorial_sources.yaml (the recipes pseudo-series), and writes one manifest per series (source, sizes and
+SHA-256 of every file). A machine without the runs then builds every series with
+`tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots`.
 
 Run it from the repository root with the Python of the repository environment (it reads the TensorBoard logs):
     .venv/bin/python -m tutorials.make_run_snapshots                # every series
@@ -51,6 +53,9 @@ BUILT_IN_REDUCTIONS = ["copy", "tensorboard_scalars", "json_keys", "text_lines",
 # Options of an entry that are not passed to its reduction: "compress: gzip" writes the reduced file gzipped, its name
 # ending with .gz, with a fixed header (no name, no time) so that writing it again gives the same bytes
 COMPRESSION_SUFFIXES = {"gzip": ".gz"}
+
+# Pseudo-series of the recipes, the saved training configurations of every run, written with every call
+RECIPES_SERIES_NAME = "recipes"
 
 # Plugin name of the scalar summaries written as tensors by the summary writer of PyTorch
 SCALARS_PLUGIN_NAME = "scalars"
@@ -122,7 +127,7 @@ def resolve_run_entry(runs: Dict[str, Any], run_key: str) -> Dict[str, Any]:
     return entry
 
 
-def expand_source_files(root_folder: Path, pattern: str) -> List[Path]:
+def expand_source_files(root_folder: Path, pattern: str, optional: bool) -> List[Path]:
     """
     Gives the files a specification path names, a path relative to a folder that may hold glob characters and '..'
     (the console log next to a run), refusing a path leaving the root it is snapshotted under.
@@ -130,17 +135,59 @@ def expand_source_files(root_folder: Path, pattern: str) -> List[Path]:
     Args:
         root_folder (Path): The folder the path is relative to (a run folder, the data root, a figures folder).
         pattern (str): The path or glob.
+        optional (bool): Whether matching nothing is allowed (the configurations of the resumed phases of a run).
 
     Returns:
         List[Path]: The matching paths, sorted (files and, for a folder listing, folders).
 
     Raises:
-        FileNotFoundError: If nothing matches.
+        FileNotFoundError: If nothing matches and the entry is not optional.
     """
     matches = sorted(Path(match) for match in glob.glob(str(root_folder / pattern), recursive=True))
-    if not matches:
+    if not matches and not optional:
         raise FileNotFoundError(f"Nothing matches {pattern!r} under {root_folder}.")
     return matches
+
+
+def list_run_keys(runs: Dict[str, Any], prefix: str) -> List[str]:
+    """
+    Lists the keys of every run of tutorial_sources.yaml, the comparison runs nested under a run included as dotted
+    keys, so that the recipes of every run go into the snapshot.
+
+    Args:
+        runs (Dict[str, Any]): The 'runs' section, or a section nested in it.
+        prefix (str): The dotted key of the section, "" for the 'runs' section.
+
+    Returns:
+        List[str]: The dotted keys of the entries holding a 'folder' or 'folders'.
+    """
+    run_keys = []
+    for key, entry in runs.items():
+        if not isinstance(entry, dict):
+            continue
+        dotted_key = f"{prefix}{key}"
+        if "folder" in entry or "folders" in entry:
+            run_keys.append(dotted_key)
+        run_keys += list_run_keys(runs=entry, prefix=f"{dotted_key}.")
+    return run_keys
+
+
+def build_recipe_specification(sources: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Builds the specification of the recipes pseudo-series: the saved training configuration of every run of
+    tutorial_sources.yaml, and those of its resumed phases when it has some, the exact record of how it was trained,
+    so that a run can be trained again on another machine whatever its figures read.
+
+    Args:
+        sources (Dict[str, Any]): tutorial_sources.yaml.
+
+    Returns:
+        Dict[str, Any]: A specification with one 'runs' entry per run.
+    """
+    recipe_files = [{"path": "training_configuration.yaml"},
+                    {"path": "training_configuration_until_iteration_*.yaml", "optional": True}]
+    return {"runs": [{"run": run_key, "files": recipe_files}
+                     for run_key in list_run_keys(runs=sources["runs"], prefix="")]}
 
 
 def reduce_tensorboard_scalars(source_path: Path, destination_path: Path, options: Dict[str, Any]) -> None:
@@ -412,14 +459,16 @@ def plan_series_entries(series_name: str, specification: Dict[str, Any], sources
         for run_folder_text in run_folders:
             for file_specification in run_specification["files"]:
                 for source_path in expand_source_files(root_folder=experiments_folder / run_folder_text,
-                                                       pattern=file_specification["path"]):
+                                                       pattern=file_specification["path"],
+                                                       optional=file_specification.get("optional", False)):
                     planned_files.append(build_planned_file(source_path=source_path, root_folder=experiments_folder,
                                                             destination_root=snapshot_root, source_kind="run",
                                                             file_specification=file_specification))
 
     # Dataset files, at their path relative to the data root, under datasets/
     for file_specification in specification.get("datasets", []):
-        for source_path in expand_source_files(root_folder=data_root, pattern=file_specification["path"]):
+        for source_path in expand_source_files(root_folder=data_root, pattern=file_specification["path"],
+                                               optional=file_specification.get("optional", False)):
             planned_files.append(build_planned_file(source_path=source_path, root_folder=data_root,
                                                     destination_root=snapshot_root / DATASETS_FOLDER_NAME,
                                                     source_kind="dataset", file_specification=file_specification))
@@ -469,7 +518,8 @@ def build_planned_file(source_path: Path, root_folder: Path, destination_root: P
         if compression not in COMPRESSION_SUFFIXES:
             raise ValueError(f"Unknown compression {compression!r}: one of {list(COMPRESSION_SUFFIXES)}.")
         relative_path = relative_path.with_name(relative_path.name + COMPRESSION_SUFFIXES[compression])
-    options ={key: value for key, value in file_specification.items() if key not in ["path", "reduction"]}
+    options = {key: value for key, value in file_specification.items()
+               if key not in ["path", "reduction", "optional"]}
     return {"source": resolved_source, "source_kind": source_kind, "source_relative": str(relative_path),
             "destination": destination_root / relative_path, "reduction": reduction, "options": options}
 
@@ -633,12 +683,16 @@ def main() -> None:
             series_name=series_name, specification=specification, sources=sources,
             experiments_folder=experiments_folder, data_root=data_root, figures_folder=figures_folder,
             snapshot_root=snapshot_root)
+    planned_by_series[RECIPES_SERIES_NAME] = plan_series_entries(
+        series_name=RECIPES_SERIES_NAME, specification=build_recipe_specification(sources=sources), sources=sources,
+        experiments_folder=experiments_folder, data_root=data_root, figures_folder=figures_folder,
+        snapshot_root=snapshot_root)
     merged_files = merge_planned_files(planned_by_series=planned_by_series)
 
     # Files written, then one manifest per series listing the files it reads
     maximum_file_bytes = int(sources["snapshots"]["maximum_file_megabytes"] * BYTES_PER_MEGABYTE)
     allow_replace = arguments.series is None or set(series_names) == set(all_series)
-    records_by_series: Dict[str, List[Dict[str, Any]]] = {series_name: [] for series_name in series_names}
+    records_by_series: Dict[str, List[Dict[str, Any]]] = {series_name: [] for series_name in planned_by_series}
     for destination, planned_file in sorted(merged_files.items()):
         record = write_planned_file(planned_file=planned_file, maximum_file_bytes=maximum_file_bytes,
                                     allow_replace=allow_replace)

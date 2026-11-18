@@ -1,0 +1,306 @@
+{
+  "experiments_folder_label": "tutorial_runs",
+  "files": [
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 110,
+      "snapshot_path": "datasets/segmentation_data/synthetic_shapes/label_mapping.json",
+      "snapshot_sha256": "802f624cb974b35374bcd2f29f4b166f21f51c71faf685c31b10fbb71e647af4",
+      "source_bytes": 110,
+      "source_kind": "dataset",
+      "source_path": "segmentation_data/synthetic_shapes/label_mapping.json",
+      "source_sha256": "802f624cb974b35374bcd2f29f4b166f21f51c71faf685c31b10fbb71e647af4"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 5405,
+      "snapshot_path": "datasets/segmentation_data/synthetic_shapes/test/data/test_000028.png",
+      "snapshot_sha256": "ad7b7e0441531d765bed3574b2415fb6843d042470fa12d03f4e217df8bfec12",
+      "source_bytes": 5405,
+      "source_kind": "dataset",
+      "source_path": "segmentation_data/synthetic_shapes/test/data/test_000028.png",
+      "source_sha256": "ad7b7e0441531d765bed3574b2415fb6843d042470fa12d03f4e217df8bfec12"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 16670,
+      "snapshot_path": "datasets/segmentation_data/synthetic_shapes/test/labels.json",
+      "snapshot_sha256": "ce54e562e39f1a626ba3de4fdef0ac7a401f349d24c66aad0e3554b3a857522a",
+      "source_bytes": 16670,
+      "source_kind": "dataset",
+      "source_path": "segmentation_data/synthetic_shapes/test/labels.json",
+      "source_sha256": "ce54e562e39f1a626ba3de4fdef0ac7a401f349d24c66aad0e3554b3a857522a"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 2988,
+      "snapshot_path": "datasets/segmentation_data/synthetic_shapes/test/masks/test_000028.png",
+      "snapshot_sha256": "fc7a0373f4d421ef87e67c9a9fdc2b70c5e34d83ed3204556ad407812a48cfea",
+      "source_bytes": 2988,
+      "source_kind": "dataset",
+      "source_path": "segmentation_data/synthetic_shapes/test/masks/test_000028.png",
+      "source_sha256": "fc7a0373f4d421ef87e67c9a9fdc2b70c5e34d83ed3204556ad407812a48cfea"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 420736,
+      "snapshot_path": "figure_reuse/semantic_segmentation/inference/segmentation_inference.npz",
+      "snapshot_sha256": "d072ad633fc537a1a76757e2775ff6fabdb779f692c814c7dfe31bf25a5338d6",
+      "source_bytes": 420736,
+      "source_kind": "figures",
+      "source_path": "inference/segmentation_inference.npz",
+      "source_sha256": "d072ad633fc537a1a76757e2775ff6fabdb779f692c814c7dfe31bf25a5338d6"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 2125,
+      "snapshot_path": "figure_reuse/semantic_segmentation/inference/segmentation_inference_facts.json",
+      "snapshot_sha256": "83e71c020049c62fd758e66102ad9b8ec791add590ed31ce37ff1b127546347a",
+      "source_bytes": 2125,
+      "source_kind": "figures",
+      "source_path": "inference/segmentation_inference_facts.json",
+      "source_sha256": "83e71c020049c62fd758e66102ad9b8ec791add590ed31ce37ff1b127546347a"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 60267,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_1000/Samples/test_000028.png",
+      "snapshot_sha256": "d266971d4188f3951f3a630e8b36838b52207947b6925b3fcce923cda3f48174",
+      "source_bytes": 60267,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_1000/Samples/test_000028.png",
+      "source_sha256": "d266971d4188f3951f3a630e8b36838b52207947b6925b3fcce923cda3f48174"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 191812,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_1000/precision_recall_curves.png",
+      "snapshot_sha256": "8bea54445ebe0e506fcc287cdc725c12e7a0d511ba1e9135ae52c5d007a52308",
+      "source_bytes": 191812,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_1000/precision_recall_curves.png",
+      "source_sha256": "8bea54445ebe0e506fcc287cdc725c12e7a0d511ba1e9135ae52c5d007a52308"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 46188,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000000.png",
+      "snapshot_sha256": "89c27ea152dc1da6bd08b85f540e226daba112efac7e3bb59b45631371499148",
+      "source_bytes": 46188,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000000.png",
+      "source_sha256": "89c27ea152dc1da6bd08b85f540e226daba112efac7e3bb59b45631371499148"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 46896,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000028.png",
+      "snapshot_sha256": "5ef211d583e655b0629df9b1994afb02267a04e759ac4bb680df473bcef098a4",
+      "source_bytes": 46896,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000028.png",
+      "source_sha256": "5ef211d583e655b0629df9b1994afb02267a04e759ac4bb680df473bcef098a4"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 48552,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000057.png",
+      "snapshot_sha256": "77117adb729c115be708c5647cb17fc1718380783473723351d6f32434a5851c",
+      "source_bytes": 48552,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000057.png",
+      "source_sha256": "77117adb729c115be708c5647cb17fc1718380783473723351d6f32434a5851c"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 49961,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000085.png",
+      "snapshot_sha256": "df23ea2544762825b11aaad09fdadfa4c328083f5f55aed994ce578735f3188f",
+      "source_bytes": 49961,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000085.png",
+      "source_sha256": "df23ea2544762825b11aaad09fdadfa4c328083f5f55aed994ce578735f3188f"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 57715,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000114.png",
+      "snapshot_sha256": "62fec2f227b865f04cbfffa0fdbc15c809402e0b84320c91826ad4420aa507df",
+      "source_bytes": 57715,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000114.png",
+      "source_sha256": "62fec2f227b865f04cbfffa0fdbc15c809402e0b84320c91826ad4420aa507df"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 62532,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000142.png",
+      "snapshot_sha256": "3c69368b2d94b4448fbd00dc49402491ce65a075cc7919555e1be020065ca158",
+      "source_bytes": 62532,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000142.png",
+      "source_sha256": "3c69368b2d94b4448fbd00dc49402491ce65a075cc7919555e1be020065ca158"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 59109,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000171.png",
+      "snapshot_sha256": "6afad9e9b3dbcce3c8aca669406d580a5ad6407cdad9f8c2d0d3e69fa568532b",
+      "source_bytes": 59109,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000171.png",
+      "source_sha256": "6afad9e9b3dbcce3c8aca669406d580a5ad6407cdad9f8c2d0d3e69fa568532b"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 29153,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000199.png",
+      "snapshot_sha256": "716c9075de76dd07e16db8b8816a922774aa4b2fe646ff45ef433919ce3b8762",
+      "source_bytes": 29153,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/Samples/test_000199.png",
+      "source_sha256": "716c9075de76dd07e16db8b8816a922774aa4b2fe646ff45ef433919ce3b8762"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 1216,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/class_metrics.csv",
+      "snapshot_sha256": "7fdba449b8cb27eca239631b327e8fb8bcd4df7516399ca4f84da425b39e3677",
+      "source_bytes": 1216,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/class_metrics.csv",
+      "source_sha256": "7fdba449b8cb27eca239631b327e8fb8bcd4df7516399ca4f84da425b39e3677"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 710,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv",
+      "snapshot_sha256": "d55cdb44a8a9e3589936e22f5a50aaaab5d69be5bbb98dd869e1588558992712",
+      "source_bytes": 710,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv",
+      "source_sha256": "d55cdb44a8a9e3589936e22f5a50aaaab5d69be5bbb98dd869e1588558992712"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 452661,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.png",
+      "snapshot_sha256": "2bfc2f4cc82dc41ff43eb287137f8065cc5a43719df4d44547503c5f62f72a59",
+      "source_bytes": 452661,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.png",
+      "source_sha256": "2bfc2f4cc82dc41ff43eb287137f8065cc5a43719df4d44547503c5f62f72a59"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 244522,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/precision_recall_curves.png",
+      "snapshot_sha256": "647837e097f280e83441c8fbce06c2253a0f9118186c682e9e0a99513238ccd4",
+      "source_bytes": 244522,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/precision_recall_curves.png",
+      "source_sha256": "647837e097f280e83441c8fbce06c2253a0f9118186c682e9e0a99513238ccd4"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 181559,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/roc_curves.png",
+      "snapshot_sha256": "2d3db474b6cf09f97f197ff1e5ade8b0356676d3d601053601692d7121a7295a",
+      "source_bytes": 181559,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Iteration_2000/roc_curves.png",
+      "source_sha256": "2d3db474b6cf09f97f197ff1e5ade8b0356676d3d601053601692d7121a7295a"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 1268040,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.1794783622.spark-c6e9.3203215.0",
+      "snapshot_sha256": "3783ec18f44e9c5a364a40217154e7a6fb7dc7e51398ea167c12422f7f3a208b",
+      "source_bytes": 1268040,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.1794783622.spark-c6e9.3203215.0",
+      "source_sha256": "3783ec18f44e9c5a364a40217154e7a6fb7dc7e51398ea167c12422f7f3a208b"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 611326,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Tensorboard/Train/events.out.tfevents.1792583963.spark-c6e9.3014903.0",
+      "snapshot_sha256": "51d398363998800b330e45f3bead203d7237f4bfd5cd0d29187bc7ce9cde6b85",
+      "source_bytes": 611326,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Tensorboard/Train/events.out.tfevents.1792583963.spark-c6e9.3014903.0",
+      "source_sha256": "51d398363998800b330e45f3bead203d7237f4bfd5cd0d29187bc7ce9cde6b85"
+    },
+    {
+      "options": {},
+      "reduction": "tensorboard_scalars",
+      "snapshot_bytes": 20383,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Tensorboard/Validation/events.out.tfevents.1792583963.spark-c6e9.3014903.1",
+      "snapshot_sha256": "899312c543b776a5c5b95a7e632ef8f479e95d2ba23daab030e79bae45fd311b",
+      "source_bytes": 20383,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/Tensorboard/Validation/events.out.tfevents.1792583963.spark-c6e9.3014903.1",
+      "source_sha256": "899312c543b776a5c5b95a7e632ef8f479e95d2ba23daab030e79bae45fd311b"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 131,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/label_dictionary.json",
+      "snapshot_sha256": "03ae577478c60c3fd1fcbb603997156b00834ece51df1144ecdd7b9385305220",
+      "source_bytes": 131,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/label_dictionary.json",
+      "source_sha256": "03ae577478c60c3fd1fcbb603997156b00834ece51df1144ecdd7b9385305220"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 5289,
+      "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/training_configuration.yaml",
+      "snapshot_sha256": "9638d760bcc2d03d49757786820ef823b2d5ae5a7f23c12327f1ac34ce254d13",
+      "source_bytes": 5289,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/training_configuration.yaml",
+      "source_sha256": "9638d760bcc2d03d49757786820ef823b2d5ae5a7f23c12327f1ac34ce254d13"
+    },
+    {
+      "options": {
+        "pattern": "Throughput: |Interval Of \\d+ Iterations Took"
+      },
+      "reduction": "text_lines",
+      "snapshot_bytes": 3260,
+      "snapshot_path": "readme_screenshots/semantic_segmentation.log",
+      "snapshot_sha256": "cc7fb6731fbbf3c8185815985ed8fcbd58c7e09b11c7e25304ad5550c7064caf",
+      "source_bytes": 67405,
+      "source_kind": "run",
+      "source_path": "readme_screenshots/semantic_segmentation.log",
+      "source_sha256": "77167878bb0585515c36e460672917f1144586604ad13bcdd43a37d9562a422c"
+    }
+  ],
+  "series": "semantic_segmentation",
+  "snapshot_bytes": 3889316
+}

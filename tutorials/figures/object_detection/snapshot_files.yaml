@@ -1,0 +1,77 @@
+# Files of the runs the object detection figures read, copied into tutorials/run_snapshots by
+# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The series reads no checkpoint from
+# the snapshots: the architecture facts and the anchors of the proposal selection come from the models built untrained
+# from these configurations, and the inference of the DET run on the test image (proposal filter, anchor labels,
+# detections) is committed under figure_reuse/object_detection/inference by a build from the real runs.
+runs:
+  # DET run of the series (the shipped synthetic configuration, 2000 iterations)
+  - run: object_detection
+    files:
+      # Settings, iterations, test folder and label mapping of the run, and the model built untrained from them
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      # Anchor recall of the training objects, the grid of the anchor coverage scene
+      - path: anchor_recall.csv
+      # Image and object counts of the splits; the file names of every image are dropped (4.8 MB to a few KB)
+      - path: data.json
+        reduction: tutorials.figures.object_detection.snapshot_reductions:reduce_data_record
+      # Confusion matrix notes of the evaluations made during the training (iterations 250, 1000 and 2000)
+      - path: Results.txt
+      # Losses (Train), headline metrics and their tag count (Test, Test_EMA), without the sample images
+      - path: Tensorboard/*/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      # Sample image of the test image of the series at the three compared evaluations
+      - path: Evaluation/Iteration_250/Samples/test_014285.png
+      - path: Evaluation/Iteration_1000/Samples/test_014285.png
+      - path: Evaluation/Iteration_2000/Samples/test_014285.png
+      # Last checkpoint evaluated again with the current code: report tables, classes, confusion matrix, proposal recall
+      - path: Checkpoint_Evaluation/Results.txt
+      - path: Checkpoint_Evaluation/Iteration_2000/class_metrics.csv
+      - path: Checkpoint_Evaluation/Iteration_2000/class_thresholds.json
+      - path: Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv
+      - path: Checkpoint_Evaluation/Iteration_2000/proposal_recall.csv
+      # Console log of the training next to the run folder, whose summaries of iterations 1000 and 2000 are listed
+      - path: ../object_detection.log
+  # Stage 7 of the detection benchmark (proposal_selection.py): proposals and proposal recall of every level of the
+  # averaged weights at iteration 15000, read from the test curves of the two launches of each selection; the training
+  # configuration and label dictionary of run_9 are declared by the deployment series
+  - run: object_detection_benchmark_joint_a
+    files:
+      - path: Tensorboard/Test_EMA/events.out.tfevents.*
+        reduction: tensorboard_scalars
+  - run: object_detection_benchmark_joint_b
+    files:
+      - path: Tensorboard/Test_EMA/events.out.tfevents.*
+        reduction: tensorboard_scalars
+  # First per-level launch, whose configuration also gives the levels, anchors and proposal counts of the pipelines
+  - run: object_detection_benchmark_per_level_a
+    files:
+      - path: Tensorboard/Test_EMA/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+  - run: object_detection_benchmark_per_level_b
+    files:
+      - path: Tensorboard/Test_EMA/events.out.tfevents.*
+        reduction: tensorboard_scalars
+  # Inference-only preview of the per-level selection on the weights of run_9
+  - run: object_detection_benchmark_per_level_preview
+    files:
+      - path: Tensorboard/Test_EMA/events.out.tfevents.*
+        reduction: tensorboard_scalars
+
+# Dataset files of the DET run, relative to the recorded data root: the test manifest keeping whole the two images the
+# figures follow (test_000000.png, the image of the first annotation, and test_014285.png), the other images and
+# annotations slimmed to their identifiers so that the counts of the split stay right, with the test image itself and
+# the label mapping file of the manifest listing
+datasets:
+  - path: instance_segmentation_data/synthetic_shapes/test/labels.json
+    reduction: manifest_subset
+    images: [test_000000.png, test_014285.png]
+  - path: instance_segmentation_data/synthetic_shapes/test/data/test_014285.png
+  - path: instance_segmentation_data/synthetic_shapes/label_mapping.json
+
+# Outputs of the inference of the DET checkpoint on the test image, reused by a build without the checkpoint
+# (read_committed_inference_facts of detector_inference.py)
+figure_reuse:
+  - family: inference

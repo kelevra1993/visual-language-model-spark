@@ -7,14 +7,16 @@ shortcuts of the shipped synthetic configuration and the export specification of
 the curves, pixel shares and throughput of the training scenes (training_figures.py), and the samples, confusion
 matrix, boundary metrics and headline metrics of the evaluation scenes (evaluation_figures.py). The forward pass of
 the trained segmenter on the CPU (segmentation_inference.py) is the only expensive step, reused between builds unless
-forced. Every family writes its figures into a subfolder of the output folder and gives its facts, gathered here into
-the facts.json the storyboards quote as {{semantic_segmentation.<name>}}.
+forced, and taken from the committed snapshots (tutorials/run_snapshots, snapshot_files.yaml) when the run read has no
+checkpoint. Every family writes its figures into a subfolder of the output folder and gives its facts, gathered here
+into the facts.json the storyboards quote as {{semantic_segmentation.<name>}}.
 """
 
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_run_folder, merge_facts
+from tutorials.figures.figure_utilities import (describe_run_label, find_run_folder, merge_facts,
+                                                read_run_configuration)
 from tutorials.figures.semantic_segmentation.dataset_figures import draw_mask_figure, write_manifest_listing
 from tutorials.figures.semantic_segmentation.evaluation_figures import (describe_confusion_matrix,
                                                                         describe_headline_metrics,
@@ -26,8 +28,7 @@ from tutorials.figures.semantic_segmentation.model_figures import (count_configu
 from tutorials.figures.semantic_segmentation.segmentation_inference import run_segmentation_inference
 from tutorials.figures.semantic_segmentation.segmentation_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
                                                                          SAMPLE_IMAGE_NAME, TASK_NAME, find_test_split,
-                                                                         load_test_sample, read_label_dictionary,
-                                                                         read_run_configuration)
+                                                                         load_test_sample, read_label_dictionary)
 from tutorials.figures.semantic_segmentation.training_figures import (describe_pixel_shares, draw_training_curves,
                                                                       read_training_throughput)
 from vision_training.data.synthetic.create_synthetic_dataset import TASK_CATEGORIES
@@ -64,7 +65,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     # Settings of the run, the checkpoints the figures read, the shapes the current generator draws for the task and
     # the boundary counts the evaluation keeps per class
     return merge_facts(fact_groups=[
-        {"run_label": f"{experiments_folder.name}/{run_folder.relative_to(experiments_folder)}",
+        {"run_label": describe_run_label(experiments_folder=experiments_folder, run_folder=run_folder),
          "run_iterations": experiment_configuration["number_iterations"],
          "run_batch_size": experiment_configuration["batch_size"],
          "run_validation_ratio": experiment_configuration["validation_iteration_ratio"],

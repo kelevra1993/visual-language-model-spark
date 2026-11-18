@@ -4,16 +4,19 @@ tutorials.figures.make_figures --series foundations) at every build, from the re
 tutorials/tutorial_sources.yaml and the code of the repository: the listings of the classification run, its training
 curves, the learning rate schedule of a configuration, the image size figures, the augmentation examples, the
 benchmark charts, the feature maps and squeeze-and-excitation gates of the trained backbone, the launch console of a
-deeper backbone started from it, and the values of the code
-that no placeholder of a storyboard can read (code_values.py). Every figure family is
-a module of this folder, which writes its figures into a subfolder of the output folder (model/, benchmark/, ...) or at
-its top and gives its facts, gathered here into the facts.json the storyboards quote as {{foundations.<name>}}.
+deeper backbone started from it, and the values of the code that no placeholder of a storyboard can read
+(code_values.py). The classification run may also be read from the committed run snapshots (tutorials/run_snapshots,
+its files listed in snapshot_files.yaml of this folder), which hold no checkpoint: the feature maps then come from the
+committed outputs of the model family. Every figure family is a module of this folder, which writes its figures into a
+subfolder of the output folder (model/, benchmark/, ...) or at its top and gives its facts, gathered here into the
+facts.json the storyboards quote as {{foundations.<name>}}.
 """
 
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, merge_facts
+from tutorials.figures.figure_utilities import (describe_run_label, find_repository_file, find_run_folder,
+                                                merge_facts)
 from tutorials.figures.foundations.aspect_ratio import make_aspect_ratio_figures
 from tutorials.figures.foundations.augmentation_examples import make_augmentation_examples
 from tutorials.figures.foundations.backbone_activations import make_backbone_figures
@@ -40,7 +43,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         Dict[str, Any]: The facts of every figure family, keyed by their dotted names.
     """
     classification_run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="classification")
-    run_label = f"{experiments_folder.name}/{classification_run_folder.relative_to(experiments_folder)}"
+    # Run label of the training curves header, the same for a build from the real runs or from the run snapshots
+    run_label = describe_run_label(experiments_folder=experiments_folder, run_folder=classification_run_folder)
     return merge_facts(fact_groups=[
         make_listings(output_folder=output_folder, run_folder=classification_run_folder,
                       data_configuration_path=find_repository_file(file_key="data_pipeline_configuration")),

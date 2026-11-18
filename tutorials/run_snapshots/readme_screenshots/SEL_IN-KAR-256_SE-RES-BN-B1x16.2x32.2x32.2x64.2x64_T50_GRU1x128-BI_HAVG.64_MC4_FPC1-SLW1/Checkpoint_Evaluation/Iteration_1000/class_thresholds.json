@@ -1,0 +1,19 @@
+{
+    "target_precision": 0.99,
+    "decoding": "hungarian",
+    "unselected_class": "unselected",
+    "classes": {
+        "circle": {
+            "threshold": 0.8977868556976318,
+            "recall": 1.0
+        },
+        "triangle": {
+            "threshold": 0.18304286897182465,
+            "recall": 0.985
+        },
+        "star": {
+            "threshold": 0.7974218130111694,
+            "recall": 1.0
+        }
+    }
+}

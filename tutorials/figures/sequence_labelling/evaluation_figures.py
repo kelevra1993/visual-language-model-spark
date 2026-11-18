@@ -15,6 +15,8 @@ segment metrics of the example of the tasks reference (documentation/reference/t
 README) computed by the code of the repository, and the shapes, residual blocks, head layers and parameter counts of
 the trained model run on the CPU on a real padded batch. The shares of the frame position panel are written as the
 percentages of the reports of the repository (ticks "20 %"), the probabilities keeping their decimals on its right axis.
+A build from the committed snapshots (tutorials/run_snapshots, without the checkpoint and with the columns of
+predictions.csv the sample image reads, compressed) reuses the committed prediction figure and model facts.
 """
 
 import cv2
@@ -36,8 +38,9 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                TEXT_SECONDARY_COLOUR, compute_pixel_box, round_fact, register_fonts,
-                                                save_figure, style_chart_panel, write_reused_facts)
+                                                TEXT_SECONDARY_COLOUR, compute_pixel_box, is_snapshot_folder,
+                                                restore_committed_figures, round_fact, register_fonts, save_figure,
+                                                style_chart_panel, write_reused_facts)
 from tutorials.figures.sequence_classification.sequence_figure_utilities import add_probability_axis
 from tutorials.figures.sequence_labelling.plan_figures import make_plan_figures
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
@@ -620,7 +623,9 @@ def make_sample_facts(source: Dict[str, Any], test_labels: Dict[str, Any], outpu
     sample_paths = sorted((source["files_folder"] / "Samples").glob("*.png"))
     if not sample_paths:
         raise FileNotFoundError(f"No sample image in {source['files_folder']}/Samples.")
-    predictions = pandas.read_csv(filepath_or_buffer=source["files_folder"] / "predictions.csv")
+    # The snapshots keep the columns of predictions.csv read here, compressed (77 megabytes for the whole file)
+    predictions_name = "predictions.csv.gz" if is_snapshot_folder(folder=source["files_folder"]) else "predictions.csv"
+    predictions = pandas.read_csv(filepath_or_buffer=source["files_folder"] / predictions_name)
     sample_rows = predictions[predictions["sequence"].isin([path.stem for path in sample_paths])]
     sequence_frames = {sequence["name"]: sequence["frames"] for sequence in test_labels["sequences"]}
 
@@ -907,7 +912,7 @@ def make_evaluation_facts(output_folder: Path, run_folder: Path, force: bool) ->
     the thresholds file, the per-class metrics, the sample image, the segment metrics, the trivial values of every
     metric, the benchmark figure and the model, the model and prediction facts being reused from the previous build
     unless forced, unless that build read another run or evaluation, or unless it wrote fewer facts than the storyboards
-    quote.
+    quote. A run read from the committed snapshots reuses the committed model and prediction facts.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -922,6 +927,11 @@ def make_evaluation_facts(output_folder: Path, run_folder: Path, force: bool) ->
         ValueError: If a change class found on fewer than half of its frames shows a shape the experiment plan does
             not report as unlearned by the pre-training classifier (check_low_recall_classes).
     """
+    # A run read from the snapshots, without its checkpoint and its whole predictions file, takes the committed model
+    # and prediction facts
+    snapshot_mode = is_snapshot_folder(folder=run_folder)
+    if snapshot_mode:
+        restore_committed_figures(output_folder=output_folder, family_folder="evaluation")
     source = find_evaluation_source(run_folder=run_folder)
     block_lines = read_results_block(results_path=source["results_path"], iteration=source["iteration"],
                                      averaged_weights=source["averaged"])
@@ -954,17 +964,18 @@ def make_evaluation_facts(output_folder: Path, run_folder: Path, force: bool) ->
                                    test_split=facts["evaluation.test_split"]))
 
     # Shapes and parameters of the trained model, run on the CPU, reused from the previous build unless forced or
-    # unless its checkpoint file changed since
+    # unless its checkpoint file changed since, the committed facts for a run read from the snapshots
     model_facts_path = output_folder / "evaluation" / "model_facts.json"
     checkpoint_name = f"Weights/Iteration_{source['iteration']}"
-    checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=source["iteration"])
+    checkpoint_paths = [] if snapshot_mode else [get_checkpoint_path(experiment_folder=run_folder,
+                                                                     iteration=source["iteration"])]
     model_facts = read_run_reused_facts(facts_path=model_facts_path, run_folder=run_folder, source_name=checkpoint_name,
-                                        source_paths=[checkpoint_path], fact_prefix="model", force=force,
+                                        source_paths=checkpoint_paths, fact_prefix="model", force=force,
                                         required_fact_names=REQUIRED_MODEL_FACTS)
     if model_facts is None:
         model_facts = compute_model_facts(run_folder=run_folder, iteration=source["iteration"])
         model_facts.update(describe_run_source(run_folder=run_folder, source_name=checkpoint_name,
-                                               source_paths=[checkpoint_path], fact_prefix="model"))
+                                               source_paths=checkpoint_paths, fact_prefix="model"))
         write_reused_facts(facts_path=model_facts_path, figure_paths=[], facts=model_facts)
     facts.update(model_facts)
     return facts

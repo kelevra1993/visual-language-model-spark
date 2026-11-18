@@ -273,7 +273,8 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
 
     # Interval length and validation batches of that summary, as its last lines print them
     validation_match = next(re.search(pattern=r"Validation Iterations In This Interval: (\d+) \(Ratio: Every (\d+)",
-                                      string=line) for line in console_lines if line.startswith("Validation Iterations"))
+                                      string=line)
+                            for line in console_lines if line.startswith("Validation Iterations"))
     interval_match = next(re.search(pattern=r"Interval Of (\d+) Iterations", string=line) for line in console_lines
                           if line.startswith("Interval Of"))
     facts.update({"console.flatten_128.validation_batches": int(validation_match.group(1)),

@@ -1,0 +1,64 @@
+# Files of the runs and of the synthetic shapes dataset the classification figures and storyboards read, copied into
+# tutorials/run_snapshots by tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The
+# model figures of the head (logits of the test star, correlation of the hidden features) need the checkpoint of the
+# run, which the snapshots never hold: their outputs are committed under figure_reuse/classification/model and restored
+# when the checkpoint is absent (classification_head.py). Files of the classification run also read by the foundations
+# and deployment series keep the same entries in their snapshot_files.yaml.
+runs:
+  # Synthetic shapes classifier: its configuration (dataset paths, image settings, head, learning rate), classes,
+  # checkpoint registry, class counts, evaluation logs and the outputs of its evaluations in training
+  - run: classification
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      - path: Weights/full-checkpoint
+      # Classes of the data.json listing and the class weights, without the file names of every split (12 MB)
+      - path: data.json
+        reduction: json_keys
+        keys: [created, classes]
+      # Headline metrics of every evaluation and the validation curve of the learning rate figure
+      - path: Tensorboard/Test/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Tensorboard/Validation/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      # Sample images of the first and last evaluations, the confusion matrices of the three evaluations, and the
+      # per-class metrics and thresholds of the last one
+      - path: Evaluation/Iteration_500/Samples/*.png
+      - path: Evaluation/Iteration_1500/Samples/*.png
+      - path: Evaluation/Iteration_*/confusion_matrix.csv
+      - path: Evaluation/Iteration_1500/class_metrics.csv
+      - path: Evaluation/Iteration_1500/class_thresholds.json
+      # Probabilities of the 50,000 test images of the last evaluation (5.8 MB), gzipped to 1.6 MB; the figure scripts
+      # read the gzipped copy, and the size of the CSV from the manifest of the series
+      - path: Evaluation/Iteration_1500/predictions.csv
+        compress: gzip
+  # Standalone evaluation of the last checkpoint: its error images (four shown, all of them counted), its headline
+  # metrics, and the report block, confusion matrix and precision-recall curves the storyboards show under runs:
+  - run: classification_evaluation
+    files:
+      - path: Iteration_1500/Errors/*/*.png
+      - path: Tensorboard/Test/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Results.txt
+      - path: Iteration_1500/confusion_matrix.png
+      - path: Iteration_1500/precision_recall_curves.png
+  # Learning rate variants of the run: their learning rate, validation curve and first test accuracy
+  - run: classification_learning_rates
+    files:
+      - path: training_configuration.yaml
+      - path: Tensorboard/Validation/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Tensorboard/Test/events.out.tfevents.*
+        reduction: tensorboard_scalars
+datasets:
+  # Label mapping file of the labels listing (and of the configuration checks of the self-supervised series)
+  - path: classifier_data/synthetic_shapes/label_mapping.json
+  # Training manifest: the first samples of the labels listing and the k-NN reference images of the self-supervised
+  # run, with the count of the 500,000 samples of the split; the same entry as in the self-supervised series
+  - path: classifier_data/synthetic_shapes/train/labels.json
+    reduction: tutorials.figures.classification.snapshot_reductions:reduce_sample_manifest
+    first_samples: 3
+    reference_samples_per_category: 50
+figure_reuse:
+  # Outputs of the trained head on the test star and the validation images (classification_head.py)
+  - family: model

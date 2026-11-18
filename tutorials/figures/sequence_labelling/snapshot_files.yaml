@@ -1,0 +1,47 @@
+# Files of the run the sequence labelling figures read, copied into tutorials/run_snapshots by
+# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). No checkpoint is committed, nor the
+# training labels.json nor the whole predictions.csv (77 megabytes): the families reading them (the class balance and
+# labels listings, the no_change probability figure, the model facts) are committed from the build cache under
+# figure_reuse with the sources and fingerprints of the real files.
+runs:
+  # Sequence labelling run, its configuration and label dictionary shared with deployment: settings, training curves,
+  # and the configuration, test class counts of data.json, report, per-class files, sample images (all of them named
+  # for the choice of the sample, one read) and the columns of predictions.csv the sample image reads of its evaluation
+  # of the averaged weights
+  - run: sequence_labelling
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      - path: Tensorboard/Train/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      - path: Checkpoint_Evaluation/training_configuration.yaml
+      - path: Checkpoint_Evaluation/label_dictionary.json
+      - path: Checkpoint_Evaluation/data.json
+        reduction: json_keys
+        keys: [created, classes]
+      - path: Checkpoint_Evaluation/Results.txt
+      - path: Checkpoint_Evaluation/Iteration_2000/EMA/class_metrics.csv
+      - path: Checkpoint_Evaluation/Iteration_2000/EMA/class_thresholds.json
+      - path: Checkpoint_Evaluation/Iteration_2000/EMA/Samples/*.png
+      - path: Checkpoint_Evaluation/Iteration_2000/EMA/predictions.csv
+        reduction: csv_columns
+        columns: [sequence, frame, true_class, predicted_class]
+        compress: gzip
+# Changing shapes data set: labels of the test subset and the frames of the test sequences drawn by the data figures
+# (the label mapping and the training labels are read only by the committed dataset family). The frames of
+# test_10000/data are those of test/data (a symbolic link on the machine of the runs, kept as the relative link
+# datasets/sequence_data/synthetic_changing_shapes/test_10000/data -> ../test/data), and the generator seeds its chunks
+# from the system, so the data set cannot be made again identically
+datasets:
+  - path: sequence_data/synthetic_changing_shapes/test_10000/labels.json
+  - path: sequence_data/synthetic_changing_shapes/test/data/test_000001/*.png
+  - path: sequence_data/synthetic_changing_shapes/test/data/test_000004/*.png
+  - path: sequence_data/synthetic_changing_shapes/test/data/test_000008/*.png
+  - path: sequence_data/synthetic_changing_shapes/test/data/test_000010/*.png
+  - path: sequence_data/synthetic_changing_shapes/test/data/test_017424/*.png
+# Families reading the training labels, the whole predictions file or the checkpoint, reused from these committed
+# outputs when the run is read from the snapshots
+figure_reuse:
+  - family: dataset
+  - family: listings
+  - family: evaluation

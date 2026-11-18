@@ -1,0 +1,449 @@
+{
+  "facts": {
+    "inference_candidate_count": 7290,
+    "inference_candidates_above_threshold": 28,
+    "inference_checkpoint_iteration": 6000,
+    "inference_heatmap_loss": 0.0191035,
+    "inference_heatmap_loss_splits": {
+      "stride_2": {
+        "cells": 15925248,
+        "keypoint_cells": 0.00437791,
+        "other_cells": 0.0111611,
+        "positive_cells": 28,
+        "total": 0.0155391
+      },
+      "stride_4": {
+        "cells": 3981312,
+        "keypoint_cells": 0.0005638,
+        "other_cells": 0.00300062,
+        "positive_cells": 28,
+        "total": 0.00356442
+      }
+    },
+    "inference_objects": [
+      {
+        "channels": [
+          215,
+          216,
+          217,
+          218,
+          219,
+          220,
+          221,
+          222,
+          223,
+          224,
+          225,
+          226
+        ],
+        "class_index": 31,
+        "class_name": "hollow_capsule",
+        "keypoint_names": [
+          "left_end",
+          "top_left",
+          "top_right",
+          "right_end",
+          "bottom_right",
+          "bottom_left",
+          "inner_left_end",
+          "inner_top_left",
+          "inner_top_right",
+          "inner_right_end",
+          "inner_bottom_right",
+          "inner_bottom_left"
+        ],
+        "positions": [
+          [
+            339.44000244140625,
+            184.5
+          ],
+          [
+            356.75,
+            167.19000244140625
+          ],
+          [
+            412.25,
+            167.19000244140625
+          ],
+          [
+            429.55999755859375,
+            184.5
+          ],
+          [
+            412.25,
+            201.80999755859375
+          ],
+          [
+            356.75,
+            201.80999755859375
+          ],
+          [
+            358.0799865722656,
+            184.5
+          ],
+          [
+            368.2300109863281,
+            174.35000610351562
+          ],
+          [
+            400.760009765625,
+            174.35000610351562
+          ],
+          [
+            410.9100036621094,
+            184.5
+          ],
+          [
+            400.760009765625,
+            194.64999389648438
+          ],
+          [
+            368.2300109863281,
+            194.64999389648438
+          ]
+        ],
+        "tags": [
+          0.458064,
+          0.250619,
+          0.107403,
+          0.291076,
+          0.207155,
+          0.43307,
+          0.21302,
+          0.174904,
+          0.352121,
+          0.232128,
+          0.133432,
+          0.345325
+        ],
+        "visibilities": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "channels": [
+          47,
+          48,
+          49,
+          50
+        ],
+        "class_index": 11,
+        "class_name": "trapezoid",
+        "keypoint_names": [
+          "top_left",
+          "top_right",
+          "bottom_right",
+          "bottom_left"
+        ],
+        "positions": [
+          [
+            245.5,
+            369.5
+          ],
+          [
+            329.5,
+            369.5
+          ],
+          [
+            346.5,
+            433.5
+          ],
+          [
+            198.5,
+            433.5
+          ]
+        ],
+        "tags": [
+          0.107814,
+          -0.00807311,
+          -0.0559616,
+          -0.0245888
+        ],
+        "visibilities": [
+          2,
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "channels": [
+          215,
+          216,
+          217,
+          218,
+          219,
+          220,
+          221,
+          222,
+          223,
+          224,
+          225,
+          226
+        ],
+        "class_index": 31,
+        "class_name": "hollow_capsule",
+        "keypoint_names": [
+          "left_end",
+          "top_left",
+          "top_right",
+          "right_end",
+          "bottom_right",
+          "bottom_left",
+          "inner_left_end",
+          "inner_top_left",
+          "inner_top_right",
+          "inner_right_end",
+          "inner_bottom_right",
+          "inner_bottom_left"
+        ],
+        "positions": [
+          [
+            304.44000244140625,
+            245.5
+          ],
+          [
+            322.2900085449219,
+            227.63999938964844
+          ],
+          [
+            382.7099914550781,
+            227.63999938964844
+          ],
+          [
+            400.55999755859375,
+            245.5
+          ],
+          [
+            382.7099914550781,
+            263.3599853515625
+          ],
+          [
+            322.2900085449219,
+            263.3599853515625
+          ],
+          [
+            327.5799865722656,
+            245.5
+          ],
+          [
+            336.8399963378906,
+            236.22999572753906
+          ],
+          [
+            368.19000244140625,
+            236.22999572753906
+          ],
+          [
+            377.4599914550781,
+            245.5
+          ],
+          [
+            368.19000244140625,
+            254.77000427246094
+          ],
+          [
+            336.8399963378906,
+            254.77000427246094
+          ]
+        ],
+        "tags": [
+          0.116034,
+          0.225442,
+          0.418606,
+          0.235597,
+          0.288051,
+          0.247731,
+          0.225051,
+          0.0655025,
+          0.262737,
+          0.30844,
+          0.11518,
+          0.381945
+        ],
+        "visibilities": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ]
+      }
+    ],
+    "inference_parameters": {
+      "Backbone": 80672,
+      "High Resolution Network": 2631456,
+      "Higher Resolution Branch": 238739,
+      "Keypoint Head": 162278,
+      "Total Model": 3113145
+    },
+    "inference_shapes": {
+      "high_resolution_network": {
+        "input": null,
+        "output": [
+          1,
+          16,
+          128,
+          128
+        ]
+      },
+      "higher_resolution_heatmap_head": {
+        "input": [
+          1,
+          16,
+          256,
+          256
+        ],
+        "output": [
+          1,
+          243,
+          256,
+          256
+        ]
+      },
+      "prediction_convolution": {
+        "input": [
+          1,
+          16,
+          128,
+          128
+        ],
+        "output": [
+          1,
+          486,
+          128,
+          128
+        ]
+      },
+      "refinement": {
+        "input": null,
+        "output": [
+          1,
+          16,
+          256,
+          256
+        ]
+      },
+      "stem": {
+        "input": null,
+        "output": [
+          [
+            1,
+            64,
+            128,
+            128
+          ],
+          null
+        ]
+      },
+      "transition_1": {
+        "input": null,
+        "output": [
+          [
+            1,
+            16,
+            128,
+            128
+          ],
+          [
+            1,
+            32,
+            64,
+            64
+          ]
+        ]
+      },
+      "transition_2": {
+        "input": null,
+        "output": [
+          [
+            1,
+            16,
+            128,
+            128
+          ],
+          [
+            1,
+            32,
+            64,
+            64
+          ],
+          [
+            1,
+            64,
+            32,
+            32
+          ]
+        ]
+      },
+      "transition_3": {
+        "input": null,
+        "output": [
+          [
+            1,
+            16,
+            128,
+            128
+          ],
+          [
+            1,
+            32,
+            64,
+            64
+          ],
+          [
+            1,
+            64,
+            32,
+            32
+          ],
+          [
+            1,
+            128,
+            16,
+            16
+          ]
+        ]
+      },
+      "transposed_convolution": {
+        "input": [
+          1,
+          502,
+          128,
+          128
+        ],
+        "output": [
+          1,
+          16,
+          256,
+          256
+        ]
+      }
+    },
+    "inference_tag_pull_loss": 0.00847988,
+    "inference_tag_push_loss": 0.999341,
+    "inference_weighted_tag_pull_loss": 0.000847988,
+    "inference_weighted_tag_push_loss": 0.0999341
+  },
+  "figures": [
+    "keypoint_inference.npz"
+  ]
+}

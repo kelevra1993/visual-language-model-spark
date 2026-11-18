@@ -7,7 +7,10 @@ them (at the frame size of the run), batched by the collate of the loaders (coll
 the frame encoder of the trained flatten run on the CPU. It writes
 the frames, the frame vectors drawn as heat squares and the layout file of animations/07_sequence_classification/
 frame_batches.js, whose phases are the samples, the padded batch, its mask, the real frames gathered for the backbone,
-their vectors and the vectors scattered back; its facts are the real lengths and shapes the narration quotes.
+their vectors and the vectors scattered back; its facts are the real lengths and shapes the narration quotes. The
+family is made again at every build with the checkpoint, its facts written in batch/ next to its figures
+(BATCH_FACTS_NAME) so that a build from the committed snapshots (tutorials/run_snapshots, without checkpoints) reuses
+the committed outputs (figure_reuse/sequence_classification/batch and animations).
 """
 
 import cv2
@@ -17,7 +20,8 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import round_fact
+from tutorials.figures.figure_utilities import (read_reused_facts, restore_committed_figures, round_fact,
+                                                write_reused_facts)
 from tutorials.figures.sequence_classification.dataset_figures import GENERATOR_TASK, read_generator_frame_range
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (read_generator_setting,
                                                                                  write_animation_layout,
@@ -50,6 +54,9 @@ GATHER_DELAY_SECONDS = 0.03
 
 # Phases of the layout in their order, the scenes starting each of them with one of their sentences
 LAYOUT_PHASES = ["sequences", "padded", "mask", "gather", "encode", "scatter"]
+
+# Facts of the family written in batch/ with the list of its figures, reused by a build without the checkpoint
+BATCH_FACTS_NAME = "batch_animation_facts.json"
 
 
 def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
@@ -226,24 +233,42 @@ def build_batch_layout(lengths: List[int], class_names: List[str], frame_images:
 
 
 def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary: Dict[int, int],
-                         image_size: int, keep_ratio: bool) -> Dict[str, Any]:
+                         image_size: int, keep_ratio: bool, has_trained_weights: bool) -> Dict[str, Any]:
     """
     Makes the frames, vector squares and layout file of the animated padded batch, and gives its facts: the seed and
     lengths of the sequences, the shapes of the batch, of its mask, of the gathered frames after every backbone block
     and of the frame vectors, the largest value on the padding vectors (zero), and the predictions of the trained run
-    on these sequences of the current generator.
+    on these sequences of the current generator. Without the trained weights (a build from the committed snapshots),
+    the committed outputs of the family are restored and their facts reused instead.
 
     Args:
         output_folder (Path): The figures folder of the series.
-        model (TaskModel): The trained flatten run at 128 pixels, on the CPU.
+        model (TaskModel): The trained flatten run at 128 pixels, on the CPU (its structure only without the
+            checkpoint).
         label_dictionary (Dict[int, int]): The class index of every category of the run.
         image_size (int): The frame size of the run, 'Data.image_settings.size'.
         keep_ratio (bool): Whether the run pads the frames to keep their aspect ratio, 'Data.image_settings.keep_ratio'.
+        has_trained_weights (bool): Whether the model holds the weights of the checkpoint of the run.
 
     Returns:
         Dict[str, Any]: The facts, named batch.*.
+
+    Raises:
+        FileNotFoundError: If the model has no trained weights and the snapshots hold no outputs of the family.
     """
     batch_folder = output_folder / "batch"
+    layout_path = output_folder / "animations" / "padded_batch.json"
+    facts_path = batch_folder / BATCH_FACTS_NAME
+
+    # Without the checkpoint the vectors and predictions cannot be computed: the committed outputs are reused
+    if not has_trained_weights:
+        for family_folder in ["batch", "animations"]:
+            restore_committed_figures(output_folder=output_folder, family_folder=family_folder)
+        reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[layout_path], force=False)
+        if reused_facts is None:
+            raise FileNotFoundError(f"No checkpoint for the animated batch and no committed outputs {facts_path}: "
+                                    f"build with the real runs, then write the snapshots again.")
+        return reused_facts
     example = draw_example_sequences(output_folder=batch_folder / "generated")
     category_names = {identifier: name for name, identifier in MOVEMENT_CATEGORIES.items()}
 
@@ -307,8 +332,7 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
     layout = build_batch_layout(lengths=lengths, class_names=class_names, frame_images=frame_images,
                                 vector_images=vector_images, zero_vector_image="../batch/vector_zero.png",
                                 shapes=shapes, frame_shape=list(batch["images"].shape[2:]))
-    write_animation_layout(output_path=output_folder / "animations" / "padded_batch.json", phases=LAYOUT_PHASES,
-                           tiles=layout["tiles"], texts=layout["texts"])
+    write_animation_layout(output_path=layout_path, phases=LAYOUT_PHASES, tiles=layout["tiles"], texts=layout["texts"])
 
     # Facts: lengths, shapes, the zero padding vectors and the predictions of the run on these sequences
     index_names = {class_index: category_names[identifier] for identifier, class_index in label_dictionary.items()}
@@ -332,4 +356,8 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
         facts[f"batch.block_{block_number}_size"] = int(block_shape[2])
     for sequence_index, length in enumerate(lengths):
         facts[f"batch.length_{sequence_index}"] = length
+
+    # Facts and figures of the family recorded for a build without the checkpoint, every file of batch/ listed
+    figure_paths = sorted(path for path in batch_folder.rglob("*") if path.is_file() and path != facts_path)
+    write_reused_facts(facts_path=facts_path, figure_paths=figure_paths, facts=facts)
     return facts

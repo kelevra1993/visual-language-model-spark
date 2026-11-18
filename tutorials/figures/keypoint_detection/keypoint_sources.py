@@ -6,7 +6,9 @@ capsules side by side, a trapezoid and a circle without keypoints), read by the 
 keypoints, the label dictionary and the channel table of the trained detector, and the colours the figures give to the
 objects of that image. The test split of the run (a copy of the first 1024 test images) was removed, so the figures
 read the test split and the settings of the repository configuration, refused unless its model sections, image
-settings and label mapping are those of the training_configuration.yaml of the run.
+settings and label mapping are those of the training_configuration.yaml of the run. A run read from the committed
+snapshots (tutorials/run_snapshots) has no checkpoint: its dataset files come from the datasets/ folder of the
+snapshots and the outputs of the inference from their figure_reuse/ folder.
 """
 
 import json
@@ -17,7 +19,7 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from tutorials.figures.figure_utilities import SERIES_COLOURS
+from tutorials.figures.figure_utilities import SERIES_COLOURS, is_snapshot_folder, resolve_dataset_path
 from tutorial_builder.figure_context import find_repository_root
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
@@ -25,7 +27,7 @@ from vision_training.data.keypoints.keypoint_categories import read_keypoint_cat
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.models.keypoints.keypoint_detector import build_keypoint_channel_table
-from vision_training.trainers.checkpointing import get_checkpoint_path
+from vision_training.trainers.checkpointing import get_checkpoint_file, get_checkpoint_path
 
 # Configuration of the repository the synthetic keypoint run was trained with, and the sections that define its model,
 # compared with the configuration saved in the run folder before the model is rebuilt from it
@@ -51,17 +53,33 @@ EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
 OBJECT_COLOURS = [SERIES_COLOURS[0], SERIES_COLOURS[1], SERIES_COLOURS[2], SERIES_COLOURS[3], SERIES_COLOURS[4]]
 
 
-def read_repository_configuration(run_folder: Path) -> Dict[str, Any]:
+def has_checkpoint(run_folder: Path) -> bool:
     """
-    Reads the repository configuration of the synthetic keypoint run and checks that it defines the model of the run,
-    so that the model rebuilt from it for the figures is the trained one: the Backbone, HRNet and KeypointHead
-    sections, the image settings and the label mapping must be those of the training_configuration.yaml of the run.
+    Tells whether the keypoint run holds the checkpoint of CHECKPOINT_ITERATION, which the inference figures and the
+    channel table check read; a run read from the committed snapshots has none, its inference outputs being committed.
 
     Args:
         run_folder (Path): The folder of the keypoint run.
 
     Returns:
-        Dict[str, Any]: The repository configuration, as plain YAML.
+        bool: Whether the checkpoint file exists.
+    """
+    return get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=CHECKPOINT_ITERATION).exists()
+
+
+def read_repository_configuration(run_folder: Path) -> Dict[str, Any]:
+    """
+    Reads the repository configuration of the synthetic keypoint run and checks that it defines the model of the run,
+    so that the model rebuilt from it for the figures is the trained one: the Backbone, HRNet and KeypointHead
+    sections, the image settings and the label mapping must be those of the training_configuration.yaml of the run.
+    For a run read from the committed snapshots, its test split and mapping file then point at the dataset files of
+    the snapshots (resolve_dataset_path), so that the figures never read the datasets of the machine.
+
+    Args:
+        run_folder (Path): The folder of the keypoint run.
+
+    Returns:
+        Dict[str, Any]: The repository configuration, as plain YAML, with the dataset paths the figures read.
 
     Raises:
         ValueError: If a model section of the repository configuration differs from the one of the run.
@@ -81,6 +99,15 @@ def read_repository_configuration(run_folder: Path) -> Dict[str, Any]:
     if differing_sections:
         raise ValueError(f"The sections {differing_sections} of {REPOSITORY_CONFIGURATION_PATH} differ from those of "
                          f"{run_folder / 'training_configuration.yaml'}: the figures would not show the trained model.")
+
+    # Dataset files the figures read, those of the snapshots for a run read from them, unchanged otherwise
+    snapshot_mode = is_snapshot_folder(folder=run_folder)
+    experiment_configuration = repository_configuration["ExperimentConfiguration"]
+    experiment_configuration["test_data_folder"] = str(resolve_dataset_path(
+        path=experiment_configuration["test_data_folder"], snapshot_mode=snapshot_mode))
+    label_mapping = repository_configuration["Data"]["label_mapping"]
+    label_mapping["mapping_file_path"] = str(resolve_dataset_path(path=label_mapping["mapping_file_path"],
+                                                                  snapshot_mode=snapshot_mode))
     return repository_configuration
 
 
@@ -124,7 +151,9 @@ def read_channel_table(run_folder: Path, test_split: Path,
                        label_dictionary: Dict[Any, int]) -> Tuple[numpy.ndarray, List[str], Dict[int, Dict[str, Any]]]:
     """
     Reads the channel table of the trained detector, saved as a buffer in its checkpoint, and checks it against the one
-    build_keypoint_channel_table gives for the keypoint categories of the test split, which names its channels.
+    build_keypoint_channel_table gives for the keypoint categories of the test split, which names its channels. A run
+    without its checkpoint (read from the committed snapshots) skips the check, its inference outputs having been made
+    and checked with the checkpoint.
 
     Args:
         run_folder (Path): The folder of the keypoint run.
@@ -142,6 +171,12 @@ def read_channel_table(run_folder: Path, test_split: Path,
     keypoint_categories = read_keypoint_categories(labels_file=test_split / "labels.json",
                                                    label_dictionary=label_dictionary)
     channel_table, channel_names = build_keypoint_channel_table(keypoint_categories=keypoint_categories)
+
+    # No checkpoint to compare with in a run read from the snapshots
+    if not has_checkpoint(run_folder=run_folder):
+        print(f"No checkpoint of iteration {CHECKPOINT_ITERATION} in {run_folder}: the channel table of the categories "
+              f"is used without its check against the checkpoint")
+        return channel_table.numpy(), channel_names, keypoint_categories
 
     # The table registered in the checkpoint by the trained detector
     checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=CHECKPOINT_ITERATION)

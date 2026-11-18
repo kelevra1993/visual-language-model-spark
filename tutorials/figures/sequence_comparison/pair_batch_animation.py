@@ -6,7 +6,10 @@ the collate of the loaders (collate_padded_sequences with two members per sample
 after members (split_pair_members), stacked as 2B sequences and encoded together like encode_members of the trained
 comparator, run on the CPU. It writes the frames, the frame vectors drawn as heat squares and the layout file of
 animations/07_sequence_classification/frame_batches.js; its facts are the real lengths, shapes and padding of the batch,
-and the difference between the masked path of the training and the per-member path of the export on these pairs.
+and the difference between the masked path of the training and the per-member path of the export on these pairs. Its
+facts are written in batch/ next to its figures (PAIR_BATCH_FACTS_NAME), so that a build from the committed snapshots
+(tutorials/run_snapshots, without the checkpoint) reuses the committed outputs (figure_reuse/sequence_comparison/batch
+and animations).
 """
 
 import json
@@ -19,7 +22,8 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import read_reused_facts, round_fact, write_reused_facts
+from tutorials.figures.figure_utilities import (read_reused_facts, restore_committed_figures, round_fact,
+                                                write_reused_facts)
 from tutorials.figures.sequence_classification.batch_animation import format_shape
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (write_animation_layout,
                                                                                  write_vector_square)
@@ -50,6 +54,10 @@ DELAY_SECONDS = 0.02
 
 # Phases of the layout in their order, the scenes starting each of them with one of their sentences
 LAYOUT_PHASES = ["members", "pair_padded", "batch", "split", "stack", "encode"]
+
+# Facts of the family written in batch/ with the list of its figures, reused by the next build and by a build without
+# the checkpoint
+PAIR_BATCH_FACTS_NAME = "pair_batch_facts.json"
 
 
 def choose_pair_window(pairs: List[Dict[str, Any]]) -> int:
@@ -182,32 +190,45 @@ def build_pair_layout(member_lengths: List[List[int]], pair_names: List[str], cl
 
 def make_pair_batch_animation(output_folder: Path, model: TaskModel, train_folder: Path,
                               label_dictionary: Dict[int, int], image_size: int, keep_ratio: bool,
-                              force: bool) -> Dict[str, Any]:
+                              has_trained_weights: bool, force: bool) -> Dict[str, Any]:
     """
     Makes the frames, vector squares and layout file of the animated pair batch, and gives its facts: the pairs and
     their member lengths, the shapes of the samples, the batch, its halves and the stacked members, the real and
     padding frames, and the largest difference between the probabilities of the masked path (both members padded and
     encoded together) and the export path (every member alone, without mask). The encoding is reused from the
-    previous build unless forced.
+    previous build unless forced; without the trained weights (a build from the committed snapshots), the committed
+    outputs of the family are restored and reused whatever --force asks.
 
     Args:
         output_folder (Path): The figures folder of the series.
-        model (TaskModel): The trained comparator, on the CPU.
+        model (TaskModel): The trained comparator, on the CPU (its structure only without the checkpoint).
         train_folder (Path): The training split of the run.
         label_dictionary (Dict[int, int]): The class index of every category of the run.
         image_size (int): The frame size of the run.
         keep_ratio (bool): Whether the run resizes its frames keeping their aspect ratio.
+        has_trained_weights (bool): Whether the model holds the weights of the checkpoint of the run.
         force (bool): Whether the encoding runs again even when the previous build left it.
 
     Returns:
         Dict[str, Any]: The facts, named batch.*.
+
+    Raises:
+        FileNotFoundError: If the model has no trained weights and the snapshots hold no outputs of the family.
     """
     batch_folder = output_folder / "batch"
     layout_path = output_folder / "animations" / "pair_batch.json"
-    facts_path = output_folder / "pair_batch_facts.json"
-    facts = read_reused_facts(facts_path=facts_path, required_paths=[layout_path], force=force)
+    facts_path = batch_folder / PAIR_BATCH_FACTS_NAME
+
+    # Without the checkpoint the encoding cannot run: the committed outputs of the family are restored first
+    if not has_trained_weights:
+        for family_folder in ["batch", "animations"]:
+            restore_committed_figures(output_folder=output_folder, family_folder=family_folder)
+    facts = read_reused_facts(facts_path=facts_path, required_paths=[layout_path], force=force and has_trained_weights)
     if facts is not None:
         return facts
+    if not has_trained_weights:
+        raise FileNotFoundError(f"No checkpoint for the animated pair batch and no committed outputs {facts_path}: "
+                                f"build with the real runs, then write the snapshots again.")
 
     # Pairs of the window, read and batched by the code of the loaders
     manifest = json.loads((train_folder / "labels.json").read_text(encoding="utf-8"))
@@ -302,6 +323,5 @@ def make_pair_batch_animation(output_folder: Path, model: TaskModel, train_folde
         facts[f"batch.pair_{pair_number}.name"] = pair["name"]
         facts[f"batch.pair_{pair_number}.before"] = lengths[0]
         facts[f"batch.pair_{pair_number}.after"] = lengths[1]
-    figure_paths = sorted(batch_folder.glob("*.png")) + [layout_path]
-    write_reused_facts(facts_path=facts_path, figure_paths=figure_paths, facts=facts)
+    write_reused_facts(facts_path=facts_path, figure_paths=sorted(batch_folder.glob("*.png")), facts=facts)
     return facts

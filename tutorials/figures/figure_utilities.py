@@ -250,10 +250,11 @@ def describe_run_label(experiments_folder: Path, run_folder: Path) -> str:
 
 def restore_committed_figures(output_folder: Path, family_folder: str) -> bool:
     """
-    Copies into the figures folder of a series the committed outputs of a family of figures that needs a checkpoint
-    (figure_reuse/<series>/<family folder> of the snapshot folder: its reuse JSON file and the figures it lists), so
-    that a build without the checkpoint reuses them through read_reused_facts. A family calls it only when the
-    checkpoint is absent; the files already in the figures folder are kept.
+    Copies into the figures folder of a series the committed outputs of a family of figures that needs a checkpoint,
+    or a file the snapshots leave out such as the training labels of a dataset (figure_reuse/<series>/<family folder>
+    of the snapshot folder: its reuse JSON file and the figures it lists), so that a build without those inputs reuses
+    them through read_reused_facts. A family calls it only when its inputs are absent; the files already in the figures
+    folder are kept.
 
     Args:
         output_folder (Path): The figures folder of the series (its name is the series).
@@ -262,9 +263,11 @@ def restore_committed_figures(output_folder: Path, family_folder: str) -> bool:
     Returns:
         bool: Whether committed outputs were found and copied.
     """
+    # Find the committed outputs of the family, written by tutorials/make_run_snapshots.py
     committed_folder = find_snapshot_root() / "figure_reuse" / output_folder.name / family_folder
     if not committed_folder.is_dir():
         return False
+    # Copy every committed file that the figures folder does not hold yet, keeping the folder layout of the family
     for committed_path in sorted(committed_folder.rglob("*")):
         destination_path = output_folder / family_folder / committed_path.relative_to(committed_folder)
         if committed_path.is_dir():
@@ -272,7 +275,8 @@ def restore_committed_figures(output_folder: Path, family_folder: str) -> bool:
         elif not destination_path.exists():
             destination_path.parent.mkdir(parents=True, exist_ok=True)
             destination_path.write_bytes(data=committed_path.read_bytes())
-    print(f"Restored the committed figures of {committed_folder} (no checkpoint in the run read)")
+    print(f"Restored the committed figures of {committed_folder} (their checkpoint or input files are not in the run "
+          f"read)")
     return True
 
 

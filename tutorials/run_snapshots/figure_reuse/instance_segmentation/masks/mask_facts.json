@@ -1,0 +1,130 @@
+{
+  "facts": {
+    "model.detector_parameters": 638421,
+    "model.mask_level_parameters": 32757,
+    "model.mask_parameters": 98271,
+    "model.mask_size": 28,
+    "model.number_classes": 21,
+    "model.pool_size": 14,
+    "model.total_parameters": 736692,
+    "model.upsamplings": 1,
+    "predictions.detection_1.box_iou": 0.806392,
+    "predictions.detection_1.level": 5,
+    "predictions.detection_1.mask_iou": 0.844444,
+    "predictions.detection_1.name": "star",
+    "predictions.detection_1.object": "star",
+    "predictions.detection_1.score": 0.98112,
+    "predictions.detection_1.tile_box": [
+      50,
+      140,
+      350,
+      550
+    ],
+    "predictions.detection_2.box_iou": 0.903291,
+    "predictions.detection_2.level": 5,
+    "predictions.detection_2.mask_iou": 0.891991,
+    "predictions.detection_2.name": "triangle",
+    "predictions.detection_2.object": "triangle",
+    "predictions.detection_2.score": 0.822054,
+    "predictions.detection_2.tile_box": [
+      380,
+      140,
+      680,
+      550
+    ],
+    "predictions.detection_3.box_iou": 0.87725,
+    "predictions.detection_3.level": 7,
+    "predictions.detection_3.mask_iou": 0.930148,
+    "predictions.detection_3.name": "square",
+    "predictions.detection_3.object": "square",
+    "predictions.detection_3.score": 0.762512,
+    "predictions.detection_3.tile_box": [
+      710,
+      140,
+      1010,
+      550
+    ],
+    "predictions.detection_4.box_iou": 0.835442,
+    "predictions.detection_4.level": 5,
+    "predictions.detection_4.mask_iou": 0.870234,
+    "predictions.detection_4.name": "parallelogram",
+    "predictions.detection_4.object": "parallelogram",
+    "predictions.detection_4.score": 0.760263,
+    "predictions.detection_4.tile_box": [
+      1040,
+      140,
+      1340,
+      550
+    ],
+    "predictions.detection_5.box_iou": 0.94331,
+    "predictions.detection_5.level": 6,
+    "predictions.detection_5.mask_iou": 0.918626,
+    "predictions.detection_5.name": "rectangle",
+    "predictions.detection_5.object": "square",
+    "predictions.detection_5.score": 0.746458,
+    "predictions.detection_5.tile_box": [
+      1370,
+      140,
+      1670,
+      550
+    ],
+    "predictions.detection_count": 5,
+    "predictions.mask_shape": [
+      1,
+      100,
+      28,
+      28
+    ],
+    "predictions.object_count": 6,
+    "predictions.panel_1_box": [
+      0,
+      64,
+      552,
+      616
+    ],
+    "predictions.panel_2_box": [
+      584,
+      64,
+      1136,
+      616
+    ],
+    "predictions.panel_3_box": [
+      1168,
+      64,
+      1720,
+      616
+    ],
+    "target.foreground_pixels": 267,
+    "target.object": "star",
+    "target.panel_1_box": [
+      0,
+      64,
+      552,
+      616
+    ],
+    "target.panel_2_box": [
+      584,
+      64,
+      1136,
+      616
+    ],
+    "target.panel_3_box": [
+      1168,
+      64,
+      1720,
+      616
+    ],
+    "target.proposal_box": [
+      382.025,
+      180.348,
+      479.911,
+      278.259
+    ],
+    "target.proposal_iou": 0.683278
+  },
+  "figures": [
+    "mask_target.png",
+    "pasted_masks.png",
+    "predicted_masks.png"
+  ]
+}

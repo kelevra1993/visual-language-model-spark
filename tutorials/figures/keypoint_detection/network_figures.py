@@ -23,7 +23,7 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                TEXT_SECONDARY_COLOUR, compute_pixel_box, format_thousands,
+                                                compute_pixel_box, format_thousands,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.keypoint_detection.keypoint_inference import build_sample_targets, split_heatmap_loss
 from tutorials.figures.keypoint_detection.keypoint_sources import OBJECT_COLOURS, write_json

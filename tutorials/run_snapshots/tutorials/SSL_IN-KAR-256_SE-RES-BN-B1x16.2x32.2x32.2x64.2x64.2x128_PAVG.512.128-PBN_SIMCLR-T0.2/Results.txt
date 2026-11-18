@@ -1,0 +1,858 @@
+Iteration 500 · 50000 Test Images · 2026-11-15 15:41 ───────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1233   k-NN Balanced Accuracy   0.1233
+  k-NN Macro F1                       0.1204   Effective Rank           23.9015
+  Representation Standard Deviation   0.6964
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1156   0.0654   0.0835
+   rectangle      5431      0.1037   0.0884   0.0954
+   circle         5533      0.1196   0.1028   0.1106
+   octagon        5486      0.1228   0.1079   0.1149
+   hexagon        5628      0.1247   0.1109   0.1174
+   square         5543      0.1346   0.1093   0.1207
+   pentagon       5574      0.1102   0.1523   0.1279
+   star           5617      0.1190   0.1681   0.1394
+   triangle       5527      0.1516   0.2045   0.1741
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0654   0.0591   0.0721
+   rectangle      5431   0.0884   0.0810   0.0962
+   circle         5533   0.1028   0.0950   0.1111
+   octagon        5486   0.1079   0.0998   0.1164
+   square         5543   0.1093   0.1012   0.1178
+   hexagon        5628   0.1109   0.1028   0.1194
+   pentagon       5574   0.1523   0.1430   0.1620
+   star           5617   0.1681   0.1584   0.1781
+   triangle       5527   0.2045   0.1939   0.2153
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 1000 · 50000 Test Images · 2026-11-15 15:50 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1323   k-NN Balanced Accuracy   0.1325
+  k-NN Macro F1                       0.1288   Effective Rank           26.1978
+  Representation Standard Deviation   0.6445
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1206   0.0760   0.0932
+   pentagon       5574      0.1075   0.1012   0.1042
+   octagon        5486      0.1207   0.1112   0.1157
+   circle         5533      0.1161   0.1222   0.1191
+   rectangle      5431      0.1210   0.1197   0.1203
+   square         5543      0.1461   0.1037   0.1213
+   hexagon        5628      0.1219   0.1247   0.1233
+   star           5617      0.1261   0.1567   0.1397
+   triangle       5527      0.1851   0.2768   0.2219
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0760   0.0692   0.0832
+   pentagon       5574   0.1012   0.0934   0.1094
+   square         5543   0.1037   0.0958   0.1121
+   octagon        5486   0.1112   0.1030   0.1198
+   rectangle      5431   0.1197   0.1112   0.1286
+   circle         5533   0.1222   0.1137   0.1311
+   hexagon        5628   0.1247   0.1162   0.1336
+   star           5617   0.1567   0.1473   0.1664
+   triangle       5527   0.2768   0.2651   0.2888
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 1500 · 50000 Test Images · 2026-11-15 15:59 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1357   k-NN Balanced Accuracy   0.1359
+  k-NN Macro F1                       0.1316   Effective Rank           29.4455
+  Representation Standard Deviation   0.6067
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1201   0.0689   0.0876
+   hexagon        5628      0.1190   0.1045   0.1112
+   circle         5533      0.1119   0.1243   0.1178
+   rectangle      5431      0.1180   0.1208   0.1194
+   pentagon       5574      0.1131   0.1313   0.1215
+   octagon        5486      0.1220   0.1223   0.1221
+   star           5617      0.1308   0.1385   0.1345
+   square         5543      0.1792   0.1113   0.1373
+   triangle       5527      0.1903   0.3009   0.2332
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0689   0.0624   0.0758
+   hexagon        5628   0.1045   0.0966   0.1128
+   square         5543   0.1113   0.1031   0.1199
+   rectangle      5431   0.1208   0.1122   0.1298
+   octagon        5486   0.1223   0.1138   0.1313
+   circle         5533   0.1243   0.1158   0.1333
+   pentagon       5574   0.1313   0.1226   0.1405
+   star           5617   0.1385   0.1296   0.1478
+   triangle       5527   0.3009   0.2888   0.3132
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 2000 · 50000 Test Images · 2026-11-15 16:08 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1392   k-NN Balanced Accuracy   0.1396
+  k-NN Macro F1                       0.1330   Effective Rank           29.6607
+  Representation Standard Deviation   0.5831
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1187   0.0558   0.0759
+   pentagon       5574      0.1111   0.1062   0.1086
+   hexagon        5628      0.1166   0.1047   0.1103
+   circle         5533      0.1230   0.1059   0.1138
+   octagon        5486      0.1192   0.1258   0.1224
+   rectangle      5431      0.1212   0.1565   0.1366
+   star           5617      0.1335   0.1556   0.1437
+   square         5543      0.2061   0.1137   0.1465
+   triangle       5527      0.1875   0.3318   0.2396
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0558   0.0500   0.0621
+   hexagon        5628   0.1047   0.0968   0.1129
+   circle         5533   0.1059   0.0979   0.1143
+   pentagon       5574   0.1062   0.0982   0.1146
+   square         5543   0.1137   0.1054   0.1223
+   octagon        5486   0.1258   0.1171   0.1348
+   star           5617   0.1556   0.1462   0.1653
+   rectangle      5431   0.1565   0.1469   0.1664
+   triangle       5527   0.3318   0.3194   0.3444
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 2500 · 50000 Test Images · 2026-11-15 19:14 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1363   k-NN Balanced Accuracy   0.1366
+  k-NN Macro F1                       0.1315   Effective Rank           31.6478
+  Representation Standard Deviation   0.5889
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1161   0.0611   0.0801
+   hexagon        5628      0.1146   0.0961   0.1046
+   circle         5533      0.1092   0.1052   0.1072
+   pentagon       5574      0.1098   0.1164   0.1130
+   octagon        5486      0.1203   0.1267   0.1234
+   rectangle      5431      0.1145   0.1440   0.1276
+   star           5617      0.1313   0.1314   0.1313
+   square         5543      0.2063   0.1301   0.1595
+   triangle       5527      0.1884   0.3184   0.2368
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0611   0.0550   0.0677
+   hexagon        5628   0.0961   0.0885   0.1041
+   circle         5533   0.1052   0.0972   0.1136
+   pentagon       5574   0.1164   0.1081   0.1251
+   octagon        5486   0.1267   0.1180   0.1358
+   square         5543   0.1301   0.1213   0.1392
+   star           5617   0.1314   0.1227   0.1405
+   rectangle      5431   0.1440   0.1348   0.1536
+   triangle       5527   0.3184   0.3062   0.3309
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 3000 · 50000 Test Images · 2026-11-15 19:21 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1371   k-NN Balanced Accuracy   0.1375
+  k-NN Macro F1                       0.1320   Effective Rank           32.3957
+  Representation Standard Deviation   0.5643
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1085   0.0507   0.0691
+   circle         5533      0.1100   0.0985   0.1039
+   hexagon        5628      0.1130   0.1036   0.1081
+   pentagon       5574      0.1062   0.1229   0.1139
+   rectangle      5431      0.1183   0.1267   0.1223
+   star           5617      0.1318   0.1200   0.1256
+   octagon        5486      0.1253   0.1513   0.1371
+   square         5543      0.2116   0.1467   0.1732
+   triangle       5527      0.1864   0.3168   0.2347
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0507   0.0451   0.0567
+   circle         5533   0.0985   0.0908   0.1067
+   hexagon        5628   0.1036   0.0957   0.1118
+   star           5617   0.1200   0.1116   0.1288
+   pentagon       5574   0.1229   0.1144   0.1318
+   rectangle      5431   0.1267   0.1179   0.1358
+   square         5543   0.1467   0.1375   0.1563
+   octagon        5486   0.1513   0.1419   0.1611
+   triangle       5527   0.3168   0.3046   0.3293
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 3500 · 50000 Test Images · 2026-11-15 19:36 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1371   k-NN Balanced Accuracy   0.1374
+  k-NN Macro F1                       0.1319   Effective Rank           32.8551
+  Representation Standard Deviation   0.5595
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1106   0.0523   0.0710
+   circle         5533      0.1077   0.0924   0.0994
+   hexagon        5628      0.1108   0.0999   0.1050
+   pentagon       5574      0.1063   0.1164   0.1111
+   rectangle      5431      0.1208   0.1239   0.1224
+   octagon        5486      0.1233   0.1380   0.1302
+   star           5617      0.1287   0.1349   0.1317
+   square         5543      0.2146   0.1615   0.1843
+   triangle       5527      0.1821   0.3174   0.2314
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0523   0.0466   0.0584
+   circle         5533   0.0924   0.0849   0.1003
+   hexagon        5628   0.0999   0.0921   0.1080
+   pentagon       5574   0.1164   0.1081   0.1251
+   rectangle      5431   0.1239   0.1153   0.1330
+   star           5617   0.1349   0.1261   0.1442
+   octagon        5486   0.1380   0.1290   0.1474
+   square         5543   0.1615   0.1519   0.1714
+   triangle       5527   0.3174   0.3051   0.3298
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 4000 · 50000 Test Images · 2026-11-15 19:49 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1379   k-NN Balanced Accuracy   0.1382
+  k-NN Macro F1                       0.1331   Effective Rank           33.5793
+  Representation Standard Deviation   0.5534
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1059   0.0472   0.0653
+   circle         5533      0.1145   0.0990   0.1062
+   pentagon       5574      0.1082   0.1195   0.1136
+   rectangle      5431      0.1174   0.1162   0.1168
+   hexagon        5628      0.1130   0.1210   0.1169
+   octagon        5486      0.1208   0.1442   0.1314
+   star           5617      0.1316   0.1398   0.1356
+   square         5543      0.2385   0.1425   0.1784
+   triangle       5527      0.1864   0.3141   0.2340
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0472   0.0418   0.0530
+   circle         5533   0.0990   0.0913   0.1072
+   rectangle      5431   0.1162   0.1078   0.1250
+   pentagon       5574   0.1195   0.1111   0.1283
+   hexagon        5628   0.1210   0.1126   0.1298
+   star           5617   0.1398   0.1308   0.1491
+   square         5543   0.1425   0.1334   0.1520
+   octagon        5486   0.1442   0.1350   0.1538
+   triangle       5527   0.3141   0.3019   0.3265
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 4500 · 50000 Test Images · 2026-11-15 20:05 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1383   k-NN Balanced Accuracy   0.1386
+  k-NN Macro F1                       0.1328   Effective Rank           33.5211
+  Representation Standard Deviation   0.5477
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.0992   0.0477   0.0644
+   circle         5533      0.1112   0.1057   0.1084
+   hexagon        5628      0.1132   0.1066   0.1098
+   pentagon       5574      0.1053   0.1182   0.1114
+   rectangle      5431      0.1186   0.1189   0.1188
+   octagon        5486      0.1203   0.1281   0.1241
+   star           5617      0.1364   0.1389   0.1376
+   square         5543      0.2327   0.1472   0.1803
+   triangle       5527      0.1870   0.3362   0.2403
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0477   0.0423   0.0536
+   circle         5533   0.1057   0.0977   0.1141
+   hexagon        5628   0.1066   0.0987   0.1150
+   pentagon       5574   0.1182   0.1099   0.1270
+   rectangle      5431   0.1189   0.1105   0.1279
+   octagon        5486   0.1281   0.1194   0.1373
+   star           5617   0.1389   0.1299   0.1482
+   square         5543   0.1472   0.1380   0.1568
+   triangle       5527   0.3362   0.3237   0.3488
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 5000 · 50000 Test Images · 2026-11-15 20:22 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1416   k-NN Balanced Accuracy   0.1419
+  k-NN Macro F1                       0.1371   Effective Rank           35.5787
+  Representation Standard Deviation   0.5677
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1156   0.0615   0.0803
+   hexagon        5628      0.1124   0.1155   0.1139
+   rectangle      5431      0.1146   0.1138   0.1142
+   circle         5533      0.1204   0.1108   0.1154
+   pentagon       5574      0.1054   0.1285   0.1158
+   octagon        5486      0.1218   0.1236   0.1227
+   star           5617      0.1410   0.1171   0.1280
+   square         5543      0.2309   0.1790   0.2016
+   triangle       5527      0.1922   0.3273   0.2422
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0615   0.0554   0.0680
+   circle         5533   0.1108   0.1026   0.1194
+   rectangle      5431   0.1138   0.1055   0.1225
+   hexagon        5628   0.1155   0.1073   0.1241
+   star           5617   0.1171   0.1088   0.1258
+   octagon        5486   0.1236   0.1150   0.1326
+   pentagon       5574   0.1285   0.1198   0.1375
+   square         5543   0.1790   0.1690   0.1893
+   triangle       5527   0.3273   0.3149   0.3399
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 5500 · 50000 Test Images · 2026-11-15 20:39 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1451   k-NN Balanced Accuracy   0.1453
+  k-NN Macro F1                       0.1391   Effective Rank           34.9737
+  Representation Standard Deviation   0.5620
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1090   0.0622   0.0792
+   circle         5533      0.1124   0.0933   0.1020
+   rectangle      5431      0.1146   0.0934   0.1029
+   hexagon        5628      0.1119   0.1100   0.1109
+   pentagon       5574      0.1077   0.1182   0.1127
+   octagon        5486      0.1234   0.1338   0.1284
+   star           5617      0.1422   0.1515   0.1467
+   square         5543      0.2538   0.1871   0.2154
+   triangle       5527      0.1960   0.3579   0.2533
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0622   0.0560   0.0688
+   circle         5533   0.0933   0.0857   0.1012
+   rectangle      5431   0.0934   0.0857   0.1014
+   hexagon        5628   0.1100   0.1019   0.1185
+   pentagon       5574   0.1182   0.1099   0.1270
+   octagon        5486   0.1338   0.1249   0.1431
+   star           5617   0.1515   0.1422   0.1612
+   square         5543   0.1871   0.1769   0.1976
+   triangle       5527   0.3579   0.3452   0.3707
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 6000 · 50000 Test Images · 2026-11-15 20:56 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1471   k-NN Balanced Accuracy   0.1473
+  k-NN Macro F1                       0.1426   Effective Rank           35.8634
+  Representation Standard Deviation   0.5640
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1044   0.0618   0.0777
+   circle         5533      0.1193   0.0924   0.1041
+   rectangle      5431      0.1174   0.1079   0.1124
+   hexagon        5628      0.1164   0.1180   0.1172
+   pentagon       5574      0.1119   0.1338   0.1219
+   octagon        5486      0.1229   0.1409   0.1313
+   star           5617      0.1501   0.1451   0.1476
+   square         5543      0.2877   0.1820   0.2230
+   triangle       5527      0.1942   0.3436   0.2482
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0618   0.0557   0.0684
+   circle         5533   0.0924   0.0849   0.1003
+   rectangle      5431   0.1079   0.0998   0.1165
+   hexagon        5628   0.1180   0.1097   0.1267
+   pentagon       5574   0.1338   0.1250   0.1431
+   octagon        5486   0.1409   0.1318   0.1504
+   star           5617   0.1451   0.1360   0.1546
+   square         5543   0.1820   0.1720   0.1924
+   triangle       5527   0.3436   0.3311   0.3563
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 6500 · 50000 Test Images · 2026-11-15 21:13 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1500   k-NN Balanced Accuracy   0.1502
+  k-NN Macro F1                       0.1457   Effective Rank           36.4771
+  Representation Standard Deviation   0.5594
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1143   0.0756   0.0910
+   circle         5533      0.1177   0.0844   0.0983
+   rectangle      5431      0.1234   0.1112   0.1170
+   pentagon       5574      0.1118   0.1281   0.1194
+   hexagon        5628      0.1166   0.1253   0.1208
+   octagon        5486      0.1237   0.1320   0.1277
+   star           5617      0.1546   0.1634   0.1589
+   square         5543      0.2915   0.1820   0.2241
+   triangle       5527      0.1991   0.3497   0.2537
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0756   0.0689   0.0828
+   circle         5533   0.0844   0.0772   0.0920
+   rectangle      5431   0.1112   0.1030   0.1199
+   hexagon        5628   0.1253   0.1167   0.1342
+   pentagon       5574   0.1281   0.1194   0.1372
+   octagon        5486   0.1320   0.1231   0.1412
+   star           5617   0.1634   0.1539   0.1734
+   square         5543   0.1820   0.1720   0.1924
+   triangle       5527   0.3497   0.3372   0.3625
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 7000 · 50000 Test Images · 2026-11-15 21:29 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1635   k-NN Balanced Accuracy   0.1636
+  k-NN Macro F1                       0.1604   Effective Rank           36.8996
+  Representation Standard Deviation   0.5478
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   pentagon       5574      0.1082   0.1121   0.1102
+   plus_sign      5661      0.1406   0.0964   0.1144
+   circle         5533      0.1254   0.1142   0.1196
+   hexagon        5628      0.1246   0.1347   0.1294
+   rectangle      5431      0.1458   0.1182   0.1306
+   octagon        5486      0.1255   0.1373   0.1311
+   star           5617      0.1862   0.1752   0.1805
+   triangle       5527      0.2030   0.3601   0.2596
+   square         5543      0.3338   0.2246   0.2685
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0964   0.0889   0.1044
+   pentagon       5574   0.1121   0.1040   0.1207
+   circle         5533   0.1142   0.1060   0.1229
+   rectangle      5431   0.1182   0.1097   0.1271
+   hexagon        5628   0.1347   0.1259   0.1439
+   octagon        5486   0.1373   0.1283   0.1466
+   star           5617   0.1752   0.1653   0.1854
+   square         5543   0.2246   0.2137   0.2358
+   triangle       5527   0.3601   0.3474   0.3729
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 7500 · 50000 Test Images · 2026-11-15 21:45 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1976   k-NN Balanced Accuracy   0.1980
+  k-NN Macro F1                       0.1958   Effective Rank           37.5579
+  Representation Standard Deviation   0.5414
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   plus_sign      5661      0.1744   0.0991   0.1264
+   circle         5533      0.1486   0.1159   0.1302
+   hexagon        5628      0.1430   0.1386   0.1408
+   pentagon       5574      0.1237   0.1729   0.1443
+   octagon        5486      0.1525   0.1486   0.1505
+   star           5617      0.2092   0.2074   0.2083
+   rectangle      5431      0.2458   0.2088   0.2258
+   triangle       5527      0.2181   0.3973   0.2816
+   square         5543      0.4483   0.2933   0.3546
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.0991   0.0914   0.1072
+   circle         5533   0.1159   0.1075   0.1246
+   hexagon        5628   0.1386   0.1297   0.1479
+   octagon        5486   0.1486   0.1392   0.1582
+   pentagon       5574   0.1729   0.1631   0.1831
+   star           5617   0.2074   0.1969   0.2182
+   rectangle      5431   0.2088   0.1981   0.2199
+   square         5543   0.2933   0.2814   0.3055
+   triangle       5527   0.3973   0.3844   0.4104
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 8000 · 50000 Test Images · 2026-11-15 21:59 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.2133   k-NN Balanced Accuracy   0.2137
+  k-NN Macro F1                       0.2117   Effective Rank           38.7885
+  Representation Standard Deviation   0.5579
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   pentagon       5574      0.1304   0.1534   0.1410
+   hexagon        5628      0.1521   0.1437   0.1478
+   circle         5533      0.1704   0.1350   0.1507
+   plus_sign      5661      0.1828   0.1305   0.1523
+   octagon        5486      0.1651   0.1666   0.1659
+   star           5617      0.2325   0.2361   0.2343
+   rectangle      5431      0.2714   0.2375   0.2533
+   triangle       5527      0.2307   0.4351   0.3015
+   square         5543      0.4816   0.2852   0.3583
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.1305   0.1219   0.1396
+   circle         5533   0.1350   0.1261   0.1443
+   hexagon        5628   0.1437   0.1347   0.1532
+   pentagon       5574   0.1534   0.1440   0.1631
+   octagon        5486   0.1666   0.1568   0.1767
+   star           5617   0.2361   0.2250   0.2474
+   rectangle      5431   0.2375   0.2263   0.2491
+   square         5543   0.2852   0.2734   0.2973
+   triangle       5527   0.4351   0.4220   0.4483
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 8500 · 50000 Test Images · 2026-11-15 22:12 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.2345   k-NN Balanced Accuracy   0.2350
+  k-NN Macro F1                       0.2332   Effective Rank           38.3201
+  Representation Standard Deviation   0.5556
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   pentagon       5574      0.1295   0.1358   0.1326
+   hexagon        5628      0.1589   0.1416   0.1498
+   plus_sign      5661      0.1921   0.1401   0.1620
+   octagon        5486      0.1679   0.1894   0.1780
+   circle         5533      0.1932   0.1704   0.1811
+   star           5617      0.2741   0.2453   0.2589
+   rectangle      5431      0.2768   0.2804   0.2786
+   triangle       5527      0.2584   0.4442   0.3267
+   square         5543      0.5218   0.3679   0.4315
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   pentagon       5574   0.1358   0.1269   0.1451
+   plus_sign      5661   0.1401   0.1311   0.1494
+   hexagon        5628   0.1416   0.1326   0.1510
+   circle         5533   0.1704   0.1606   0.1806
+   octagon        5486   0.1894   0.1791   0.2000
+   star           5617   0.2453   0.2341   0.2568
+   rectangle      5431   0.2804   0.2685   0.2926
+   square         5543   0.3679   0.3551   0.3807
+   triangle       5527   0.4442   0.4310   0.4574
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 9000 · 50000 Test Images · 2026-11-15 22:26 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.2416   k-NN Balanced Accuracy   0.2420
+  k-NN Macro F1                       0.2414   Effective Rank           38.9922
+  Representation Standard Deviation   0.5501
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   pentagon       5574      0.1374   0.1703   0.1521
+   hexagon        5628      0.1657   0.1413   0.1525
+   circle         5533      0.1896   0.1616   0.1745
+   octagon        5486      0.1808   0.1810   0.1809
+   plus_sign      5661      0.2105   0.1643   0.1845
+   star           5617      0.2840   0.2784   0.2812
+   rectangle      5431      0.3013   0.2948   0.2980
+   triangle       5527      0.2629   0.4371   0.3283
+   square         5543      0.5293   0.3493   0.4208
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   hexagon        5628   0.1413   0.1323   0.1506
+   circle         5533   0.1616   0.1520   0.1715
+   plus_sign      5661   0.1643   0.1547   0.1742
+   pentagon       5574   0.1703   0.1605   0.1804
+   octagon        5486   0.1810   0.1709   0.1915
+   star           5617   0.2784   0.2667   0.2904
+   rectangle      5431   0.2948   0.2827   0.3071
+   square         5543   0.3493   0.3367   0.3620
+   triangle       5527   0.4371   0.4240   0.4503
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 9500 · 50000 Test Images · 2026-11-15 22:40 ──────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.2483   k-NN Balanced Accuracy   0.2487
+  k-NN Macro F1                       0.2477   Effective Rank           40.2783
+  Representation Standard Deviation   0.5579
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   pentagon       5574      0.1381   0.1672   0.1513
+   hexagon        5628      0.1628   0.1597   0.1613
+   plus_sign      5661      0.2220   0.1480   0.1776
+   circle         5533      0.1891   0.1712   0.1797
+   octagon        5486      0.1828   0.1788   0.1808
+   star           5617      0.3215   0.3039   0.3124
+   rectangle      5431      0.3223   0.3040   0.3129
+   triangle       5527      0.2705   0.4632   0.3415
+   square         5543      0.5155   0.3426   0.4116
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   plus_sign      5661   0.1480   0.1389   0.1576
+   hexagon        5628   0.1597   0.1503   0.1696
+   pentagon       5574   0.1672   0.1575   0.1773
+   circle         5533   0.1712   0.1613   0.1813
+   octagon        5486   0.1788   0.1688   0.1892
+   star           5617   0.3039   0.2919   0.3161
+   rectangle      5431   0.3040   0.2918   0.3164
+   square         5543   0.3426   0.3301   0.3553
+   triangle       5527   0.4632   0.4500   0.4764
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 10000 · 50000 Test Images · 2026-11-15 22:54 ─────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.2766   k-NN Balanced Accuracy   0.2771
+  k-NN Macro F1                       0.2768   Effective Rank           40.4249
+  Representation Standard Deviation   0.5634
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision   Recall       F1
+  ───────────────────────────────────────────────────
+   pentagon       5574      0.1395   0.1665   0.1518
+   hexagon        5628      0.1783   0.1645   0.1711
+   octagon        5486      0.1961   0.1785   0.1868
+   circle         5533      0.2067   0.2008   0.2037
+   plus_sign      5661      0.3120   0.2288   0.2640
+   star           5617      0.3491   0.3285   0.3385
+   rectangle      5431      0.3508   0.3719   0.3610
+   triangle       5527      0.3021   0.4742   0.3691
+   square         5543      0.5379   0.3801   0.4455
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                     95%      95%
+   Class       Samples   Recall    Lower    Upper
+  ────────────────────────────────────────────────
+   hexagon        5628   0.1645   0.1549   0.1745
+   pentagon       5574   0.1665   0.1568   0.1765
+   octagon        5486   0.1785   0.1684   0.1888
+   circle         5533   0.2008   0.1903   0.2116
+   plus_sign      5661   0.2288   0.2179   0.2399
+   star           5617   0.3285   0.3162   0.3409
+   rectangle      5431   0.3719   0.3591   0.3850
+   square         5543   0.3801   0.3673   0.3930
+   triangle       5527   0.4742   0.4610   0.4875
+  Worst Recall first, ties in class order. 95% Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 15000 · 50000 Test Images · 2026-11-16 02:04 ─────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       47.31 %   k-NN Balanced Accuracy   47.30 %
+  k-NN Macro F1                       47.33 %   Effective Rank           43.3177
+  Representation Standard Deviation   0.5734
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision    Recall        F1
+  ─────────────────────────────────────────────────────
+   octagon        5486     26.99 %   24.70 %   25.79 %
+   hexagon        5628     28.62 %   26.40 %   27.47 %
+   pentagon       5574     28.16 %   36.83 %   31.92 %
+   circle         5533     43.36 %   38.51 %   40.79 %
+   rectangle      5431     42.50 %   51.32 %   46.49 %
+   square         5543     60.06 %   50.64 %   54.95 %
+   plus_sign      5661     70.80 %   51.53 %   59.65 %
+   star           5617     63.49 %   68.47 %   65.88 %
+   triangle       5527     69.23 %   77.31 %   73.05 %
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                      95 %      95 %
+   Class       Samples    Recall     Lower     Upper
+  ───────────────────────────────────────────────────
+   octagon        5486   24.70 %   23.56 %   25.86 %
+   hexagon        5628   26.40 %   25.26 %   27.58 %
+   pentagon       5574   36.83 %   35.56 %   38.11 %
+   circle         5533   38.51 %   37.23 %   39.81 %
+   square         5543   50.64 %   49.32 %   51.97 %
+   rectangle      5431   51.32 %   49.98 %   52.65 %
+   plus_sign      5661   51.53 %   50.22 %   52.84 %
+   star           5617   68.47 %   67.24 %   69.68 %
+   triangle       5527   77.31 %   76.18 %   78.41 %
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 20000 · 50000 Test Images · 2026-11-16 03:49 ─────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       54.83 %   k-NN Balanced Accuracy   54.82 %
+  k-NN Macro F1                       55.13 %   Effective Rank           46.1762
+  Representation Standard Deviation   0.5703
+  Labelled Test Images : 50000 of 50000
+  k-NN : 20 neighbours among 450 labelled training images of 9 classes (50 per class at most)
+  Sample Images : 8 fixed test images
+
+  Per Class k-NN Metrics
+   Class       Samples   Precision    Recall        F1
+  ─────────────────────────────────────────────────────
+   hexagon        5628     34.88 %   33.32 %   34.08 %
+   octagon        5486     36.91 %   33.07 %   34.88 %
+   pentagon       5574     33.26 %   49.26 %   39.71 %
+   circle         5533     54.25 %   50.48 %   52.30 %
+   rectangle      5431     50.69 %   55.53 %   53.00 %
+   square         5543     61.52 %   51.60 %   56.12 %
+   plus_sign      5661     86.88 %   58.12 %   69.64 %
+   star           5617     73.07 %   77.19 %   75.08 %
+   triangle       5527     78.26 %   84.78 %   81.39 %
+  k-nearest neighbour classification (20 neighbours) of the labelled test images by labelled training images. Worst F1
+  first, ties in class order. — : no labelled test image of the class.
+
+  Per Class k-NN Recall
+                                      95 %      95 %
+   Class       Samples    Recall     Lower     Upper
+  ───────────────────────────────────────────────────
+   octagon        5486   33.07 %   31.82 %   34.33 %
+   hexagon        5628   33.32 %   32.08 %   34.56 %
+   pentagon       5574   49.26 %   47.94 %   50.59 %
+   circle         5533   50.48 %   49.15 %   51.80 %
+   square         5543   51.60 %   50.27 %   52.92 %
+   rectangle      5431   55.53 %   54.20 %   56.86 %
+   plus_sign      5661   58.12 %   56.82 %   59.41 %
+   star           5617   77.19 %   76.07 %   78.29 %
+   triangle       5527   84.78 %   83.81 %   85.72 %
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+

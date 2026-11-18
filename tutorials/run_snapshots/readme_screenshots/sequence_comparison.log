@@ -1,0 +1,340 @@
+For Training We Will Be Using device: cuda
+[94m[1m----------------------------------------------------------[0m
+[94m[1mInitializing Training, Validation And Test DataLoaders...[0m
+[94m[1m----------------------------------------------------------[0m
+[93m[1m--------------------------------------[0m
+[93m[1m=== Experiment Launch Information ===[0m
+[93m[1m--------------------------------------[0m
+[94m[1m- Run Name                : CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2[0m
+[94m[1m- Experiment Folder       : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2\[4mCMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2[24m]8;;\[0m
+[94m[1m- Tensorboard Directory   : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Tensorboard\[4mTensorboard[24m]8;;\[0m
+[94m[1m- Weights Directory       : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Weights\[4mWeights[24m]8;;\[0m
+[94m[1m- Configuration File      : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/training_configuration.yaml\[4mtraining_configuration.yaml[24m]8;;\[0m
+[94m[1m- Data Record             : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/data.json\[4mdata.json[24m]8;;\[0m
+[94m[1m- Train Data Folder       : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs/train\[4mtrain[24m]8;;\ (2000 pairs, 16096 frames, 2000 pairs of members of at most 50 frames)[0m
+[94m[1m- Validation Data Folder  : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs/validation\[4mvalidation[24m]8;;\ (200 pairs, 1586 frames, 200 pairs of members of at most 50 frames)[0m
+[94m[1m- Test Data Folder        : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs/test\[4mtest[24m]8;;\ (200 pairs, 1590 frames, 200 pairs of members of at most 50 frames)[0m
+[94m[1m- Iterations Per Epoch    : 125[0m
+[94m[1m- Batch Size              : 16[0m
+[94m[1m- Total Iterations        : 1000[0m
+[94m[1m- Save And Evaluate Every : 500 iterations[0m
+[94m[1m- Save Only Every         : 250 iterations[0m
+[94m[1m- Learning Rate           : 0.001[0m
+[94m[1m- Optimizer               : adam (weight decay 0.0)[0m
+[94m[1m- Learning Rate Schedule  : constant (warm-up 0 iterations)[0m
+[94m[1m- Gradient Clipping Norm  : None[0m
+[94m[1m- Weight Moving Average   : Off[0m
+[94m[1m- Mixed Precision         : False[0m
+[94m[1m- Resume Training         : False[0m
+[94m[1m- Validation Iter. Ratio  : 25[0m
+[94m[1m- MLflow Tracking         : sqlite:////home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/mlflow.db[0m
+[93m[1m------------------------------[0m
+[93m[1mBackbone Architecture Summary[0m
+[93m[1m------------------------------[0m
+[94m[1m------------------------------------[0m
+[94m[1mInput image shape: [1, 3, 512, 512][0m
+[94m[1m------------------------------------[0m
+╭─────────────────────────── Backbone Architecture ────────────────────────────╮
+│ Normalization Strategy: Batch                                                │
+│                                                                              │
+│  - Convolution Block 1                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 3, 512, 512]                                         │
+│    - Output Shape : [1, 16, 256, 256]                                        │
+│                                                                              │
+│  - Convolution Block 2                                                       │
+│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Input Shape  : [1, 16, 256, 256]                                        │
+│    - Output Shape : [1, 32, 128, 128]                                        │
+│                                                                              │
+│  - Convolution Block 3                                                       │
+│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Input Shape  : [1, 32, 128, 128]                                        │
+│    - Output Shape : [1, 32, 64, 64]                                          │
+│                                                                              │
+│  - Convolution Block 4                                                       │
+│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Input Shape  : [1, 32, 64, 64]                                          │
+│    - Output Shape : [1, 64, 32, 32]                                          │
+│                                                                              │
+│  - Convolution Block 5                                                       │
+│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Input Shape  : [1, 64, 32, 32]                                          │
+│    - Output Shape : [1, 64, 32, 32]                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+[32m[1m---------------------------------------------[0m
+[32m[1mFinal Backbone output shape: [1, 64, 32, 32][0m
+[32m[1m---------------------------------------------[0m
+╭────────────────────────────── Temporal Module ───────────────────────────────╮
+│ Type               : mean_pooling                                            │
+│ Hidden Size        : 128                                                     │
+│ Number Layers      : 1                                                       │
+│ Number Heads       : 4                                                       │
+│ Kernel Size        : 3                                                       │
+│ Dropout Rate       : 0.0                                                     │
+│ Bidirectional      : True                                                    │
+│ Causal             : False                                                   │
+│ Positional Embedding : True                                                  │
+│ Output Features    : 64                                                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─────────────────────────────── Member Fusion ────────────────────────────────╮
+│ Type               : difference                                              │
+│ Number Heads       : 4                                                       │
+│ Dropout Rate       : 0.0                                                     │
+│ Sequence Normalization Scope : member                                        │
+│ Output Features    : 192                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────── Classification Head ─────────────────────────────╮
+│ Global Pooling     : average                                                 │
+│ Input Features     : 192                                                     │
+│ Hidden Layers      : [64]                                                    │
+│ Normalization      : none                                                    │
+│ Dropout Rate       : 0.2                                                     │
+│ Output Mode        : multi_class                                             │
+│ Number Of Classes  : 2                                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────── Backbone Receptive Field ────────────────────────────────────╮
+│ Input Image Size : 512x512                                                                       │
+│                                                                                                  │
+│ Block 1 - Convolution 1  : Output 512x512x16 | Stride 1 | Receptive Field 3                      │
+│ Block 1 - Max Pooling    : Output 256x256x16 | Stride 2 | Receptive Field 4                      │
+│                                                                                                  │
+│ Block 2 - Convolution 1  : Output 256x256x32 | Stride 2 | Receptive Field 8                      │
+│ Block 2 - Convolution 2  : Output 256x256x32 | Stride 2 | Receptive Field 12                     │
+│ Block 2 - Max Pooling    : Output 128x128x32 | Stride 4 | Receptive Field 14                     │
+│                                                                                                  │
+│ Block 3 - Convolution 1  : Output 128x128x32 | Stride 4 | Receptive Field 22                     │
+│ Block 3 - Convolution 2  : Output 128x128x32 | Stride 4 | Receptive Field 30                     │
+│ Block 3 - Max Pooling    : Output 64x64x32 | Stride 8 | Receptive Field 34                       │
+│                                                                                                  │
+│ Block 4 - Convolution 1  : Output 64x64x64 | Stride 8 | Receptive Field 50                       │
+│ Block 4 - Convolution 2  : Output 64x64x64 | Stride 8 | Receptive Field 66                       │
+│ Block 4 - Max Pooling    : Output 32x32x64 | Stride 16 | Receptive Field 74                      │
+│                                                                                                  │
+│ Block 5 - Convolution 1  : Output 32x32x64 | Stride 16 | Receptive Field 106                     │
+│ Block 5 - Convolution 2  : Output 32x32x64 | Stride 16 | Receptive Field 138                     │
+│                                                                                                  │
+│ Squeeze-and-Excitation adds global image context.                                                │
+│ This is not captured by the convolutional receptive field above.                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─────────────────────── Model Size ───────────────────────╮
+│ Backbone                                                 │
+│   - Parameters           : 183,648                       │
+│   - Trainable Parameters : 183,648                       │
+│   - Estimated Size       : 0.74 MB                       │
+│                                                          │
+│ Temporal Module                                          │
+│   - Parameters           : 0                             │
+│   - Trainable Parameters : 0                             │
+│   - Estimated Size       : 0.00 MB                       │
+│                                                          │
+│ Member Fusion                                            │
+│   - Parameters           : 0                             │
+│   - Trainable Parameters : 0                             │
+│   - Estimated Size       : 0.00 MB                       │
+│                                                          │
+│ Classification Head                                      │
+│   - Parameters           : 12,482                        │
+│   - Trainable Parameters : 12,482                        │
+│   - Estimated Size       : 0.05 MB                       │
+│                                                          │
+│ Total Model                                              │
+│   - Parameters           : 196,130                       │
+│   - Trainable Parameters : 196,130                       │
+│   - Estimated Size       : 0.79 MB                       │
+╰──────────────────────────────────────────────────────────╯
+2026/10/23 03:58:26 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at /home/robert_kelevra/Projects/visual-language-model-spark/.venv/lib/python3.13/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[94m[1mMLflow Run Created In The Experiment 'sequence_comparison' : 67443c1df64c4fe181a6b953825f5e10 (Browse : mlflow ui --backend-store-uri sqlite:////home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/mlflow.db)[0m
+===============================================================================================================================================
+|    Iteration: 100   |    Total Pairs: 1600    |   Interval Pairs: 1600   |   Throughput: 8.6 Pairs Per Second  |   69.6 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.6727[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.6645[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.6727[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.6645[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.5700[0m
+[93m[1mMoving Average of Valid Accuracy                       :   0.5781[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:03:05.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+===============================================================================================================================================
+|    Iteration: 200   |    Total Pairs: 3200    |   Interval Pairs: 1600   |  Throughput: 10.2 Pairs Per Second  |   81.2 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.3203[0m [32m[1m -0.3525[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.2028[0m [32m[1m -0.4617[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.3203[0m [32m[1m -0.3525[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.2028[0m [32m[1m -0.4617[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.8906[0m [32m[1m +0.3206[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :   0.9844[0m [32m[1m +0.4062[0m [93m[1mBest[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:37.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+Checkpoint Folder :
+ - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Weights/Iteration_250\[4mIteration_250[24m]8;;\
+ - Model Saved In : model_000250.pt
+===============================================================================================================================================
+|    Iteration: 300   |    Total Pairs: 4800    |   Interval Pairs: 1600   |  Throughput: 10.1 Pairs Per Second  |   81.2 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.1669[0m [32m[1m -0.1534[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.0971[0m [32m[1m -0.1057[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.1669[0m [32m[1m -0.1534[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.0971[0m [32m[1m -0.1057[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9431[0m [32m[1m +0.0525[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :   0.9688[0m [91m[1m -0.0156[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:39.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+===============================================================================================================================================
+|    Iteration: 400   |    Total Pairs: 6400    |   Interval Pairs: 1600   |  Throughput: 10.1 Pairs Per Second  |   81.6 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.1083[0m [32m[1m -0.0586[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.0448[0m [32m[1m -0.0523[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.1083[0m [32m[1m -0.0586[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.0448[0m [32m[1m -0.0523[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9619[0m [32m[1m +0.0188[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :   0.9844[0m [32m[1m +0.0156[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:37.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+Checkpoint Folder :
+ - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Weights/Iteration_500\[4mIteration_500[24m]8;;\
+ - Model Saved In : model_000500.pt
+===============================================================================================================================================
+|    Iteration: 500   |    Total Pairs: 8000    |   Interval Pairs: 1600   |  Throughput: 10.1 Pairs Per Second  |   81.7 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.1099[0m [91m[1m +0.0017[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.0300[0m [32m[1m -0.0148[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.1099[0m [91m[1m +0.0017[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.0300[0m [32m[1m -0.0148[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9669[0m [32m[1m +0.0050[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :   1.0000[0m [32m[1m +0.0156[0m [93m[1mBest[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:37.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+Test Evaluation Iteration 500:   0%|          | 0/13 [00:00<?, ?it/s]Test Evaluation Iteration 500:   8%|▊         | 1/13 [00:01<00:21,  1.81s/it]Test Evaluation Iteration 500:  15%|█▌        | 2/13 [00:02<00:13,  1.22s/it]Test Evaluation Iteration 500:  23%|██▎       | 3/13 [00:03<00:08,  1.15it/s]Test Evaluation Iteration 500:  31%|███       | 4/13 [00:03<00:08,  1.12it/s]Test Evaluation Iteration 500:  38%|███▊      | 5/13 [00:04<00:06,  1.25it/s]Test Evaluation Iteration 500:  46%|████▌     | 6/13 [00:05<00:04,  1.49it/s]Test Evaluation Iteration 500:  54%|█████▍    | 7/13 [00:05<00:03,  1.64it/s]Test Evaluation Iteration 500:  62%|██████▏   | 8/13 [00:06<00:03,  1.58it/s]Test Evaluation Iteration 500:  69%|██████▉   | 9/13 [00:06<00:02,  1.73it/s]Test Evaluation Iteration 500:  77%|███████▋  | 10/13 [00:07<00:02,  1.41it/s]Test Evaluation Iteration 500:  85%|████████▍ | 11/13 [00:08<00:01,  1.50it/s]Test Evaluation Iteration 500:  92%|█████████▏| 12/13 [00:08<00:00,  1.60it/s]Test Evaluation Iteration 500: 100%|██████████| 13/13 [00:09<00:00,  1.93it/s]Test Evaluation Iteration 500: 100%|██████████| 13/13 [00:09<00:00,  1.44it/s]
+Iteration 500 · 200 Test Pairs · 2026-10-23 04:12 ──────────────────────────────────────────────────────────────────────
+  Accuracy        0.9850   Balanced Accuracy         0.9861                                                             
+  Macro F1        0.9849   Top-1 Accuracy            0.9850                                                             
+  Macro ROC AUC   0.9962   Macro Average Precision   0.9960                                                             
+  Sample Images : 8 fixed test pairs                                                                                    
+                                                                                                                        
+  Per Class Metrics                                                                                                     
+                                                                                Average   Threshold    Recall           
+   Class                    Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99           
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────          
+   same_number_of_objects        92      0.9684   1.0000   0.9840    0.9962      0.9946      0.9447    0.6304           
+   loss_of_object               108      1.0000   0.9722   0.9859    0.9962      0.9974      0.3798    0.9815           
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99  
+  is never reached.                                                                                                     
+[32m[1m  - Results : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Results.txt\[4mResults.txt[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Table : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/confusion_matrix.csv\[4mconfusion_matrix.csv[24m]8;;\[0m
+[32m[1m  - Class Thresholds : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/class_thresholds.json\[4mclass_thresholds.json[24m]8;;\[0m
+[32m[1m  - Class Metrics : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/class_metrics.csv\[4mclass_metrics.csv[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/confusion_matrix.png\[4mconfusion_matrix.png[24m]8;;\[0m
+[32m[1m  - ROC Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/roc_curves.png\[4mroc_curves.png[24m]8;;\[0m
+[32m[1m  - Precision Recall Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/precision_recall_curves.png\[4mprecision_recall_curves.png[24m]8;;\[0m
+[32m[1m  - Predictions : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/predictions.csv\[4mpredictions.csv[24m]8;;\[0m
+[32m[1m  - Sample Images : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_500/Samples\[4mSamples[24m]8;;\[0m
+===============================================================================================================================================
+|    Iteration: 600   |    Total Pairs: 9600    |   Interval Pairs: 1600   |   Throughput: 9.7 Pairs Per Second  |   78.3 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.0810[0m [32m[1m -0.0289[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.0490[0m [91m[1m +0.0190[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.0810[0m [32m[1m -0.0289[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.0490[0m [91m[1m +0.0190[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9794[0m [32m[1m +0.0125[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :   0.9688[0m [91m[1m -0.0312[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:44.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+===============================================================================================================================================
+|    Iteration: 700   |    Total Pairs: 11200   |   Interval Pairs: 1600   |  Throughput: 13.0 Pairs Per Second  |  104.8 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.0423[0m [32m[1m -0.0387[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.0292[0m [32m[1m -0.0198[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.0423[0m [32m[1m -0.0387[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.0292[0m [32m[1m -0.0198[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9875[0m [32m[1m +0.0081[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :   0.9844[0m [32m[1m +0.0156[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:03.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+Checkpoint Folder :
+ - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Weights/Iteration_750\[4mIteration_750[24m]8;;\
+ - Model Saved In : model_000750.pt
+===============================================================================================================================================
+|    Iteration: 800   |    Total Pairs: 12800   |   Interval Pairs: 1600   |  Throughput: 10.5 Pairs Per Second  |   83.9 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.0676[0m [91m[1m +0.0252[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.0151[0m [32m[1m -0.0141[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.0676[0m [91m[1m +0.0252[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.0151[0m [32m[1m -0.0141[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9825[0m [91m[1m -0.0050[0m
+[93m[1mMoving Average of Valid Accuracy                       :   1.0000[0m [32m[1m +0.0156[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:32.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+===============================================================================================================================================
+|    Iteration: 900   |    Total Pairs: 14400   |   Interval Pairs: 1600   |  Throughput: 10.0 Pairs Per Second  |   80.8 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.0850[0m [91m[1m +0.0174[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.1109[0m [91m[1m +0.0958[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.0850[0m [91m[1m +0.0174[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.1109[0m [91m[1m +0.0958[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9694[0m [91m[1m -0.0131[0m
+[93m[1mMoving Average of Valid Accuracy                       :   0.9688[0m [91m[1m -0.0312[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:39.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+Checkpoint Folder :
+ - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Weights/Iteration_1000\[4mIteration_1000[24m]8;;\
+ - Model Saved In : model_001000.pt
+===============================================================================================================================================
+|   Iteration: 1000   |    Total Pairs: 16000   |   Interval Pairs: 1600   |  Throughput: 10.1 Pairs Per Second  |   80.9 Frames Per Second   |
+-----------------------------------------------------------------------------------------------------------------------------------------------
+[94m[1mMoving Average of Train Total Loss                     :   0.0587[0m [32m[1m -0.0263[0m
+[93m[1mMoving Average of Valid Total Loss                     :   0.0203[0m [32m[1m -0.0906[0m
+[94m[1mMoving Average of Train Classification Loss            :   0.0587[0m [32m[1m -0.0263[0m
+[93m[1mMoving Average of Valid Classification Loss            :   0.0203[0m [32m[1m -0.0906[0m
+[94m[1mMoving Average of Train Accuracy                       :   0.9844[0m [32m[1m +0.0150[0m
+[93m[1mMoving Average of Valid Accuracy                       :   1.0000[0m [32m[1m +0.0312[0m
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Interval Of 100 Iterations Took 00:02:38.
+Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
+===============================================================================================================================================
+Test Evaluation Iteration 1000:   0%|          | 0/13 [00:00<?, ?it/s]Test Evaluation Iteration 1000:   8%|▊         | 1/13 [00:01<00:22,  1.84s/it]Test Evaluation Iteration 1000:  15%|█▌        | 2/13 [00:02<00:11,  1.04s/it]Test Evaluation Iteration 1000:  23%|██▎       | 3/13 [00:02<00:07,  1.27it/s]Test Evaluation Iteration 1000:  31%|███       | 4/13 [00:03<00:06,  1.30it/s]Test Evaluation Iteration 1000:  38%|███▊      | 5/13 [00:04<00:05,  1.49it/s]Test Evaluation Iteration 1000:  46%|████▌     | 6/13 [00:04<00:04,  1.69it/s]Test Evaluation Iteration 1000:  54%|█████▍    | 7/13 [00:05<00:03,  1.64it/s]Test Evaluation Iteration 1000:  62%|██████▏   | 8/13 [00:06<00:04,  1.18it/s]Test Evaluation Iteration 1000:  69%|██████▉   | 9/13 [00:07<00:03,  1.23it/s]Test Evaluation Iteration 1000:  77%|███████▋  | 10/13 [00:07<00:02,  1.40it/s]Test Evaluation Iteration 1000:  85%|████████▍ | 11/13 [00:08<00:01,  1.53it/s]Test Evaluation Iteration 1000:  92%|█████████▏| 12/13 [00:08<00:00,  1.70it/s]Test Evaluation Iteration 1000: 100%|██████████| 13/13 [00:09<00:00,  1.94it/s]Test Evaluation Iteration 1000: 100%|██████████| 13/13 [00:09<00:00,  1.44it/s]
+Iteration 1000 · 200 Test Pairs · 2026-10-23 04:24 ─────────────────────────────────────────────────────────────────────
+  Accuracy        0.9850   Balanced Accuracy         0.9861                                                             
+  Macro F1        0.9849   Top-1 Accuracy            0.9850                                                             
+  Macro ROC AUC   0.9945   Macro Average Precision   0.9944                                                             
+  Sample Images : 8 fixed test pairs                                                                                    
+                                                                                                                        
+  Per Class Metrics                                                                                                     
+                                                                                Average   Threshold    Recall           
+   Class                    Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99           
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────          
+   same_number_of_objects        92      0.9684   1.0000   0.9840    0.9945      0.9925      0.9880    0.6848           
+   loss_of_object               108      1.0000   0.9722   0.9859    0.9945      0.9962      0.2912    0.9815           
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99  
+  is never reached.                                                                                                     
+[32m[1m  - Results : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Results.txt\[4mResults.txt[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Table : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/confusion_matrix.csv\[4mconfusion_matrix.csv[24m]8;;\[0m
+[32m[1m  - Class Thresholds : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/class_thresholds.json\[4mclass_thresholds.json[24m]8;;\[0m
+[32m[1m  - Class Metrics : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/class_metrics.csv\[4mclass_metrics.csv[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/confusion_matrix.png\[4mconfusion_matrix.png[24m]8;;\[0m
+[32m[1m  - ROC Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/roc_curves.png\[4mroc_curves.png[24m]8;;\[0m
+[32m[1m  - Precision Recall Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/precision_recall_curves.png\[4mprecision_recall_curves.png[24m]8;;\[0m
+[32m[1m  - Predictions : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/predictions.csv\[4mpredictions.csv[24m]8;;\[0m
+[32m[1m  - Sample Images : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/Evaluation/Iteration_1000/Samples\[4mSamples[24m]8;;\[0m
+[32m[1m-----------------------------------------------------------[0m
+[32m[1mLast Checkpoint Saved At Iteration 1000. Exiting Training.[0m
+[32m[1m-----------------------------------------------------------[0m

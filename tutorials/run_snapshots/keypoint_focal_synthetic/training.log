@@ -1,0 +1,12 @@
+|    Iteration: 500    |     Total Images: 8000    |   Interval Images: 8000    |  Throughput: 12.4 Images Per Second  |
+|   Iteration: 1000    |    Total Images: 16000    |   Interval Images: 8000    |  Throughput: 12.2 Images Per Second  |
+|   Iteration: 1500    |    Total Images: 24000    |   Interval Images: 8000    |  Throughput: 11.8 Images Per Second  |
+|   Iteration: 2000    |    Total Images: 32000    |   Interval Images: 8000    |  Throughput: 11.8 Images Per Second  |
+|   Iteration: 2500    |    Total Images: 40000    |   Interval Images: 8000    |  Throughput: 12.8 Images Per Second  |
+|   Iteration: 3000    |    Total Images: 48000    |   Interval Images: 8000    |  Throughput: 12.9 Images Per Second  |
+|   Iteration: 3500    |    Total Images: 56000    |   Interval Images: 8000    |  Throughput: 12.9 Images Per Second  |
+|   Iteration: 4000    |    Total Images: 64000    |   Interval Images: 8000    |  Throughput: 12.0 Images Per Second  |
+|   Iteration: 4500    |    Total Images: 72000    |   Interval Images: 8000    |  Throughput: 13.0 Images Per Second  |
+|   Iteration: 5000    |    Total Images: 80000    |   Interval Images: 8000    |  Throughput: 12.9 Images Per Second  |
+|   Iteration: 5500    |    Total Images: 88000    |   Interval Images: 8000    |  Throughput: 13.0 Images Per Second  |
+|   Iteration: 6000    |    Total Images: 96000    |   Interval Images: 8000    |  Throughput: 13.0 Images Per Second  |

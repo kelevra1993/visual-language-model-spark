@@ -9,7 +9,8 @@ sequence drawn as captioned thumbnails on the card colour of the videos, so that
 code of the repository as they are. The settings typed in the main block of a script of the repository (the synthetic
 dataset generator, the split subset script) are read from its source, so that the narration quoting them follows the
 script, and the facts of the expensive figures are reused only when the previous build wrote every fact a series needs
-from the same run and the same unchanged files.
+from the same run and the same unchanged files. A run read from the committed snapshots (tutorials/run_snapshots) reads
+its dataset files under datasets/ of the snapshot folder and reuses the committed facts of those figures as they are.
 """
 
 import ast
@@ -26,7 +27,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_FONT_PATH,
                                      SANS_SEMIBOLD_FONT_PATH)
 from tutorial_builder.figure_context import find_repository_root, read_thread_count
-from tutorials.figures.figure_utilities import compute_file_fingerprint, read_reused_facts
+from tutorials.figures.figure_utilities import (compute_file_fingerprint, is_snapshot_folder, read_reused_facts,
+                                                remap_recorded_dataset_paths, resolve_dataset_path)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.evaluation.report_formatting import PERCENT_DECIMALS, PERCENT_SIGN
@@ -48,11 +50,17 @@ METRIC_PATTERN = re.compile(pattern=r"([A-Za-z][\w@\- ]*?[\w@])\s{2,}(\d+\.\d+)(
 # Decimals of a rate read back from its percentage, the two decimals of the percentage and the two of the division
 RATE_DECIMALS = PERCENT_DECIMALS + 2
 
+# Dataset folders of the experiment section, given as paths by the loader, pointed at the committed dataset files for a
+# run read from the snapshots
+DATASET_FOLDER_KEYS = ["train_data_folder", "validation_data_folder", "test_data_folder"]
+
 
 def read_run_sections(run_folder: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Reads the saved training configuration of a sequence run with the loader of the trainers, which also builds its
     label dictionary from the mapping file, so that the figures read the data and the model exactly as the run did.
+    For a run read from the committed snapshots, its dataset folders and mapping file point at the committed dataset
+    files (resolve_dataset_path), so that the figures never read the datasets of the machine.
 
     Args:
         run_folder (Path): The run folder, holding training_configuration.yaml.
@@ -60,7 +68,16 @@ def read_run_sections(run_folder: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]
     Returns:
         Tuple[Dict[str, Any], Dict[str, Any]]: The experiment configuration and the model sections of the run.
     """
-    return load_experiment_configuration(configuration_path=run_folder / "training_configuration.yaml")
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=run_folder / "training_configuration.yaml")
+    if not is_snapshot_folder(folder=run_folder):
+        return experiment_configuration, model_configuration
+
+    # Dataset paths of a run read from the snapshots replaced by their copies under datasets/ of the snapshot folder
+    for key in DATASET_FOLDER_KEYS:
+        if key in experiment_configuration:
+            experiment_configuration[key] = resolve_dataset_path(path=experiment_configuration[key], snapshot_mode=True)
+    return experiment_configuration, remap_recorded_dataset_paths(value=model_configuration)
 
 
 def build_test_dataset(run_folder: Path, label_type: str) -> SequenceDataset:
@@ -461,7 +478,9 @@ def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, 
     balance of its training labels) like read_complete_reused_facts, but only when the previous build read the same
     run and the same unchanged files (describe_run_source), so that a cache made from another run of
     tutorial_sources.yaml, from another evaluation of it, or from files replaced since by a training or an evaluation
-    under the same name is made again instead of showing the figures of the old files.
+    under the same name is made again instead of showing the figures of the old files. A run read from the committed
+    snapshots, whose files are absent or reduced, reuses the committed facts (restored from figure_reuse/ by the
+    caller) after checking only the run name, so that their sources and fingerprints stay those of the real files.
 
     Args:
         facts_path (Path): The JSON file written next to the figures by write_reused_facts.
@@ -476,7 +495,25 @@ def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, 
 
     Returns:
         Optional[Dict[str, Any]]: The reused facts, or None when the figures must be made again.
+
+    Raises:
+        FileNotFoundError: If a run read from the snapshots has no complete committed facts.
+        ValueError: If the committed facts of a run read from the snapshots were made from another run.
     """
+    # A run read from the snapshots cannot make these figures again: its committed facts are reused as they are
+    if is_snapshot_folder(folder=run_folder):
+        source_fact_names = [f"{fact_prefix}.{name}" for name in ["run_name", "source", "source_fingerprint"]]
+        reused_facts = read_complete_reused_facts(facts_path=facts_path, required_paths=required_paths or [],
+                                                  required_fact_names=source_fact_names + (required_fact_names or []),
+                                                  force=False)
+        if reused_facts is None:
+            raise FileNotFoundError(f"No complete committed facts {facts_path} for the run {run_folder} read from the "
+                                    f"snapshots: refresh the figure_reuse files with tutorials/make_run_snapshots.py.")
+        if reused_facts[f"{fact_prefix}.run_name"] != run_folder.name:
+            raise ValueError(f"The committed facts {facts_path} were made from the run "
+                             f"{reused_facts[f'{fact_prefix}.run_name']}, not from {run_folder.name}.")
+        return reused_facts
+
     current_source = describe_run_source(run_folder=run_folder, source_name=source_name, source_paths=source_paths,
                                          fact_prefix=fact_prefix)
     reused_facts = read_complete_reused_facts(facts_path=facts_path, required_paths=required_paths or [],

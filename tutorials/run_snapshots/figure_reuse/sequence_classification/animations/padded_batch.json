@@ -1,0 +1,2422 @@
+{
+ "phases": [
+  "sequences",
+  "padded",
+  "mask",
+  "gather",
+  "encode",
+  "scatter"
+ ],
+ "tiles": [
+  {
+   "image": null,
+   "fill": "card",
+   "outline": "accent",
+   "states": {
+    "padded": {
+     "box": [
+      318,
+      84,
+      752,
+      342
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_0_00.png",
+   "second_image": "../batch/vector_0_00.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      330,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      330,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.0
+    },
+    "encode": {
+     "box": [
+      330,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.0
+    },
+    "scatter": {
+     "box": [
+      330,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1300,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_0_01.png",
+   "second_image": "../batch/vector_0_01.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      412,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      374,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.03
+    },
+    "encode": {
+     "box": [
+      374,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.03
+    },
+    "scatter": {
+     "box": [
+      412,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.03
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1340,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_0_02.png",
+   "second_image": "../batch/vector_0_02.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      494,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      418,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.06
+    },
+    "encode": {
+     "box": [
+      418,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.06
+    },
+    "scatter": {
+     "box": [
+      494,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.06
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1380,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_0_03.png",
+   "second_image": "../batch/vector_0_03.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      576,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      462,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.09
+    },
+    "encode": {
+     "box": [
+      462,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.09
+    },
+    "scatter": {
+     "box": [
+      576,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.09
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1420,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_0_04.png",
+   "second_image": "../batch/vector_0_04.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      658,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      506,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.12
+    },
+    "encode": {
+     "box": [
+      506,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.12
+    },
+    "scatter": {
+     "box": [
+      658,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.12
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1460,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_0_05.png",
+   "second_image": "../batch/vector_0_05.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      740,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      550,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.15
+    },
+    "encode": {
+     "box": [
+      550,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.15
+    },
+    "scatter": {
+     "box": [
+      740,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.15
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1500,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_0_06.png",
+   "second_image": "../batch/vector_0_06.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      822,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      594,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.18
+    },
+    "encode": {
+     "box": [
+      594,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.18
+    },
+    "scatter": {
+     "box": [
+      822,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.18
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1540,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      904,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      904,
+      96,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      904,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1580,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      986,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      986,
+      96,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      986,
+      96,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1620,
+      114,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_00.png",
+   "second_image": "../batch/vector_1_00.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      330,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      638,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.21
+    },
+    "encode": {
+     "box": [
+      638,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.21
+    },
+    "scatter": {
+     "box": [
+      330,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.21
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1300,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_01.png",
+   "second_image": "../batch/vector_1_01.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      412,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      682,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.24
+    },
+    "encode": {
+     "box": [
+      682,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.24
+    },
+    "scatter": {
+     "box": [
+      412,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.24
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1340,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_02.png",
+   "second_image": "../batch/vector_1_02.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      494,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      726,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.27
+    },
+    "encode": {
+     "box": [
+      726,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.27
+    },
+    "scatter": {
+     "box": [
+      494,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.27
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1380,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_03.png",
+   "second_image": "../batch/vector_1_03.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      576,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      770,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.3
+    },
+    "encode": {
+     "box": [
+      770,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.3
+    },
+    "scatter": {
+     "box": [
+      576,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.3
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1420,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_04.png",
+   "second_image": "../batch/vector_1_04.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      658,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      814,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.33
+    },
+    "encode": {
+     "box": [
+      814,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.33
+    },
+    "scatter": {
+     "box": [
+      658,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.33
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1460,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_05.png",
+   "second_image": "../batch/vector_1_05.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      740,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      858,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.36
+    },
+    "encode": {
+     "box": [
+      858,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.36
+    },
+    "scatter": {
+     "box": [
+      740,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.36
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1500,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_06.png",
+   "second_image": "../batch/vector_1_06.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      822,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      902,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.39
+    },
+    "encode": {
+     "box": [
+      902,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.39
+    },
+    "scatter": {
+     "box": [
+      822,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.39
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1540,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_07.png",
+   "second_image": "../batch/vector_1_07.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      904,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      946,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.42
+    },
+    "encode": {
+     "box": [
+      946,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.42
+    },
+    "scatter": {
+     "box": [
+      904,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.42
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1580,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_1_08.png",
+   "second_image": "../batch/vector_1_08.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      986,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      990,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.45
+    },
+    "encode": {
+     "box": [
+      990,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.45
+    },
+    "scatter": {
+     "box": [
+      986,
+      178,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.45
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1620,
+      196,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_2_00.png",
+   "second_image": "../batch/vector_2_00.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      330,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      1034,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.48
+    },
+    "encode": {
+     "box": [
+      1034,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.48
+    },
+    "scatter": {
+     "box": [
+      330,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.48
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1300,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_2_01.png",
+   "second_image": "../batch/vector_2_01.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      412,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      1078,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.51
+    },
+    "encode": {
+     "box": [
+      1078,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.51
+    },
+    "scatter": {
+     "box": [
+      412,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.51
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1340,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_2_02.png",
+   "second_image": "../batch/vector_2_02.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      494,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      1122,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.54
+    },
+    "encode": {
+     "box": [
+      1122,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.54
+    },
+    "scatter": {
+     "box": [
+      494,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.54
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1380,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_2_03.png",
+   "second_image": "../batch/vector_2_03.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      576,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      1166,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.57
+    },
+    "encode": {
+     "box": [
+      1166,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.57
+    },
+    "scatter": {
+     "box": [
+      576,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.57
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1420,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      658,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      658,
+      260,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      658,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1460,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      740,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      740,
+      260,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      740,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1500,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      822,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      822,
+      260,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      822,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1540,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      904,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      904,
+      260,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      904,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1580,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      986,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      986,
+      260,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      986,
+      260,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1620,
+      278,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_3_00.png",
+   "second_image": "../batch/vector_3_00.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      330,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      1210,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.6
+    },
+    "encode": {
+     "box": [
+      1210,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.6
+    },
+    "scatter": {
+     "box": [
+      330,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.6
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1300,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_3_01.png",
+   "second_image": "../batch/vector_3_01.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      412,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      1254,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.63
+    },
+    "encode": {
+     "box": [
+      1254,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.63
+    },
+    "scatter": {
+     "box": [
+      412,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.63
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1340,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": "../batch/frame_3_02.png",
+   "second_image": "../batch/vector_3_02.png",
+   "fill": "black",
+   "outline": "border",
+   "states": {
+    "sequences": {
+     "box": [
+      494,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      1298,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "delay": 0.66
+    },
+    "encode": {
+     "box": [
+      1298,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.66
+    },
+    "scatter": {
+     "box": [
+      494,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.66
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "aqua",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1380,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      576,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      576,
+      342,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      576,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1420,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      658,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      658,
+      342,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      658,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1460,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      740,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      740,
+      342,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      740,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1500,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      822,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      822,
+      342,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      822,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1540,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      904,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      904,
+      342,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      904,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1580,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  },
+  {
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
+   "fill": "black",
+   "outline": "border",
+   "label": "pad",
+   "states": {
+    "padded": {
+     "box": [
+      986,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0
+    },
+    "gather": {
+     "box": [
+      986,
+      342,
+      72,
+      72
+     ],
+     "opacity": 0.3
+    },
+    "scatter": {
+     "box": [
+      986,
+      342,
+      72,
+      72
+     ],
+     "opacity": 1.0,
+     "face": 1
+    }
+   }
+  },
+  {
+   "image": null,
+   "fill": "box",
+   "outline": "border",
+   "states": {
+    "mask": {
+     "box": [
+      1620,
+      360,
+      36,
+      36
+     ],
+     "opacity": 1.0
+    }
+   }
+  }
+ ],
+ "texts": [
+  {
+   "text": "moving_up\n7 frames",
+   "position": [
+    302,
+    132
+   ],
+   "anchor": "rm",
+   "font": "diagram_small",
+   "colour": "text",
+   "phases": [
+    "sequences",
+    "padded",
+    "mask",
+    "gather",
+    "encode",
+    "scatter"
+   ]
+  },
+  {
+   "text": "[7, 3, 128, 128]",
+   "position": [
+    908,
+    132
+   ],
+   "anchor": "lm",
+   "font": "diagram_monospace_small",
+   "colour": "dim",
+   "phases": [
+    "sequences"
+   ]
+  },
+  {
+   "text": "moving_right\n9 frames",
+   "position": [
+    302,
+    214
+   ],
+   "anchor": "rm",
+   "font": "diagram_small",
+   "colour": "text",
+   "phases": [
+    "sequences",
+    "padded",
+    "mask",
+    "gather",
+    "encode",
+    "scatter"
+   ]
+  },
+  {
+   "text": "[9, 3, 128, 128]",
+   "position": [
+    1072,
+    214
+   ],
+   "anchor": "lm",
+   "font": "diagram_monospace_small",
+   "colour": "dim",
+   "phases": [
+    "sequences"
+   ]
+  },
+  {
+   "text": "moving_down\n4 frames",
+   "position": [
+    302,
+    296
+   ],
+   "anchor": "rm",
+   "font": "diagram_small",
+   "colour": "text",
+   "phases": [
+    "sequences",
+    "padded",
+    "mask",
+    "gather",
+    "encode",
+    "scatter"
+   ]
+  },
+  {
+   "text": "[4, 3, 128, 128]",
+   "position": [
+    662,
+    296
+   ],
+   "anchor": "lm",
+   "font": "diagram_monospace_small",
+   "colour": "dim",
+   "phases": [
+    "sequences"
+   ]
+  },
+  {
+   "text": "moving_left\n3 frames",
+   "position": [
+    302,
+    378
+   ],
+   "anchor": "rm",
+   "font": "diagram_small",
+   "colour": "text",
+   "phases": [
+    "sequences",
+    "padded",
+    "mask",
+    "gather",
+    "encode",
+    "scatter"
+   ]
+  },
+  {
+   "text": "[3, 3, 128, 128]",
+   "position": [
+    580,
+    378
+   ],
+   "anchor": "lm",
+   "font": "diagram_monospace_small",
+   "colour": "dim",
+   "phases": [
+    "sequences"
+   ]
+  },
+  {
+   "text": "images [4, 9, 3, 128, 128] uint8",
+   "position": [
+    318,
+    40
+   ],
+   "anchor": "la",
+   "font": "diagram_monospace_small",
+   "colour": "key",
+   "phases": [
+    "padded",
+    "mask",
+    "gather",
+    "encode"
+   ]
+  },
+  {
+   "text": "frame_features [4, 9, 4096], zeros on the padding",
+   "position": [
+    318,
+    40
+   ],
+   "anchor": "la",
+   "font": "diagram_monospace_small",
+   "colour": "key",
+   "phases": [
+    "scatter"
+   ]
+  },
+  {
+   "text": "sequence_mask [4, 9] bool",
+   "position": [
+    1300,
+    40
+   ],
+   "anchor": "la",
+   "font": "diagram_monospace_small",
+   "colour": "key",
+   "phases": [
+    "mask",
+    "gather",
+    "encode",
+    "scatter"
+   ]
+  },
+  {
+   "text": "input_tensor[sequence_mask]  [23, 3, 128, 128]",
+   "position": [
+    330,
+    512
+   ],
+   "anchor": "la",
+   "font": "diagram_monospace_small",
+   "colour": "key",
+   "phases": [
+    "gather"
+   ]
+  },
+  {
+   "text": "backbone  [23, 16, 64, 64]  [23, 32, 32, 32]  [23, 32, 16, 16]  [23, 64, 8, 8]  [23, 64, 8, 8]",
+   "position": [
+    330,
+    512
+   ],
+   "anchor": "la",
+   "font": "diagram_monospace_small",
+   "colour": "key",
+   "phases": [
+    "encode"
+   ]
+  },
+  {
+   "text": "flatten  [23, 4096]: one vector per real frame",
+   "position": [
+    330,
+    618
+   ],
+   "anchor": "la",
+   "font": "diagram_monospace_small",
+   "colour": "key",
+   "phases": [
+    "encode"
+   ]
+  }
+ ]
+}

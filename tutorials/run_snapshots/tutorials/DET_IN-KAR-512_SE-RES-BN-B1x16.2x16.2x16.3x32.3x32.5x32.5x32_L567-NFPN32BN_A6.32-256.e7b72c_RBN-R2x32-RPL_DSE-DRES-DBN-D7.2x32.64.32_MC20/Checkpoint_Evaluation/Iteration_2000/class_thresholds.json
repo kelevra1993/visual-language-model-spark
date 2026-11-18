@@ -1,0 +1,76 @@
+{
+    "target_precision": 0.99,
+    "classes": {
+        "square": {
+            "threshold": 0.7994295954704285,
+            "recall": 0.8589562764456982
+        },
+        "circle": {
+            "threshold": 0.7392473816871643,
+            "recall": 0.18424004486819967
+        },
+        "triangle": {
+            "threshold": 0.7465857863426208,
+            "recall": 0.43080865603644647
+        },
+        "rectangle": {
+            "threshold": 0.9429337382316589,
+            "recall": 0.6891814539210075
+        },
+        "pentagon": {
+            "threshold": 0.7694662809371948,
+            "recall": 0.6302158273381295
+        },
+        "hexagon": {
+            "threshold": 0.7170397639274597,
+            "recall": 0.21175453759723423
+        },
+        "plus_sign": {
+            "threshold": 0.8508959412574768,
+            "recall": 0.925624636839047
+        },
+        "star": {
+            "threshold": 0.8024730682373047,
+            "recall": 0.9047619047619048
+        },
+        "octagon": null,
+        "rhombus": {
+            "threshold": 0.3874679505825043,
+            "recall": 0.002328288707799767
+        },
+        "parallelogram": {
+            "threshold": 0.8155859112739563,
+            "recall": 0.14416214673137312
+        },
+        "trapezoid": {
+            "threshold": 0.4814242124557495,
+            "recall": 0.0005640157924421884
+        },
+        "kite": {
+            "threshold": 0.5873357057571411,
+            "recall": 0.0002881014116969173
+        },
+        "heptagon": {
+            "threshold": 0.751465916633606,
+            "recall": 0.0031736872475476054
+        },
+        "nonagon": null,
+        "ellipse": null,
+        "semicircle": {
+            "threshold": 0.8350273370742798,
+            "recall": 0.13484761357101782
+        },
+        "annulus": {
+            "threshold": 0.8521600961685181,
+            "recall": 0.8812481941635365
+        },
+        "capsule": {
+            "threshold": 0.6663962602615356,
+            "recall": 0.0002990430622009569
+        },
+        "l_shape": {
+            "threshold": 0.825539231300354,
+            "recall": 0.49489795918367346
+        }
+    }
+}

@@ -1,0 +1,13 @@
+train/labels.json, first sequence:
+{
+  "id": 1,
+  "name": "train_000000",
+  "frames": ["train_000000/000000.png",
+             "train_000000/000001.png",
+             "train_000000/000002.png"],
+  "frame_category_ids": [1, 1, 48]
+}
+
+categories:
+  {"id": 1, "name": "no_change"}
+  {"id": 48, "name": "disappearing_trapezoid"}

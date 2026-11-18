@@ -1,0 +1,68 @@
+{
+  "facts": {
+    "dataset.balance_class_panel_box": [
+      9,
+      76,
+      997,
+      676
+    ],
+    "dataset.balance_position_panel_box": [
+      1051,
+      76,
+      1695,
+      676
+    ],
+    "dataset.balanced_prior_cross_entropy": 4.24363,
+    "dataset.balanced_prior_later_no_change_share": 0.00982836,
+    "dataset.balanced_weight_change_maximum": 1.88608,
+    "dataset.balanced_weight_change_minimum": 1.81603,
+    "dataset.balanced_weight_no_change": 0.0300834,
+    "dataset.change_class_count": 70,
+    "dataset.change_class_maximum_frames": 13570,
+    "dataset.change_class_maximum_share": 0.00775566,
+    "dataset.change_class_minimum_frames": 13066,
+    "dataset.class_count": 71,
+    "dataset.maximum_sequence_frames": 12,
+    "dataset.minimum_sequence_frames": 2,
+    "dataset.no_change_frames": 819173,
+    "dataset.no_change_share": 0.468182,
+    "dataset.position_no_change_shares": [
+      1.0,
+      0.389584,
+      0.381931,
+      0.377928,
+      0.376473,
+      0.377474,
+      0.375813,
+      0.3748,
+      0.379401,
+      0.373165,
+      0.375461,
+      0.371695
+    ],
+    "dataset.prior_cross_entropy": 2.82839,
+    "dataset.prior_first_frame_share": 0.142882,
+    "dataset.prior_later_entropy": 3.29989,
+    "dataset.prior_later_no_change_share": 0.379527,
+    "dataset.run_name": "M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71",
+    "dataset.shape_class_count": 35,
+    "dataset.source": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/train/labels.json",
+    "dataset.source_fingerprint": "labels.json:72207250:1792306471143167627;data.json:77670394:1794755392049672888;label_mapping.json:977:1792306703227576145",
+    "dataset.test_frames": 69918,
+    "dataset.training_frames": 1749690,
+    "dataset.training_sequences": 250000,
+    "dataset.uniform_cross_entropy": 4.26268,
+    "dataset.validation_frames": 350928,
+    "listings.first_sequence_categories": [
+      1,
+      1,
+      48
+    ],
+    "listings.mapping_size": 71,
+    "listings.no_change_category": 1,
+    "listings.no_change_class_index": 0
+  },
+  "figures": [
+    "class_balance.png"
+  ]
+}

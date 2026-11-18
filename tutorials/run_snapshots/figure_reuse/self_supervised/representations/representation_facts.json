@@ -1,0 +1,258 @@
+{
+  "facts": {
+    "cue.batch_size": 128,
+    "cue.chance": 0.00392157,
+    "cue.other_view_count": 255,
+    "cue.trained_colour_accuracy": 0.341146,
+    "cue.trained_colour_loss": 3.41919,
+    "cue.trained_grayscale_accuracy": 0.0598958,
+    "cue.trained_grayscale_loss": 5.33787,
+    "cue.untrained_colour_accuracy": 0.0195312,
+    "cue.untrained_colour_loss": 5.82911,
+    "cue.untrained_colour_over_chance": 4.98045,
+    "cue.untrained_grayscale_accuracy": 0.00390625,
+    "cue.untrained_grayscale_loss": 5.91959,
+    "cue.view_draws": 3,
+    "knn.first_iteration": 500,
+    "knn.last_iteration": 20000,
+    "knn.mosaic_same_class_neighbours_20000": 5,
+    "knn.mosaic_same_class_neighbours_500": 0,
+    "knn.nearest_20000": [
+      {
+        "index": 384,
+        "similarity": 0.972523
+      },
+      {
+        "index": 391,
+        "similarity": 0.970711
+      },
+      {
+        "index": 387,
+        "similarity": 0.943332
+      },
+      {
+        "index": 360,
+        "similarity": 0.941986
+      },
+      {
+        "index": 376,
+        "similarity": 0.933872
+      }
+    ],
+    "knn.nearest_500": [
+      {
+        "index": 223,
+        "similarity": 0.993078
+      },
+      {
+        "index": 145,
+        "similarity": 0.987071
+      },
+      {
+        "index": 159,
+        "similarity": 0.984509
+      },
+      {
+        "index": 174,
+        "similarity": 0.983912
+      },
+      {
+        "index": 5,
+        "similarity": 0.982861
+      }
+    ],
+    "knn.number_neighbours": 20,
+    "knn.query_class": "star",
+    "knn.query_last_neighbour_similarity_20000": 0.844775,
+    "knn.query_last_neighbour_similarity_500": 0.948976,
+    "knn.query_nearest_similarity_20000": 0.972523,
+    "knn.query_nearest_similarity_500": 0.993078,
+    "knn.query_prediction_20000": "star",
+    "knn.query_prediction_500": "rectangle",
+    "knn.query_same_class_neighbours_20000": 19,
+    "knn.query_same_class_neighbours_500": 3,
+    "knn.reference_count": 450,
+    "knn.reference_images_per_class": 50,
+    "knn.temperature": 0.07,
+    "knn.vote_colours": [
+      "#3987e5",
+      "#199e70",
+      "#c98500",
+      "#d55181",
+      "#9085e9",
+      "#e66767",
+      "#7dc4ff",
+      "#f0c878",
+      "#78dc78"
+    ],
+    "knn.vote_labels": [
+      "square",
+      "circle",
+      "triangle",
+      "rectangle",
+      "pentagon",
+      "hexagon",
+      "plus sign",
+      "star",
+      "octagon"
+    ],
+    "knn.vote_shares": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0179042,
+      0.982096,
+      0.0
+    ],
+    "knn.vote_value_labels": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "1.79 %",
+      "98.21 %",
+      ""
+    ],
+    "knn.weight_ratio": 6.20262,
+    "matrix.cosines": [
+      [
+        1.0,
+        0.27,
+        0.25,
+        -0.11,
+        0.97,
+        0.27,
+        0.21,
+        -0.15
+      ],
+      [
+        0.27,
+        1.0,
+        0.31,
+        -0.14,
+        0.16,
+        1.0,
+        0.77,
+        -0.35
+      ],
+      [
+        0.25,
+        0.31,
+        1.0,
+        -0.01,
+        0.15,
+        0.31,
+        0.2,
+        -0.02
+      ],
+      [
+        -0.11,
+        -0.14,
+        -0.01,
+        1.0,
+        -0.1,
+        -0.14,
+        -0.25,
+        0.48
+      ],
+      [
+        0.97,
+        0.16,
+        0.15,
+        -0.1,
+        1.0,
+        0.16,
+        0.13,
+        -0.13
+      ],
+      [
+        0.27,
+        1.0,
+        0.31,
+        -0.14,
+        0.16,
+        1.0,
+        0.77,
+        -0.35
+      ],
+      [
+        0.21,
+        0.77,
+        0.2,
+        -0.25,
+        0.13,
+        0.77,
+        1.0,
+        -0.32
+      ],
+      [
+        -0.15,
+        -0.35,
+        -0.02,
+        0.48,
+        -0.13,
+        -0.35,
+        -0.32,
+        1.0
+      ]
+    ],
+    "matrix.first_partner_cosine": 0.967416,
+    "matrix.first_partner_probability": 0.892206,
+    "matrix.first_row_loss": 0.114058,
+    "matrix.first_row_probabilities": [
+      0.0,
+      0.027458,
+      0.0250131,
+      0.00414847,
+      0.892206,
+      0.027458,
+      0.0203227,
+      0.00339386
+    ],
+    "matrix.first_row_probability_labels": [
+      "0.00",
+      "0.03",
+      "0.03",
+      "0.00",
+      "0.89",
+      "0.03",
+      "0.02",
+      "0.00"
+    ],
+    "matrix.info_nce": 0.869614,
+    "matrix.other_view_count": 7,
+    "matrix.positive_pair_accuracy": 0.75,
+    "matrix.random_info_nce": 1.94591,
+    "matrix.view_count": 8,
+    "similarity.star_1000": 0.971778,
+    "similarity.star_10000": 0.973101,
+    "similarity.star_1500": 0.943139,
+    "similarity.star_15000": 0.972902,
+    "similarity.star_2000": 0.96866,
+    "similarity.star_20000": 0.966805,
+    "similarity.star_2500": 0.961102,
+    "similarity.star_3000": 0.944622,
+    "similarity.star_3500": 0.964669,
+    "similarity.star_4000": 0.971964,
+    "similarity.star_4500": 0.951915,
+    "similarity.star_500": 0.94233,
+    "similarity.star_5000": 0.947882,
+    "similarity.star_5500": 0.954547,
+    "similarity.star_6000": 0.946689,
+    "similarity.star_6500": 0.934848,
+    "similarity.star_7000": 0.944318,
+    "similarity.star_7500": 0.94549,
+    "similarity.star_8000": 0.954766,
+    "similarity.star_8500": 0.958699,
+    "similarity.star_9000": 0.949292,
+    "similarity.star_9500": 0.962421
+  },
+  "figures": [
+    "knn_radial_layout.json"
+  ]
+}

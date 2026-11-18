@@ -1,0 +1,428 @@
+# Configuration of the synthetic keypoint dataset (the 35 shape classes of SHAPE_CATEGORIES drawn upright, a stick
+# figure and a house, 2 to 5 objects per image, each category with its own keypoints: the corners of the polygons, the
+# tips of the star and of the plus sign, the ends and corners of the capsule, the joints of the stick figure, the hollow
+# polygons and capsule adding the corners of their hole to those of their filled shape..., the circle, the ellipse,
+# the annulus and the hollow ellipse being distractors without keypoints), created with
+# vision_training/data/synthetic/create_synthetic_dataset.py with the "keypoint_detection" task. Every image is one
+# training sample, the keypoint detector finding the keypoints of all its objects at once. It is a simple keypoint
+# detection task, used to check that the keypoint detector learns.
+ExperimentConfiguration:
+  # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
+  # "keypoint_detection" trains the bottom-up keypoint detector (HigherHRNet: one heatmap and one tag map per keypoint
+  # of every class on the whole image, the keypoints found being grouped into objects by their tags), and requires the
+  # HRNet and KeypointHead sections. The labels are COCO annotations with the 'keypoints' of every object and the
+  # 'keypoints' names and 'skeleton' of every category.
+  task: "keypoint_detection"
+  # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
+  # backbone modules, normalization and blocks, high resolution network, heatmap channels, hidden width and higher
+  # resolution branch, classes, optimizer and weight decay unless plain Adam), so that the same settings resume in
+  # the same folder and changed settings start a new one, e.g.
+  # KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33
+  # The augmentation, heatmap sigma, tag loss weights, grouping settings, batch size, learning rate and its schedule,
+  # gradient clipping and mixed precision give no token, so that a run can be resumed in its folder with changed
+  # values. The format is described in vision_training/configuration_processing/run_name.py.
+  experiment_folder: "/home/robert_kelevra/.claude/jobs/4d460ec6/tmp/keypoint_focal/experiments"
+  # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
+  # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
+  run_name_suffix: null
+  # Root directory containing the training dataset images and labels.json annotation file. The keypoint names and
+  # skeleton of every category are read from its labels.json.
+  train_data_folder: "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes/train"
+  # Root directory containing the validation dataset images and labels.json annotation file.
+  validation_data_folder: "/home/robert_kelevra/.claude/jobs/4d460ec6/tmp/keypoint_smoke/data/validation"
+  # Root directory containing the test dataset images and labels.json annotation file. The objects without any
+  # labelled keypoint (the distractors) are left out of the labels of every split, having nothing to learn from nor to
+  # evaluate, their images being kept: the heatmaps learn to find no keypoint on them.
+  test_data_folder: "/home/robert_kelevra/.claude/jobs/4d460ec6/tmp/keypoint_large/data/test"
+  # Number of whole images processed in a single forward/backward pass.
+  batch_size: 16
+  # Frequency (in iterations) to log performance metrics.
+  information_dump: 500
+  # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
+  weight_saving_iterations: 2000
+  # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
+  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
+  intermediate_weight_saving_iterations: 1000
+  # Total number of training iterations before stopping.
+  number_iterations: 6000
+  # Ratio controlling how often validation is run during training.
+  # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
+  validation_iteration_ratio: 0
+  # Test evaluation run at every weight_saving_iterations checkpoint on the whole test split: the keypoints found in
+  # every test image are grouped into objects with the settings of KeypointHead.inference (every object kept whatever
+  # its score), and every object found is scored against the ground truth objects of the same class in its image with
+  # the object keypoint similarity (OKS), which replaces the intersection over union of the detection average
+  # precisions (OKS mAP@0.5, @0.75, @0.95 and @0.5:0.95). Every ground truth object is then matched to at most one
+  # object found (the matching of the largest total OKS) for the share of matched objects, the percentage of correct
+  # keypoints (PCK@0.05: a keypoint within 0.05 of the longest box side), the mean OKS and the mean pixel error, a
+  # missed object or keypoint counting as wrong.
+  evaluation:
+    # Reports every class and every keypoint at every evaluation: the table of the classes (objects, OKS average
+    # precisions, matched objects, PCK, mean OKS and mean pixel error, worst AP@0.5 first) and the table of every
+    # keypoint of every class (labelled keypoints, PCK and mean pixel error) in the console and Results.txt, and the
+    # AP@0.5 Test scalar of every class in TensorBoard. False keeps the global metrics only: class_metrics.csv and
+    # keypoint_metrics.csv are saved either way.
+    per_class_report: True
+    # Number of test images drawn once and shown at every evaluation, each with its ground truth objects next to the
+    # objects found whose score reaches KeypointHead.inference.object_score_threshold, every object with its keypoints
+    # and the skeleton of its class, saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. 0 to disable.
+    number_sample_images: 16
+    # Standard deviation of every keypoint of the object keypoint similarity, as a fraction of the square root of the
+    # box area of the object (the COCO sigma, the constant of the keypoint being twice this value): a keypoint at a
+    # distance of 2 x sigma x sqrt(box area) from the ground truth has a similarity of exp(-0.5) = 0.61. Used for the
+    # keypoints not given in keypoint_sigmas. Must be > 0.
+    default_keypoint_sigma: 0.05
+    # Standard deviation of chosen keypoints, by category name and then keypoint name, the keypoints left out keeping
+    # default_keypoint_sigma. A loosely defined keypoint (a joint under the clothes) gets a larger value than a sharp
+    # corner. The categories merged into one class by the label mapping must give the same values to their common
+    # keypoints. {} keeps the default for every keypoint. The values below are the COCO sigmas of the matching human
+    # joints (elbows, wrists, knees and ankles).
+    keypoint_sigmas:
+      stick_figure: { left_elbow: 0.072, right_elbow: 0.072, left_hand: 0.062, right_hand: 0.062, left_knee: 0.087,
+                      right_knee: 0.087, left_foot: 0.089, right_foot: 0.089 }
+  # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the hyperparameters, the averages of the
+  # training and validation metrics of every information_dump interval, the learning rate, the test metrics of every
+  # evaluated checkpoint and a few small artifacts (configuration, class and keypoint metrics, Results.txt). The
+  # tracking never blocks nor stops the training: any MLflow error prints one warning and the training continues
+  # without it.
+  tracking:
+    # Turns the MLflow tracking on.
+    activated: False
+    # Address of an MLflow tracking server, e.g. "http://192.168.1.20:5000", or null for the local database of the
+    # experiments root folder (sqlite:///<experiment_folder>/mlflow.db, artifacts in <experiment_folder>/mlartifacts),
+    # browsed with "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". The credentials of a
+    # server are read from the MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD environment variables, never from
+    # this file.
+    tracking_uri: null
+    # MLflow experiment grouping the runs, null for the task name (e.g. "keypoint_detection").
+    experiment_name: null
+  # Base learning rate used by the optimizer.
+  learning_rate: 1.0e-3
+  # Flag to let a resumed run train on data whose labels.json changed since its last start, the previous data.json
+  # being kept as data_until_iteration_<n>.json. False stops such a resume with an error: changed data asks for a
+  # new run (resume_training false, or another experiment_folder). A moved data folder with the same labels resumes.
+  allow_data_change_on_resume: false
+  diagnosis_modes:
+      # Choice to compute Receptive-Field
+      compute_receptive_field: True
+      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
+      # whole images with the boxes and keypoints of their objects (left keypoints blue, right keypoints orange, the
+      # others yellow, the occluded ones as rings) and the skeleton of their class, next to a panel giving the objects
+      # per class, the keypoints by visibility and the drawn augmentations. SPACE shows the next images, ENTER closes
+      # the viewer and exits the program without training, so set it to False to train. Requires a display (skipped
+      # with a warning otherwise). No run folder is created in this mode.
+      view_input_images: False
+      # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,
+      # at the configured and largest batch sizes that fit, then exits without training; no run folder is created.
+      benchmark_speed: False
+
+Optimization:
+  # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or
+  # "sgd" (stochastic gradient descent with Nesterov momentum 0.9), at ExperimentConfiguration.learning_rate.
+  optimizer: "adam"
+  # Weight decay of the optimizer, 0 to disable.
+  weight_decay: 0.0
+  # Learning rate schedule after the warm-up: "constant", or "cosine" (decay to minimum_learning_rate_ratio times the
+  # learning rate over decay_iterations, constant afterwards).
+  learning_rate_schedule: "cosine"
+  # Iterations of the linear warm-up of the learning rate from 0, 0 to disable.
+  warmup_iterations: 500
+  # Iterations of the cosine decay, counted after the warm-up (cosine schedule only).
+  decay_iterations: 5500
+  # Learning rate at the end of the cosine decay, as a fraction of the learning rate (cosine schedule only).
+  minimum_learning_rate_ratio: 0.01
+  # Exponential moving average (EMA) of the weights: a second copy of the model, never trained itself, moved towards
+  # the trained weights after every optimizer step:
+  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
+  # It averages roughly the last 1 / (1 − decay) iterations (0.999: 1,000, 0.9998: 5,000, 0.9999: 10,000), its n-th
+  # update using min(decay, (1 + n) / (10 + n)) so that the random starting weights fade quickly. Every test
+  # evaluation scores the trained weights, then the EMA weights, in Evaluation/Iteration_<n>/EMA/, the Test_EMA
+  # TensorBoard curves and the "EMA Weights" blocks of Results.txt. Saved in the checkpoints, it gives no run name
+  # token and can be turned on or off when a run resumes. When on, the components transferred from another run (their
+  # 'pretrained' settings) load its averaged weights if its checkpoint holds them, otherwise its trained weights.
+  exponential_moving_average:
+    # Turns the moving average of the weights on.
+    activated: True
+    # Fraction of the average kept at every update, strictly between 0 and 1.
+    decay: 0.999
+
+Data:
+  image_settings:
+    # Target resolution to resize all input images, the size of the synthetic keypoint images and the input of the
+    # network, a multiple of the stride of the lowest resolution branch of the high resolution network (4 x 2 ** the
+    # number of stages of HRNet.modules_per_stage, 32 for 3 stages). The evaluation measures the keypoints in its
+    # pixels.
+    size: 512
+    # Flag to maintain the original aspect ratio when resizing.
+    keep_ratio: True
+  label_mapping:
+    # "multi_class" uses a specific mapping file, the only mode of the keypoint detection: every class has its own
+    # keypoints.
+    mode: "multi_class"
+    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs (class 0 being the background).
+    # The synthetic dataset numbers the categories with keypoints from 1 and leaves out the circle, the ellipse, the
+    # annulus and the hollow ellipse, distractors without keypoints whose objects stay unlabelled in the images.
+    # Categories merged into one class must have the same keypoint names.
+    mapping_file_path: "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes/label_mapping.json"
+  data_augmentation:
+    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
+    activated: True
+    # Probability that a training image is augmented at all. Each activated type below is then applied to that image
+    # with its own probability.
+    probability: 0.4
+    types:
+      # Geometric augmentations : the boxes and keypoints are moved with the image, the keypoints leaving the image
+      # becoming unlabelled, and an object being removed when less than 25% of its box and none of its labelled
+      # keypoints stay inside the image. The keypoints keep their names and heatmap channels whatever the
+      # augmentation: a flip or a large rotation only suits keypoints whose names depend neither on the side nor
+      # on the orientation (the tip of a flame), the choice of the user.
+      # The synthetic keypoints are named by their place on the upright shape (the top_left corner of a square), so the
+      # flips and the 90 degree rotations are off.
+      # Random Crop : crop keeping 75% to 100% of each side (same aspect ratio), resized back to the input size
+      random_crop: { activated: True, probability: 0.3 }
+      # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
+      # stretch; other camera proportions, for keep_ratio False)
+      random_aspect_crop: { activated: False, probability: 0.3 }
+      # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
+      # black canvas of the input size, the objects then appearing smaller than in the dataset
+      random_zoom_out: { activated: True, probability: 0.3 }
+      # Random Translation : shift along x, y or both (drawn at random) of up to 25% of the image width and
+      # height, the uncovered border filled with black
+      random_translation: { activated: True, probability: 0.5 }
+      # Random Left to Right Flip (mirror)
+      random_left_right_flip: { activated: False, probability: 0.5 }
+      # Random Up to Down Flip
+      random_up_down_flip: { activated: False, probability: 0.5 }
+      # Random Rotation between -5° and 5°
+      random_rotation: { activated: True, probability: 0.3 }
+      # Random -90° or 90° rotation (square images only)
+      random_90_rotation: { activated: False, probability: 0.3 }
+      # Random Perspective : corners moved inwards by up to 5% of half the width and height, border filled black;
+      # refused for tasks with boxes, masks or keypoints
+      random_perspective: { activated: False, probability: 0.3 }
+      # Random Jigsaw : 2x2 pieces shuffled, breaking the global layout; refused for tasks with boxes, masks or
+      # keypoints
+      random_jigsaw: { activated: False, probability: 0.3 }
+
+      # Photometric augmentations : the keypoints are unchanged.
+      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
+      brightness_contrast_saturation: { activated: True, probability: 0.3 }
+      # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
+      random_hue: { activated: False, probability: 0.5 }
+      # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of the luminance (Y channel of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of one random channel (B, G or R) or of all three channels
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : Gaussian noise with a standard deviation of 40 intensity levels
+      random_noise: { activated: True, probability: 0.3 }
+      # Grayscale conversion, kept on three channels
+      gray_scale_augment: { activated: True, probability: 0.3 }
+      # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
+      random_colour_augmentation: { activated: True, probability: 0.3 }
+      # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
+      random_gamma: { activated: False, probability: 0.3 }
+      # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
+      random_linear_illumination: { activated: False, probability: 0.3 }
+      # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
+      random_plasma_shadow: { activated: False, probability: 0.3 }
+      # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
+      random_blur: { activated: True, probability: 0.3 }
+      # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
+      random_motion_blur: { activated: False, probability: 0.3 }
+      # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
+      # the blurs, before solarization, black-out and erasing)
+      random_haze: { activated: False, probability: 0.3 }
+      # Random Solarize : pixels at or above 128 levels inverted
+      random_solarize: { activated: False, probability: 0.2 }
+      # Random Black Out : grid_size x grid_size cells, each blacked out with probability 0.2 (after the other
+      # photometric types but the erasing); labels unchanged, so a hidden object keeps its label
+      random_black_out: { activated: False, probability: 0.3, grid_size: 8 }
+      # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3, applied last; labels
+      # unchanged
+      random_erasing: { activated: False, probability: 0.3 }
+
+# Stem of the keypoint detector: the first blocks of the backbone of the other tasks, bringing the image down to a
+# quarter of its resolution, the resolution of the highest resolution branch of the HRNet section and of the
+# heatmaps. Every block but the last one is followed by a 2x2 max pooling, so the stem needs 3 blocks with
+# last_max_pooling False, or 2 blocks with last_max_pooling True.
+Backbone:
+  # Number of input channels of the initial convolution block: must be 3, the loaders giving BGR images
+  input_channels : 3
+
+  # First axis : Number of convolution Kernel maps per Convolution Block
+  # Second axis : Number of output filters per kernel per convolution Block
+  convolutions:
+    {
+      "1": [ 1, 16 ],
+      "2": [ 2, 32 ],
+      "3": [ 2, 64 ],
+    }
+
+  # Choice to add last max pooling layer on last* convolution layer
+  last_max_pooling: False
+
+  normalization:
+    # Input Normalization : Setting image range values between [-0.5:0.5]
+    input_normalization: True
+
+    # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
+    # Applied after input_normalization when both are activated
+    per_sample_normalization: False
+
+    # Strategy for normalizing the feature maps in the convolution blocks.
+    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Shortcuts are added every two convolution layers, starting from the second convolution block
+    residual_nets: True
+
+    # Residual Nets v2 : Paper "Identity Mappings in Deep Residual Networks" https://arxiv.org/abs/1603.05027
+    # Pre-activation shortcuts: every layer applies its normalization and ReLU before its convolution and nothing
+    # follows the addition, so that the shortcuts form an identity path through the block, whose output is normalized
+    # and activated at its end. Requires residual_nets, starts from the second block like it, and gives the RES2 run
+    # name token instead of RES.
+    residual_nets_v2: False
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of every block using inception must be multiples of 8
+    inception: False
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+  # Backbone of another training run (of any task) initialising the stem instead of random weights: its first blocks
+  # are loaded, as many as the stem has, so that the stem can start from the backbone of an ImageNet classification
+  # run. The settings defining those layers (input_channels, the first convolutions, modules, normalization) must be
+  # identical to the ones above, the image size and the batch normalization momentum may differ.
+  pretrained:
+    # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
+    # from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded stem fixed (no gradient, batch normalization statistics frozen) so that only the high resolution
+    # network and the keypoint head learn. Requires an experiment_folder.
+    freeze: False
+    # Keeps the scale and shift of the batch or layer normalization layers of the loaded stem fixed while its
+    # convolutions learn, the batch normalization statistics still following the data of this run. Requires an
+    # experiment_folder, freeze False and a feature_map_normalization other than "none".
+    freeze_normalization_parameters: False
+    # Multiplies the learning rate of the loaded stem, e.g. 0.1 to fine-tune it ten times slower than the new layers.
+    learning_rate_multiplier: 1.0
+
+# High resolution network (HRNet, paper "Deep High-Resolution Representation Learning for Human Pose Estimation"
+# https://arxiv.org/abs/1902.09212) on the stem: it keeps a branch at a quarter of the image resolution through the
+# whole network and adds a branch at half the resolution and twice the width at every stage (1/4, 1/8, 1/16, 1/32 of
+# the image for 3 stages, base_width, 2 x base_width...), the branches exchanging their features at the end of every
+# module (every branch receiving the sum of all the branches brought to its resolution and width). Only the highest
+# resolution branch feeds the keypoint head.
+HRNet:
+  # Width (channels) of the highest resolution branch, doubled by every lower resolution branch, e.g. 32 for HRNet-W32.
+  base_width: 16
+  # Number of exchange modules of every stage, one branch being added per stage: [1, 4, 3] gives the 4 branches and
+  # 8 modules of HRNet-W32. Its length sets the stride of the lowest resolution branch, 4 x 2 ** len, which
+  # Data.image_settings.size must be a multiple of.
+  modules_per_stage: [1, 2, 2]
+  # Number of residual pairs of 3x3 convolutions of every branch in every module, 4 in HRNet-W32.
+  blocks_per_branch: 2
+  modules:
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # A shortcut around every pair of convolutions of the branches
+    residual_nets: True
+  normalization:
+    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
+  # High resolution network of another KPT run initialising this run. Its base_width, modules_per_stage,
+  # blocks_per_branch, modules and normalization must be identical in both runs, as well as the channels of the last
+  # block of the stem.
+  pretrained:
+    # Run folder whose trained high resolution network initialises this run, null to start from random weights. A run
+    # resuming from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded network fixed (no gradient, batch normalization statistics frozen) so that only the other
+    # components learn. Requires an experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded network, e.g. 0.1 to fine-tune it ten times slower than the new
+    # layers.
+    learning_rate_multiplier: 1.0
+
+# Keypoint head (HigherHRNet, paper "HigherHRNet: Scale-Aware Representation Learning for Bottom-Up Human Pose
+# Estimation" https://arxiv.org/abs/1908.10357, with the tags of "Associative Embedding: End-to-End Learning for Joint
+# Detection and Grouping" https://arxiv.org/abs/1611.05424): a 1x1 convolution of the highest resolution branch giving,
+# at a quarter of the image resolution, one heatmap and one tag map per keypoint of every class (243 of each for the 33
+# synthetic classes). The heatmap targets are Gaussians centred on the keypoints of all the objects of the image, every
+# channel being trained in every image (towards zero without keypoint). The keypoints found are the local maxima of the
+# heatmaps, moved by a quarter of a cell towards their higher neighbours, their score the value of their cell, grouped
+# into objects by their tags.
+KeypointHead:
+  # Adds the higher resolution branch of HigherHRNet: the features of the highest resolution branch and the heatmaps
+  # and tags predicted from them are upsampled by a transposed convolution to half the image resolution, refined by
+  # HRNet.blocks_per_branch residual blocks and turned into a second set of heatmaps, trained with their own targets.
+  # The keypoints are then found on the average of both heatmaps at half the image resolution, which helps the small
+  # objects. Gives the HH run name token.
+  higher_resolution: True
+  # Channels of a 3x3 convolution (with its normalization and a ReLU) between the features and the 1x1 convolution
+  # giving the heatmaps and tags, in the head at a quarter of the image and in the higher resolution branch, 0 for
+  # none. The 1x1 convolution gives at every cell a linear combination of its input channels, which cannot raise
+  # every heatmap on its own keypoints while keeping the others at zero when the heatmaps outnumber these channels:
+  # the hidden width should then be at least the number of heatmaps (the K run name token). Gives the KH<width> run
+  # name token when above 0.
+  # The 243 heatmaps of the 33 classes are many more than the 16 channels of HRNet-W16: on 4 images trained
+  # 1500 iterations, the 1x1 convolution alone raised the heatmaps of a few classes only (heatmap loss 0.0115
+  # at stride 4), against every keypoint of every object with a hidden width of 256 (0.0003).
+  hidden_width: 256
+  # Standard deviation of the target Gaussians in heatmap cells (a quarter of the image pixels, half with the higher
+  # resolution branch), the same at both resolutions, 2 in HigherHRNet.
+  heatmap_sigma: 2.0
+  # Leaves the pixels of the objects left out of the labels for having no labelled keypoint out of the heatmap loss,
+  # as HigherHRNet does with the COCO crowds and the persons without keypoints: the heatmap cells at least half covered
+  # by these objects are left out at both resolutions and in every channel, so that the heatmaps learn neither
+  # keypoints nor their absence there, the keypoint cells of the labelled objects staying trained. The pixels come from
+  # the 'segmentation' of these objects, which every one of them must then have, for the training and validation
+  # splits. The synthetic shapes have no 'segmentation', so their few shapes without labelled keypoint stay trained
+  # towards 0. No run name token.
+  ignore_unlabelled_objects: False
+  # Weights of the tag losses next to the heatmap loss, the squared error of the heatmaps summed over the channels.
+  # The pull loss gathers the tags of the keypoints of every object around their mean, the push loss separates the
+  # mean tags of the objects of the same class in the same image. HigherHRNet weights them by 0.001 next to a heatmap
+  # loss averaged over its 17 channels, about 0.017 next to a heatmap loss summed over the channels.
+  tag_pull_weight: 0.1
+  tag_push_weight: 0.1
+  # Grouping of the keypoints into objects at inference, in the evaluation, the sample images and the deployment.
+  inference:
+    # Number of keypoint candidates of every heatmap channel, its highest local maxima over 3x3 cells, the most objects
+    # of a class one image can give.
+    maximum_candidates: 30
+    # Lowest heatmap score of a candidate grouped into an object, within ]0, 1[.
+    keypoint_threshold: 0.1
+    # Largest distance between the tag of a keypoint and the mean tag of the object it joins, the keypoints of the
+    # class taken one after the other and matched to the objects of the previous ones, the others starting new
+    # objects. 1 in HigherHRNet.
+    tag_threshold: 1.0
+    # Lowest score of an object kept by the deployment and the sample images, its score being the sum of the scores of
+    # its keypoints divided by the number of keypoints of its class, so that an object missing keypoints scores lower.
+    # The evaluation keeps every object, for the low-confidence end of the precision-recall curves.
+    object_score_threshold: 0.2
+  # Keypoint head of another KPT run initialising this run. Both runs must have the same classes with the same
+  # keypoints, as well as the same HRNet.base_width.
+  pretrained:
+    # Run folder whose trained keypoint head initialises this run, null to start from random weights. A run resuming
+    # from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded head fixed (no gradient) so that only the other components learn. Requires an
+    # experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded head, e.g. 0.1 to fine-tune it ten times slower than the new layers.
+    learning_rate_multiplier: 1.0

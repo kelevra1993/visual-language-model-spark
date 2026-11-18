@@ -1,0 +1,377 @@
+{
+  "created": "2026-11-15 15:27:19",
+  "classes": [
+    {
+      "class_index": 0,
+      "class_name": "background",
+      "category_ids": [],
+      "images": {
+        "train": 0,
+        "validation": 0,
+        "test": 0
+      },
+      "annotations": {
+        "train": 0,
+        "validation": 0,
+        "test": 0
+      }
+    },
+    {
+      "class_index": 1,
+      "class_name": "square",
+      "category_ids": [
+        1
+      ],
+      "images": {
+        "train": 20671,
+        "validation": 3304,
+        "test": 3263
+      },
+      "annotations": {
+        "train": 22443,
+        "validation": 3562,
+        "test": 3545
+      }
+    },
+    {
+      "class_index": 2,
+      "class_name": "circle",
+      "category_ids": [
+        2
+      ],
+      "images": {
+        "train": 20688,
+        "validation": 3259,
+        "test": 3292
+      },
+      "annotations": {
+        "train": 22467,
+        "validation": 3557,
+        "test": 3566
+      }
+    },
+    {
+      "class_index": 3,
+      "class_name": "triangle",
+      "category_ids": [
+        3
+      ],
+      "images": {
+        "train": 20540,
+        "validation": 3195,
+        "test": 3235
+      },
+      "annotations": {
+        "train": 22271,
+        "validation": 3472,
+        "test": 3512
+      }
+    },
+    {
+      "class_index": 4,
+      "class_name": "rectangle",
+      "category_ids": [
+        4
+      ],
+      "images": {
+        "train": 20458,
+        "validation": 3198,
+        "test": 3219
+      },
+      "annotations": {
+        "train": 22115,
+        "validation": 3470,
+        "test": 3494
+      }
+    },
+    {
+      "class_index": 5,
+      "class_name": "pentagon",
+      "category_ids": [
+        5
+      ],
+      "images": {
+        "train": 20616,
+        "validation": 3143,
+        "test": 3202
+      },
+      "annotations": {
+        "train": 22396,
+        "validation": 3401,
+        "test": 3475
+      }
+    },
+    {
+      "class_index": 6,
+      "class_name": "hexagon",
+      "category_ids": [
+        6
+      ],
+      "images": {
+        "train": 20610,
+        "validation": 3250,
+        "test": 3181
+      },
+      "annotations": {
+        "train": 22400,
+        "validation": 3542,
+        "test": 3471
+      }
+    },
+    {
+      "class_index": 7,
+      "class_name": "plus_sign",
+      "category_ids": [
+        7
+      ],
+      "images": {
+        "train": 20611,
+        "validation": 3277,
+        "test": 3171
+      },
+      "annotations": {
+        "train": 22341,
+        "validation": 3557,
+        "test": 3442
+      }
+    },
+    {
+      "class_index": 8,
+      "class_name": "star",
+      "category_ids": [
+        8
+      ],
+      "images": {
+        "train": 20287,
+        "validation": 3169,
+        "test": 3253
+      },
+      "annotations": {
+        "train": 22041,
+        "validation": 3433,
+        "test": 3549
+      }
+    },
+    {
+      "class_index": 9,
+      "class_name": "octagon",
+      "category_ids": [
+        9
+      ],
+      "images": {
+        "train": 20491,
+        "validation": 3184,
+        "test": 3211
+      },
+      "annotations": {
+        "train": 22223,
+        "validation": 3457,
+        "test": 3454
+      }
+    },
+    {
+      "class_index": 10,
+      "class_name": "rhombus",
+      "category_ids": [
+        10
+      ],
+      "images": {
+        "train": 20599,
+        "validation": 3198,
+        "test": 3164
+      },
+      "annotations": {
+        "train": 22359,
+        "validation": 3453,
+        "test": 3436
+      }
+    },
+    {
+      "class_index": 11,
+      "class_name": "parallelogram",
+      "category_ids": [
+        11
+      ],
+      "images": {
+        "train": 20158,
+        "validation": 3226,
+        "test": 3190
+      },
+      "annotations": {
+        "train": 21873,
+        "validation": 3504,
+        "test": 3503
+      }
+    },
+    {
+      "class_index": 12,
+      "class_name": "trapezoid",
+      "category_ids": [
+        12
+      ],
+      "images": {
+        "train": 20548,
+        "validation": 3216,
+        "test": 3250
+      },
+      "annotations": {
+        "train": 22300,
+        "validation": 3477,
+        "test": 3546
+      }
+    },
+    {
+      "class_index": 13,
+      "class_name": "kite",
+      "category_ids": [
+        13
+      ],
+      "images": {
+        "train": 20526,
+        "validation": 3149,
+        "test": 3180
+      },
+      "annotations": {
+        "train": 22281,
+        "validation": 3399,
+        "test": 3471
+      }
+    },
+    {
+      "class_index": 14,
+      "class_name": "heptagon",
+      "category_ids": [
+        14
+      ],
+      "images": {
+        "train": 20686,
+        "validation": 3271,
+        "test": 3204
+      },
+      "annotations": {
+        "train": 22542,
+        "validation": 3545,
+        "test": 3466
+      }
+    },
+    {
+      "class_index": 15,
+      "class_name": "nonagon",
+      "category_ids": [
+        15
+      ],
+      "images": {
+        "train": 20732,
+        "validation": 3258,
+        "test": 3262
+      },
+      "annotations": {
+        "train": 22539,
+        "validation": 3519,
+        "test": 3533
+      }
+    },
+    {
+      "class_index": 16,
+      "class_name": "ellipse",
+      "category_ids": [
+        16
+      ],
+      "images": {
+        "train": 20393,
+        "validation": 3151,
+        "test": 3126
+      },
+      "annotations": {
+        "train": 22093,
+        "validation": 3433,
+        "test": 3408
+      }
+    },
+    {
+      "class_index": 17,
+      "class_name": "semicircle",
+      "category_ids": [
+        17
+      ],
+      "images": {
+        "train": 20495,
+        "validation": 3260,
+        "test": 3205
+      },
+      "annotations": {
+        "train": 22203,
+        "validation": 3523,
+        "test": 3478
+      }
+    },
+    {
+      "class_index": 18,
+      "class_name": "annulus",
+      "category_ids": [
+        18
+      ],
+      "images": {
+        "train": 20714,
+        "validation": 3278,
+        "test": 3210
+      },
+      "annotations": {
+        "train": 22490,
+        "validation": 3558,
+        "test": 3461
+      }
+    },
+    {
+      "class_index": 19,
+      "class_name": "capsule",
+      "category_ids": [
+        19
+      ],
+      "images": {
+        "train": 20636,
+        "validation": 3227,
+        "test": 3097
+      },
+      "annotations": {
+        "train": 22433,
+        "validation": 3492,
+        "test": 3344
+      }
+    },
+    {
+      "class_index": 20,
+      "class_name": "l_shape",
+      "category_ids": [
+        20
+      ],
+      "images": {
+        "train": 20419,
+        "validation": 3204,
+        "test": 3253
+      },
+      "annotations": {
+        "train": 22145,
+        "validation": 3480,
+        "test": 3528
+      }
+    }
+  ],
+  "splits": {
+    "train": {
+      "data_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train",
+      "labels_sha256": "3a736f1997fafc38c7a8aa446d4d48fb189e6a3b3717f2b5ef23682f290287d4",
+      "number_images": 128000
+    },
+    "validation": {
+      "data_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/validation",
+      "labels_sha256": "8a612e5f7a6734bc68c4f3813ac137179fad8748b08124f336583e3c424f1ada",
+      "number_images": 20000
+    },
+    "test": {
+      "data_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test",
+      "labels_sha256": "313be07f3a539266819f08e30be3ee784dfe2b0b59c17c240a2206fbbe3f7830",
+      "number_images": 20000
+    }
+  }
+}

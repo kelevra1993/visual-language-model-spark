@@ -9,13 +9,15 @@ sample image and facts of the run, with the trivial value of every metric and th
 scratch it is compared with. Every figure family is a module of this folder writing into a subfolder of the output
 folder, its facts gathered here into the facts.json the storyboards quote as {{sequence_labelling.<name>}}, with the
 settings the run was trained with, read from its saved configuration. The build stops when the evaluation read is not
-the one the chapters describe: the last checkpoint evaluated again with its averaged weights on the test subset.
+the one the chapters describe: the last checkpoint evaluated again with its averaged weights on the test subset. The
+run is read from the experiments folder of the build, the real runs or the committed snapshots
+(tutorials/run_snapshots).
 """
 
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import find_run_folder, merge_facts
+from tutorials.figures.figure_utilities import describe_run_label, find_run_folder, merge_facts
 from tutorials.figures.sequence_labelling.dataset_figures import make_dataset_figures
 from tutorials.figures.sequence_labelling.evaluation_figures import make_evaluation_facts
 from tutorials.figures.sequence_labelling.sequence_utilities import read_run_sections
@@ -85,7 +87,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
 
     Args:
         output_folder (Path): The figures folder of the series in the cache of the build.
-        experiments_folder (Path): The folder of the real runs.
+        experiments_folder (Path): The folder of the real runs, or the committed snapshots.
         force (bool): Whether the reused figures are made again.
 
     Returns:
@@ -96,7 +98,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
             evaluation read is not the last checkpoint evaluated again with the averaged weights.
     """
     run_folder = find_run_folder(experiments_folder=experiments_folder, run_key=RUN_KEY)
-    run_label = f"{experiments_folder.name}/{run_folder.relative_to(experiments_folder)}"
+    run_label = describe_run_label(experiments_folder=experiments_folder, run_folder=run_folder)
     dataset_facts = make_dataset_figures(output_folder=output_folder, run_folder=run_folder, force=force)
     run_setting_facts = read_run_setting_facts(run_folder=run_folder)
     evaluation_facts = make_evaluation_facts(output_folder=output_folder, run_folder=run_folder, force=force)

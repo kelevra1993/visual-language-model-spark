@@ -10,7 +10,8 @@ chapter compare the run with. The settings the synthetic dataset generator and t
 main block (split sizes, shapes per frame, size and seed of the test subset) and the number of sequence tasks of the
 repository are facts too, so that the narration quoting them follows the code. The shares of the class balance are
 written as the percentages of the reports of the repository ("46.82 %", ticks "20 %"), the facts keeping them between 0
-and 1.
+and 1. A build from the committed snapshots (tutorials/run_snapshots, without the training labels.json) reuses the
+committed class balance and listings.
 """
 
 import json
@@ -28,8 +29,8 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, format_thousands,
-                                                register_fonts, round_fact, save_figure,
-                                                style_chart_panel, write_reused_facts)
+                                                is_snapshot_folder, register_fonts, restore_committed_figures,
+                                                round_fact, save_figure, style_chart_panel, write_reused_facts)
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
                                                                      convert_frame_to_image, describe_run_source,
                                                                      draw_captioned_frames, draw_figure_header,
@@ -392,7 +393,8 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
     Makes the data figures and listings of the sequence labelling series and gives their facts, the class balance and
     the listings (which read the whole training labels.json) being reused from the previous build unless forced,
     unless that build wrote fewer facts than the storyboards quote, or unless it read another run or files changed
-    since (read_run_reused_facts).
+    since (read_run_reused_facts). A run read from the committed snapshots reuses the committed class balance and
+    listings.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -420,6 +422,11 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
     balance_path = dataset_folder / "class_balance.png"
     listings_folder = output_folder / "listings"
     reused_facts_path = dataset_folder / "class_balance_facts.json"
+
+    # A run read from the snapshots, without the training labels, takes the committed class balance and listings
+    if is_snapshot_folder(folder=run_folder):
+        restore_committed_figures(output_folder=output_folder, family_folder="dataset")
+        restore_committed_figures(output_folder=output_folder, family_folder="listings")
     reused_facts = read_run_reused_facts(facts_path=reused_facts_path, run_folder=run_folder,
                                          source_name=str(training_labels_path), source_paths=source_paths,
                                          fact_prefix="dataset", force=force, required_fact_names=REQUIRED_BALANCE_FACTS,
