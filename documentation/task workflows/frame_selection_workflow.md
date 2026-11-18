@@ -151,7 +151,7 @@ main()
 │       │   │       unselected); a sequence longer than maximum_sequence_length is left out with a red warning, and a
 │       │   │       sequence without exactly frames_per_class frames of every wanted class stops the training with
 │       │   │       the list of such sequences.
-│       │   └── unselected_class_index + get_wanted_class_indices()   the same unselected class in the 3 splits
+│       │   └── unselected_class_index + get_wanted_class_indices()   the same unselected class in the built splits
 │       ├── check_loaders_give_batches()                             refuses a split whose loader gives no batch
 │       ├── save_data_record()                                       data.json, the frames of unmapped categories
 │       │                                                            counted as unselected (get_unmapped_class_index())
@@ -369,7 +369,7 @@ data.json    179,097 bytes   keys ['created', 'classes', 'splits']
 The record and the run folder of Step 2.6 were taken again with the current code on a dataset generated with the same settings (4,044 training frames instead of the 3,950 of Step 2.8).
 
 ### Step 2.8 — `SequenceDataset.__init__()` → `describe_selection_problem()`
-With the `selection` label type, the dataset finds the class of the unselected category, gives it to the frames of unmapped categories, and keeps every sequence whole, each frame keeping its class. A sequence longer than `maximum_sequence_length` frames is left out with a red warning, and a total per split, as for every sequence task. `describe_selection_problem()` then checks every kept sequence: it must hold exactly `frames_per_class` frames of every wanted class, since the decodings always choose that many frames per class. All the invalid sequences are listed at once and the training stops.
+With the `selection` label type, the dataset finds the class of the unselected category, gives it to the frames of unmapped categories, and keeps every sequence whole, each frame keeping its class. A sequence longer than `maximum_sequence_length` frames is left out with a red warning, and a total per split, as for every sequence task. `describe_selection_problem()` then checks every kept sequence: it must hold exactly `frames_per_class` frames of every wanted class, since the decodings always choose that many frames per class. The invalid sequences are reported in one error, the first 20 listed and the others counted (`MAXIMUM_LISTED_INVALID_SEQUENCES`), and the training stops.
 
 **Example: a manifest sequence, the first sequence after shuffling, and the sample the loader gets from it**
 ```text
@@ -529,7 +529,7 @@ model_state: 95 tensors, the first 'class_weights', 'wanted_class_mask', then 'b
 mlflow_run_id: None (iterations 3 and 6), '618a35766a1b4c60a9f2703b93255530' (iterations 9 and 12)
 wanted_class_mask in every checkpoint: [0.0, 1.0, 1.0, 1.0]
 ```
-The file sizes were measured before the checkpoints held the label dictionary of the run (2026-10-21): the 64 more bytes of iterations 9 and 12 come with their MLflow run identifier. The checkpoint of iteration 2000 of the README screenshot run of this configuration (`suggestions.md` K), the same 95 tensors at 256 pixels with its label dictionary and MLflow run identifier, holds 4,292,067 bytes.
+The checkpoints written by the current code also hold `pretrained_backbone_blocks` (the backbone blocks loaded from a shorter source backbone, `classification_workflow.md`, Step 2.19), which would be `None` for this run. The file sizes were measured before the checkpoints held the label dictionary of the run (2026-10-21): the 64 more bytes of iterations 9 and 12 come with their MLflow run identifier. The checkpoint of iteration 2000 of the README screenshot run of this configuration (`suggestions.md` K), the same 95 tensors at 256 pixels with its label dictionary and MLflow run identifier, holds 4,292,067 bytes.
 
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.

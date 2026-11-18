@@ -104,7 +104,7 @@ If one wishes to change what the comparator learns or how it reads the pairs, th
 Whenever a run saves and evaluates a checkpoint, its run folder receives the files below.
 
 - `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table and the `Per Class Recall` table (the recall of every class with its exact 95 % confidence interval over the test pairs, worst recall first); the note `Sample Images : 8 fixed test pairs`. Every rate is written as a percentage with two decimals (`98.50 %`), as for CLS, the thresholds staying between 0 and 1.
-- `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv` and `.png`, `class_metrics.csv`, `class_thresholds.json`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png`), `class_thresholds.json` starting with `"logit_temperature": 1.0`, the temperature of the probabilities its thresholds were found on, and no `temperature_explorer.html` nor `class_logits.npz`, which only the image classification writes (`saves_temperature_explorer()` of `classification_trainer.py`); `predictions.csv` with `save_predictions`, one row per test pair, its `pair` name before the classes and probabilities; `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png`, the numbered grid of the real before frames (`0 before`, ...) above the grid of the real after frames, 4 columns, under the caption `true -> predicted probability` (2068 pixels wide and 1064, 1580 or 2096 pixels high in the README run, each member taking 1 or 2 rows of 512 pixel frames).
+- `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv`, above 1,000 classes `confusion_cells.csv` with its non-zero cells only, `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png` (up to 1,000 classes), `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png`), `class_thresholds.json` starting with `"logit_temperature": 1.0`, the temperature of the probabilities its thresholds were found on, and no `temperature_explorer.html` nor `class_logits.npz`, which only the image classification writes (`saves_temperature_explorer()` of `classification_trainer.py`); `predictions.csv` with `save_predictions`, one row per test pair, its `pair` name before the classes and probabilities; `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png`, the numbered grid of the real before frames (`0 before`, ...) above the grid of the real after frames, 4 columns, under the caption `true -> predicted probability` (2068 pixels wide and 1064, 1580 or 2096 pixels high in the README run, each member taking 1 or 2 rows of 512 pixel frames).
 - `data.json`: the `pairs` of every class in every split, and the frames of both members of every pair of every split.
 - `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of both classes, the images `Samples/<pair>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`; `Train` and `Validation` as in M2O.
 - The console summary gives the `Pairs Per Second` and the real `Frames Per Second` of both members, sent to MLflow as `train/throughput` and `train/frame_throughput`.
@@ -511,7 +511,7 @@ ClassificationHead(
 ```
 
 ### Step 2.18 — `initialise_pretrained_components()`
-The backbone, the temporal module and the head can come from other runs. The fusion has no `pretrained` settings.
+The backbone, the temporal module and the head can come from other runs. The fusion has no `pretrained` settings. A backbone deeper than its source backbone loads its first blocks only, the next ones staying random and never frozen (`classification_workflow.md`, Step 2.19).
 
 **Example: a run from scratch**
 ```text
@@ -626,6 +626,7 @@ Weights/Iteration_9/model_000009.pt   2,441,735 bytes      Weights/Iteration_12/
 model_state: 86 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'
 mlflow_run_id: None in the checkpoints of iterations 3 and 6 (the MLflow run was not open yet), '037372ca4aac463685e61176d80e825e' in those of 9 and 12
 ```
+The checkpoints written by the current code also hold `pretrained_backbone_blocks` (the blocks loaded from a shorter source backbone, Step 2.18), which would be `None` for this run.
 
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
@@ -849,6 +850,8 @@ class_scalars     = 6: Precision/loss_of_object, Recall/loss_of_object, F1/loss_
 The current results also hold `Macro ROC AUC` and `Macro Average Precision` in `metrics`, the files `ROC Curves Image`, `Precision Recall Curves Image` and `Precision Recall Thresholds Image` after `Confusion Matrix Image`, the images `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`, and 10 class scalars, `ROC AUC/<class>` and `Average Precision/<class>` following the F1 of each class.
 
 ### Step 4.8 — `compute_confusion_matrix()` + `compute_metrics_from_confusion_matrix()`
+The matrix and the metrics of CLS (`classification_workflow.md`, Steps 4.9 and 4.10); above 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES`), only its non-zero cells, written as `confusion_cells.csv` (Step 4.12 there).
+
 **Example: `Evaluation/Iteration_6/confusion_matrix.csv`**
 ```text
 true \ predicted,loss_of_object,same_number_of_objects

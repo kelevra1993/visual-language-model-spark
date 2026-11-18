@@ -81,7 +81,7 @@ Should you start on sequences of your own, `configuration_example.yaml` holds th
 
 ### What A Run Writes
 - `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Labelled Frames · <date>`, the frame metrics, `Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `@25` and `@50`, the note `Segments : <true> true and <predicted> predicted in <S> test sequences, an unlabelled frame ending a segment`, then the `Per Class Metrics` and `Per Class Recall` tables (column `Frames`) with `per_class_report`, the second giving the frame recall of every class with its 95 % confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst recall first. Every global metric, the sequence ones included, and every rate of the tables is written as a percentage with two decimals (`46.97 %`), the thresholds staying between 0 and 1.
-- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (its `samples` are labelled frames, `recall_lower` and `recall_upper` follow `recall`), `class_thresholds.json`, `confusion_matrix.csv`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png`; `predictions.csv` with `save_predictions`, one row per labelled frame (`sequence`, `frame`, `true_class`, `predicted_class`, `correct`, `probability_<class>`).
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (its `samples` are labelled frames, `recall_lower` and `recall_upper` follow `recall`), `class_thresholds.json`, `confusion_matrix.csv` (above 1,000 classes `confusion_cells.csv`, its non-zero cells only), and with `per_class_report` `confusion_matrix.png` (up to 1,000 classes), `roc_curves.png` and `precision_recall_curves.png`; `predictions.csv` with `save_predictions`, one row per labelled frame (`sequence`, `frame`, `true_class`, `predicted_class`, `correct`, `probability_<class>`).
 - `Samples/<sequence>.png`: the frame grid of 8 fixed test sequences, 4 frames per row, every frame captioned `true/predicted` and `X` on the wrong ones; `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, one image per wrong frame, with `error_dumps.activated`.
 - TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss` and `Accuracy` (of the labelled frames), `Train/` also `Learning Rate`; `Test/` the global metrics, the `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
 - `data.json` counts the `frames` of every class in every split.
@@ -516,7 +516,7 @@ Weights/Iteration_9/model_000009.pt   3,345,255 bytes      Weights/Iteration_12/
  'mlflow_run_id', 'pretrained_backbone', 'pretrained_temporal_module', 'pretrained_classification_head']
 model_state: 90 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'      format_version 2
 ```
-The file sizes were measured before the checkpoints held the label dictionary of the run (2026-10-21); the checkpoint of iteration 2000 of the README screenshot run of this configuration (`suggestions.md` K), the same 90 tensors with its label dictionary, its MLflow run identifier and the run name of 512 pixel frames, holds 3,348,821 bytes.
+The checkpoints written by the current code also hold `pretrained_backbone_blocks` (the backbone blocks loaded from a shorter source backbone, `classification_workflow.md`, Step 2.19), which would be `None` for this run. The file sizes were measured before the checkpoints held the label dictionary of the run (2026-10-21); the checkpoint of iteration 2000 of the README screenshot run of this configuration (`suggestions.md` K), the same 90 tensors with its label dictionary, its MLflow run identifier and the run name of 512 pixel frames, holds 3,348,821 bytes.
 
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
@@ -763,7 +763,7 @@ files             = confusion_matrix.csv, class_thresholds.json, class_metrics.c
 With the current code, `metrics` holds `'Macro ROC AUC'` and `'Macro Average Precision'` right after `'Top-2 Accuracy'`, `class_scalars` the `ROC AUC/<class>` and `Average Precision/<class>` of every class having them (a class needs test frames for both, and frames of other classes for the ROC AUC), the table the `ROC AUC` and `Average Precision` columns after `F1`, and `files` `roc_curves.png` and `precision_recall_curves.png` after `confusion_matrix.png`. The README screenshot run of this configuration (2000 iterations, `test_10000`) gives `'Macro ROC AUC': 0.5826, 'Macro Average Precision': 0.0194` at iteration 2000, and 366 Test scalars (11 global, 5 for each of the 71 classes).
 
 ### Step 4.8 — the frame metrics: `compute_confusion_matrix()` + `compute_metrics_from_confusion_matrix()` + `compute_top_k_accuracy()`
-The metrics of the classification (see `classification_workflow.md`, Steps 4.9 to 4.11), every labelled frame of every sequence being one sample.
+The metrics of the classification (see `classification_workflow.md`, Steps 4.9 to 4.11), every labelled frame of every sequence being one sample; above 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES`), the matrix keeps only its non-zero cells, written as `confusion_cells.csv` (Step 4.12 there).
 
 **Example: `Evaluation/Iteration_12/confusion_matrix.csv`** (71 x 71, shortened)
 ```text
@@ -799,9 +799,9 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 ```
 In `class_thresholds.json` (`target_precision` 0.99), `no_change` reaches a precision of 0.99 from a probability of 0.0201 (recall 0.0097) and `disappearing_hollow_semicircle` from 0.0142 (recall 0.25); most of the other classes are `null`.
 
-With `per_class_report`, the current header has two more columns, filled from the curves of every class:
+With `per_class_report`, the current header has two more columns, `roc_auc` and `average_precision`, filled from the curves of every class (`build_class_metrics_rows()`); the row of the README screenshot run below predates `recall_lower` and `recall_upper`:
 ```text
-class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
+class_index,class,samples,precision,recall,recall_lower,recall_upper,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
 0,no_change,32843,0.469736,1.000000,0.639211,0.657150,0.712039,0.407468,0.307585        <- README screenshot run, iteration 2000
 ```
 
