@@ -113,9 +113,9 @@ outputs of the last snapshot, even if the code of their family changed since; th
 write them again.
 
 ## Committed Figure Families
-Each time a run, its checkpoint or the code of a family below changes, its committed outputs must be written again,
-since a build from the snapshots never recomputes them (with `--force-figures`, a family without its checkpoint either
-reuses them or stops with an error):
+For a build from the snapshots to show current outputs, the committed outputs of a family below are written again
+after any change of its run, its checkpoint or its code, since such a build never recomputes them (with
+`--force-figures`, a family without its checkpoint either reuses them or stops with an error):
 
 | Series | `figure_reuse/` folder | Script | Write again after |
 |---|---|---|---|
