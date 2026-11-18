@@ -719,7 +719,12 @@ If you would rather watch than read, narrated tutorial videos (an overview, a fo
 tutorials/build_tutorials.sh
 tutorials/build_tutorials.sh --series object_detection
 tutorials/build_tutorials.sh --check-references
+
+# On a machine without the runs: build from their committed snapshots
+tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots
 ```
+
+Before creating, updating or rebuilding a chapter, read `tutorials/MAINTAINING.md`: the writing rules, the review workflow, and how `tutorials/run_snapshots/` (small copies of the runs, their dataset files and the figures that need a checkpoint, at most 5 MB per file) keeps everything a rebuild needs in the repository.
 
 Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
 
@@ -764,7 +769,7 @@ To find your way in the code, the diagram follows the packages along the path of
 │   └── utilities/                     # File, tensor, mask and visualization helpers
 ├── scripts/                           # Configuration, data, deployment (serving benchmark), embedding, evaluation and model drawing scripts
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
-└── tutorials/                         # Narrated tutorial videos: storyboards, builder and figure scripts
+└── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, MAINTAINING.md
 ```
 
 ## TODO

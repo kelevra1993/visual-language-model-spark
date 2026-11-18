@@ -1,0 +1,341 @@
+ExperimentConfiguration:
+  task: instance_segmentation
+  experiment_folder: /home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots
+  run_name_suffix: null
+  train_data_folder: /home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train
+  validation_data_folder: /home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/validation
+  test_data_folder: /home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test
+  batch_size: 64
+  information_dump: 1000
+  weight_saving_iterations: 1000
+  intermediate_weight_saving_iterations: 500
+  number_iterations: 2000
+  validation_iteration_ratio: 0
+  evaluation:
+    per_class_report: true
+    number_sample_images: 8
+    score_threshold: 0.05
+    target_precision: 0.99
+    original_resolution: false
+    error_dumps:
+      activated: false
+      maximum_per_class_pair: 20
+  tracking:
+    activated: true
+    tracking_uri: null
+    experiment_name: null
+    log_artifacts: true
+  learning_rate: 0.0002
+  resume_training: false
+  allow_data_change_on_resume: false
+  diagnosis_modes:
+    verbose: false
+    compute_receptive_field: true
+    compute_model_size: true
+    view_input_images: false
+Optimization:
+  optimizer: adam
+  weight_decay: 0.0
+  learning_rate_schedule: constant
+  warmup_iterations: 0
+  decay_iterations: 100000
+  minimum_learning_rate_ratio: 0.01
+  gradient_clipping_norm: null
+  mixed_precision: false
+  exponential_moving_average:
+    activated: true
+    decay: 0.9998
+  loss_weights:
+    region_proposal_classification_loss: 1.0
+    region_proposal_localisation_loss: 1.0
+    detection_classification_loss: 1.0
+    detection_regression_loss: 1.0
+    mask_loss: 1.0
+Data:
+  loading:
+    number_workers: 2
+    prefetch_batches: 2
+  image_settings:
+    size: 512
+    keep_ratio: true
+  label_mapping:
+    mode: multi_class
+    mapping_file_path: /home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/label_mapping.json
+  data_augmentation:
+    activated: true
+    probability: 0.4
+    independent_frames: false
+    shuffle_frames:
+      activated: false
+      probability: 0.5
+    types:
+      random_crop:
+        activated: false
+        probability: 0.3
+      random_aspect_crop:
+        activated: false
+        probability: 0.3
+      random_zoom_out:
+        activated: false
+        probability: 0.3
+      random_translation:
+        activated: false
+        probability: 0.5
+      random_left_right_flip:
+        activated: false
+        probability: 0.5
+      random_up_down_flip:
+        activated: false
+        probability: 0.5
+      random_rotation:
+        activated: false
+        probability: 0.3
+      random_90_rotation:
+        activated: false
+        probability: 0.3
+      random_perspective:
+        activated: false
+        probability: 0.3
+      random_jigsaw:
+        activated: false
+        probability: 0.3
+      brightness_contrast_saturation:
+        activated: false
+        probability: 0.3
+      random_hue:
+        activated: false
+        probability: 0.5
+      clahe_augment:
+        activated: false
+        probability: 0.3
+      sharp_augment:
+        activated: false
+        probability: 0.3
+      equalize_histogram_augment:
+        activated: false
+        probability: 0.3
+      equalize_bgr_histogram_augment:
+        activated: false
+        probability: 0.3
+      random_noise:
+        activated: false
+        probability: 0.3
+      gray_scale_augment:
+        activated: false
+        probability: 0.3
+      random_colour_augmentation:
+        activated: false
+        probability: 0.3
+      random_gamma:
+        activated: false
+        probability: 0.3
+      random_linear_illumination:
+        activated: false
+        probability: 0.3
+      random_plasma_shadow:
+        activated: false
+        probability: 0.3
+      random_blur:
+        activated: false
+        probability: 0.3
+      random_motion_blur:
+        activated: false
+        probability: 0.3
+      random_haze:
+        activated: true
+        probability: 0.3
+      random_solarize:
+        activated: false
+        probability: 0.2
+      random_black_out:
+        activated: false
+        probability: 0.3
+        grid_size: 8
+      random_erasing:
+        activated: false
+        probability: 0.3
+Backbone:
+  input_channels: 3
+  convolutions:
+    '1':
+    - 1
+    - 16
+    '2':
+    - 2
+    - 16
+    '3':
+    - 2
+    - 16
+    '4':
+    - 3
+    - 32
+    '5':
+    - 3
+    - 32
+    '6':
+    - 5
+    - 32
+    '7':
+    - 5
+    - 32
+  last_max_pooling: false
+  normalization:
+    input_normalization: true
+    per_sample_normalization: false
+    feature_map_normalization: batch
+    batch_normalization_momentum: 0.1
+  modules:
+    residual_nets: true
+    residual_nets_v2: false
+    inception: false
+    inception_starting_block: 3
+    squeeze_and_excite: true
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    freeze_normalization_parameters: false
+    learning_rate_multiplier: 1.0
+DetectionLevels:
+  '5':
+    anchors:
+      scales:
+      - 32
+      - 64
+      aspect_ratios:
+      - 0.5
+      - 1.0
+      - 2.0
+    region_proposal:
+      convolutions:
+      - 2
+      - 32
+    detector:
+      roi_align_pool_size: 7
+      convolutions:
+      - 2
+      - 32
+      fully_connected:
+      - 64
+      - 32
+    mask_head:
+      roi_align_pool_size: 14
+      convolutions:
+      - 3
+      - 32
+  '6':
+    anchors:
+      scales:
+      - 64
+      - 128
+      aspect_ratios:
+      - 0.5
+      - 1.0
+      - 2.0
+    region_proposal:
+      convolutions:
+      - 2
+      - 32
+    detector:
+      roi_align_pool_size: 7
+      convolutions:
+      - 2
+      - 32
+      fully_connected:
+      - 64
+      - 32
+    mask_head:
+      roi_align_pool_size: 14
+      convolutions:
+      - 3
+      - 32
+  '7':
+    anchors:
+      scales:
+      - 128
+      - 256
+      aspect_ratios:
+      - 0.5
+      - 1.0
+      - 2.0
+    region_proposal:
+      convolutions:
+      - 2
+      - 32
+    detector:
+      roi_align_pool_size: 7
+      convolutions:
+      - 2
+      - 32
+      fully_connected:
+      - 64
+      - 32
+    mask_head:
+      roi_align_pool_size: 14
+      convolutions:
+      - 3
+      - 32
+RegionProposal:
+  normalization:
+    feature_map_normalization: batch
+    batch_normalization_momentum: 0.1
+  training:
+    pre_nms_proposals: 1000
+    post_nms_proposals: 500
+  inference:
+    pre_nms_proposals: 500
+    post_nms_proposals: 250
+  foreground_iou_threshold:
+    min: 0.5
+    max: 1.0
+  background_iou_threshold:
+    min: 0.0
+    max: 0.3
+  nms_iou_threshold: 0.7
+  strict_fallback_assignment: false
+  number_training_positives: 128
+  total_training_samples: 256
+  localisation_loss_beta: 1/9
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    learning_rate_multiplier: 1.0
+Detector:
+  normalization:
+    feature_map_normalization: batch
+    batch_normalization_momentum: 0.1
+  modules:
+    residual_nets: true
+    inception: false
+    squeeze_and_excite: true
+  inference:
+    score_threshold: 0.5
+    maximum_detections: 100
+  foreground_iou_threshold: 0.5
+  nms_iou_threshold: 0.5
+  number_training_positives: 64
+  total_training_samples: 128
+  localisation_loss_beta: 1/9
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    learning_rate_multiplier: 1.0
+MaskHead:
+  mask_resolution: 28
+  upsampling: transposed
+  normalization:
+    feature_map_normalization: batch
+    batch_normalization_momentum: 0.1
+  modules:
+    residual_nets: true
+    inception: false
+    squeeze_and_excite: false
+  inference:
+    mask_threshold: 0.5
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    learning_rate_multiplier: 1.0

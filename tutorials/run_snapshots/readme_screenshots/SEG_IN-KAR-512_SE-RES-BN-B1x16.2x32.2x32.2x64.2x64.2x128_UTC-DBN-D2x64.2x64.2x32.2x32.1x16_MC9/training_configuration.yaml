@@ -1,0 +1,217 @@
+ExperimentConfiguration:
+  task: semantic_segmentation
+  experiment_folder: /home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots
+  run_name_suffix: null
+  train_data_folder: /home/robert_kelevra/Data/segmentation_data/synthetic_shapes/train
+  validation_data_folder: /home/robert_kelevra/Data/segmentation_data/synthetic_shapes/validation
+  test_data_folder: /home/robert_kelevra/Data/segmentation_data/synthetic_shapes/test
+  batch_size: 16
+  information_dump: 100
+  weight_saving_iterations: 1000
+  intermediate_weight_saving_iterations: 500
+  number_iterations: 2000
+  validation_iteration_ratio: 25
+  evaluation:
+    per_class_report: true
+    number_sample_images: 8
+    save_predicted_masks: false
+    original_resolution: false
+    boundary_tolerance: 2
+  tracking:
+    activated: false
+    tracking_uri: null
+    experiment_name: null
+  learning_rate: 0.001
+  allow_data_change_on_resume: false
+  diagnosis_modes:
+    compute_receptive_field: true
+    view_input_images: false
+    # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,
+    # at the configured and largest batch sizes that fit, then exits without training; no run folder is created.
+    benchmark_speed: False
+Optimization:
+  optimizer: adam
+  weight_decay: 0.0
+  learning_rate_schedule: constant
+  warmup_iterations: 0
+  decay_iterations: 100000
+  minimum_learning_rate_ratio: 0.01
+  exponential_moving_average:
+    activated: false
+    decay: 0.9998
+Data:
+  image_settings:
+    size: 512
+    keep_ratio: true
+  tiling:
+    activated: false
+    scale: 1.0
+    overlap: 128
+  label_mapping:
+    mode: multi_class
+    mapping_file_path: /home/robert_kelevra/Data/segmentation_data/synthetic_shapes/label_mapping.json
+  data_augmentation:
+    activated: true
+    probability: 0.4
+    types:
+      random_crop:
+        activated: true
+        probability: 0.3
+      random_aspect_crop:
+        activated: false
+        probability: 0.3
+      random_zoom_out:
+        activated: false
+        probability: 0.3
+      random_translation:
+        activated: false
+        probability: 0.5
+      random_left_right_flip:
+        activated: true
+        probability: 0.5
+      random_up_down_flip:
+        activated: false
+        probability: 0.5
+      random_rotation:
+        activated: true
+        probability: 0.3
+      random_90_rotation:
+        activated: false
+        probability: 0.3
+      random_perspective:
+        activated: false
+        probability: 0.3
+      random_jigsaw:
+        activated: false
+        probability: 0.3
+      brightness_contrast_saturation:
+        activated: true
+        probability: 0.3
+      random_hue:
+        activated: false
+        probability: 0.5
+      clahe_augment:
+        activated: false
+        probability: 0.3
+      sharp_augment:
+        activated: false
+        probability: 0.3
+      equalize_histogram_augment:
+        activated: false
+        probability: 0.3
+      equalize_bgr_histogram_augment:
+        activated: false
+        probability: 0.3
+      random_noise:
+        activated: true
+        probability: 0.3
+      gray_scale_augment:
+        activated: false
+        probability: 0.3
+      random_colour_augmentation:
+        activated: false
+        probability: 0.3
+      random_gamma:
+        activated: false
+        probability: 0.3
+      random_linear_illumination:
+        activated: false
+        probability: 0.3
+      random_plasma_shadow:
+        activated: false
+        probability: 0.3
+      random_blur:
+        activated: false
+        probability: 0.3
+      random_motion_blur:
+        activated: false
+        probability: 0.3
+      random_haze:
+        activated: true
+        probability: 0.3
+      random_solarize:
+        activated: false
+        probability: 0.2
+      random_black_out:
+        activated: false
+        probability: 0.3
+        grid_size: 8
+      random_erasing:
+        activated: false
+        probability: 0.3
+Backbone:
+  input_channels: 3
+  convolutions:
+    '1':
+    - 1
+    - 16
+    '2':
+    - 2
+    - 32
+    '3':
+    - 2
+    - 32
+    '4':
+    - 2
+    - 64
+    '5':
+    - 2
+    - 64
+    '6':
+    - 2
+    - 128
+  last_max_pooling: false
+  normalization:
+    input_normalization: true
+    per_sample_normalization: false
+    feature_map_normalization: batch
+  modules:
+    residual_nets: true
+    residual_nets_v2: false
+    inception: false
+    squeeze_and_excite: true
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    freeze_normalization_parameters: false
+    learning_rate_multiplier: 1.0
+SegmentationDecoder:
+  upsampling: transposed
+  convolutions:
+    '5':
+    - 2
+    - 64
+    '4':
+    - 2
+    - 64
+    '3':
+    - 2
+    - 32
+    '2':
+    - 2
+    - 32
+    '1':
+    - 1
+    - 16
+  modules:
+    squeeze_and_excite: false
+    residual_nets: false
+  feature_map_normalization: batch
+  dropout_rate: 0.0
+  deep_supervision_weights: {}
+  pretrained:
+    experiment_folder: null
+    iteration: null
+    freeze: false
+    load_class_layers: false
+    learning_rate_multiplier: 1.0
+SegmentationLoss:
+  cross_entropy_weight: 1.0
+  focal_gamma: 0.0
+  label_smoothing: 0.0
+  class_weighting: none
+  dice_weight: 1.0
+  lovasz_weight: 0.0
+  boundary_weight: 0.0
+  boundary_distance: 3

@@ -1,0 +1,267 @@
+# Tutorial self_supervised run (tutorial_sources.yaml): self_supervised/configuration_synthetic_shapes.yaml, 10000
+# iterations (resumed at 2000) in ~/Data/tutorial_runs, outside the repository; python -m vision_training.main.
+ExperimentConfiguration:
+  # Task trained, selecting the trainer, model and checks. "self_supervised": label-free backbone training on two random
+  # views per image; needs ProjectionHead, Data.data_augmentation on; initialises any task (Backbone.pretrained).
+  task: "self_supervised"
+  # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; views, batch
+  # size, learning rate, schedule can change on resume.
+  experiment_folder: "/home/robert_kelevra/Data/tutorial_runs/tutorials"
+  # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
+  # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
+  run_name_suffix: null
+  # Training images and labels.json manifest.
+  train_data_folder: "/home/robert_kelevra/Data/classifier_data/synthetic_shapes/train"
+  # Validation images and labels.json manifest.
+  validation_data_folder: "/home/robert_kelevra/Data/classifier_data/synthetic_shapes/validation"
+  # Test images and labels.json manifest.
+  test_data_folder: "/home/robert_kelevra/Data/classifier_data/synthetic_shapes/test"
+  # Images per forward/backward pass.
+  batch_size: 128
+  # Metric logging interval, in iterations.
+  information_dump: 50
+  # Checkpoint and test evaluation interval, in iterations.
+  weight_saving_iterations: 500
+  # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
+  intermediate_weight_saving_iterations: 250
+  # Total training iterations.
+  number_iterations: 10000
+  # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
+  validation_iteration_ratio: 5
+  # Test evaluation at every weight_saving_iterations checkpoint, no classifier trained: cosine k-NN of the labelled
+  # test images among labelled training images (accuracy, balanced accuracy, per-class...); unlabelled: effective rank.
+  evaluation:
+    # Reports every class: k-NN class and recall tables (console, Results.txt), k-NN Test scalars in TensorBoard. False:
+    # global metrics only; class_metrics.csv always saved.
+    per_class_report: True
+    # Test images drawn once, shown at every evaluation next to two random views, captioned with the class and view
+    # cosine similarity, in Evaluation/Iteration_<n>/Samples/ and TensorBoard, spread over the classes. 0 disables.
+    number_sample_images: 8
+    # Nearest neighbours voting for the class of a labelled test image in the k-NN evaluation, each weighted by
+    # exp(cosine similarity / 0.07); a positive integer, reduced to the number of reference images when larger.
+    number_neighbours: 20
+    # Reference images of the k-NN per class: the labelled training images of smallest file name MD5 hash, the same at
+    # every evaluation, encoded with the evaluated weights; a positive integer bounding the evaluation time and memory.
+    number_reference_images_per_class: 50
+  # MLflow tracking next to TensorBoard: hyperparameters, metric averages, learning rate, test metrics, small artifacts
+  # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
+  tracking:
+    # Turns MLflow tracking on.
+    activated: False
+    # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
+    tracking_uri: null
+    # MLflow experiment, null for the task name ("self_supervised").
+    experiment_name: null
+  # Base learning rate.
+  learning_rate: 5.0e-4
+  # Lets a resumed run train on a changed labels.json (the previous data.json kept as data_until_iteration_<n>.json);
+  # False refuses it, a new run (run_name_suffix) being needed. A moved data folder with the same labels resumes.
+  allow_data_change_on_resume: false
+  diagnosis_modes:
+      # Computes the receptive field
+      compute_receptive_field: True
+      # Shows the network input: View 1 and View 2 windows, plus a Training Batch window with Data.grouped_batches.
+      # SPACE: next images, ENTER: exit without training (False to train); needs a display, creates no run folder.
+      view_input_images: False
+
+Optimization:
+  # Optimizer: "adam", "adamw" (decoupled weight decay) or "sgd" (Nesterov momentum 0.9), at
+  # ExperimentConfiguration.learning_rate.
+  optimizer: "adam"
+  # Optimizer weight decay, 0 to disable.
+  weight_decay: 0.0
+  # After the warm-up: "constant", or "cosine" (to minimum_learning_rate_ratio x learning rate over decay_iterations,
+  # then constant).
+  learning_rate_schedule: "constant"
+  # Linear learning rate warm-up iterations from 0, 0 to disable.
+  warmup_iterations: 0
+  # Cosine decay iterations after the warm-up (cosine schedule only).
+  decay_iterations: 100000
+  # Final cosine learning rate, as a fraction of the learning rate (cosine only).
+  minimum_learning_rate_ratio: 0.01
+  # Exponential moving average of the weights, ema = decay x ema + (1 - decay) x weights per step (about 1 / (1 - decay)
+  # iterations); scored at every test (Test_EMA), can change on resume; when on, 'pretrained' prefers the source EMA.
+  exponential_moving_average:
+    # Turns the weight moving average on.
+    activated: False
+    # Share of the average kept per update, strictly between 0 and 1.
+    decay: 0.9998
+
+Data:
+  image_settings:
+    # Input resolution of every image.
+    size: 256
+    # Keeps the original aspect ratio when resizing.
+    keep_ratio: True
+  label_mapping:
+    # Must be "multi_class" (self-supervised): the mapping file gives the class of every category for the k-NN
+    # evaluation, 0 to K-1 (no background), {} for an unlabelled dataset.
+    mode: "multi_class"
+    # JSON file mapping the dataset category IDs to sequential class IDs.
+    mapping_file_path: "/home/robert_kelevra/Data/classifier_data/synthetic_shapes/label_mapping.json"
+  # Grouped batches (hard negatives): rebuilt every pass from blocks of images_per_block images sharing a labels.json
+  # "groups" value (e.g. {"camera": "c042"}); no keys: random batches, partial keys: error; test not grouped.
+  grouped_batches:
+    # Turns grouped batches on, random batches otherwise.
+    activated: False
+    # Attribute shared by the images of a block.
+    block_key: "camera"
+    # Images per block, an integer >= 2 dividing the batch size (batch_size / images_per_block blocks per batch).
+    images_per_block: 32
+    # Attribute shared by every image of a batch (e.g. "site", its blocks from cameras of one site), or null for blocks
+    # of any value.
+    batch_key: null
+  # Self-supervised views: every training and validation image augmented twice, each view drawing the activated types by
+  # probability; strengths fixed (augmentations.py); solarize, black-out on view 2 only. Can change on resume.
+  data_augmentation:
+    # Global switch, True for the self-supervised task (otherwise both views are the image itself).
+    activated: True
+    # Probability that a training image is augmented, ignored by the self-supervised task (every image gets two views).
+    probability: 1.0
+    types:
+      # Geometric augmentations, drawn per view. Random Crop : resized crop of 20% to 100% of the area, aspect ratio
+      # x1/2 to x2, the main view augmentation (probability 1.0 when activated)
+      random_crop: { activated: True, probability: 1.0 }
+      # Random Aspect Crop : 75% to 100% of the width and, drawn separately, of the height, resized back, stretching one
+      # side by x0.75 to x1.33
+      random_aspect_crop: { activated: False, probability: 0.3 }
+      # Random Zoom Out : image shrunk to 50% to 100% of each side at a random place of a black canvas of the input size
+      random_zoom_out: { activated: False, probability: 0.3 }
+      # Random Translation : shift of up to 25% along x, y or both, border filled black
+      random_translation: { activated: False, probability: 0.5 }
+      # Random Left-Right Flip
+      random_left_right_flip: { activated: True, probability: 0.5 }
+      # Random Up-Down Flip, for images whose content keeps its meaning upside down
+      random_up_down_flip: { activated: True, probability: 0.5 }
+      # Random Rotation of -10° to 10°, corners filled black
+      random_rotation: { activated: True, probability: 0.5 }
+      # Random +-90° rotation (square images only)
+      random_90_rotation: { activated: False, probability: 0.3 }
+      # Random Perspective : each corner moved inwards by up to 5% of half the width and height (viewpoint change),
+      # border filled black
+      random_perspective: { activated: True, probability: 0.5 }
+      # Random Jigsaw, experimental : 2x2 pieces in a random order, breaking the global layout for datasets whose static
+      # background lets the views match without learning their content
+      random_jigsaw: { activated: False, probability: 0.2 }
+
+      # Photometric augmentations, drawn per view.
+      # Brightness, contrast and saturation each x0.6 to x1.2 (milder than the x0.2 to x1.8 of SimCLR)
+      brightness_contrast_saturation: { activated: True, probability: 0.8 }
+      # Random Hue : hue turned by up to 36 degrees (a tenth of the circle) either way
+      random_hue: { activated: True, probability: 0.8 }
+      # CLAHE, clip limit 2.0 on a 4x4 tile grid
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram equalization of the luminance (Y of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram equalization of one random channel (B, G or R) or all three
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : sensor Gaussian noise, standard deviation 30 levels
+      random_noise: { activated: True, probability: 0.2 }
+      # Grayscale, kept on three channels
+      gray_scale_augment: { activated: True, probability: 0.2 }
+      # Random Colour augmentation : BGR to RGB channel swap
+      random_colour_augmentation: { activated: False, probability: 0.3 }
+      # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
+      random_gamma: { activated: True, probability: 0.3 }
+      # Random Linear Illumination : ramp of 13 to 38 levels across the image, brightening or darkening it, an uneven
+      # lighting
+      random_linear_illumination: { activated: True, probability: 0.3 }
+      # Random Plasma Shadow : irregular fractal shadows darkening by up to 51 levels
+      random_plasma_shadow: { activated: True, probability: 0.2 }
+      # Random Blur : 9x9 Gaussian kernel, sigma 2.5
+      random_blur: { activated: True, probability: 0.5 }
+      # Random Motion Blurring : streak of 5 to 15 pixels at 0 to 180 degrees, trailing backward or forward (camera or
+      # object motion)
+      random_motion_blur: { activated: True, probability: 0.1 }
+      # Random Haze : uniform grey airlight of 160 to 255 levels taking 20% to 70% of every pixel, a camera fog (after
+      # the blurs)
+      random_haze: { activated: True, probability: 0.3 }
+      # Random Solarize : pixels at or above 191.25 levels inverted, second view only
+      random_solarize: { activated: True, probability: 0.2 }
+      # Random Black Out : grid_size x grid_size cells (smaller cells hide smaller parts), each blacked out with
+      # probability 0.35, second view only
+      random_black_out: { activated: True, probability: 0.3, grid_size: 8 }
+      # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3 (applied last)
+      random_erasing: { activated: True, probability: 0.25 }
+
+Backbone:
+  # Input channels of the first convolution block: 3, the loaders giving BGR images
+  input_channels : 3
+
+  # [convolutions, output filters] of every block.
+  convolutions:
+    {
+      "1": [ 1, 16 ],
+      "2": [ 2, 32 ],
+      "3": [ 2, 32 ],
+      "4": [ 2, 64 ],
+      "5": [ 2, 64 ],
+      "6": [ 2, 128 ],
+    }
+
+  # Max pooling after the last block.
+  last_max_pooling: False
+
+  normalization:
+    # Scales the inputs to [-0.5, 0.5].
+    input_normalization: True
+
+    # Normalizes every image to zero mean and unit variance (after input_normalization).
+    per_sample_normalization: False
+
+    # Feature map normalization: "batch", "layer" (over channels) or "none".
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual shortcuts every two convolutions from block 2 (https://arxiv.org/abs/1512.03385).
+    residual_nets: True
+
+    # Pre-activation shortcuts (https://arxiv.org/abs/1603.05027): normalization and ReLU before every convolution.
+    # Requires residual_nets; RES2 token instead of RES.
+    residual_nets_v2: False
+
+    # Inception modules (https://arxiv.org/abs/1409.4842), output channels multiples of 8.
+    inception: False
+
+    # Squeeze and excitation (https://arxiv.org/abs/1709.01507).
+    squeeze_and_excite: True
+
+  # Backbone of another run (any task) initialising this one. The layer settings (input_channels, convolutions, modules,
+  # normalization, last_max_pooling) must match; detection levels and image size may differ.
+  pretrained:
+    # Run folder of the loaded backbone, null for random weights (not reloaded on resume).
+    experiment_folder: null
+    # Checkpoint iteration, null for the last one.
+    iteration: null
+    # Freezes the loaded backbone (no gradient, frozen batch statistics); needs experiment_folder.
+    freeze: False
+    # Freezes the scale and shift of the loaded backbone normalizations while its convolutions learn; needs
+    # experiment_folder, freeze False and a normalization.
+    freeze_normalization_parameters: False
+    # Learning rate factor of the loaded backbone, e.g. 0.1 to train it 10x slower.
+    learning_rate_multiplier: 1.0
+
+ProjectionHead:
+  # Backbone feature map [C, H, W] to representation (k-NN, exported encoder): "average" or "max" (C values), or
+  # "flatten" (C x H x W values keeping positions, tied to Data.image_settings.size and Backbone.last_max_pooling).
+  global_pooling: "average"
+  # Projection layer units, the last the embedding size compared by the loss: SimCLR e.g. [2048, 128], Barlow Twins wide
+  # (e.g. [2048, 2048, 2048]). Self-supervised training only; the backbone initialises the other tasks.
+  fully_connected: [512, 128]
+  # Normalization of every hidden layer output before its ReLU: "batch" (as SimCLR and Barlow Twins), "layer" or "none"
+  # (needed when fully_connected holds the embedding layer only); PBN or PLN token.
+  fully_connected_normalization: "batch"
+  # "simclr" (InfoNCE, negatives from the batch) or "barlow_twins" (view cross-correlation to identity, no negatives);
+  # SIMCLR or BT token.
+  method: "simclr"
+  simclr:
+    # Temperature dividing the cosine similarities before the softmax, e.g. 0.1 to 0.5, lower focusing the loss on the
+    # views of other images most similar to the partner. Gives the T<temperature> token after SIMCLR.
+    temperature: 0.2
+  barlow_twins:
+    # Weight of the off-diagonal terms (redundancy reduction) against the diagonal ones (invariance), e.g. 0.005 for
+    # 8192 features. Gives the OD<weight> token after BT.
+    off_diagonal_weight: 0.005
