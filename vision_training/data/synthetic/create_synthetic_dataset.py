@@ -1,13 +1,16 @@
 """
 Creates the synthetic shapes datasets of every task (object detection, instance segmentation, keypoint detection,
-classification, semantic segmentation, sequence classification, sequence labelling, sequence comparison, frame
-selection, self-supervised) with their labels and 'label_mapping.json': trivial datasets used by the synthetic
-configurations and the trainer tests to check that a model learns, the counted shapes images of the self-supervised
-configurations, drawn like the sequence labelling frames so that the self-supervised backbone can initialise the
-sequence labelling model, and the hard object detection and instance segmentation images of the benchmarks (small, low
-contrast, occluded or cut shapes next to very large ones, on textured backgrounds), down to the occlusion test split of
-the detection benchmark, whose objects overlap more and partly come in overlapping pairs of a class. Run as a script
-with the task set in its main block.
+classification, semantic segmentation, multi-label classification, sequence classification, sequence labelling, sequence
+comparison, frame selection, self-supervised) with their labels and 'label_mapping.json', read by the synthetic
+configurations, the benchmarks and the trainer tests. Every image and frame is drawn with the same ingredients: shapes
+from 16 pixels to 80% of the side with log-uniform sizes (the regular polygons and the keypoint objects from the size at
+which they stay recognisable), small shapes lying over large ones, shapes cut by the image border, a textured background
+on half of the images and shapes close to the background colour on part of the flat ones. Every label stays true to
+what the image shows: the detection labels leave out the shapes mostly hidden, and the images and sequences whose label
+counts, compares or names their shapes are drawn again until every shape is visible enough. The counted shapes images of
+the self-supervised and multi-label configurations are drawn like the sequence labelling frames, so that their backbone
+can initialise the sequence labelling model, and the occlusion test split of the detection benchmark overlaps its
+objects more, partly in overlapping pairs of a class. Run as a script with the task set in its main block.
 """
 
 import json
@@ -36,11 +39,6 @@ SHAPE_CATEGORIES = {"square": 1, "circle": 2, "triangle": 3, "rectangle": 4, "pe
                     "kite": 13, "heptagon": 14, "nonagon": 15, "ellipse": 16, "semicircle": 17, "annulus": 18,
                     "capsule": 19, "l_shape": 20,
                     **{f"hollow_{shape_name}": 21 + index for index, shape_name in enumerate(HOLLOW_SHAPE_NAMES)}}
-
-# Smallest size of the shapes whose class is the label (objects of the detection, segmentation and classification
-# images, shapes of the sequence labelling frames): the sides of a nonagon, the roundest polygon, then bend 2 pixels
-# away from its circle (0.03 x the size), so that the regular polygons stay distinct from each other and from the circle
-MINIMUM_SHAPE_SIZE = 64
 
 # Rectangles are elongated to exercise the 0.5 and 2.0 anchor aspect ratios (ratio of the long to the short side)
 RECTANGLE_ASPECT_RATIO_RANGE = (1.5, 3.0)
@@ -215,14 +213,35 @@ STICK_FIGURE_SIDE_VALUES = {"left": 1, "right": 2}
 HOUSE_HALF_WIDTH_RATIO_RANGE = (0.6, 0.9)
 HOUSE_ROOF_HEIGHT_RATIO_RANGE = (0.3, 0.5)
 
-# Keypoint images: smallest number of objects drawn, and largest part of the canvas of a shape that may stick out of
-# the image, so that some keypoints fall outside it
-KEYPOINT_MINIMUM_OBJECTS = 2
-KEYPOINT_MAXIMUM_OUTSIDE_FRACTION = 0.3
+# Shapes of every image and frame: sizes drawn log-uniform, so that every scale octave holds as many shapes, from 16
+# pixels to 80% of the image side
+OBJECT_MINIMUM_SIZE = 16
+OBJECT_MAXIMUM_SIZE_FRACTION = 0.8
 
-# Maximum overlap allowed between two objects of the same image, the default of create_synthetic_dataset with which
-# every dataset was drawn (larger for the occlusion test split of the detection benchmark), and number of placement
-# attempts per object
+# Regular polygons are drawn from the size at which the middle of their sides lies 2 pixels inside the circle through
+# their vertices (size x (1 - cos(pi / sides)) / 2), the hollow ones too: below it a heptagon, an octagon or a nonagon
+# looks like the circle (21, 30, 41, 53 and 67 pixels from the pentagon to the nonagon)
+REGULAR_POLYGON_SIDES = {"pentagon": 5, "hexagon": 6, "heptagon": 7, "octagon": 8, "nonagon": 9}
+POLYGON_MINIMUM_SIDE_DEPTH_PIXELS = 2.0
+SHAPE_MINIMUM_SIZES = {shape_name: int(np.ceil(2 * POLYGON_MINIMUM_SIDE_DEPTH_PIXELS / (1 - np.cos(np.pi / sides))))
+                       for polygon_name, sides in REGULAR_POLYGON_SIDES.items()
+                       for shape_name in (polygon_name, f"hollow_{polygon_name}")}
+
+# Keypoint images: smallest number of objects drawn, and smallest size of their objects, at which the two closest
+# keypoints of 95% of the objects stay 3 pixels apart (1 pixel at 16 pixels, the stick figure and the hollow rhombus
+# being the tightest)
+KEYPOINT_MINIMUM_OBJECTS = 2
+KEYPOINT_OBJECT_MINIMUM_SIZE = 32
+
+# Smallest number of objects of the object detection, instance segmentation and semantic segmentation images
+MINIMUM_OBJECTS_PER_IMAGE = 5
+
+# Largest part of the canvas width and height of a shape that may stick out of the image on each side, the box being
+# clipped to the image and the keypoints outside it left unlabelled
+OBJECT_MAXIMUM_OUTSIDE_FRACTION = 0.3
+
+# Maximum overlap allowed between two objects of the same image, the default of create_synthetic_dataset (larger for the
+# occlusion test split of the detection benchmark), and number of placement attempts per object
 MAXIMUM_OBJECT_INTERSECTION_OVER_UNION = 0.3
 MAXIMUM_PLACEMENT_ATTEMPTS = 50
 
@@ -237,28 +256,23 @@ SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS = 5
 # Bisection steps of the distance between the centres of such an object and its neighbour giving the IoU drawn for it
 NEIGHBOUR_DISTANCE_BISECTION_STEPS = 40
 
-# Minimum difference (on the most different channel) between an object colour and the background colour
+# Minimum difference (on the most different channel) between an object colour and the background colour, and between
+# the colours of the parts of a stick figure
 MINIMUM_COLOUR_DIFFERENCE = 60
+# Minimum difference between the colours of two shapes of the same image or frame, the least contrast of a shape with
+# its background, so that the edge between two overlapping shapes stays visible, and number of colours drawn before a
+# low contrast draw turns to a contrasting colour, or before a contrasting draw fails
+SHAPE_COLOUR_MINIMUM_DIFFERENCE = 20
+MAXIMUM_COLOUR_ATTEMPTS = 10000
 
-# Hard object detection and instance segmentation images, closer to the difficulty of real images than the trivial
-# dataset: at least 5 objects,
-# from 16 pixels (small shapes, the round polygons then hard to tell from the circle) to 80% of the image side, their
-# sizes drawn log-uniform so that every scale octave holds as many objects, drawn from the largest to the smallest so
-# that small objects lie over the large ones
-HARD_OBJECTS_MINIMUM_OBJECTS = 5
-HARD_OBJECTS_MINIMUM_SIZE = 16
-HARD_OBJECTS_MAXIMUM_SIZE_FRACTION = 0.8
-# Share of the objects of a flat background image drawn in a colour close to the background (a difference of 20 to 40
-# levels on the most different channel instead of at least 60), never on a textured background, whose texture changes
-# the background by as much and could hide them
-HARD_OBJECTS_LOW_CONTRAST_PROBABILITY = 0.2
-HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE = (20, 40)
-# Largest part of the object canvas width and height that may stick out of the image on each side, the box being
-# clipped to the image
-HARD_OBJECTS_MAXIMUM_OUTSIDE_FRACTION = 0.3
-# Share of the images on a textured background (a gradient, smooth noise or line clutter around the background colour),
-# the other ones keeping a flat background, and the largest change of a channel by the texture
-HARD_OBJECTS_TEXTURED_BACKGROUND_PROBABILITY = 0.5
+# Share of the shapes of a flat background image or sequence drawn in a colour close to the background (a difference of
+# 20 to 40 levels on the most different channel instead of at least 60), never on a textured background, whose texture
+# changes the background by as much and could hide them
+LOW_CONTRAST_PROBABILITY = 0.2
+LOW_CONTRAST_DIFFERENCE_RANGE = (20, 40)
+# Share of the images and sequences on a textured background (a gradient, smooth noise or line clutter around the
+# background colour), the other ones keeping a flat background, and the largest change of a channel by the texture
+TEXTURED_BACKGROUND_PROBABILITY = 0.5
 TEXTURE_AMPLITUDE = 40
 TEXTURE_TYPES = ["gradient", "noise", "clutter"]
 # Smooth noise: side of the grid of random values resized to the image, and number of clutter lines and their
@@ -266,13 +280,23 @@ TEXTURE_TYPES = ["gradient", "noise", "clutter"]
 NOISE_GRID_SIZE = 8
 CLUTTER_LINE_RANGE = (20, 60)
 CLUTTER_THICKNESS_RANGE = (1, 3)
-# Share of the pixels of a hard image object left visible by the later objects and the image border that keeps it in
-# the labels when it is below MINIMUM_VISIBLE_OBJECT_PIXELS, which alone would leave out every 16 pixel shape, the
-# larger shapes keeping the fixed minimum so that a large shape partly covered by others stays labelled
-HARD_OBJECTS_MINIMUM_VISIBLE_FRACTION = 0.5
-# Tasks drawing the hard images, labelled with the whole box (detection) or the visible part (instance segmentation) of
-# every shape
-HARD_OBJECTS_TASKS = ["object_detection", "instance_segmentation"]
+# Share of the pixels of an object of a detection, instance segmentation or keypoint image left visible by the later
+# objects and the image border that keeps it in the labels when it is below MINIMUM_VISIBLE_OBJECT_PIXELS, which alone
+# would leave out every 16 pixel shape, the larger shapes keeping the fixed minimum so that a large shape partly covered
+# by others stays labelled
+OBJECT_MINIMUM_VISIBLE_FRACTION = 0.5
+# Share of the pixels of every shape left visible by the later shapes and the image border in the images and frames
+# whose label cannot leave a shape out (the classification, semantic segmentation and counted shapes images, the frames
+# of the sequence tasks), placed again until it holds. Above 0.6 so that the largest copy of a frame selection shape
+# still shows more pixels than its smaller copies, and above 0.82 so that a square cut by the border keeps an aspect
+# ratio below the one of a cut rectangle
+SHAPE_MINIMUM_VISIBLE_FRACTION = 0.85
+# Largest size of the shapes of a counted shapes image or of a sequence frame: the size at which its largest number of
+# shapes would cover this share of the frame, so that every shape fits visible enough
+FRAME_SHAPE_AREA_FRACTION = 1.0
+# Number of times the shapes of a counted shapes image, a sequence or a pair are drawn again when they do not fit
+# visible enough in one of the frames
+MAXIMUM_SAMPLE_ATTEMPTS = 20
 
 # Number of images generated by one worker task
 IMAGES_PER_TASK = 100
@@ -315,14 +339,14 @@ SELECTION_CATEGORIES = {"unselected": 1, "circle": 2, "triangle": 3, "star": 4}
 SELECTION_WANTED_SHAPES = ["circle", "triangle", "star"]
 SELECTION_OTHER_SHAPES = ["square", "rectangle", "plus_sign"]
 
-# Frame selection shapes: size of the largest copies as a fraction of the image side, probability that an unselected
-# frame shows a smaller copy of a wanted shape rather than another shape, largest size of a smaller copy relative to
-# the largest copy, and largest area of a smaller copy relative to the largest copy (a triangle filling its square more
-# or less), so that the largest copy is always clearly the largest
-SELECTION_LARGEST_SIZE_RANGE = (0.4, 0.6)
+# Frame selection shapes: probability that an unselected frame shows a smaller copy of a wanted shape rather than
+# another shape, largest size of a smaller copy relative to the largest copy, and largest area of a smaller copy
+# relative to the largest copy (a triangle filling its square more or less), so that the largest copy is always clearly
+# the largest, and smallest size of a largest copy, which leaves room for a smaller copy of OBJECT_MINIMUM_SIZE
 SELECTION_SMALLER_COPY_PROBABILITY = 0.5
 SELECTION_SMALLER_SIZE_RATIO = 0.7
 SELECTION_SMALLER_AREA_RATIO = 0.6
+SELECTION_LARGEST_MINIMUM_SIZE = int(np.ceil(OBJECT_MINIMUM_SIZE / SELECTION_SMALLER_SIZE_RATIO))
 
 # Minimum number of objects of the before member of a pair
 PAIR_MINIMUM_OBJECTS = 2
@@ -331,15 +355,20 @@ PAIR_MINIMUM_OBJECTS = 2
 # the numbers of objects needs two frames
 MINIMUM_SEQUENCE_FRAMES = 2
 
-# Minimum gap in pixels between two objects of a pair frame, so that every object is countable, and number of
-# attempts at drawing a frame where every object fits
-MINIMUM_OBJECT_GAP = 2
+# Number of attempts at drawing a frame where every shape fits visible enough
 MAXIMUM_FRAME_ATTEMPTS = 20
 
-# Detection, instance segmentation and keypoint detection: an object with fewer visible pixels than this, mostly
-# covered by later objects or outside the image, is left out of the labels
+# Detection, instance segmentation and keypoint detection: an object with fewer visible pixels than this (or than
+# OBJECT_MINIMUM_VISIBLE_FRACTION of its pixels for a small one), mostly covered by later objects or outside the image,
+# is left out of the labels
 MINIMUM_VISIBLE_OBJECT_PIXELS = 64
 TASKS_REMOVING_COVERED_OBJECTS = ["object_detection", "instance_segmentation", "keypoint_detection"]
+
+# Tasks whose images drawn by generate_image keep every shape visible (SHAPE_MINIMUM_VISIBLE_FRACTION), their label
+# naming the class of the single shape or of every pixel, and tasks whose objects may be placed next to an object of
+# their class (the occlusion test split of the detection benchmark)
+TASKS_KEEPING_SHAPES_VISIBLE = ["classification", "semantic_segmentation"]
+SAME_CLASS_NEIGHBOUR_TASKS = ["object_detection", "instance_segmentation"]
 
 # Categories of the synthetic dataset of every task, and the tasks whose samples are sequences of frames (one sequence,
 # or a pair of sequences)
@@ -935,7 +964,7 @@ def draw_nonagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
                       random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled regular nonagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
-    One of the synthetic shape classes, the closest to the circle, which sets MINIMUM_SHAPE_SIZE.
+    One of the synthetic shape classes, the closest to the circle, drawn from its SHAPE_MINIMUM_SIZES of 67 pixels.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -1427,59 +1456,83 @@ def get_intersection_over_union(first_box: List[int], second_box: List[int]) -> 
 
 def draw_contrasting_colour(background_colour: np.ndarray, random_generator: np.random.Generator,
                             avoided_colours: Tuple[np.ndarray, ...] = (),
-                            low_contrast_range: Optional[Tuple[int, int]] = None) -> np.ndarray:
+                            low_contrast_range: Optional[Tuple[int, int]] = None,
+                            shape_colours: Tuple[np.ndarray, ...] = ()) -> np.ndarray:
     """
-    Draws a random BGR colour that differs from the background by at least 60 levels on one channel, so that every
-    synthetic object stays clearly visible, and as much from every avoided colour, so that the parts of a stick figure
-    drawn in colours of their own are told apart from its body and from each other. The low contrast objects of the
-    hard images instead differ from the background by a difference within 'low_contrast_range' on
-    their most different channel, so that they are hard to see.
+    Draws a random BGR colour that differs from the background by at least 60 levels on one channel, so that the
+    synthetic object stays visible, and as much from every avoided colour, so that the parts of a stick figure drawn in
+    colours of their own are told apart from its body and from each other. The low contrast objects drawn on part of
+    the flat backgrounds instead differ from the background by a difference within 'low_contrast_range' on their most
+    different channel, so that they barely stand out. Every colour also differs by SHAPE_COLOUR_MINIMUM_DIFFERENCE
+    levels from the colours of the other shapes of the image, so that the edge between two overlapping shapes stays
+    visible. When the colours of the other shapes leave no low contrast colour (a black background, whose low contrast
+    colours are few, next to many low contrast shapes), the object gets a contrasting colour instead, drawn only once
+    every low contrast draw failed, so that the colours drawn without that failure stay the same.
 
     Args:
         background_colour (np.ndarray): The [3] uint8 BGR background colour.
         random_generator (np.random.Generator): The random generator drawing the colour.
-        avoided_colours (Tuple[np.ndarray, ...]): The [3] uint8 BGR colours the drawn colour must differ from as well.
-            Defaults to none.
+        avoided_colours (Tuple[np.ndarray, ...]): The [3] uint8 BGR colours the drawn colour must differ from by
+            MINIMUM_COLOUR_DIFFERENCE as well. Defaults to none.
         low_contrast_range (Optional[Tuple[int, int]]): The smallest and largest difference with the background on the
             most different channel of a low contrast colour, or None for a contrasting colour. Defaults to None.
+        shape_colours (Tuple[np.ndarray, ...]): The [3] uint8 BGR colours of the other shapes of the image, which the
+            drawn colour must differ from by SHAPE_COLOUR_MINIMUM_DIFFERENCE. Defaults to none.
 
     Returns:
         np.ndarray: The [3] uint8 BGR object colour.
+
+    Raises:
+        RuntimeError: If no contrasting colour drawn in MAXIMUM_COLOUR_ATTEMPTS attempts differs enough from every
+            reference.
     """
-    # Low contrast colour: offsets of the background colour, kept once clipped to the colour range
-    if low_contrast_range is not None:
-        minimum_difference, maximum_difference = low_contrast_range
-        while True:
+    for _ in range(MAXIMUM_COLOUR_ATTEMPTS):
+        # Low contrast colour: offsets of the background colour within the range once clipped to the colour range, or
+        # contrasting colour: a random colour differing enough from the background and every avoided colour
+        if low_contrast_range is not None:
+            minimum_difference, maximum_difference = low_contrast_range
             offsets = random_generator.integers(low=-maximum_difference, high=maximum_difference + 1, size=3)
             colour = np.clip(background_colour.astype(np.int64) + offsets, a_min=0, a_max=255)
-            if minimum_difference <= np.abs(colour - background_colour.astype(np.int64)).max() <= maximum_difference:
-                return colour.astype(np.uint8)
+            if not minimum_difference <= np.abs(colour - background_colour.astype(np.int64)).max() <= \
+                    maximum_difference:
+                continue
+        else:
+            colour = random_generator.integers(low=0, high=256, size=3, dtype=np.int64)
+            if not all(np.abs(colour - reference_colour.astype(np.int64)).max() >= MINIMUM_COLOUR_DIFFERENCE
+                       for reference_colour in (background_colour, *avoided_colours)):
+                continue
 
-    # Contrasting colour: random colours until one differs enough from the background and every avoided colour
-    while True:
-        colour = random_generator.integers(low=0, high=256, size=3, dtype=np.int64)
-        if all(np.abs(colour - reference_colour.astype(np.int64)).max() >= MINIMUM_COLOUR_DIFFERENCE
-               for reference_colour in (background_colour, *avoided_colours)):
+        # Kept once it differs from the other shapes of the image
+        if all(np.abs(colour - shape_colour.astype(np.int64)).max() >= SHAPE_COLOUR_MINIMUM_DIFFERENCE
+               for shape_colour in shape_colours):
             return colour.astype(np.uint8)
 
+    # No low contrast colour left apart from the other shapes: a contrasting colour, still apart from them
+    if low_contrast_range is not None:
+        return draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator,
+                                       avoided_colours=avoided_colours, shape_colours=shape_colours)
+    raise RuntimeError(f"Expected a colour differing enough from the background {background_colour.tolist()} and from "
+                       f"{len(avoided_colours) + len(shape_colours)} other colours, but {MAXIMUM_COLOUR_ATTEMPTS} "
+                       f"drawn colours did not.")
 
-def draw_background(image_size: int, random_generator: np.random.Generator, textured: bool = False
-                    ) -> Tuple[np.ndarray, np.ndarray]:
+
+def draw_background(image_size: int, random_generator: np.random.Generator) -> Tuple[np.ndarray, np.ndarray, bool]:
     """
-    Draws the background of a synthetic image or sequence: black for half of them, a random colour for the other half.
-    A textured background, drawn for part of the hard detection and instance segmentation images, changes that colour
-    across the image by up to TEXTURE_AMPLITUDE levels with a gradient, smooth noise or clutter lines, so that the
-    detector cannot find the objects as the only pixels differing from a flat background.
+    Draws the background of a synthetic image, sequence or pair: black for half of them, a random colour for the other
+    half. A textured background, drawn for TEXTURED_BACKGROUND_PROBABILITY of them, changes that colour across the image
+    by up to TEXTURE_AMPLITUDE levels with a gradient, smooth noise or clutter lines, so that a model cannot find the
+    shapes as the only pixels differing from a flat background.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
-        random_generator (np.random.Generator): The random generator drawing the colour.
-        textured (bool): True to draw a texture over the background colour. Defaults to False.
+        random_generator (np.random.Generator): The random generator drawing the texture and the colour.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray]: The [H, W, 3] uint8 BGR background image and its [3] uint8 colour (the colour
-            the texture changes, which the object colours are drawn against).
+        Tuple[np.ndarray, np.ndarray, bool]: The [H, W, 3] uint8 BGR background image, its [3] uint8 colour (the colour
+            the texture changes, which the object colours are drawn against), and whether it is textured (the low
+            contrast shapes being drawn on the flat backgrounds only).
     """
+    textured = bool(random_generator.random() < TEXTURED_BACKGROUND_PROBABILITY)
     if random_generator.random() < 0.5:
         background_colour = np.zeros(shape=3, dtype=np.uint8)
     else:
@@ -1487,7 +1540,7 @@ def draw_background(image_size: int, random_generator: np.random.Generator, text
     image = np.empty(shape=(image_size, image_size, 3), dtype=np.uint8)
     image[:, :] = background_colour
     if not textured:
-        return image, background_colour
+        return image, background_colour, textured
 
     # Change of every pixel and channel around the background colour, by one of the texture types
     texture_type = TEXTURE_TYPES[int(random_generator.integers(low=0, high=len(TEXTURE_TYPES)))]
@@ -1518,34 +1571,36 @@ def draw_background(image_size: int, random_generator: np.random.Generator, text
                                                       high=CLUTTER_THICKNESS_RANGE[1] + 1))
             cv2.line(img=change, pt1=start_point, pt2=end_point, color=line_change, thickness=thickness)
     image = np.clip(image.astype(np.float32) + change, a_min=0, a_max=255).astype(np.uint8)
-    return image, background_colour
+    return image, background_colour, textured
 
 
 def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colour: np.ndarray,
                           random_generator: np.random.Generator, keypoints: bool = False,
-                          shape_name: Optional[str] = None,
-                          low_contrast_range: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
+                          shape_name: Optional[str] = None, low_contrast_range: Optional[Tuple[int, int]] = None,
+                          shape_colours: Tuple[np.ndarray, ...] = ()) -> Dict[str, Any]:
     """
     Draws one synthetic object of random class (or of the given class), size and colour, its pixels drawn once on a
     canvas of their own so that the same object can be pasted at any position of an image or of the frames of a
-    sequence. A hollow shape is drawn at HOLLOW_MINIMUM_SIZE at least, above maximum_size in the small images. Shared
-    by the images of the detection, keypoint detection and classification datasets, the moving shape of the
-    sequence classification dataset, the objects of the comparison pairs and the shapes of the sequence
-    labelling frames, drawn again in every frame with their class kept. The objects of the keypoint images are drawn
+    sequence. The size is drawn log-uniform within the range, from the SHAPE_MINIMUM_SIZES of a regular polygon when
+    larger, so that it stays recognisable, and a hollow shape is drawn at HOLLOW_MINIMUM_SIZE at least, above
+    maximum_size in the small images. Shared by the images of every task, the moving shape of the sequence
+    classification, the shapes of the sequence labelling frames and of the comparison pairs, which keep their pixels
+    and colour from frame to frame, and the shapes of the frame selection. The objects of the keypoint images are drawn
     upright from the keypoint categories, with their keypoints, the limbs of each side of a stick figure getting a
     colour of their own.
 
     Args:
-        minimum_size (int): The minimum size of the shape in pixels.
-        maximum_size (int): The maximum size of the shape in pixels.
+        minimum_size (int): The minimum size of the shape in pixels, at least 1.
+        maximum_size (int): The maximum size of the shape in pixels, at least minimum_size.
         background_colour (np.ndarray): The [3] uint8 BGR background colour the object must contrast with.
         random_generator (np.random.Generator): The random generator of the object.
         keypoints (bool): True for the objects of the keypoint images, drawn from KEYPOINT_CATEGORIES. Defaults to
             False.
         shape_name (Optional[str]): The class of the object, or None for a random class. Defaults to None.
         low_contrast_range (Optional[Tuple[int, int]]): The range of the difference with the background of a low
-            contrast object of the hard images (draw_contrasting_colour), or None for a contrasting
-            colour. Defaults to None.
+            contrast object (draw_contrasting_colour), or None for a contrasting colour. Defaults to None.
+        shape_colours (Tuple[np.ndarray, ...]): The [3] uint8 BGR colours of the other shapes of the image, which the
+            colour of the object differs from (draw_contrasting_colour). Defaults to none.
 
     Returns:
         Dict[str, Any]: The 'shape_name' of the object, the [size + 1, size + 1] uint8 'mask' of its pixels (255, or
@@ -1553,24 +1608,36 @@ def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colou
             'part_colours' of the mask values other than 255 when it has some, and for the keypoint images its [K, 2]
             float 'keypoints' in the continuous coordinates of the canvas (pixel (x, y) covering [x, x + 1] x
             [y, y + 1]).
+
+    Raises:
+        ValueError: If the size range is empty or starts below 1 pixel.
     """
+    if not 1 <= minimum_size <= maximum_size:
+        raise ValueError(f"Expected a size range with 1 <= minimum_size <= maximum_size, got {minimum_size} and "
+                         f"{maximum_size}.")
     categories, drawing_functions = ((KEYPOINT_CATEGORIES, KEYPOINT_DRAWING_FUNCTIONS) if keypoints else
                                      (SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS))
     shape_names = list(categories)
     if shape_name is None:
         shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
-    size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
+
+    # Size drawn log-uniform, from the size at which a regular polygon stays recognisable when it fits the range
+    lower_size = minimum_size
+    if shape_name in SHAPE_MINIMUM_SIZES:
+        lower_size = max(minimum_size, min(SHAPE_MINIMUM_SIZES[shape_name], maximum_size))
+    size = int(round(np.exp(random_generator.uniform(low=np.log(lower_size), high=np.log(maximum_size)))))
 
     # A hollow shape needs room for its hole inside its walls, its size being raised above the range when it is smaller
     if shape_name in HOLLOW_CLASS_NAMES:
         size = max(size, HOLLOW_MINIMUM_SIZE)
 
-    # Pixels of the shape centred on its own canvas, then a colour visible on the background
+    # Pixels of the shape centred on its own canvas, then a colour visible on the background and next to the other
+    # shapes
     mask = np.zeros(shape=(size + 1, size + 1), dtype=np.uint8)
     shape_keypoints = drawing_functions[shape_name](mask=mask, center_x=size // 2, center_y=size // 2, size=size,
                                                     random_generator=random_generator, upright=keypoints)
     colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator,
-                                     low_contrast_range=low_contrast_range)
+                                     low_contrast_range=low_contrast_range, shape_colours=shape_colours)
     shape_descriptor = {"shape_name": shape_name, "mask": mask, "colour": colour}
 
     # Parts of the mask drawn with values of their own (the limbs of each side of a stick figure) get colours that
@@ -1586,6 +1653,42 @@ def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colou
     if keypoints:
         shape_descriptor["keypoints"] = shape_keypoints
     return shape_descriptor
+
+
+def draw_shape_descriptors(shape_names: List[Optional[str]], minimum_size: int, maximum_size: int,
+                           background_colour: np.ndarray, textured: bool, random_generator: np.random.Generator,
+                           keypoints: bool = False, shape_colours: Tuple[np.ndarray, ...] = ()
+                           ) -> List[Dict[str, Any]]:
+    """
+    Draws the shapes of one image, frame, sequence or pair with draw_shape_descriptor: on a flat background, every shape
+    gets a colour close to the background with LOW_CONTRAST_PROBABILITY (a contrasting one when the colours of the other
+    shapes leave none), and every colour differs from the colours of the other shapes, so that two overlapping shapes
+    keep a visible edge. Shared by every image and sequence drawer.
+
+    Args:
+        shape_names (List[Optional[str]]): The class of every shape, None for a random class.
+        minimum_size (int): The minimum size of the shapes in pixels.
+        maximum_size (int): The maximum size of the shapes in pixels.
+        background_colour (np.ndarray): The [3] uint8 BGR background colour the shapes must contrast with.
+        textured (bool): Whether the background is textured, which keeps the contrasting colours.
+        random_generator (np.random.Generator): The random generator of the shapes.
+        keypoints (bool): True for the objects of the keypoint images (draw_shape_descriptor). Defaults to False.
+        shape_colours (Tuple[np.ndarray, ...]): The [3] uint8 BGR colours of the shapes already in the frames, which the
+            new colours differ from as well. Defaults to none.
+
+    Returns:
+        List[Dict[str, Any]]: The shape descriptor of every shape, in the order of the names.
+    """
+    shape_descriptors = []
+    for shape_name in shape_names:
+        # Low contrast for part of the shapes of a flat background, the draw being skipped on a textured one
+        low_contrast = not textured and random_generator.random() < LOW_CONTRAST_PROBABILITY
+        shape_descriptors.append(draw_shape_descriptor(
+            minimum_size=minimum_size, maximum_size=maximum_size, background_colour=background_colour,
+            random_generator=random_generator, keypoints=keypoints, shape_name=shape_name,
+            low_contrast_range=LOW_CONTRAST_DIFFERENCE_RANGE if low_contrast else None,
+            shape_colours=(*shape_colours, *(descriptor["colour"] for descriptor in shape_descriptors))))
+    return shape_descriptors
 
 
 def get_centred_box(centre: np.ndarray, width: float, height: float) -> List[float]:
@@ -1646,21 +1749,47 @@ def find_neighbour_centre_distance(neighbour_box: List[int], shape_width: int, s
     return closest_distance
 
 
+def get_canvas_windows(canvas_shape: Tuple[int, int], left: int, top: int, image_shape: Tuple[int, int]
+                       ) -> Tuple[Tuple[slice, slice], Tuple[slice, slice]]:
+    """
+    Gives the part of a shape canvas inside an image when its top left corner is at (left, top), possibly outside the
+    image, and the same part of the image, so that a shape cut by the image border is pasted, and its visible pixels
+    counted, on the part inside it. Shared by place_shape and the moving shape of the sequence classification.
+
+    Args:
+        canvas_shape (Tuple[int, int]): The height and width of the canvas.
+        left (int): The column of the image at the left edge of the canvas.
+        top (int): The row of the image at the top edge of the canvas.
+        image_shape (Tuple[int, int]): The height and width of the image.
+
+    Returns:
+        Tuple[Tuple[slice, slice], Tuple[slice, slice]]: The rows and columns of the image under the part of the
+            canvas inside it, and the rows and columns of that part of the canvas.
+    """
+    canvas_height, canvas_width = canvas_shape
+    image_height, image_width = image_shape
+    canvas_left, canvas_top = max(0, -left), max(0, -top)
+    canvas_right, canvas_bottom = min(canvas_width, image_width - left), min(canvas_height, image_height - top)
+    image_window = (slice(top + canvas_top, top + canvas_bottom), slice(left + canvas_left, left + canvas_right))
+    return image_window, (slice(canvas_top, canvas_bottom), slice(canvas_left, canvas_right))
+
+
 def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxes: List[List[int]],
-                maximum_intersection_over_union: float, minimum_gap: int, random_generator: np.random.Generator,
+                maximum_intersection_over_union: float, random_generator: np.random.Generator,
                 class_map: Optional[np.ndarray], instance_map: Optional[np.ndarray] = None,
-                maximum_outside_fraction: float = 0.0,
-                neighbour_box: Optional[List[int]] = None) -> Optional[List[int]]:
+                maximum_outside_fraction: float = 0.0, neighbour_box: Optional[List[int]] = None,
+                coverable_pixel_counts: Optional[List[float]] = None,
+                minimum_visible_fraction: float = 0.0) -> Optional[List[int]]:
     """
     Pastes a synthetic object at a random position of an image where it overlaps every object already placed by at
-    most 'maximum_intersection_over_union', its box being grown by 'minimum_gap' pixels on every side for that test,
-    trying up to 50 positions. Shared by the detection, keypoint detection and segmentation images, which tolerate
-    some overlap between objects, and the frames of the comparison pairs, whose objects must not touch so that every
-    object stays countable. For the segmentation images, the category of the object is painted at the same pixels of
-    the class map, so that a later object covering an earlier one covers it in the class map too, and for the instance
-    segmentation and keypoint images its index (one more than the number of placed boxes) at the same pixels of the
-    instance map, which then gives the visible part of every object. The canvas of a keypoint image object may stick
-    out of the image, so that some of its keypoints fall outside it. An object placed next to an object of its class
+    most 'maximum_intersection_over_union', trying up to 50 positions. Shared by the images and frames of every task.
+    The category of the object is painted at the same pixels of the class map, so that a later object covering an
+    earlier one covers it in the class map too, and its index (one more than the number of placed boxes) at the same
+    pixels of the instance map, which then gives the visible part of every object. The canvas of the object may stick
+    out of the image by up to 'maximum_outside_fraction' of its width and height on every side, so that the image
+    border cuts it. With 'coverable_pixel_counts', the images and frames whose label cannot leave a shape out keep every
+    shape visible: a position is kept only when the object keeps 'minimum_visible_fraction' of its pixels inside the
+    image and covers no placed object beyond its coverable pixels. An object placed next to an object of its class
     (place_same_class_neighbour) is put at an IoU with the box of that object drawn uniformly between
     SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION and 'maximum_intersection_over_union', along a random direction
     (find_neighbour_centre_distance), the IoU of its box clipped to the image being checked against that range.
@@ -1672,26 +1801,41 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
         placed_boxes (List[List[int]]): The tight [x1, y1, x2, y2] boxes, inside the image, of the objects already in
             the image.
         maximum_intersection_over_union (float): The largest overlap allowed with every placed box.
-        minimum_gap (int): The number of pixels the box of the object is grown by on every side for the overlap test.
         random_generator (np.random.Generator): The random generator of the positions.
         class_map (Optional[np.ndarray]): The [H, W] uint8 category identifier of every pixel, painted in place, or
-            None for the tasks without masks.
+            None for the frames without masks.
         instance_map (Optional[np.ndarray]): The [H, W] uint16 object index of every pixel (0 for the background),
-            painted in place, or None for the tasks without instance masks. Defaults to None.
+            painted in place, or None for the frames without visibility test. Defaults to None.
         maximum_outside_fraction (float): The largest part of the canvas width and height that may stick out of the
             image on each side, 0 keeping the whole canvas inside it. Defaults to 0.
         neighbour_box (Optional[List[int]]): The [x1, y1, x2, y2] box, inside the image, of the object of the same
             class the object is placed next to, one of the placed boxes, or None for a random position. Defaults to
             None.
+        coverable_pixel_counts (Optional[List[float]]): For every placed object, in the order of the placed boxes, the
+            number of its pixels a later object may still cover while it keeps 'minimum_visible_fraction' of its pixels
+            visible, updated in place with the pixels the object covers and extended with its own, or None to place
+            the object without visibility test. Defaults to None.
+        minimum_visible_fraction (float): The share of the pixels of every object that stays visible with
+            'coverable_pixel_counts'. Defaults to 0.
 
     Returns:
         Optional[List[int]]: The tight [x1, y1, x2, y2] box of the pasted object, which sticks out of the image with
             its canvas, or None when no position fits.
+
+    Raises:
+        ValueError: If the visibility test is asked without instance map, or with coverable pixel counts that do not
+            follow the placed boxes.
     """
+    if coverable_pixel_counts is not None and (instance_map is None or
+                                               len(coverable_pixel_counts) != len(placed_boxes)):
+        raise ValueError(f"Expected an instance map and one coverable pixel count per placed box for the visibility "
+                         f"test, got {len(coverable_pixel_counts)} counts for {len(placed_boxes)} boxes and "
+                         f"{'no' if instance_map is None else 'an'} instance map.")
     mask = shape_descriptor["mask"]
     canvas_height, canvas_width = mask.shape
     image_height, image_width = image.shape[:2]
     shape_box = get_mask_bounding_box(mask=mask)
+    shape_pixel_count = int(np.count_nonzero(mask))
 
     # Columns and rows of the canvas that may stick out of the image on every side, and the canvas positions allowed
     margin_x = int(round(maximum_outside_fraction * canvas_width))
@@ -1700,8 +1844,8 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
     neighbour_centre = None if neighbour_box is None else np.array([(neighbour_box[0] + neighbour_box[2]) / 2,
                                                                     (neighbour_box[1] + neighbour_box[3]) / 2])
 
-    # Try random positions of the shape canvas until the grown box of the part of the shape inside the image is far
-    # enough from every placed box, and close enough to the neighbour box of an object placed next to one of its class
+    # Try random positions of the shape canvas until the box of the part of the shape inside the image overlaps every
+    # placed box little enough, and overlaps the neighbour box enough for an object placed next to one of its class
     for _ in range(MAXIMUM_PLACEMENT_ATTEMPTS):
         if neighbour_box is None:
             left = int(random_generator.integers(low=-margin_x, high=largest_left + 1))
@@ -1728,44 +1872,55 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
         clipped_box = [max(0, box[0]), max(0, box[1]), min(image_width, box[2]), min(image_height, box[3])]
         if clipped_box[2] <= clipped_box[0] or clipped_box[3] <= clipped_box[1]:
             continue
-        grown_box = [clipped_box[0] - minimum_gap, clipped_box[1] - minimum_gap, clipped_box[2] + minimum_gap,
-                     clipped_box[3] + minimum_gap]
         close_enough = (neighbour_box is None or get_intersection_over_union(
             first_box=clipped_box, second_box=neighbour_box) >= SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION)
-        if close_enough and all(get_intersection_over_union(first_box=grown_box, second_box=placed_box) <=
-                                maximum_intersection_over_union for placed_box in placed_boxes):
-            # Window of the canvas inside the image, and the same window of the image
-            canvas_left, canvas_top = max(0, -left), max(0, -top)
-            canvas_right, canvas_bottom = min(canvas_width, image_width - left), min(canvas_height, image_height - top)
-            image_window = (slice(top + canvas_top, top + canvas_bottom),
-                            slice(left + canvas_left, left + canvas_right))
-            mask_window = mask[canvas_top:canvas_bottom, canvas_left:canvas_right]
+        if not (close_enough and all(get_intersection_over_union(first_box=clipped_box, second_box=placed_box) <=
+                                     maximum_intersection_over_union for placed_box in placed_boxes)):
+            continue
 
-            # Colour of the shape, then the colours of its parts
-            image[image_window][mask_window > 0] = shape_descriptor["colour"]
-            if "part_colours" in shape_descriptor:
-                for part_value, part_colour in shape_descriptor["part_colours"].items():
-                    image[image_window][mask_window == part_value] = part_colour
-            if class_map is not None:
-                class_map[image_window][mask_window > 0] = KEYPOINT_CATEGORIES[shape_descriptor["shape_name"]]
-            if instance_map is not None:
-                instance_map[image_window][mask_window > 0] = len(placed_boxes) + 1
-            return box
+        # Window of the canvas inside the image, the same window of the image, and the shape pixels inside the image
+        image_window, canvas_window = get_canvas_windows(canvas_shape=mask.shape, left=left, top=top,
+                                                         image_shape=(image_height, image_width))
+        mask_window = mask[canvas_window]
+        window_shape_pixels = mask_window > 0
+
+        # Visibility test: the shape keeps its share of pixels inside the image, and the pixels it covers of every
+        # placed object stay within the coverable pixels of that object
+        if coverable_pixel_counts is not None:
+            own_coverable_pixels = (int(np.count_nonzero(window_shape_pixels)) -
+                                    minimum_visible_fraction * shape_pixel_count)
+            covered_pixel_counts = np.bincount(instance_map[image_window][window_shape_pixels],
+                                               minlength=len(placed_boxes) + 1)[1:]
+            if own_coverable_pixels < 0 or np.any(covered_pixel_counts > np.array(coverable_pixel_counts)):
+                continue
+            coverable_pixel_counts[:] = (np.array(coverable_pixel_counts) - covered_pixel_counts).tolist()
+            coverable_pixel_counts.append(own_coverable_pixels)
+
+        # Colour of the shape, then the colours of its parts, its category and its index
+        image[image_window][window_shape_pixels] = shape_descriptor["colour"]
+        if "part_colours" in shape_descriptor:
+            for part_value, part_colour in shape_descriptor["part_colours"].items():
+                image[image_window][mask_window == part_value] = part_colour
+        if class_map is not None:
+            class_map[image_window][window_shape_pixels] = KEYPOINT_CATEGORIES[shape_descriptor["shape_name"]]
+        if instance_map is not None:
+            instance_map[image_window][window_shape_pixels] = len(placed_boxes) + 1
+        return box
     return None
 
 
 def place_same_class_neighbour(image: np.ndarray, neighbour_shape_descriptor: Dict[str, Any],
                                placed_boxes: List[List[int]], maximum_intersection_over_union: float,
-                               background_colour: np.ndarray, random_generator: np.random.Generator, keypoints: bool,
-                               low_contrast_range: Optional[Tuple[int, int]], class_map: np.ndarray,
+                               background_colour: np.ndarray, textured: bool, random_generator: np.random.Generator,
+                               keypoints: bool, shape_colours: Tuple[np.ndarray, ...], class_map: np.ndarray,
                                instance_map: np.ndarray, maximum_outside_fraction: float
                                ) -> Tuple[Optional[List[int]], Optional[Dict[str, Any]]]:
     """
     Places an object next to the object placed last in a synthetic image, with its class, so that the greedy NMS of a
     detector merges their two boxes where DIoU-NMS can keep both (the occlusion test split of stage 5b of the detection
-    benchmark): up to SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS shapes of that class,
-    each drawn at SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE of the size of that object, are tried by place_shape at an IoU
-    with its box from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION to 'maximum_intersection_over_union'.
+    benchmark): up to SAME_CLASS_NEIGHBOUR_DRAW_ATTEMPTS shapes of that class, each drawn at
+    SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE of the size of that object, are tried by place_shape at an IoU with its box
+    from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION to 'maximum_intersection_over_union'.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR image drawn in place.
@@ -1775,9 +1930,10 @@ def place_same_class_neighbour(image: np.ndarray, neighbour_shape_descriptor: Di
             the image.
         maximum_intersection_over_union (float): The largest overlap allowed with every placed box.
         background_colour (np.ndarray): The [3] uint8 BGR background colour the object must contrast with.
+        textured (bool): Whether the background is textured (draw_shape_descriptors).
         random_generator (np.random.Generator): The random generator of the object.
         keypoints (bool): True for the objects of the keypoint images.
-        low_contrast_range (Optional[Tuple[int, int]]): The colour difference range of a low contrast object, or None.
+        shape_colours (Tuple[np.ndarray, ...]): The [3] uint8 BGR colours of the other shapes of the image.
         class_map (np.ndarray): The [H, W] uint8 category identifier of every pixel, painted in place.
         instance_map (np.ndarray): The [H, W] uint16 object index of every pixel, painted in place.
         maximum_outside_fraction (float): The largest part of the canvas that may stick out of the image on each side.
@@ -1791,13 +1947,13 @@ def place_same_class_neighbour(image: np.ndarray, neighbour_shape_descriptor: Di
         # Shape of the class of the neighbour, of a size close to its size so that their boxes can overlap enough
         size = int(round(neighbour_size * random_generator.uniform(low=SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE[0],
                                                                    high=SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE[1])))
-        shape_descriptor = draw_shape_descriptor(minimum_size=size, maximum_size=size,
-                                                 background_colour=background_colour,
-                                                 random_generator=random_generator, keypoints=keypoints,
-                                                 shape_name=neighbour_shape_descriptor["shape_name"],
-                                                 low_contrast_range=low_contrast_range)
+        shape_descriptor = draw_shape_descriptors(shape_names=[neighbour_shape_descriptor["shape_name"]],
+                                                  minimum_size=size, maximum_size=size,
+                                                  background_colour=background_colour, textured=textured,
+                                                  random_generator=random_generator, keypoints=keypoints,
+                                                  shape_colours=shape_colours)[0]
         box = place_shape(image=image, shape_descriptor=shape_descriptor, placed_boxes=placed_boxes,
-                          maximum_intersection_over_union=maximum_intersection_over_union, minimum_gap=0,
+                          maximum_intersection_over_union=maximum_intersection_over_union,
                           random_generator=random_generator, class_map=class_map, instance_map=instance_map,
                           maximum_outside_fraction=maximum_outside_fraction, neighbour_box=placed_boxes[-1])
         if box is not None:
@@ -1806,42 +1962,42 @@ def place_same_class_neighbour(image: np.ndarray, neighbour_shape_descriptor: Di
 
 
 def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator,
-                   keypoints: bool = False, hard_objects: bool = False,
-                   object_pixel_counts: Optional[List[int]] = None,
+                   keypoints: bool = False, object_pixel_counts: Optional[List[int]] = None,
                    maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
-                   same_class_neighbour_probability: float = 0.0
+                   same_class_neighbour_probability: float = 0.0, minimum_visible_fraction: float = 0.0
                    ) -> Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]:
     """
-    Generates one synthetic detection, segmentation, keypoint detection or classification image: a random-colour or
-    black background with 1 to 'maximum_objects' shapes of the SHAPE_CATEGORIES classes, of random colours and sizes
-    from MINIMUM_SHAPE_SIZE (64) pixels to a third of the image side, overlapping each other by at most an intersection
-    over union of 'maximum_object_intersection_over_union' (0.3), with the class map and the instance map of its
-    pixels. On images too small for the minimum size (the 64 pixel images of the tests), every shape gets the largest
-    size. The keypoint images draw at least KEYPOINT_MINIMUM_OBJECTS upright shapes of the KEYPOINT_CATEGORIES, which
-    may stick out of the image, with their keypoints. The hard object detection and instance segmentation images,
-    closer to the difficulty of real images, draw HARD_OBJECTS_MINIMUM_OBJECTS to 'maximum_objects' shapes of
-    log-uniform sizes from HARD_OBJECTS_MINIMUM_SIZE pixels to HARD_OBJECTS_MAXIMUM_SIZE_FRACTION of the image side,
-    from the largest to the smallest so that the small shapes lie over the large ones, some sticking out of the image,
-    on a flat background (where some of them get a colour close to the background) or a textured one. With a
-    'same_class_neighbour_probability' above 0, every object after the first is placed next to the object placed before
-    it, with its class (place_same_class_neighbour), with that probability, unless that object was itself placed next
-    to one, so that such objects come in pairs, and as any other object when no shape of that class fits there.
+    Generates one synthetic object detection, instance segmentation, keypoint detection, semantic segmentation or
+    classification image: MINIMUM_OBJECTS_PER_IMAGE (KEYPOINT_MINIMUM_OBJECTS for the keypoint images, within
+    'maximum_objects', a single one for the classification) to 'maximum_objects' shapes of the SHAPE_CATEGORIES classes,
+    or upright objects of the KEYPOINT_CATEGORIES with their keypoints, of random colours and log-uniform sizes from
+    OBJECT_MINIMUM_SIZE pixels (KEYPOINT_OBJECT_MINIMUM_SIZE for the keypoint objects) to OBJECT_MAXIMUM_SIZE_FRACTION
+    of the image side. The shapes are placed from the largest to the smallest, so that the small shapes lie over the
+    large ones, overlapping each other by at most an intersection over union of 'maximum_object_intersection_over_union'
+    (0.3), up to OBJECT_MAXIMUM_OUTSIDE_FRACTION of their canvas sticking out of the image, a shape that fits nowhere
+    being left out. The background is flat, where some shapes get a colour close to it, or textured. With
+    'minimum_visible_fraction' (the classification and semantic segmentation images), every shape keeps that share of
+    its pixels visible; otherwise the shapes mostly hidden are left out of the labels afterwards (keep_visible_objects).
+    With a 'same_class_neighbour_probability' above 0, every object after the first is placed next to the object placed
+    before it, with its class (place_same_class_neighbour), with that probability, unless that object was itself placed
+    next to one, so that such objects come in pairs, and as any other object when no shape of that class fits there.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
         maximum_objects (int): The maximum number of objects in the image.
         random_generator (np.random.Generator): The random generator of the image.
         keypoints (bool): True for a keypoint detection image. Defaults to False.
-        hard_objects (bool): True for a hard object detection or instance segmentation image. Defaults to False.
         object_pixel_counts (Optional[List[int]]): A list filled in place with the number of pixels of the whole shape
             of every placed object, in the order of the objects, so that keep_visible_objects measures the visible share
-            of every object of a hard image, or None. Defaults to None.
+            of every object, or None. Defaults to None.
         maximum_object_intersection_over_union (float): The largest IoU between the box of an object and the box of
             every object placed before it. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3).
         same_class_neighbour_probability (float): The probability that an object is placed next to the object placed
             before it, with its class, at an IoU from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION to
             'maximum_object_intersection_over_union', when that object was not itself placed next to one, 0 drawing the
-            images as before, without any other random draw. Defaults to 0.
+            images without any other random draw. Defaults to 0.
+        minimum_visible_fraction (float): The share of the pixels of every shape left visible by the later shapes and
+            the image border, 0 placing the shapes without visibility test. Defaults to 0.
 
     Returns:
         Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]: The [H, W, 3] uint8 BGR image, for every
@@ -1849,73 +2005,70 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
             images, its [K, 3] float keypoints as the COCO [x, y, visibility] (compute_keypoint_visibilities), the
             [H, W] uint8 category identifier of every pixel (0 for the background), and the [H, W] uint16 index of the
             object of every pixel (object i of the list at i + 1, 0 for the background).
+
+    Raises:
+        ValueError: If same-class neighbours are asked together with a minimum visible fraction, the neighbours being
+            placed for the boxes of the detection labels only.
     """
-    # Half of the images have a black background, the other half a random colour, every pixel being background, part
-    # of the hard images getting a texture over it
-    textured = hard_objects and random_generator.random() < HARD_OBJECTS_TEXTURED_BACKGROUND_PROBABILITY
-    image, background_colour = draw_background(image_size=image_size, random_generator=random_generator,
-                                               textured=textured)
+    if same_class_neighbour_probability > 0 and minimum_visible_fraction > 0:
+        raise ValueError(f"Expected same-class neighbours for images whose hidden objects leave the labels, got a "
+                         f"same_class_neighbour_probability of {same_class_neighbour_probability} with a "
+                         f"minimum_visible_fraction of {minimum_visible_fraction}.")
+
+    # Background, flat or textured, every pixel being background in the class and instance maps
+    image, background_colour, textured = draw_background(image_size=image_size, random_generator=random_generator)
     class_map = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
     instance_map = np.zeros(shape=(image_size, image_size), dtype=np.uint16)
     objects, box_centres, inner_keypoint_flags = [], [], []
 
-    # Shapes up to a third of the image side, at least MINIMUM_SHAPE_SIZE pixels when the image is large enough, or the
-    # wider size range of the hard images
-    if hard_objects:
-        maximum_size = int(HARD_OBJECTS_MAXIMUM_SIZE_FRACTION * image_size)
-        minimum_size = min(HARD_OBJECTS_MINIMUM_SIZE, maximum_size)
-        minimum_objects = min(HARD_OBJECTS_MINIMUM_OBJECTS, maximum_objects)
-    else:
-        maximum_size = max(33, image_size // 3)
-        minimum_size = min(MINIMUM_SHAPE_SIZE, maximum_size)
-        minimum_objects = min(KEYPOINT_MINIMUM_OBJECTS, maximum_objects) if keypoints else 1
+    # Number of shapes, and their sizes up to OBJECT_MAXIMUM_SIZE_FRACTION of the side, from the size at which the
+    # keypoints of a keypoint object stay apart
+    maximum_size = int(OBJECT_MAXIMUM_SIZE_FRACTION * image_size)
+    minimum_size = min(KEYPOINT_OBJECT_MINIMUM_SIZE if keypoints else OBJECT_MINIMUM_SIZE, maximum_size)
+    minimum_objects = min(KEYPOINT_MINIMUM_OBJECTS if keypoints else MINIMUM_OBJECTS_PER_IMAGE, maximum_objects)
     number_objects = int(random_generator.integers(low=minimum_objects, high=maximum_objects + 1))
 
-    # Size range of every object: the whole range, drawn uniform by draw_shape_descriptor, or for the hard images one
-    # log-uniform size per object, from the largest to the smallest
-    if hard_objects:
-        logarithm_sizes = random_generator.uniform(low=np.log(minimum_size), high=np.log(maximum_size),
-                                                   size=number_objects)
-        sizes = sorted((int(round(np.exp(logarithm_size))) for logarithm_size in logarithm_sizes), reverse=True)
-        size_ranges = [(size, size) for size in sizes]
-    else:
-        size_ranges = [(minimum_size, maximum_size)] * number_objects
-    maximum_outside_fraction = (KEYPOINT_MAXIMUM_OUTSIDE_FRACTION if keypoints else
-                                HARD_OBJECTS_MAXIMUM_OUTSIDE_FRACTION if hard_objects else 0.0)
+    # Every shape drawn with its class, log-uniform size and colour, then placed from the largest to the smallest
+    shape_descriptors = draw_shape_descriptors(shape_names=[None] * number_objects, minimum_size=minimum_size,
+                                               maximum_size=maximum_size, background_colour=background_colour,
+                                               textured=textured, random_generator=random_generator,
+                                               keypoints=keypoints)
+    shape_sizes = [shape_descriptor["mask"].shape[0] for shape_descriptor in shape_descriptors]
+    drawing_order = sorted(range(number_objects), key=shape_sizes.__getitem__, reverse=True)
+    image_colours = [shape_descriptor["colour"] for shape_descriptor in shape_descriptors]
+    coverable_pixel_counts = [] if minimum_visible_fraction > 0 else None
 
-    # Place every object at a random position, an object overlapping the placed ones too much at every attempt being
-    # left out, part of the objects of the flat background hard images getting a colour close to the background
+    # Place every shape at a random position, a shape overlapping the placed ones too much (or hiding them, or hidden
+    # by the border, with a minimum visible fraction) at every attempt being left out
     previous_shape_descriptor, previous_object_is_neighbour = None, False
-    for object_minimum_size, object_maximum_size in size_ranges:
-        low_contrast = (hard_objects and not textured and
-                        random_generator.random() < HARD_OBJECTS_LOW_CONTRAST_PROBABILITY)
-        low_contrast_range = HARD_OBJECTS_LOW_CONTRAST_DIFFERENCE_RANGE if low_contrast else None
+    for shape_index in drawing_order:
         placed_boxes = [placed_object[1] for placed_object in objects]
 
         # Part of the objects placed next to the object placed before them, with its class, in pairs, an object placed
         # that way getting no neighbour of its own, the probability being drawn only when it is above 0 so that the
-        # other images are drawn as before
+        # other images are drawn without it
         box, object_is_neighbour = None, False
         if (same_class_neighbour_probability > 0 and previous_shape_descriptor is not None and
                 not previous_object_is_neighbour and random_generator.random() < same_class_neighbour_probability):
             box, shape_descriptor = place_same_class_neighbour(
                 image=image, neighbour_shape_descriptor=previous_shape_descriptor, placed_boxes=placed_boxes,
                 maximum_intersection_over_union=maximum_object_intersection_over_union,
-                background_colour=background_colour, random_generator=random_generator, keypoints=keypoints,
-                low_contrast_range=low_contrast_range, class_map=class_map, instance_map=instance_map,
-                maximum_outside_fraction=maximum_outside_fraction)
+                background_colour=background_colour, textured=textured, random_generator=random_generator,
+                keypoints=keypoints, shape_colours=tuple(image_colours), class_map=class_map,
+                instance_map=instance_map, maximum_outside_fraction=OBJECT_MAXIMUM_OUTSIDE_FRACTION)
             object_is_neighbour = box is not None
+            if object_is_neighbour:
+                image_colours.append(shape_descriptor["colour"])
 
         # Any other object, or one for which no shape of the class of the previous object fits next to it
         if box is None:
-            shape_descriptor = draw_shape_descriptor(
-                minimum_size=object_minimum_size, maximum_size=object_maximum_size,
-                background_colour=background_colour, random_generator=random_generator, keypoints=keypoints,
-                low_contrast_range=low_contrast_range)
+            shape_descriptor = shape_descriptors[shape_index]
             box = place_shape(image=image, shape_descriptor=shape_descriptor, placed_boxes=placed_boxes,
-                              maximum_intersection_over_union=maximum_object_intersection_over_union, minimum_gap=0,
+                              maximum_intersection_over_union=maximum_object_intersection_over_union,
                               random_generator=random_generator, class_map=class_map, instance_map=instance_map,
-                              maximum_outside_fraction=maximum_outside_fraction)
+                              maximum_outside_fraction=OBJECT_MAXIMUM_OUTSIDE_FRACTION,
+                              coverable_pixel_counts=coverable_pixel_counts,
+                              minimum_visible_fraction=minimum_visible_fraction)
         if box is None:
             continue
         previous_shape_descriptor, previous_object_is_neighbour = shape_descriptor, object_is_neighbour
@@ -1989,16 +2142,14 @@ def compute_keypoint_visibilities(keypoints: np.ndarray, box_centre: np.ndarray,
 
 
 def keep_visible_objects(objects: List[Tuple[Any, ...]], instance_map: np.ndarray, keep_visible_parts: bool,
-                         object_pixel_counts: Optional[List[int]] = None
-                         ) -> Tuple[List[Tuple[Any, ...]], List[Dict[str, Any]]]:
+                         object_pixel_counts: List[int]) -> Tuple[List[Tuple[Any, ...]], List[Dict[str, Any]]]:
     """
     Leaves out of the labels of a synthetic detection, instance segmentation or keypoint detection image the objects
-    mostly covered by the objects drawn after them or outside the image, those with fewer than
-    MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels in the instance map: place_shape only limits the box overlap of the
-    shapes, so a shape can be hidden while its box stays in the image. The objects of a hard image, down to 16 pixel
-    shapes of fewer pixels than that, are kept with MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels or
-    HARD_OBJECTS_MINIMUM_VISIBLE_FRACTION of the pixels of their whole shape, whichever is smaller, so that a small
-    shape needs half of its pixels and a large one stays labelled as long as the fixed minimum is visible. For the
+    mostly covered by the objects drawn after them or outside the image: place_shape only limits the box overlap of
+    the shapes, so a shape can be hidden while its box stays in the image. An object stays in the labels with
+    MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels in the instance map or OBJECT_MINIMUM_VISIBLE_FRACTION of the pixels of
+    its whole shape, whichever is smaller, so that a small shape (down to 16 pixels, of fewer pixels than the fixed
+    minimum) needs half of its pixels and a large one stays labelled as long as the fixed minimum is visible. For the
     instance segmentation, every kept object gets the box, the compressed run length encoding and the number of pixels
     of its visible part, encoded here in the worker process so that the main process collecting the records of a split
     only holds the compact strings; the detection and the keypoint detection keep the box of the whole shape (clipped
@@ -2011,8 +2162,7 @@ def keep_visible_objects(objects: List[Tuple[Any, ...]], instance_map: np.ndarra
             i + 1, 0 for the background).
         keep_visible_parts (bool): True for the instance segmentation (boxes and encodings of the visible parts), False
             for the detection and the keypoint detection (boxes of the whole shapes).
-        object_pixel_counts (Optional[List[int]]): The number of pixels of the whole shape of every object of a hard
-            image (generate_image), or None for the fixed MINIMUM_VISIBLE_OBJECT_PIXELS alone. Defaults to None.
+        object_pixel_counts (List[int]): The number of pixels of the whole shape of every object (generate_image).
 
     Returns:
         Tuple[List[Tuple[Any, ...]], List[Dict[str, Any]]]: The objects kept with their category identifier, box and
@@ -2022,11 +2172,10 @@ def keep_visible_objects(objects: List[Tuple[Any, ...]], instance_map: np.ndarra
     kept_objects, visible_parts = [], []
     for object_index, (category_identifier, box, *extra_fields) in enumerate(objects):
         # Pixels of the object left visible by the objects drawn after it, compared with the fixed minimum, lowered for
-        # a small shape of a hard image to the share of its whole shape
+        # a small shape to the share of its whole shape
         visible_mask = instance_map == object_index + 1
-        minimum_visible_pixels = (MINIMUM_VISIBLE_OBJECT_PIXELS if object_pixel_counts is None else
-                                  min(MINIMUM_VISIBLE_OBJECT_PIXELS,
-                                      HARD_OBJECTS_MINIMUM_VISIBLE_FRACTION * object_pixel_counts[object_index]))
+        minimum_visible_pixels = min(MINIMUM_VISIBLE_OBJECT_PIXELS,
+                                     OBJECT_MINIMUM_VISIBLE_FRACTION * object_pixel_counts[object_index])
         visible_pixels = int(visible_mask.sum())
         if visible_pixels < minimum_visible_pixels:
             continue
@@ -2048,17 +2197,18 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     Generates and saves one chunk of images of a split, run by a worker process, with the class mask of every image
     for the semantic segmentation task, the objects mostly covered by later objects left out for the detection,
     instance segmentation and keypoint detection tasks, the visible part of every object for the instance segmentation
-    task and the keypoints of every object for the keypoint detection task. Each chunk draws its images with its own
-    random generator, seeded from the operating system, so every generation creates a different dataset.
+    task and the keypoints of every object for the keypoint detection task, every shape of the classification and
+    semantic segmentation images being kept visible instead. Each chunk draws its images with its own random generator,
+    seeded from the operating system, so every generation creates a different dataset.
 
     Args:
         chunk (Dict[str, Any]): The chunk description: 'data_folder', 'masks_folder' (None without masks),
             'split_name', 'first_index', 'number_images', 'image_size', 'maximum_objects', 'remove_covered_objects'
-            (whether the objects with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels are left out),
-            'instance_segmentation' (whether the visible parts of the objects are kept), 'keypoints' (whether the
-            images are keypoint detection images), 'counted_shapes' (whether the images are self-supervised or
-            multi-label classification images, drawn like the sequence labelling frames), 'hard_objects' (whether
-            the images are hard object detection or instance segmentation images, generate_image),
+            (whether the objects mostly hidden are left out, keep_visible_objects), 'instance_segmentation' (whether
+            the visible parts of the objects are kept), 'keypoints' (whether the images are keypoint detection
+            images), 'counted_shapes' (whether the images are self-supervised or multi-label classification images,
+            drawn like the sequence labelling frames), 'minimum_visible_fraction' (the share of the pixels of every
+            shape kept visible, 0 for the images whose hidden objects leave the labels, generate_image),
             'maximum_object_intersection_over_union' (the largest IoU between two objects of an image, generate_image)
             and 'same_class_neighbour_probability' (the probability that an object is placed next to the object placed
             before it, with its class, generate_image).
@@ -2087,14 +2237,15 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             image_records.append({"index": image_index, "file_name": file_name, "shape_names": shape_names})
             continue
 
-        # Detection, segmentation and keypoint images, the hard detection images recording the pixel count of the whole
-        # shape of every object for their visibility test
-        object_pixel_counts = [] if chunk["hard_objects"] else None
+        # Detection, segmentation, keypoint and classification images, recording the pixel count of the whole shape of
+        # every object for the visibility test of the detection labels
+        object_pixel_counts: List[int] = []
         image, objects, class_map, instance_map = generate_image(
             image_size=chunk["image_size"], maximum_objects=chunk["maximum_objects"], random_generator=random_generator,
-            keypoints=chunk["keypoints"], hard_objects=chunk["hard_objects"], object_pixel_counts=object_pixel_counts,
+            keypoints=chunk["keypoints"], object_pixel_counts=object_pixel_counts,
             maximum_object_intersection_over_union=chunk["maximum_object_intersection_over_union"],
-            same_class_neighbour_probability=chunk["same_class_neighbour_probability"])
+            same_class_neighbour_probability=chunk["same_class_neighbour_probability"],
+            minimum_visible_fraction=chunk["minimum_visible_fraction"])
         file_name = f"{chunk['split_name']}_{image_index:06d}.png"
         cv2.imwrite(filename=os.path.join(chunk["data_folder"], file_name), img=image)
 
@@ -2279,6 +2430,9 @@ def build_classification_labels(image_records: List[Dict[str, Any]], split_name:
     Returns:
         Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of images of every shape class, an image of
             several shapes of the same class counting once for it.
+
+    Raises:
+        ValueError: If a classification image does not hold exactly one shape.
     """
     class_counts = {shape_name: 0 for shape_name in SHAPE_CATEGORIES}
     category_names = {category_identifier: name for name, category_identifier in SHAPE_CATEGORIES.items()}
@@ -2292,6 +2446,10 @@ def build_classification_labels(image_records: List[Dict[str, Any]], split_name:
             samples.append({"id": record["index"] + 1, "file_name": record["file_name"],
                             "category_ids": category_identifiers})
         else:
+            # The single shape of the image, always placed, its label being the class of the image
+            if len(record["objects"]) != 1:
+                raise ValueError(f"Expected one shape in the classification image {record['file_name']}, got "
+                                 f"{len(record['objects'])}.")
             category_identifiers = [record["objects"][0][0]]
             samples.append({"id": record["index"] + 1, "file_name": record["file_name"],
                             "category_id": category_identifiers[0]})
@@ -2379,8 +2537,12 @@ def build_segmentation_labels(image_records: List[Dict[str, Any]], split_name: s
 def generate_moving_shape_sequence(image_size: int, number_frames: int, random_generator: np.random.Generator) -> Tuple[
         List[np.ndarray], int]:
     """
-    Generates one synthetic sequence classification sample: a single shape of random class, colour and size crossing
-    the image in a straight line at constant speed, over a background shared by every frame. Its label is the
+    Generates one synthetic sequence classification sample: a single shape of random class, colour and log-uniform size
+    from OBJECT_MINIMUM_SIZE pixels to OBJECT_MAXIMUM_SIZE_FRACTION of the frame side, crossing the frames in a straight
+    line at constant speed, over a background shared by every frame (textured for part of the sequences, the shape
+    getting a colour close to a flat background for part of the others). The frame border may cut the shape by up to
+    OBJECT_MAXIMUM_OUTSIDE_FRACTION of its canvas, the shape keeping SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels in
+    every frame so that its movement stays visible; the last path tried keeps it inside the frames. Its label is the
     direction of the movement, which no single frame shows (a frame only shows a shape at some position), so that it
     can only be learned from the order of the frames.
 
@@ -2391,64 +2553,93 @@ def generate_moving_shape_sequence(image_size: int, number_frames: int, random_g
 
     Returns:
         Tuple[List[np.ndarray], int]: The [H, W, 3] uint8 BGR frames and the category identifier of the movement.
+
+    Raises:
+        RuntimeError: If no path keeps the shape visible enough in every frame.
     """
-    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
+    background, background_colour, textured = draw_background(image_size=image_size, random_generator=random_generator)
     direction_names = list(MOVEMENT_CATEGORIES)
     direction_name = direction_names[int(random_generator.integers(low=0, high=len(direction_names)))]
 
     # Draw the shape once on its own canvas, its pixels then being moved from frame to frame
-    shape_descriptor = draw_shape_descriptor(minimum_size=max(8, image_size // 8), maximum_size=max(9, image_size // 4),
-                                             background_colour=background_colour, random_generator=random_generator)
+    maximum_size = int(OBJECT_MAXIMUM_SIZE_FRACTION * image_size)
+    shape_descriptor = draw_shape_descriptors(shape_names=[None], minimum_size=min(OBJECT_MINIMUM_SIZE, maximum_size),
+                                              maximum_size=maximum_size, background_colour=background_colour,
+                                              textured=textured, random_generator=random_generator)[0]
     shape_mask, colour = shape_descriptor["mask"], shape_descriptor["colour"]
-    size = shape_mask.shape[0] - 1
-
-    # Straight path covering 30 to 60 % of the free span of the image along the movement axis, starting from the far
-    # end for the leftward and upward movements
+    canvas_size = shape_mask.shape[0]
+    minimum_visible_pixels = SHAPE_MINIMUM_VISIBLE_FRACTION * np.count_nonzero(shape_mask)
     step_x, step_y = MOVEMENT_DIRECTIONS[direction_name]
-    free_span = image_size - size - 1
-    travel = int(round(random_generator.uniform(low=0.3, high=0.6) * free_span))
-    start_along = int(random_generator.integers(low=0, high=free_span - travel + 1)) + (travel if step_x + step_y < 0
-                                                                                        else 0)
-    start_across = int(random_generator.integers(low=0, high=free_span + 1))
 
-    # Paste the shape at its position of every frame
+    # Straight path covering 30 to 60 % of the span of the canvas positions along the movement axis, starting from the
+    # far end for the leftward and upward movements, drawn again until the shape keeps its visible share in every
+    # frame, the last attempt keeping the canvas inside the frames
+    frame_positions = None
+    for attempt_index in range(MAXIMUM_PLACEMENT_ATTEMPTS):
+        margin = int(round(OBJECT_MAXIMUM_OUTSIDE_FRACTION * canvas_size)) if attempt_index < \
+            MAXIMUM_PLACEMENT_ATTEMPTS - 1 else 0
+        free_span = image_size - canvas_size + 2 * margin
+        travel = int(round(random_generator.uniform(low=0.3, high=0.6) * free_span))
+        start_along = -margin + int(random_generator.integers(low=0, high=free_span - travel + 1)) + (
+            travel if step_x + step_y < 0 else 0)
+        across = -margin + int(random_generator.integers(low=0, high=free_span + 1))
+
+        # Canvas position of every frame, kept when the shape keeps its visible share in all of them
+        candidate_positions = []
+        for frame_index in range(number_frames):
+            along = start_along + int(round((step_x + step_y) * travel * frame_index / max(1, number_frames - 1)))
+            candidate_positions.append((along, across) if step_x != 0 else (across, along))
+        if all(np.count_nonzero(shape_mask[get_canvas_windows(canvas_shape=shape_mask.shape, left=left, top=top,
+                                                              image_shape=(image_size, image_size))[1]])
+               >= minimum_visible_pixels for left, top in candidate_positions):
+            frame_positions = candidate_positions
+            break
+    if frame_positions is None:
+        raise RuntimeError(f"Expected a path keeping a shape of {canvas_size - 1} pixels visible in {number_frames} "
+                           f"frames of {image_size} pixels, but {MAXIMUM_PLACEMENT_ATTEMPTS} paths did not.")
+
+    # Paste the part of the shape inside the frame at its position of every frame
     frames = []
-    for frame_index in range(number_frames):
-        offset_along = start_along + int(round((step_x + step_y) * travel * frame_index / max(1, number_frames - 1)))
-        left, top = (offset_along, start_across) if step_x != 0 else (start_across, offset_along)
+    for left, top in frame_positions:
+        image_window, canvas_window = get_canvas_windows(canvas_shape=shape_mask.shape, left=left, top=top,
+                                                         image_shape=(image_size, image_size))
         frame = background.copy()
-        frame[top:top + size + 1, left:left + size + 1][shape_mask > 0] = colour
+        frame[image_window][shape_mask[canvas_window] > 0] = colour
         frames.append(frame)
 
     return frames, MOVEMENT_CATEGORIES[direction_name]
 
 
-def get_labelling_shape_size_range(image_size: int) -> Tuple[int, int]:
+def get_frame_shape_size_range(image_size: int, maximum_shapes: int) -> Tuple[int, int]:
     """
-    Gives the sizes of the shapes of the sequence labelling frames and of the self-supervised images drawn like them,
-    so that a backbone trained on the self-supervised images sees shapes of the sizes of the sequence labelling
-    frames it then initialises: MINIMUM_SHAPE_SIZE pixels (an eighth of the image side when larger) to a fifth of the
-    image side, every shape getting the largest size on images too small for the minimum.
+    Gives the sizes of the shapes of a sequence labelling frame, of a member of a comparison pair, and of a counted
+    shapes image (drawn like the sequence labelling frames, so that the backbone it trains sees the shapes of the frames
+    it then initialises): log-uniform from OBJECT_MINIMUM_SIZE pixels to the size at which 'maximum_shapes' shapes would
+    cover FRAME_SHAPE_AREA_FRACTION of the frame, within OBJECT_MAXIMUM_SIZE_FRACTION of the side, so that every shape
+    of a frame fits with SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels visible.
 
     Args:
-        image_size (int): The height and width of the square images in pixels.
+        image_size (int): The height and width of the square frames in pixels.
+        maximum_shapes (int): The largest number of shapes of a frame.
 
     Returns:
         Tuple[int, int]: The smallest and the largest size of the shapes in pixels.
     """
-    maximum_size = max(9, image_size // 5)
-    minimum_size = min(max(image_size // 8, MINIMUM_SHAPE_SIZE), maximum_size)
-    return minimum_size, maximum_size
+    maximum_size = max(1, min(int(OBJECT_MAXIMUM_SIZE_FRACTION * image_size),
+                              int(image_size * np.sqrt(FRAME_SHAPE_AREA_FRACTION / maximum_shapes))))
+    return min(OBJECT_MINIMUM_SIZE, maximum_size), maximum_size
 
 
 def generate_counted_shapes_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator
                                   ) -> Tuple[np.ndarray, List[str]]:
     """
-    Generates one image of the synthetic self-supervised dataset, drawn like a frame of a sequence labelling sample so
-    that the backbone it trains can initialise the sequence labelling model: 5 to 'maximum_objects' shapes of random
-    classes of SHAPE_CATEGORIES (several shapes may share a class), of random sizes, colours and rotations, placed
-    without overlap on a black or random-colour background. The number of shapes labels the image for the k-nearest
-    neighbour evaluation, and the classes of the shapes are kept with it.
+    Generates one image of the synthetic self-supervised and multi-label classification datasets, drawn like a frame of
+    a sequence labelling sample so that the backbone it trains can initialise the sequence labelling model: 5 to
+    'maximum_objects' shapes of random classes of SHAPE_CATEGORIES (several shapes may share a class), of log-uniform
+    sizes (get_frame_shape_size_range), colours and rotations, overlapping and cut by the border but every one keeping
+    SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels visible (draw_shapes_frame), on a flat or textured background. The
+    number of shapes labels the image for the k-nearest neighbour evaluation, and the classes of the shapes are kept
+    with it.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
@@ -2460,37 +2651,111 @@ def generate_counted_shapes_image(image_size: int, maximum_objects: int, random_
 
     Raises:
         ValueError: If maximum_objects is outside 5 to COUNTED_SHAPES_MAXIMUM_OBJECTS.
+        RuntimeError: If the shapes never fit visible enough after MAXIMUM_SAMPLE_ATTEMPTS drawings.
     """
     if not LABELLING_MINIMUM_OBJECTS <= maximum_objects <= COUNTED_SHAPES_MAXIMUM_OBJECTS:
         raise ValueError(f"The self-supervised images hold {LABELLING_MINIMUM_OBJECTS} to "
                          f"{COUNTED_SHAPES_MAXIMUM_OBJECTS} shapes, got maximum_objects {maximum_objects}.")
-    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
+    background, background_colour, textured = draw_background(image_size=image_size, random_generator=random_generator)
     shape_names = list(SHAPE_CATEGORIES)
-    minimum_size, maximum_size = get_labelling_shape_size_range(image_size=image_size)
+    minimum_size, maximum_size = get_frame_shape_size_range(image_size=image_size, maximum_shapes=maximum_objects)
 
-    # Number and classes of the shapes, then every shape drawn and placed without overlap
+    # Number and classes of the shapes, then the shapes drawn again with new sizes and colours until they all fit
+    # visible enough
     number_objects = int(random_generator.integers(low=LABELLING_MINIMUM_OBJECTS, high=maximum_objects + 1))
     image_shape_names = [shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
                          for _ in range(number_objects)]
-    shape_descriptors = [draw_shape_descriptor(minimum_size=minimum_size, maximum_size=maximum_size,
-                                               background_colour=background_colour, random_generator=random_generator,
-                                               shape_name=shape_name)
-                         for shape_name in image_shape_names]
-    image = draw_shapes_frame(background=background, shape_descriptors=shape_descriptors,
-                              random_generator=random_generator)
-    return image, image_shape_names
+    for _ in range(MAXIMUM_SAMPLE_ATTEMPTS):
+        shape_descriptors = draw_shape_descriptors(shape_names=image_shape_names, minimum_size=minimum_size,
+                                                   maximum_size=maximum_size, background_colour=background_colour,
+                                                   textured=textured, random_generator=random_generator)
+        drawn_frame = draw_shapes_frame(background=background, shape_descriptors=shape_descriptors,
+                                        random_generator=random_generator)
+        if drawn_frame is not None:
+            return drawn_frame[0], image_shape_names
+    raise RuntimeError(f"{number_objects} shapes never fitted visible enough in a {image_size} pixel image after "
+                       f"{MAXIMUM_SAMPLE_ATTEMPTS} drawings.")
+
+
+def draw_shape_change_frames(background: np.ndarray, background_colour: np.ndarray, textured: bool,
+                             number_frames: int, maximum_objects: int, minimum_size: int, maximum_size: int,
+                             random_generator: np.random.Generator) -> Optional[Tuple[List[np.ndarray], List[int]]]:
+    """
+    Draws one attempt at the frames of a sequence labelling sample for generate_shape_change_sequence: the shapes of the
+    first frame, then from the second frame a shape of random class added, one of the shapes removed, or none, every
+    shape keeping its class, size, colour and pixels from frame to frame at a new position of every frame
+    (draw_shapes_frame), so that a label names a shape the frames show, an added shape getting a colour apart from the
+    colours of the shapes it joins.
+
+    Args:
+        background (np.ndarray): The [H, W, 3] uint8 BGR background shared by the frames.
+        background_colour (np.ndarray): The [3] uint8 BGR colour the shapes contrast with.
+        textured (bool): Whether the background is textured (draw_shape_descriptors).
+        number_frames (int): The number of frames of the sequence.
+        maximum_objects (int): The maximum number of shapes of a frame.
+        minimum_size (int): The minimum size of the shapes in pixels.
+        maximum_size (int): The maximum size of the shapes in pixels.
+        random_generator (np.random.Generator): The random generator of the sequence.
+
+    Returns:
+        Optional[Tuple[List[np.ndarray], List[int]]]: The [H, W, 3] uint8 BGR frames and the category identifier of
+            every frame, or None when one of the frames cannot show its shapes visible enough.
+    """
+    shape_names = list(SHAPE_CATEGORIES)
+
+    # Shapes of the first frame
+    number_objects = int(random_generator.integers(low=LABELLING_MINIMUM_OBJECTS, high=maximum_objects + 1))
+    frame_shapes = draw_shape_descriptors(
+        shape_names=[shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
+                     for _ in range(number_objects)], minimum_size=minimum_size, maximum_size=maximum_size,
+        background_colour=background_colour, textured=textured, random_generator=random_generator)
+
+    frames, frame_category_ids = [], []
+    for frame_index in range(number_frames):
+        # From the second frame, a change among those keeping the number of shapes within its bounds
+        change_name = "no_change"
+        if frame_index > 0:
+            number_objects = len(frame_shapes)
+            allowed_changes = [change for change in LABELLING_CHANGES
+                               if not (change == "appearing" and number_objects == maximum_objects)
+                               and not (change == "disappearing" and number_objects == LABELLING_MINIMUM_OBJECTS)]
+            change_name = allowed_changes[int(random_generator.integers(low=0, high=len(allowed_changes)))]
+
+        # A shape of random class added, or one of the shapes removed, the label naming its class
+        category_name = "no_change"
+        if change_name == "appearing":
+            changed_shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
+            frame_shapes = frame_shapes + draw_shape_descriptors(
+                shape_names=[changed_shape_name], minimum_size=minimum_size, maximum_size=maximum_size,
+                background_colour=background_colour, textured=textured, random_generator=random_generator,
+                shape_colours=tuple(shape_descriptor["colour"] for shape_descriptor in frame_shapes))
+            category_name = f"appearing_{changed_shape_name}"
+        elif change_name == "disappearing":
+            removed_shape = frame_shapes.pop(int(random_generator.integers(low=0, high=len(frame_shapes))))
+            category_name = f"disappearing_{removed_shape['shape_name']}"
+
+        # The shapes of the frame placed at new positions, every one visible enough
+        drawn_frame = draw_shapes_frame(background=background, shape_descriptors=frame_shapes,
+                                        random_generator=random_generator)
+        if drawn_frame is None:
+            return None
+        frames.append(drawn_frame[0])
+        frame_category_ids.append(CHANGE_CATEGORIES[category_name])
+    return frames, frame_category_ids
 
 
 def generate_shape_change_sequence(image_size: int, number_frames: int, maximum_objects: int,
                                    random_generator: np.random.Generator) -> Tuple[List[np.ndarray], List[int]]:
     """
     Generates one synthetic sequence labelling sample: frames of 5 to 'maximum_objects' shapes over a background shared
-    by every frame, every frame from the second one adding a shape of random class (label 'appearing_<class>'),
-    removing one of the shapes ('disappearing_<class>') or keeping them ('no_change', always the label of the first
-    frame), with the same probability among the changes the number of shapes allows. Every frame draws all its shapes
-    again with a new size, colour, rotation and position, without overlap, so that a change is told by the classes of
-    the shapes only, compared with the previous frame. Several shapes of a frame may share a class. The shapes measure
-    MINIMUM_SHAPE_SIZE pixels (an eighth of the frame side when larger) to a fifth of the frame side.
+    by every frame (textured for part of the sequences), every frame from the second one adding a shape of random class
+    (label 'appearing_<class>'), removing one of the shapes ('disappearing_<class>') or keeping them ('no_change',
+    always the label of the first frame), with the same probability among the changes the number of shapes allows.
+    Every shape keeps its class, size, colour and pixels from frame to frame and is placed again at a new position in
+    every frame, overlapping others and cut by the border but keeping SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels
+    visible (draw_shape_change_frames), so that a change is told by comparing the shapes of a frame with those of the
+    previous frame. Several shapes of a frame may share a class. The sizes are drawn log-uniform
+    (get_frame_shape_size_range), and the sequence is drawn again when a frame cannot show its shapes visible enough.
 
     Args:
         image_size (int): The height and width of the square frames in pixels.
@@ -2503,90 +2768,95 @@ def generate_shape_change_sequence(image_size: int, number_frames: int, maximum_
 
     Raises:
         ValueError: If maximum_objects is below 5.
+        RuntimeError: If no drawing of the sequence shows its shapes visible enough in every frame.
     """
     if maximum_objects < LABELLING_MINIMUM_OBJECTS:
         raise ValueError(f"The sequence labelling frames need at least {LABELLING_MINIMUM_OBJECTS} shapes, got "
                          f"maximum_objects {maximum_objects}.")
-    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
-    shape_names = list(SHAPE_CATEGORIES)
+    background, background_colour, textured = draw_background(image_size=image_size, random_generator=random_generator)
+    minimum_size, maximum_size = get_frame_shape_size_range(image_size=image_size, maximum_shapes=maximum_objects)
 
-    # Size of the shapes, their smallest value raised to MINIMUM_SHAPE_SIZE within the largest one
-    minimum_size, maximum_size = get_labelling_shape_size_range(image_size=image_size)
-
-    # Classes of the shapes of the first frame
-    number_objects = int(random_generator.integers(low=LABELLING_MINIMUM_OBJECTS, high=maximum_objects + 1))
-    frame_shape_names = [shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
-                         for _ in range(number_objects)]
-
-    frames, frame_category_ids = [], []
-    for frame_index in range(number_frames):
-        # From the second frame, a change among those keeping the number of shapes within its bounds
-        change_name = "no_change"
-        if frame_index > 0:
-            number_objects = len(frame_shape_names)
-            allowed_changes = [change for change in LABELLING_CHANGES
-                               if not (change == "appearing" and number_objects == maximum_objects)
-                               and not (change == "disappearing" and number_objects == LABELLING_MINIMUM_OBJECTS)]
-            change_name = allowed_changes[int(random_generator.integers(low=0, high=len(allowed_changes)))]
-
-        # A shape of random class added, or one of the shapes removed, the label naming its class
-        category_name = "no_change"
-        if change_name == "appearing":
-            changed_shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
-            frame_shape_names.append(changed_shape_name)
-            category_name = f"appearing_{changed_shape_name}"
-        elif change_name == "disappearing":
-            changed_shape_name = frame_shape_names.pop(int(random_generator.integers(low=0,
-                                                                                     high=len(frame_shape_names))))
-            category_name = f"disappearing_{changed_shape_name}"
-
-        # Every shape drawn again with a new size, colour and rotation, then placed without overlap
-        shape_descriptors = [draw_shape_descriptor(minimum_size=minimum_size, maximum_size=maximum_size,
-                                                   background_colour=background_colour,
-                                                   random_generator=random_generator, shape_name=shape_name)
-                             for shape_name in frame_shape_names]
-        frames.append(draw_shapes_frame(background=background, shape_descriptors=shape_descriptors,
-                                        random_generator=random_generator))
-        frame_category_ids.append(CHANGE_CATEGORIES[category_name])
-
-    return frames, frame_category_ids
+    # Shapes and changes drawn again until every frame shows its shapes visible enough
+    for _ in range(MAXIMUM_SAMPLE_ATTEMPTS):
+        drawn_sequence = draw_shape_change_frames(background=background, background_colour=background_colour,
+                                                  textured=textured, number_frames=number_frames,
+                                                  maximum_objects=maximum_objects, minimum_size=minimum_size,
+                                                  maximum_size=maximum_size, random_generator=random_generator)
+        if drawn_sequence is not None:
+            return drawn_sequence
+    raise RuntimeError(f"A sequence of {number_frames} frames of {image_size} pixels with up to {maximum_objects} "
+                       f"shapes never showed its shapes visible enough after {MAXIMUM_SAMPLE_ATTEMPTS} drawings.")
 
 
-def draw_selection_frame(background: np.ndarray, shape_name: str, size: int, colour: np.ndarray,
-                         random_generator: np.random.Generator) -> Tuple[np.ndarray, int]:
+def draw_selection_shape(shape_name: str, minimum_size: int, maximum_size: int, background_colour: np.ndarray,
+                         colour: np.ndarray, random_generator: np.random.Generator) -> Dict[str, Any]:
     """
-    Draws one frame of a synthetic frame selection sequence: a single shape of the given class and size at a random
-    position of the background shared by the sequence, with the area of its pixels, which tells the largest copy of a
-    shape apart from its smaller copies.
+    Draws the shape of one frame of a synthetic frame selection sequence (draw_shape_descriptor), in the colour shared
+    by the frames of the sequence, so that only the class and the size tell the frames apart.
+
+    Args:
+        shape_name (str): The class of the shape, a key of SHAPE_DRAWING_FUNCTIONS.
+        minimum_size (int): The minimum size of the shape in pixels.
+        maximum_size (int): The maximum size of the shape in pixels.
+        background_colour (np.ndarray): The [3] uint8 BGR background colour of the sequence.
+        colour (np.ndarray): The [3] uint8 BGR colour of the shapes of the sequence.
+        random_generator (np.random.Generator): The random generator of the shape.
+
+    Returns:
+        Dict[str, Any]: The shape descriptor, its 'colour' being the colour of the sequence.
+    """
+    shape_descriptor = draw_shape_descriptor(minimum_size=minimum_size, maximum_size=maximum_size,
+                                             background_colour=background_colour, random_generator=random_generator,
+                                             shape_name=shape_name)
+    shape_descriptor["colour"] = colour
+    return shape_descriptor
+
+
+def draw_selection_frame(background: np.ndarray, shape_descriptor: Dict[str, Any],
+                         random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Draws one frame of a synthetic frame selection sequence: its single shape pasted at a random position of the
+    background shared by the sequence, cut by the frame border by up to OBJECT_MAXIMUM_OUTSIDE_FRACTION of its canvas
+    but keeping SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels inside the frame (place_shape), so that the largest copy of
+    a wanted shape keeps showing more pixels than its smaller copies.
 
     Args:
         background (np.ndarray): The [H, W, 3] uint8 BGR background shared by the frames of the sequence.
-        shape_name (str): The class of the shape, a key of SHAPE_DRAWING_FUNCTIONS.
-        size (int): The size of the shape in pixels, smaller than the image side minus 2.
-        colour (np.ndarray): The [3] uint8 BGR colour of the shape.
-        random_generator (np.random.Generator): The random generator of the position and of the shape.
+        shape_descriptor (Dict[str, Any]): The shape of the frame (draw_selection_shape).
+        random_generator (np.random.Generator): The random generator of the position.
 
     Returns:
-        Tuple[np.ndarray, int]: The [H, W, 3] uint8 BGR frame and the number of pixels of the shape.
+        np.ndarray: The [H, W, 3] uint8 BGR frame.
+
+    Raises:
+        RuntimeError: If no position keeps the shape visible enough.
     """
-    image_size = background.shape[0]
-    mask = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
-    center_x, center_y = random_generator.integers(low=size // 2 + 1, high=image_size - size // 2 - 1, size=2)
-    SHAPE_DRAWING_FUNCTIONS[shape_name](mask=mask, center_x=int(center_x), center_y=int(center_y), size=size,
-                                        random_generator=random_generator)
     frame = background.copy()
-    frame[mask > 0] = colour
-    return frame, int(np.count_nonzero(mask))
+    box = place_shape(image=frame, shape_descriptor=shape_descriptor, placed_boxes=[],
+                      maximum_intersection_over_union=MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+                      random_generator=random_generator, class_map=None,
+                      instance_map=np.zeros(shape=background.shape[:2], dtype=np.uint16),
+                      maximum_outside_fraction=OBJECT_MAXIMUM_OUTSIDE_FRACTION, coverable_pixel_counts=[],
+                      minimum_visible_fraction=SHAPE_MINIMUM_VISIBLE_FRACTION)
+    if box is None:
+        raise RuntimeError(f"Expected a position keeping the {shape_descriptor['shape_name']} of "
+                           f"{shape_descriptor['mask'].shape[0] - 1} pixels visible in a {background.shape[0]} pixel "
+                           f"frame, but {MAXIMUM_PLACEMENT_ATTEMPTS} positions did not.")
+    return frame
 
 
 def generate_selection_sequence(image_size: int, number_frames: int,
                                 random_generator: np.random.Generator) -> Tuple[List[np.ndarray], List[int]]:
     """
     Generates one synthetic frame selection sample: a sequence of frames showing one shape each, over a background and
-    in a colour shared by its frames. Every wanted shape (circle, triangle, star) appears once at a large size, the
-    frame to select for its class, and the other frames show a smaller copy of a wanted shape (at most 70 % of its
-    size and 60 % of its area) or another shape (square, rectangle, plus sign), all unselected. Whether a circle is
-    the one to select depends on the other circles of the sequence, so that the model must compare the frames. The
+    in a colour shared by its frames (a textured background for part of the sequences, a colour close to a flat
+    background for part of the others). Every wanted shape (circle, triangle, star) appears once as its largest copy,
+    of a log-uniform size from SELECTION_LARGEST_MINIMUM_SIZE pixels to OBJECT_MAXIMUM_SIZE_FRACTION of the frame side,
+    the frame to select for its class, and the other frames show a smaller copy of a wanted shape (at most 70 % of its
+    size and 60 % of its area, from OBJECT_MINIMUM_SIZE pixels) or another shape (square, rectangle, plus sign), all
+    unselected. Every shape keeps SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels inside its frame (draw_selection_frame),
+    more than the 60 % a smaller copy may have, so that the largest copy always shows the most pixels. Whether a circle
+    is the one to select depends on the other circles of the sequence, so that the model must compare the frames. The
     frames come in random order.
 
     Args:
@@ -2597,46 +2867,53 @@ def generate_selection_sequence(image_size: int, number_frames: int,
     Returns:
         Tuple[List[np.ndarray], List[int]]: The [H, W, 3] uint8 BGR frames and the category identifier of every frame.
     """
-    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
-    colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator)
-    minimum_size = max(6, image_size // 8)
-    largest_size_low, largest_size_high = [int(image_size * fraction) for fraction in SELECTION_LARGEST_SIZE_RANGE]
+    background, background_colour, textured = draw_background(image_size=image_size, random_generator=random_generator)
+    low_contrast = not textured and random_generator.random() < LOW_CONTRAST_PROBABILITY
+    colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator,
+                                     low_contrast_range=LOW_CONTRAST_DIFFERENCE_RANGE if low_contrast else None)
+    maximum_size = int(OBJECT_MAXIMUM_SIZE_FRACTION * image_size)
+    minimum_size = min(OBJECT_MINIMUM_SIZE, maximum_size)
     frames, frame_category_ids, largest_copies = [], [], {}
 
     # Largest copy of every wanted shape, the frame to select for its class
     for shape_name in SELECTION_WANTED_SHAPES:
-        size = int(random_generator.integers(low=largest_size_low, high=largest_size_high + 1))
-        frame, area = draw_selection_frame(background=background, shape_name=shape_name, size=size, colour=colour,
-                                           random_generator=random_generator)
-        frames.append(frame)
+        shape_descriptor = draw_selection_shape(shape_name=shape_name,
+                                                minimum_size=min(SELECTION_LARGEST_MINIMUM_SIZE, maximum_size),
+                                                maximum_size=maximum_size, background_colour=background_colour,
+                                                colour=colour, random_generator=random_generator)
+        frames.append(draw_selection_frame(background=background, shape_descriptor=shape_descriptor,
+                                           random_generator=random_generator))
         frame_category_ids.append(SELECTION_CATEGORIES[shape_name])
-        largest_copies[shape_name] = (size, area)
+        largest_copies[shape_name] = (shape_descriptor["mask"].shape[0] - 1,
+                                      int(np.count_nonzero(shape_descriptor["mask"])))
 
-    # Unselected frames: a clearly smaller copy of a wanted shape, redrawn until its area is small enough, or else
+    # Unselected frames: a clearly smaller copy of a wanted shape, drawn again until its area is small enough, or else
     # another shape
     for _ in range(number_frames - len(SELECTION_WANTED_SHAPES)):
-        frame = None
+        shape_descriptor = None
         if random_generator.random() < SELECTION_SMALLER_COPY_PROBABILITY:
             shape_name = SELECTION_WANTED_SHAPES[int(random_generator.integers(low=0,
                                                                                 high=len(SELECTION_WANTED_SHAPES)))]
             largest_size, largest_area = largest_copies[shape_name]
-            maximum_size = max(minimum_size, int(largest_size * SELECTION_SMALLER_SIZE_RATIO))
-            # Redraw the smaller copy until its area is a small enough share of the area of the largest copy
+            smaller_maximum_size = max(minimum_size, int(largest_size * SELECTION_SMALLER_SIZE_RATIO))
+            # Draw the smaller copy again until its area is a small enough share of the area of the largest copy
             for _ in range(MAXIMUM_FRAME_ATTEMPTS):
-                size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
-                candidate_frame, area = draw_selection_frame(background=background, shape_name=shape_name, size=size,
-                                                             colour=colour, random_generator=random_generator)
-                if area <= SELECTION_SMALLER_AREA_RATIO * largest_area:
-                    frame = candidate_frame
+                candidate_descriptor = draw_selection_shape(shape_name=shape_name, minimum_size=minimum_size,
+                                                            maximum_size=smaller_maximum_size,
+                                                            background_colour=background_colour, colour=colour,
+                                                            random_generator=random_generator)
+                if np.count_nonzero(candidate_descriptor["mask"]) <= SELECTION_SMALLER_AREA_RATIO * largest_area:
+                    shape_descriptor = candidate_descriptor
                     break
         # Another shape when no smaller copy was drawn or none was small enough
-        if frame is None:
+        if shape_descriptor is None:
             shape_name = SELECTION_OTHER_SHAPES[int(random_generator.integers(low=0,
                                                                                high=len(SELECTION_OTHER_SHAPES)))]
-            size = int(random_generator.integers(low=minimum_size, high=largest_size_high + 1))
-            frame, _ = draw_selection_frame(background=background, shape_name=shape_name, size=size, colour=colour,
-                                            random_generator=random_generator)
-        frames.append(frame)
+            shape_descriptor = draw_selection_shape(shape_name=shape_name, minimum_size=minimum_size,
+                                                    maximum_size=maximum_size, background_colour=background_colour,
+                                                    colour=colour, random_generator=random_generator)
+        frames.append(draw_selection_frame(background=background, shape_descriptor=shape_descriptor,
+                                           random_generator=random_generator))
         frame_category_ids.append(SELECTION_CATEGORIES["unselected"])
 
     # Frames in random order, the frames to select anywhere in the sequence
@@ -2646,52 +2923,65 @@ def generate_selection_sequence(image_size: int, number_frames: int,
 
 
 def draw_shapes_frame(background: np.ndarray, shape_descriptors: List[Dict[str, Any]],
-                      random_generator: np.random.Generator) -> np.ndarray:
+                      random_generator: np.random.Generator) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """
-    Draws one frame of a member of a comparison pair or of a sequence labelling sample: every given object pasted at a
-    random position of the background, without overlap and with a gap of 2 pixels between two objects, so that the
-    frame shows exactly its number of objects. The whole frame is drawn again when an object does not fit, up to 20
-    times.
+    Draws one frame of a sequence labelling sample or of a member of a comparison pair, or one counted shapes image:
+    every given shape pasted at a random position of the background, from the largest to the smallest so that the
+    small shapes lie over the large ones, overlapping each other by at most MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, cut
+    by the border by up to OBJECT_MAXIMUM_OUTSIDE_FRACTION of their canvas, and every one keeping
+    SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels visible (place_shape), so that the frame shows exactly its shapes,
+    each visible enough to be counted and recognised. The whole frame is drawn again when a shape does not fit, up to
+    MAXIMUM_FRAME_ATTEMPTS times.
 
     Args:
         background (np.ndarray): The [H, W, 3] uint8 BGR background shared by the frames of the pair or sequence.
-        shape_descriptors (List[Dict[str, Any]]): The objects of the frame (draw_shape_descriptor).
+        shape_descriptors (List[Dict[str, Any]]): The shapes of the frame (draw_shape_descriptors).
         random_generator (np.random.Generator): The random generator of the positions.
 
     Returns:
-        np.ndarray: The [H, W, 3] uint8 BGR frame.
-
-    Raises:
-        RuntimeError: If the objects never all fit, e.g. too many objects for the image size.
+        Optional[Tuple[np.ndarray, np.ndarray]]: The [H, W, 3] uint8 BGR frame and the [H, W] uint16 index of the
+            shape of every pixel (shape i of the given list at i + 1, 0 for the background), or None when the shapes
+            never all fit visible enough.
     """
+    image_height, image_width = background.shape[:2]
+    shape_sizes = [shape_descriptor["mask"].shape[0] for shape_descriptor in shape_descriptors]
+    drawing_order = sorted(range(len(shape_descriptors)), key=shape_sizes.__getitem__, reverse=True)
+
+    # Index of the given list of the shape drawn at every position of the drawing order, 0 staying the background
+    given_indices = np.array([0] + [shape_index + 1 for shape_index in drawing_order], dtype=np.uint16)
     for _ in range(MAXIMUM_FRAME_ATTEMPTS):
         frame = background.copy()
-        placed_boxes = []
+        instance_map = np.zeros(shape=(image_height, image_width), dtype=np.uint16)
+        placed_boxes: List[List[int]] = []
+        coverable_pixel_counts: List[float] = []
 
-        # Place the objects one after the other, starting the frame again as soon as one does not fit
-        for shape_descriptor in shape_descriptors:
-            box = place_shape(image=frame, shape_descriptor=shape_descriptor, placed_boxes=placed_boxes,
-                              maximum_intersection_over_union=0.0, minimum_gap=MINIMUM_OBJECT_GAP,
-                              random_generator=random_generator, class_map=None)
+        # Place the shapes one after the other, starting the frame again as soon as one does not fit
+        for shape_index in drawing_order:
+            box = place_shape(image=frame, shape_descriptor=shape_descriptors[shape_index], placed_boxes=placed_boxes,
+                              maximum_intersection_over_union=MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+                              random_generator=random_generator, class_map=None, instance_map=instance_map,
+                              maximum_outside_fraction=OBJECT_MAXIMUM_OUTSIDE_FRACTION,
+                              coverable_pixel_counts=coverable_pixel_counts,
+                              minimum_visible_fraction=SHAPE_MINIMUM_VISIBLE_FRACTION)
             if box is None:
                 break
-            placed_boxes.append(box)
+            placed_boxes.append([max(0, box[0]), max(0, box[1]), min(image_width, box[2]), min(image_height, box[3])])
         if len(placed_boxes) == len(shape_descriptors):
-            return frame
-    raise RuntimeError(f"{len(shape_descriptors)} objects never fitted without overlap in a {background.shape[0]} "
-                       f"pixel frame after {MAXIMUM_FRAME_ATTEMPTS} attempts.")
+            return frame, given_indices[instance_map]
+    return None
 
 
 def generate_object_loss_pair(image_size: int, minimum_frames: int, maximum_frames: int, maximum_objects: int,
                               random_generator: np.random.Generator) -> Tuple[Dict[str, List[np.ndarray]], int]:
     """
     Generates one synthetic sequence comparison sample: a before member and an after member, two sequences of
-    independent views of the same objects (2 to 'maximum_objects' shapes of fixed class, size and colour, placed at
-    random positions in every frame, over a background shared by the pair). The after member lost one of the objects
-    (class 'loss_of_object') or shows all of them (class 'same_number_of_objects'), with the same probability. A single
-    member does not give the class, only the comparison of the numbers of objects of the two members, and every frame
-    shows exactly its number of objects. Each member draws its own number of frames, e.g. 5 before frames and 12
-    after frames.
+    independent views of the same objects (2 to 'maximum_objects' shapes keeping their class, size, colour and pixels,
+    placed at random positions in every frame over a background shared by the pair, overlapping and cut by the border
+    but every one keeping SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels visible, draw_shapes_frame). The after member
+    lost one of the objects (class 'loss_of_object') or shows all of them (class 'same_number_of_objects'), with the
+    same probability. A single member does not give the class, only the comparison of the objects of the two members,
+    and every frame shows exactly its objects. Each member draws its own number of frames, e.g. 5 before frames and 12
+    after frames, and the objects are drawn again when a frame cannot show them visible enough.
 
     Args:
         image_size (int): The height and width of the square frames in pixels.
@@ -2706,33 +2996,41 @@ def generate_object_loss_pair(image_size: int, minimum_frames: int, maximum_fram
 
     Raises:
         ValueError: If maximum_objects is below 2.
+        RuntimeError: If no drawing of the objects shows them visible enough in every frame.
     """
     if maximum_objects < PAIR_MINIMUM_OBJECTS:
         raise ValueError(f"The comparison pairs need at least {PAIR_MINIMUM_OBJECTS} objects in their before member, "
                          f"got maximum_objects {maximum_objects}.")
-    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
+    background, background_colour, textured = draw_background(image_size=image_size, random_generator=random_generator)
+    minimum_size, maximum_size = get_frame_shape_size_range(image_size=image_size, maximum_shapes=maximum_objects)
 
-    # Objects of the before member, drawn once so that both members show the same objects
+    # Number of objects of the before member, and whether the after member loses one of them, for half of the pairs
     number_objects = int(random_generator.integers(low=PAIR_MINIMUM_OBJECTS, high=maximum_objects + 1))
-    before_descriptors = [draw_shape_descriptor(minimum_size=max(8, image_size // 8),
-                                                maximum_size=max(9, image_size // 5),
-                                                background_colour=background_colour,
-                                                random_generator=random_generator) for _ in range(number_objects)]
-
-    # The after member loses one of the objects for half of the pairs
     category_name = "loss_of_object" if random_generator.random() < 0.5 else "same_number_of_objects"
-    after_descriptors = list(before_descriptors)
-    if category_name == "loss_of_object":
-        after_descriptors.pop(int(random_generator.integers(low=0, high=number_objects)))
 
-    # Independent views of the objects of every member, each member with its own number of frames
-    member_frames = {}
-    for member_name, member_descriptors in zip(PAIR_MEMBERS, [before_descriptors, after_descriptors]):
-        member_length = int(random_generator.integers(low=minimum_frames, high=maximum_frames + 1))
-        member_frames[member_name] = [draw_shapes_frame(background=background, shape_descriptors=member_descriptors,
-                                                        random_generator=random_generator)
-                                      for _ in range(member_length)]
-    return member_frames, PAIR_CATEGORIES[category_name]
+    # Objects of the before member drawn once so that both members show the same objects, drawn again until every
+    # frame of both members shows them visible enough
+    for _ in range(MAXIMUM_SAMPLE_ATTEMPTS):
+        before_descriptors = draw_shape_descriptors(shape_names=[None] * number_objects, minimum_size=minimum_size,
+                                                    maximum_size=maximum_size, background_colour=background_colour,
+                                                    textured=textured, random_generator=random_generator)
+        after_descriptors = list(before_descriptors)
+        if category_name == "loss_of_object":
+            after_descriptors.pop(int(random_generator.integers(low=0, high=number_objects)))
+
+        # Independent views of the objects of every member, each member with its own number of frames
+        member_frames = {}
+        for member_name, member_descriptors in zip(PAIR_MEMBERS, [before_descriptors, after_descriptors]):
+            member_length = int(random_generator.integers(low=minimum_frames, high=maximum_frames + 1))
+            drawn_frames = [draw_shapes_frame(background=background, shape_descriptors=member_descriptors,
+                                              random_generator=random_generator) for _ in range(member_length)]
+            if any(drawn_frame is None for drawn_frame in drawn_frames):
+                break
+            member_frames[member_name] = [frame for frame, _ in drawn_frames]
+        if len(member_frames) == len(PAIR_MEMBERS):
+            return member_frames, PAIR_CATEGORIES[category_name]
+    raise RuntimeError(f"{number_objects} objects never fitted visible enough in every frame of a {image_size} pixel "
+                       f"pair after {MAXIMUM_SAMPLE_ATTEMPTS} drawings.")
 
 
 def save_frames(data_folder: str, frame_folder: str, frames: List[np.ndarray]) -> List[str]:
@@ -2864,7 +3162,6 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
 
 def generate_split(split_folder: str, split_name: str, number_samples: int, image_size: int, maximum_objects: int,
                    minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
-                   hard_objects: bool = False,
                    maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
                    same_class_neighbour_probability: float = 0.0) -> Dict[str, int]:
     """
@@ -2896,8 +3193,6 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         task (str): "object_detection", "instance_segmentation", "keypoint_detection", "classification",
             "semantic_segmentation", "sequence_classification", "sequence_labelling", "sequence_comparison",
             "frame_selection", "self_supervised" or "multi_label_classification".
-        hard_objects (bool): True for the hard object detection or instance segmentation images (generate_image).
-            Defaults to False.
         maximum_object_intersection_over_union (float): The largest IoU between two objects of an image drawn by
             generate_image. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3).
         same_class_neighbour_probability (float): The probability that an object of an image drawn by generate_image
@@ -2938,7 +3233,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                    "remove_covered_objects": task in TASKS_REMOVING_COVERED_OBJECTS,
                    "instance_segmentation": task == "instance_segmentation",
                    "keypoints": task == "keypoint_detection", "counted_shapes": task in COUNTED_SHAPES_TASKS,
-                   "hard_objects": hard_objects,
+                   "minimum_visible_fraction": (SHAPE_MINIMUM_VISIBLE_FRACTION if task in TASKS_KEEPING_SHAPES_VISIBLE
+                                                else 0.0),
                    "maximum_object_intersection_over_union": maximum_object_intersection_over_union,
                    "same_class_neighbour_probability": same_class_neighbour_probability}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
@@ -2971,26 +3267,24 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
 
 def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: Dict[str, int], maximum_objects: int,
                              minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
-                             hard_objects: bool = False,
                              maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
                              same_class_neighbour_probability: float = 0.0) -> None:
     """
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
-    'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
-    trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
-    to detect, to segment object by object, to locate the keypoints of or to segment, a single shape per image to
-    classify, a shape crossing the frames of a sequence whose movement direction is classified, shapes appearing and
-    disappearing during a sequence whose every frame is classified with its change, a pair of sequences of the same
-    objects whose after member may have lost one of them, or shapes of several sizes whose largest circle, triangle
-    and star are the frames to select. Every sequence, and every member of a pair, has its own number of frames between
-    minimum_frames and maximum_frames. The self-supervised dataset is not a trivial task: 5 to maximum_objects shapes
-    per image drawn like a sequence labelling frame, the shape count labelling the k-nearest neighbour evaluation of
-    the self-supervised trainer. Nor is the multi-label classification dataset: the same images, labelled with the
-    distinct classes of their shapes, to pretrain the backbone of the sequence labelling model on recognising them. Nor
-    are the hard object detection and instance segmentation datasets (hard_objects): 5 to maximum_objects shapes from 16
-    pixels to 80% of the image side, some in a colour close to the background, some lying over larger shapes or cut by
-    the image border, on flat or textured backgrounds, to benchmark detectors and instance segmenters on small and very
-    large objects, the instance segmentation labelling the visible part of every shape.
+    'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The shapes of every
+    task measure 16 pixels to 80% of the image side, with log-uniform sizes, the small ones lying over the large ones,
+    cut by the image border, on flat backgrounds (where part of them get a colour close to the background) or textured
+    ones: several shapes per image to detect, to segment object by object, to locate the keypoints of or to segment, a
+    single shape per image to classify, a shape crossing the frames of a sequence whose movement direction is
+    classified, shapes appearing and disappearing during a sequence whose every frame is classified with its change, a
+    pair of sequences of the same objects whose after member may have lost one of them, or shapes of several sizes whose
+    largest circle, triangle and star are the frames to select. Every sequence, and every member of a pair, has its own
+    number of frames between minimum_frames and maximum_frames. The self-supervised dataset holds 5 to maximum_objects
+    shapes per image drawn like a sequence labelling frame, the shape count labelling the k-nearest neighbour
+    evaluation of the self-supervised trainer, and the multi-label classification dataset the same images, labelled
+    with the distinct classes of their shapes, to pretrain the backbone of the sequence labelling model on recognising
+    them. The detection labels leave out the shapes mostly hidden, the instance segmentation labelling the visible part
+    of every shape, and the other tasks keep every shape visible enough to be counted and recognised.
 
     Args:
         output_folder (str): The root folder of the dataset.
@@ -3009,13 +3303,11 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         task (str): "object_detection", "instance_segmentation", "keypoint_detection", "classification",
             "semantic_segmentation", "sequence_classification", "sequence_labelling", "sequence_comparison",
             "frame_selection", "self_supervised" or "multi_label_classification".
-        hard_objects (bool): True for the hard images (generate_image), object detection and instance segmentation
-            only. Defaults to False.
         maximum_object_intersection_over_union (float): The largest IoU between two objects of an image, within [0, 1],
             for the images drawn by generate_image (object detection, instance segmentation, keypoint detection,
             semantic segmentation, classification), e.g. 0.6 for the occlusion test split of stage 5b of the detection
-            benchmark. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3),
-            with which every dataset was drawn.
+            benchmark. Defaults to MAXIMUM_OBJECT_INTERSECTION_OVER_UNION (0.3), the overlap cap of the counted shapes
+            images and of the sequence frames.
         same_class_neighbour_probability (float): The probability, within [0, 1], that an object of an object detection
             or instance segmentation image is placed next to the object placed before it, with its class, at an IoU
             from SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION (0.5) to 'maximum_object_intersection_over_union',
@@ -3024,19 +3316,13 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
 
     Raises:
         ValueError: If the frame range of a sequence task starts below 2 (below the number of wanted shapes for the
-            frame selection) or is empty, if hard_objects is set for another task than the object detection and the
-            instance segmentation, if the largest IoU between two objects is not within [0, 1] or is changed for a
-            task whose images are not drawn by generate_image, or if the same-class neighbour probability is not within
-            [0, 1], is set for another task than the object detection and the instance segmentation, or is set with a
-            largest IoU below 0.5.
+            frame selection) or is empty, if the largest IoU between two objects is not within [0, 1] or is changed for
+            a task whose images are not drawn by generate_image, or if the same-class neighbour probability is not
+            within [0, 1], is set for another task than the object detection and the instance segmentation, or is set
+            with a largest IoU below 0.5.
     """
-    # The hard images label the whole box or the visible part of every object, their keypoints not being drawn
-    if hard_objects and task not in HARD_OBJECTS_TASKS:
-        raise ValueError(f"hard_objects only draws object detection and instance segmentation images, got task "
-                         f"'{task}'.")
-
-    # The overlap cap is an IoU, which only the images of generate_image use, the sequence frames and the counted
-    # shapes images placing their shapes apart
+    # The overlap cap is an IoU, which only the images of generate_image take, the sequence frames and the counted
+    # shapes images keeping the default cap
     if not 0.0 <= maximum_object_intersection_over_union <= 1.0:
         raise ValueError(f"maximum_object_intersection_over_union must be within [0, 1], got "
                          f"{maximum_object_intersection_over_union!r}.")
@@ -3050,7 +3336,7 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     if not 0.0 <= same_class_neighbour_probability <= 1.0:
         raise ValueError(f"same_class_neighbour_probability must be within [0, 1], got "
                          f"{same_class_neighbour_probability!r}.")
-    if same_class_neighbour_probability > 0 and task not in HARD_OBJECTS_TASKS:
+    if same_class_neighbour_probability > 0 and task not in SAME_CLASS_NEIGHBOUR_TASKS:
         raise ValueError(f"same_class_neighbour_probability only places the objects of the object detection and "
                          f"instance segmentation images, got task '{task}'.")
     if same_class_neighbour_probability > 0 and \
@@ -3076,7 +3362,7 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         class_counts = generate_split(split_folder=split_folder, split_name=split_name, number_samples=number_samples,
                                       image_size=image_size, maximum_objects=maximum_objects,
                                       minimum_frames=minimum_frames, maximum_frames=maximum_frames,
-                                      number_workers=number_workers, task=task, hard_objects=hard_objects,
+                                      number_workers=number_workers, task=task,
                                       maximum_object_intersection_over_union=maximum_object_intersection_over_union,
                                       same_class_neighbour_probability=same_class_neighbour_probability)
         print_color(color="green", output=f"{split_name} split : {format_path_link(path=split_folder)}", indent=1)
@@ -3113,8 +3399,8 @@ if __name__ == "__main__":
     task = "classification"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/, the object detection configuration reading the instance segmentation dataset
-    # (the boxes of the visible part of every shape) and the object detection folder holding the hard object detection
-    # images of the detection benchmark. Existing images and labels of the same splits are overwritten
+    # (the boxes of the visible part of every shape) and the object detection folder holding the images of the
+    # detection benchmark. Existing images and labels of the same splits are overwritten
     output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes",
                       "instance_segmentation": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes",
                       "keypoint_detection": "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes",
@@ -3142,7 +3428,7 @@ if __name__ == "__main__":
     # training images of the self-supervised dataset are not labelled for the training, their shape counts only
     # labelling the k-nearest neighbour evaluation of the test split. The 512000 training images of the multi-label
     # classification are seen 5 times by the 10000 iterations of 256 images of its configuration
-    # (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the hard object
+    # (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the object
     # detection are those of the detection benchmark
     split_sizes = {"object_detection": {"train": 512000, "validation": 50000, "test": 50000},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
@@ -3155,10 +3441,10 @@ if __name__ == "__main__":
                    "frame_selection": {"train": 2000, "validation": 200, "test": 200},
                    "self_supervised": {"train": 500000, "validation": 10000, "test": 10000},
                    "multi_label_classification": {"train": 512000, "validation": 50000, "test": 50000}}
-    # Maximum number of shapes drawn in one image (at least one is always drawn, instance segmentation and semantic
-    # segmentation, at least two for the keypoint detection, at least five for the hard images), in a
-    # sequence labelling frame or a self-supervised or multi-label classification image (at least five) or in the
-    # before member of a pair (at least two, sequence comparison), for every task (unused by the other tasks)
+    # Maximum number of shapes drawn in one image (at least five for the object detection, instance segmentation and
+    # semantic segmentation, at least two for the keypoint detection, one for the classification), in a sequence
+    # labelling frame or a self-supervised or multi-label classification image (at least five) or in the before member
+    # of a pair (at least two, sequence comparison), for every task (unused by the other tasks)
     maximum_objects = {"object_detection": 12, "instance_segmentation": 6, "keypoint_detection": 5, "classification": 1,
                        "semantic_segmentation": 6, "sequence_classification": 1, "sequence_labelling": 10,
                        "sequence_comparison": 6, "frame_selection": 1, "self_supervised": 10,
@@ -3174,15 +3460,14 @@ if __name__ == "__main__":
                       "semantic_segmentation": 1, "sequence_classification": 12, "sequence_labelling": 12,
                       "sequence_comparison": 12, "frame_selection": 12, "self_supervised": 1,
                       "multi_label_classification": 1}
-    # Tasks drawing the hard images of the benchmarks (generate_image), object detection and instance segmentation only.
-    # Add "instance_segmentation" for the hard instance segmentation dataset, which takes the settings of
-    # hard_instance_segmentation_settings instead of the entries above, those of the trivial dataset read by the
+    # True to create the instance segmentation dataset of the instance segmentation benchmark, with the settings of
+    # instance_segmentation_benchmark_settings instead of the entries above, which give the dataset read by the
     # synthetic object detection and instance segmentation configurations
-    hard_object_tasks = ["object_detection"]
-    # Folder, image size, splits and most shapes per image of the hard instance segmentation dataset, those of the hard
+    instance_segmentation_benchmark_dataset = False
+    # Folder, image size, splits and most shapes per image of the instance segmentation benchmark dataset, those of the
     # object detection dataset with a test split of 10,000 images, the visible part of every shape being labelled by a
     # compressed run length encoding
-    hard_instance_segmentation_settings = {
+    instance_segmentation_benchmark_settings = {
         "output_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_hard_shapes",
         "image_size": 1024, "split_sizes": {"train": 512000, "validation": 50000, "test": 10000}, "maximum_objects": 12}
     # Largest IoU between two objects of an image drawn by generate_image: 0.3 for every dataset, 0.6 for the occlusion
@@ -3195,16 +3480,16 @@ if __name__ == "__main__":
     # Number of worker processes generating the images
     number_workers = 8
 
-    # The hard instance segmentation dataset replaces the settings of the trivial one
-    if task == "instance_segmentation" and task in hard_object_tasks:
-        output_folders[task] = hard_instance_segmentation_settings["output_folder"]
-        image_sizes[task] = hard_instance_segmentation_settings["image_size"]
-        split_sizes[task] = hard_instance_segmentation_settings["split_sizes"]
-        maximum_objects[task] = hard_instance_segmentation_settings["maximum_objects"]
+    # The instance segmentation benchmark dataset replaces the settings of the dataset of the synthetic configurations
+    if task == "instance_segmentation" and instance_segmentation_benchmark_dataset:
+        output_folders[task] = instance_segmentation_benchmark_settings["output_folder"]
+        image_sizes[task] = instance_segmentation_benchmark_settings["image_size"]
+        split_sizes[task] = instance_segmentation_benchmark_settings["split_sizes"]
+        maximum_objects[task] = instance_segmentation_benchmark_settings["maximum_objects"]
 
     create_synthetic_dataset(output_folder=output_folders[task], image_size=image_sizes[task],
                              split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
                              minimum_frames=minimum_frames[task], maximum_frames=maximum_frames[task],
-                             number_workers=number_workers, task=task, hard_objects=task in hard_object_tasks,
+                             number_workers=number_workers, task=task,
                              maximum_object_intersection_over_union=maximum_object_intersection_over_union,
                              same_class_neighbour_probability=same_class_neighbour_probability)
