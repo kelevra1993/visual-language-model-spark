@@ -588,7 +588,13 @@ Before writing a configuration of your own, start from a copy of the files of it
   <img src="README/configuration_rejected.png" width="100%" />
 </p>
 
-The keys and values of every task are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
+For a pipeline to refuse a file before it launches a training, `vision_training/check_configuration.py` loads and checks one or several files as a training does, without training: an invalid file prints the list above, a valid one a green line with its run name, and the command exits with 0 when every file is valid, 1 otherwise. `--check_paths` also requires the data folders, the label mapping file and the pretrained runs a new training reads, not `experiment_folder`, which the training creates:
+
+```bash
+uv run python -m vision_training.check_configuration --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml" --check_paths
+```
+
+The keys and values of every task, and what the check reads, are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
 
 ## Run Names
 To keep runs of different settings apart, `vision_training/configuration_processing/run_name.py` builds the run name from the configuration, so that the same settings resume in the same folder and changed settings start a new one. Sections are joined with `_` and their tokens with `-`; `ExperimentConfiguration.run_name_suffix` accepts letters, digits, `-` and `.`.
@@ -681,6 +687,8 @@ docker run --rm --gpus all --ipc=host --user "$(id -u):$(id -g)" \
     --configuration_path=vision_training/configurations/classification/configuration_synthetic_shapes.yaml
 ```
 
+In case a pipeline checks the configuration before the training starts, the same image and mounts run `python -m vision_training.check_configuration --configuration_path=<file> --check_paths` in place of `python -m vision_training.main`, without `--gpus`, its exit code 1 stopping the pipeline ([Configurations](#configurations)).
+
 The image stops with SIGINT, which the trainer handles as Ctrl+C: it saves the checkpoint of its last steps and closes its MLflow run, so give it the time with `docker stop --timeout 120 <container>`. The pre-trained ImageNet backbones are not in the image yet: a configuration loading one mounts its run folder.
 
 ### Kubernetes Pods
@@ -744,6 +752,7 @@ To find your way in the code, the diagram follows the packages along the path of
 │   └── tutorial_backlog.md            # Implemented features the tutorials do not show yet (not exhaustive)
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
+│   ├── check_configuration.py         # Check of configuration files without training, for pipelines
 │   ├── configurations/                # Example and synthetic configuration of every task
 │   ├── configuration_processing/      # Loading, checks, run names and comparison of the configurations
 │   ├── core/                          # Task registry and contracts shared by the tasks

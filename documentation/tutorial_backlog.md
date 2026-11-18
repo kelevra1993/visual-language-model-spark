@@ -13,6 +13,7 @@ To find your way in the backlog, the sections are:
 - [Results Of The Finer Inputs Of The Mask Heads](#results-of-the-finer-inputs-of-the-mask-heads)
 - [ImageNet-22k Download](#imagenet-22k-download)
 - [Converting Configurations After A Removed Setting](#converting-configurations-after-a-removed-setting)
+- [Checking Configurations Without Training](#checking-configurations-without-training)
 
 ## Adding An Entry
 Whenever a change lands on `main` with a behaviour the tutorials do not show, add a section with these four lines, then remove it once the chapter showing it is rebuilt:
@@ -61,3 +62,11 @@ Whenever a launch is refused with `'<key>' was removed: <what replaced it>. Dele
 - **Documented in**: [configuration reference, Fixed Settings](reference/configuration_reference.md#fixed-settings).
 - **Tutorial status**: no storyboard mentions the script, the refusal message or `REMOVED_SETTINGS`.
 - **Where it would fit**: one terminal scene after the "One file defines the run" scene of `01_foundations/01_repository_and_first_run.yaml`, with `write_files = False` listing the files to convert; no training.
+
+## Checking Configurations Without Training
+For a pipeline to refuse a configuration before it launches a training, `python -m vision_training.check_configuration` checks one or several files as a training loads them and exits with 1 when one is invalid, `--check_paths` also requiring the data folders, the label mapping file and the pretrained runs.
+
+- **Added**: 2026-11-18, merge into `main` pending (branch `worktree-agent-aedaf230a3260cfcf`).
+- **Documented in**: [README, Configurations](../README.md#configurations), [README, Running A Training](../README.md#running-a-training) and [configuration reference, Checking Without Training](reference/configuration_reference.md#checking-without-training).
+- **Tutorial status**: `01_foundations/01_repository_and_first_run.yaml` says the checks at launch list every problem before stopping and `11_self_supervised/01_two_views.yaml` shows that list; no storyboard runs the command.
+- **Where it would fit**: one terminal scene after the "One file defines the run" scene of `01_foundations/01_repository_and_first_run.yaml`, checking the synthetic configuration and a copy with a mistake; no training.

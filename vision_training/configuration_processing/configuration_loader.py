@@ -1,14 +1,15 @@
 """
 Loading of the YAML configuration files: parses a file, splits it into the experiment and model configurations,
 processes the experiment paths and types and runs the configuration checks. Used by main.py, the scripts and the
-tests to obtain the configurations given to the trainers.
+tests to obtain the configurations given to the trainers, which stop on an invalid file, and by
+vision_training/check_configuration.py, which reports the problems of several files without stopping.
 """
 
 import sys
 import yaml
 
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from vision_training.configuration_processing.configuration_checker import check_configuration
 from vision_training.configuration_processing.configuration_values import ConfigurationError
@@ -70,10 +71,12 @@ def inject_keypoint_categories(experiment_configuration: Dict[str, Any], model_c
             labels_file=labels_file, label_dictionary=data_configuration["label_dictionary"])
 
 
-def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Loads a single YAML configuration file and splits it into experiment
-    and model configurations. Archiving the yaml into the experiment folder is handled by the Trainer.
+    Loads a single YAML configuration file, splits it into experiment and model configurations and checks them,
+    raising the problems instead of stopping the program, so that load_experiment_configuration stops a training on
+    them and vision_training/check_configuration.py reports those of every file it is given. Archiving the yaml into
+    the experiment folder is handled by the Trainer.
 
     This function extracts the 'ExperimentConfiguration' section, processes
     its paths and types, adds the 'tracking_root', 'run_name' (None) and 'standalone_evaluation_folder' (None) runtime
@@ -91,9 +94,14 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
             - model_configuration: The remaining configuration (all other keys).
 
     Raises:
+        FileNotFoundError: If the file, or the mapping file of the 'multi_class' label mapping, does not exist.
+        ValueError: If the file or the mapping file cannot be parsed, if a number converted here (an iteration count,
+            the learning rate, an optimization setting) is a text that is not a number, or if the keypoint categories of
+            the training split are inconsistent.
         KeyError: If 'ExperimentConfiguration' is missing from the file.
-        SystemExit: If the configuration is incomplete or inconsistent (see 'check_configuration'), after printing
-            each problem in red.
+        TypeError: If a folder or a number converted here has a value the conversion refuses, e.g. null.
+        ConfigurationError: If the configuration is incomplete or inconsistent (see 'check_configuration'), listing
+            every problem.
     """
     configuration = load_configuration(configuration_path=configuration_path)
     if "ExperimentConfiguration" not in configuration:
@@ -167,16 +175,50 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         inject_keypoint_categories(experiment_configuration=experiment_configuration,
                                    model_configuration=model_configuration)
 
-    # Reject incomplete or inconsistent configurations before any model or data loader is built,
-    # listing each problem as a short red message rather than a full traceback
-    try:
-        check_configuration(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
-    except ConfigurationError as configuration_error:
-        print_color(color="red",
-                    output=f"Invalid Configuration File : {format_path_link(path=configuration_path)}",
-                    add_separators=True)
-        for error in configuration_error.errors:
-            print_color(color="red", output=error, indent=1)
-        sys.exit(1)
+    # Reject incomplete or inconsistent configurations before any model or data loader is built, with every problem
+    check_configuration(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
 
     return experiment_configuration, model_configuration
+
+
+def print_configuration_problems(configuration_path: str | Path, errors: List[str]) -> None:
+    """
+    Prints the problems of an invalid configuration file in red under a link to the file, each as a short message
+    rather than a full traceback: the block a training prints before it stops (load_experiment_configuration), also
+    printed for every invalid file by vision_training/check_configuration.py.
+
+    Args:
+        configuration_path (str | Path): The invalid configuration file.
+        errors (List[str]): One short description per problem.
+    """
+    print_color(color="red", output=f"Invalid Configuration File : {format_path_link(path=configuration_path)}",
+                add_separators=True)
+    for error in errors:
+        print_color(color="red", output=error, indent=1)
+
+
+def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Loads a configuration file for the trainings and the tools reading one (main.py, the evaluation, export and model
+    loading tools, the scripts and the tests): the experiment and model configurations of
+    prepare_experiment_configuration, an incomplete or inconsistent file stopping the program with its problems printed
+    in red (print_configuration_problems).
+
+    Args:
+        configuration_path (str | Path): Path to the consolidated YAML file.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: A tuple containing:
+            - experiment_configuration: The processed experiment settings.
+            - model_configuration: The remaining configuration (all other keys).
+
+    Raises:
+        KeyError: If 'ExperimentConfiguration' is missing from the file.
+        SystemExit: If the configuration is incomplete or inconsistent (see 'check_configuration'), with code 1 after
+            printing each problem in red.
+    """
+    try:
+        return prepare_experiment_configuration(configuration_path=configuration_path)
+    except ConfigurationError as configuration_error:
+        print_configuration_problems(configuration_path=configuration_path, errors=configuration_error.errors)
+        sys.exit(1)

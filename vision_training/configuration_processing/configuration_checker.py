@@ -42,7 +42,7 @@ TASK_CONFIGURATION_CHECKS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], 
 def check_configuration(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Verifies that a loaded configuration file is complete and consistent before any model or data loader is built.
-    It is run by 'load_experiment_configuration', so an inconsistent file is rejected at startup with the full list
+    It is run by 'prepare_experiment_configuration', so an inconsistent file is rejected at startup with the full list
     of problems instead of failing later inside model construction or, worse, training silently with wrong values.
     The settings and sections removed from the configuration files are refused first, alone, then the sections common
     to every task (experiment, data, backbone, optimization) are checked, then the sections of the task.

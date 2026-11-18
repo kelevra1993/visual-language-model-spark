@@ -21,7 +21,8 @@ VALID_UPSAMPLINGS = ["transposed", "bilinear"]
 class ConfigurationError(Exception):
     """
     Raised when the configuration file is incomplete or inconsistent. It carries the plain list of problems so that
-    'load_experiment_configuration' can display them as short messages instead of a full traceback.
+    'load_experiment_configuration' and vision_training/check_configuration.py can display them as short messages
+    instead of a full traceback.
     """
 
     def __init__(self, errors: List[str]) -> None:
