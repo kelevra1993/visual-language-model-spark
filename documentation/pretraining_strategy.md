@@ -13,7 +13,7 @@ Before training the production models, this plan sets the order in which five ba
 ## Model Sizes
 To keep the earlier ImageNet-1k runs useful, sizes S, M and XL reuse their backbones, L reuses the long model and only T is new; every backbone has 6 blocks, written as convolutions x filters per block.
 
-| Size | Backbone | Configuration (`configurations/classification/imagenet_merged/`) |
+| Size | Backbone | Configuration (`vision_training/configurations/classification/imagenet_merged/`) |
 |---|---|---|
 | T | 1x16 · 2x16 · 2x16 · 4x32 · 5x32 · 5x32 | New `configuration_tiny_model.yaml` |
 | S | 1x32 · 2x32 · 2x32 · 16x32 · 20x32 · 20x32 | `configuration_small_model.yaml` |
@@ -26,7 +26,7 @@ Each size first learns general features on ImageNet-merged (21,842 classes, 256 
 
 1. Start S, M and XL from the backbone of their ImageNet-1k runs in `experiments/` (Small, Classic, Large), with a new head for the 21,842 classes; start T and L from random weights.
 2. Train with the moving average of the weights, and keep the averaged weights.
-3. Choose the checkpoint on the ImageNet-1k validation accuracy and the k-NN check, the same for every size.
+3. Choose the checkpoint on the accuracy of the test evaluations (the 50,000 ImageNet-1k images of `test_data_folder`), the same for every size; a k-NN check would need new code, the k-NN evaluation belonging to the self-supervised trainer only.
 4. Record accuracy, model size and speed (`diagnosis_modes.benchmark_speed`) of each size in the final table.
 
 ## Object Detection

@@ -12,6 +12,7 @@ To find your way in the backlog, the sections are:
 - [Report Figures Of A Kept Classifier](#report-figures-of-a-kept-classifier)
 - [Results Of The Finer Inputs Of The Mask Heads](#results-of-the-finer-inputs-of-the-mask-heads)
 - [ImageNet-22k Download](#imagenet-22k-download)
+- [Converting Configurations After A Removed Setting](#converting-configurations-after-a-removed-setting)
 
 ## Adding An Entry
 Whenever a change lands on `main` with a behaviour the tutorials do not show, add a section with these four lines, then remove it once the chapter showing it is rebuilt:
@@ -38,12 +39,12 @@ Should a research report need the figures of a kept classifier again, `scripts/e
 - **Where it would fit**: one scene after the explorer scenes of `02_classification/02_judging_and_shipping.yaml`, drawn from the classification tutorial run, leaving out the trucks-seen-or-unseen panel (it needs a manifest of image groups); no new training.
 
 ## Results Of The Finer Inputs Of The Mask Heads
-In order to show what the finer inputs of the instance segmentation mask heads bring (U-Net skips of backbone blocks before their pooling, an image branch on the crop of the input image, fusion convolutions), a chapter needs the results of stage 3b of the instance segmentation benchmark.
+In order to show what the finer inputs of the instance segmentation mask heads bring (U-Net skips of backbone blocks before their pooling, an image branch on the crop of the input image, fusion convolutions), a chapter needs the results of stage 3b of the instance segmentation benchmark and the design figure of `scripts/models/instance_segmentation/draw_mask_head_designs.py`.
 
-- **Added**: `main` 0ef5cbd, 2026-11-15; skip rules `main` d536467, 2026-11-18; design A recorded `main` 45fbc73, 2026-11-17.
+- **Added**: `main` 0ef5cbd, 2026-11-15; skip rules `main` d536467, 2026-11-18; design A recorded `main` 45fbc73, 2026-11-17; design B recorded `main` e493e63, 2026-11-18.
 - **Documented in**: [tasks reference](reference/tasks_reference.md), [configuration reference](reference/configuration_reference.md) and stage 3b of the [instance segmentation plan](architecture_benchmarking/instance_segmentation_experiment_plan.md).
-- **Tutorial status**: `04_instance_segmentation/01_from_boxes_to_masks.yaml` names the settings, off in the run shown, and states the skip rules; no chapter shows a result (design A reaches a mask mAP of 0.8865 against 0.8145 for the heads of stage 3).
-- **Where it would fit**: the mask head scene of `04_instance_segmentation/01_from_boxes_to_masks.yaml` or chapter 2, with the stage 3b figure, once design B and the control are run (user decision); no new tutorial run.
+- **Tutorial status**: `04_instance_segmentation/01_from_boxes_to_masks.yaml` names the settings, off in the run shown, and states the skip rules; `04_instance_segmentation/02_scoring_and_shipping_masks.yaml` says in one sentence, without figure or number, that the image branch drew finer borders. No chapter shows the stage 3b figures, the design figure or design B (design A reaches a mask mAP of 0.8865 and design B 0.8859, a tie, against 0.8145 for the heads of stage 3).
+- **Where it would fit**: the mask head scene of `04_instance_segmentation/01_from_boxes_to_masks.yaml` or the benchmark sentence of chapter 2, with the stage 3b figures and `mask_head_designs.png`, once the control is run (user decision); no new tutorial run.
 
 ## ImageNet-22k Download
 Should you need the pretrained backbones of the classification or self-supervised example configurations, `vision_training/data/classification/imagenet_download.py` downloads ImageNet-22k (`timm/imagenet-22k-wds` at a pinned revision, 21,841 classes).
@@ -52,3 +53,11 @@ Should you need the pretrained backbones of the classification or self-supervise
 - **Documented in**: [README, ImageNet-22k](../README.md#imagenet-22k).
 - **Tutorial status**: no storyboard mentions ImageNet or the script; the tutorials train on synthetic data only.
 - **Where it would fit**: one terminal scene after the `uv sync` scene of `01_foundations/01_repository_and_first_run.yaml`; no download needed.
+
+## Converting Configurations After A Removed Setting
+Whenever a launch is refused with `'<key>' was removed: <what replaced it>. Delete it from the configuration file.`, `scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the older configuration files and run folders and adds the settings a task now requires, with a backup of every converted file.
+
+- **Added**: `main` 8b5e190, 2026-10-29.
+- **Documented in**: [configuration reference, Fixed Settings](reference/configuration_reference.md#fixed-settings).
+- **Tutorial status**: no storyboard mentions the script, the refusal message or `REMOVED_SETTINGS`.
+- **Where it would fit**: one terminal scene after the "One file defines the run" scene of `01_foundations/01_repository_and_first_run.yaml`, with `write_files = False` listing the files to convert; no training.
