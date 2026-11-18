@@ -1,0 +1,29 @@
+# Files of the runs the foundations figures read, copied into tutorials/run_snapshots by tutorials/make_run_snapshots.py
+# (tutorials/MAINTAINING.md, section Run Snapshots). The overview series has no figures of its own: it quotes the facts
+# and figures of this series (repository counts, augmentation examples), so these files serve it too. The series reads
+# one run, the README classifier, shared with the classification and deployment series (same entries in every series).
+# No checkpoint is committed: the summary panels are built from the configuration, the transfer console from a stand-in
+# of the run holding random weights (backbone_transfer.py), and the feature maps come from the committed outputs of the
+# model family (figure_reuse below), refreshed whenever the run or backbone_activations.py changes.
+runs:
+  - run: classification
+    files:
+      # Model, augmentation and schedule settings of the run, its classes, and the registry naming its last checkpoint
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      - path: Weights/full-checkpoint
+      # Loss and accuracy curves of the training loop chapter (Train, Validation) and the test accuracy of every
+      # evaluation (Test), the scalars only (the sample images of the Test log are left out)
+      - path: Tensorboard/*/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      # Every entry of the real run folder (checkpoints, records, evaluation files), drawn by the run folder and
+      # evaluation folder trees of the first chapter (listings.py), the standalone evaluations left out as the tree
+      # leaves them out
+      - path: "."
+        reduction: folder_listing
+        output: run_folder_listing.tsv
+        exclude: ["Checkpoint_Evaluation*"]
+# Outputs of the feature map family (backbone_activations.py), which runs the checkpoint of the run on a test star:
+# its reuse JSON file, the network input and the feature map grids of three blocks
+figure_reuse:
+  - family: model
