@@ -136,12 +136,13 @@ scenes:
     code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.compute_evaluation_results"
     image: "figures:instance_segmentation/evaluation/mask_box_average_precision.png"
     # The intersections over union of the metric names, AP@0.75 and AP@0.95; the benchmark sentence sums up stages 2
-    # (mask resolution) and 3b (design A, the image branch) of instance_segmentation_experiment_plan.md
+    # (mask resolution) and 3b (design A, the image branch, and design B, the backbone skips, a tie) of
+    # instance_segmentation_experiment_plan.md
     literal_numbers: ["0.75", "0.95"]
     narration:
       - "Per class at 0.75, the masks lose the thin parts of the shapes: the star falls to {{instance_segmentation.classes.star.mask_ap_75:percent}} on its masks against {{instance_segmentation.classes.star.box_ap_75:percent}} on its boxes, the L shape to {{instance_segmentation.classes.l_shape.mask_ap_75:percent}} against {{instance_segmentation.classes.l_shape.box_ap_75:percent}}."
       - "Think of thin, pointed objects: pooled from strides of {{instance_segmentation.geometry.strides_text}}, the features of a star hold only a few cells, too coarse for its points."
-      - "On the instance segmentation benchmark, doubling the mask resolution did not help, whereas the image branch of the mask heads drew far finer borders."
+      - "On the instance segmentation benchmark, doubling the mask resolution did not help, whereas the image branch and the backbone skips of the mask heads both drew far finer borders."
       - "The round shapes gain instead: at 0.95 the circle reaches {{instance_segmentation.classes.circle.mask_ap_95:percent}} on its masks, against {{instance_segmentation.classes.circle.box_ap_95:percent}} on its boxes."
 
   - kind: html
