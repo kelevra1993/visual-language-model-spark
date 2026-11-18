@@ -17,7 +17,7 @@ from vision_training.data.split_description import count_split_sequences
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.visualization import build_frame_grid, convert_image_to_array, view_input_data
+from vision_training.utilities.visualization import ViewerWindow, build_frame_grid, convert_image_to_array
 
 # Frames per row of the frame grids of the input viewer, and longest side in pixels of their windows
 FRAME_GRID_COLUMNS = 4
@@ -285,39 +285,37 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         return ["Frame order : shuffled, showing frames " +
                 " | ".join(", ".join(str(frame_index) for frame_index in order) for order in member_orders)]
 
-    def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
-                           sample_index: int) -> bool:
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
         """
-        Displays the frames of an augmented training sequence next to those of a validation sequence, each laid out on a
-        grid next to an information panel holding its classes, its number of real frames, the augmentations drawn for
-        every real frame and the order of its frames.
+        Draws one sequence (or pair) for the input viewer and the input samples of a training launch: its frames as
+        the network receives them laid out on a grid (the before member above the after member for a pair), next to an
+        information panel holding its classes, its number of real frames, the augmentations drawn for every real frame
+        and the order of its frames.
 
         Args:
-            training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
-            validation_batch (Dict[str, Any]): The validation batch, on the CPU.
-            sample_index (int): The index of the displayed sequences in their batches.
+            batch (Dict[str, Any]): The batch holding the sequence, augmented for the training split, on the CPU.
+            sample_index (int): The index of the sequence in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window.
 
         Returns:
-            bool: True if the user asked to stop viewing.
+            List[ViewerWindow]: The window of the sequence.
         """
-        frame_grids, panel_lines = [], []
-        for batch in [training_batch, validation_batch]:
-            label, sequence_mask = batch["labels"][sample_index], batch["sequence_mask"][sample_index]
-            frame_grids.append(self.build_sample_frame_grid(frames=batch["images"][sample_index],
-                                                            sequence_mask=sequence_mask, label=label))
+        label, sequence_mask = batch["labels"][sample_index], batch["sequence_mask"][sample_index]
+        frame_grid = self.build_sample_frame_grid(frames=batch["images"][sample_index], sequence_mask=sequence_mask,
+                                                  label=label)
 
-            # The real frames of every member, which stay first in their member after a shuffle
-            member_length = self.get_member_length(batch=batch)
-            member_frame_counts = [str(int(sequence_mask[block_start:block_start + member_length].sum()))
-                                   for block_start in range(0, sequence_mask.shape[0], member_length)]
-            real_frames = torch.nonzero(input=sequence_mask).flatten().tolist()
+        # The real frames of every member, which stay first in their member after a shuffle
+        member_length = self.get_member_length(batch=batch)
+        member_frame_counts = [str(int(sequence_mask[block_start:block_start + member_length].sum()))
+                               for block_start in range(0, sequence_mask.shape[0], member_length)]
+        real_frames = torch.nonzero(input=sequence_mask).flatten().tolist()
 
-            # The classes and the real frames of the sequence, then its augmentations and its frame order
-            panel_lines.append([self.get_sample_caption(label=label),
-                                f"Real frames : {' + '.join(member_frame_counts)}"] +
-                               self.describe_input_augmentations(batch=batch, sample_index=sample_index,
-                                                                 real_frames=real_frames) +
-                               self.describe_frame_order(batch=batch, sample_index=sample_index))
-        return view_input_data(images=frame_grids, bounding_boxes=None, labels=None,
-                               window_titles=["Training", "Validation"], display_input_size=FRAME_GRID_DISPLAY_SIZE,
-                               panel_lines=panel_lines)
+        # The classes and the real frames of the sequence, then its augmentations and its frame order
+        return [ViewerWindow(image=frame_grid, bounding_boxes=None, labels=None, label_names=None, title=split_name,
+                             target_lines=[self.get_sample_caption(label=label),
+                                           f"Real frames : {' + '.join(member_frame_counts)}"],
+                             augmentation_lines=self.describe_input_augmentations(
+                                 batch=batch, sample_index=sample_index, split_name=split_name,
+                                 real_frames=real_frames) + self.describe_frame_order(batch=batch,
+                                                                                     sample_index=sample_index),
+                             display_input_size=FRAME_GRID_DISPLAY_SIZE)]

@@ -26,8 +26,8 @@ from vision_training.evaluation.keypoints.object_keypoint_similarity import (bui
 from vision_training.models.keypoints.keypoint_detector import KeypointDetector, build_keypoint_channel_table
 from vision_training.models.keypoints.keypoint_grouping import group_keypoint_candidates
 from vision_training.trainers.coco_split_trainer import CocoSplitTrainer
-from vision_training.utilities.visualization import (build_keypoint_sample_grid, convert_image_to_array,
-                                                     draw_keypoint_objects, view_input_data)
+from vision_training.utilities.visualization import (ViewerWindow, build_keypoint_sample_grid,
+                                                     convert_image_to_array, draw_keypoint_objects)
 
 # File of the accuracy of every keypoint of every class, in the evaluation folder of every checkpoint
 KEYPOINT_METRICS_FILE_NAME = "keypoint_metrics.csv"
@@ -375,60 +375,55 @@ class KeypointTrainer(CocoSplitTrainer):
             predicted_scores=grouped_objects["scores"][kept_objects], keypoint_categories=self.keypoint_categories,
             class_names=self.class_names, class_colours=self.class_colours, caption=caption)
 
-    def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
-                           sample_index: int) -> bool:
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
         """
-        Displays an augmented training image next to a validation image, each with the labelled keypoints of its
-        objects and the skeleton of their class under their boxes captioned with their class names, and an information
-        panel holding its number of objects per class, its keypoints by visibility, the keypoint colours, its
-        augmentations and the objects they removed.
+        Draws one image for the input viewer and the input samples of a training launch: the image as the network
+        receives it with the labelled keypoints of its objects and the skeleton of their class under their boxes
+        captioned with their class names, next to an information panel holding its number of objects per class, its
+        keypoints by visibility, the keypoint colours, its augmentations and the objects they removed.
 
         Args:
-            training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
-            validation_batch (Dict[str, Any]): The validation batch, on the CPU.
-            sample_index (int): The index of the displayed images in their batches.
+            batch (Dict[str, Any]): The batch holding the image, augmented for the training split, on the CPU.
+            sample_index (int): The index of the image in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window.
 
         Returns:
-            bool: True if the user asked to stop viewing.
+            List[ViewerWindow]: The window of the image.
         """
         # Class names of the test manifest, the label dictionary keys being the raw category identifiers of the COCO
         # labels, so that each box is captioned with its class name instead of its index
         label_names = self.class_names
-        images, panel_lines = [], []
-        for batch in [training_batch, validation_batch]:
-            sample_labels = batch["labels"][sample_index]
-            sample_keypoints = batch["keypoints"][sample_index]
+        sample_labels = batch["labels"][sample_index]
+        sample_keypoints = batch["keypoints"][sample_index]
 
-            # Image with the labelled keypoints of its objects, the viewer drawing their boxes over it
-            drawing = draw_keypoint_objects(image=convert_image_to_array(image=batch["images"][sample_index]),
-                                            keypoints=sample_keypoints[..., :2].numpy(),
-                                            visibilities=sample_keypoints[..., 2].long().numpy(),
-                                            labels=sample_labels.numpy(), keypoint_categories=self.keypoint_categories,
-                                            class_colours=self.class_colours)
-            images.append(torch.from_numpy(drawing).permute(2, 0, 1).float())
+        # Image with the labelled keypoints of its objects, the window drawing their boxes over it
+        drawing = draw_keypoint_objects(image=convert_image_to_array(image=batch["images"][sample_index]),
+                                        keypoints=sample_keypoints[..., :2].numpy(),
+                                        visibilities=sample_keypoints[..., 2].long().numpy(),
+                                        labels=sample_labels.numpy(), keypoint_categories=self.keypoint_categories,
+                                        class_colours=self.class_colours)
 
-            # Keypoints of the classes of the objects by visibility, the padding positions left out
-            class_visibilities = torch.cat([sample_keypoints[object_index, :len(
-                self.keypoint_categories[int(class_index)]["keypoints"]), 2]
-                for object_index, class_index in enumerate(sample_labels.tolist())] + [torch.zeros(size=(0,))])
+        # Keypoints of the classes of the objects by visibility, the padding positions left out
+        class_visibilities = torch.cat([sample_keypoints[object_index, :len(
+            self.keypoint_categories[int(class_index)]["keypoints"]), 2]
+            for object_index, class_index in enumerate(sample_labels.tolist())] + [torch.zeros(size=(0,))])
 
-            # Objects of the image counted per class, in the order of the class indices, then its keypoints, the
-            # keypoint colours and its augmentations
-            label_list = sample_labels.tolist()
-            class_counts = [f"{class_name} {label_list.count(class_index)}"
-                            for class_index, class_name in label_names.items() if class_index in label_list]
-            sample_lines = [f"Objects : {len(label_list)} ({', '.join(class_counts)})" if label_list
-                            else "Objects : none",
-                            f"Keypoints : {int((class_visibilities == 2).sum())} visible, "
-                            f"{int((class_visibilities == 1).sum())} occluded, "
-                            f"{int((class_visibilities == 0).sum())} unlabelled",
-                            "Colours : left blue, right orange, others yellow, rings occluded, skeleton in the class "
-                            "colour"]
-            panel_lines.append(sample_lines + self.describe_input_augmentations(batch=batch, sample_index=sample_index,
-                                                                               label_names=label_names))
-        return view_input_data(images=images, bounding_boxes=[training_batch["bounding_boxes"][sample_index],
-                                                              validation_batch["bounding_boxes"][sample_index]],
-                               labels=[training_batch["labels"][sample_index],
-                                       validation_batch["labels"][sample_index]],
-                               window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
-                               label_names=label_names, panel_lines=panel_lines)
+        # Objects of the image counted per class, in the order of the class indices, then its keypoints and the
+        # keypoint colours
+        label_list = sample_labels.tolist()
+        class_counts = [f"{class_name} {label_list.count(class_index)}"
+                        for class_index, class_name in label_names.items() if class_index in label_list]
+        sample_lines = [f"Objects : {len(label_list)} ({', '.join(class_counts)})" if label_list else "Objects : none",
+                        f"Keypoints : {int((class_visibilities == 2).sum())} visible, "
+                        f"{int((class_visibilities == 1).sum())} occluded, "
+                        f"{int((class_visibilities == 0).sum())} unlabelled",
+                        "Colours : left blue, right orange, others yellow, rings occluded, skeleton in the class "
+                        "colour"]
+
+        # Then the augmentations of the image and the objects they removed
+        augmentation_lines = self.describe_input_augmentations(batch=batch, sample_index=sample_index,
+                                                               split_name=split_name, label_names=label_names)
+        return [ViewerWindow(image=torch.from_numpy(drawing).permute(2, 0, 1).float(),
+                             bounding_boxes=batch["bounding_boxes"][sample_index], labels=sample_labels,
+                             label_names=label_names, title=split_name, target_lines=sample_lines,
+                             augmentation_lines=augmentation_lines, display_input_size=self.input_image_size)]

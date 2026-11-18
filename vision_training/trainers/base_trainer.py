@@ -3,14 +3,16 @@ General trainer shared by every task: the run folder with the copy of the config
 every split, the training loop with its validation passes, the starting weights, the optimizer and learning rate
 schedule, the moving average of the weights, the data augmentation with the strengths of the task, the checkpoints and
 the resume, the evaluation of the saved checkpoints on the test split (trained and averaged weights), the MLflow
-tracking of the run (vision_training/tracking) and the input batch viewer. The task trainers subclass it and implement
-its abstract hooks, and vision_training/main.py builds them through the task registry.
+tracking of the run (vision_training/tracking), the input batch viewer and the input samples written at the start of
+every training launch (trainers/input_samples.py). The task trainers subclass it and implement its abstract hooks, and
+vision_training/main.py builds them through the task registry.
 """
 
 import json
 import math
 import sys
 import tempfile
+import time
 import traceback
 import cv2
 import numpy as np
@@ -58,6 +60,10 @@ from vision_training.models.model_transfer import (LOADED_BACKBONE_BLOCKS_METADA
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_last_checkpoint_iteration,
                                                     load_checkpoint, read_checkpoint_value, save_checkpoint)
+from vision_training.trainers.input_samples import (INPUT_SAMPLES_FOLDER_NAME, NUMBER_INPUT_SAMPLES,
+                                                    list_input_sample_artifacts, prepare_input_samples_folder,
+                                                    read_input_samples, write_input_sample_image,
+                                                    write_input_samples_record)
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
 from vision_training.trainers.speed_benchmark import (BYTES_PER_GIGABYTE, FORMAT_FAILED_STATUS, INFERENCE_FORMATS,
@@ -76,7 +82,8 @@ from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED
                                                          DisabledTracker, create_experiment_tracker,
                                                          resolve_tracking_uri)
 from vision_training.utilities.os_utilities import format_path_link, print_color, read_json, release_freed_heap_memory
-from vision_training.utilities.tensor_utilities import get_device
+from vision_training.utilities.tensor_utilities import fork_random_state, get_device
+from vision_training.utilities.visualization import ViewerWindow, view_input_data
 
 # Evaluation files of a checkpoint sent to the MLflow run, small whatever the size of the test split: the confusion
 # matrix image and the ROC and precision-recall curve images (per-class report only, with the zoom on the thresholds
@@ -115,10 +122,10 @@ class BaseTrainer(ABC):
 
     It owns everything that does not depend on the task: the run folder named after the settings, the training loop
     with its validation passes and checkpoint schedule, the metric tracking (console, TensorBoard and MLflow), the
-    checkpoints and the resume, the evaluation loop of the saved checkpoints on the test split and its report, and
-    the viewer of the input batches. A task subclasses it and implements the hooks that depend on its data and its
-    model (marked abstract), and may override the optional ones (augmentation, batch metrics, evaluation context,
-    optimizer...).
+    checkpoints and the resume, the evaluation loop of the saved checkpoints on the test split and its report, the
+    viewer of the input batches and the input samples written at the start of every training launch. A task
+    subclasses it and implements the hooks that depend on its data and its model (marked abstract), and may override
+    the optional ones (augmentation, batch metrics, evaluation context, optimizer...).
     """
 
     # Name of the task trained by the subclass, stored in its checkpoints
@@ -143,6 +150,10 @@ class BaseTrainer(ABC):
     # Whether the data augmentation reads the sequence settings of the configuration ('independent_frames' and
     # 'shuffle_frames'), held by the sequence tasks only, True for the sequence tasks
     SEQUENCE_AUGMENTATION = False
+
+    # Splits whose input samples (save_input_samples) are augmented as the network receives them: the training split,
+    # the self-supervised task adding the validation split, whose passes draw the two views of every image as well
+    AUGMENTED_INPUT_SPLITS = ["Training"]
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
@@ -277,6 +288,10 @@ class BaseTrainer(ABC):
         self.data_record_changes = None
         if not self.exits_after_diagnosis:
             self.data_record_changes = self.save_data_record(data_record_path=self.data_record_path)
+
+        # MLflow artifact folder of the input samples written by this launch (save_input_samples), None until they are
+        # written and when the launch keeps those of its previous start
+        self.input_samples_artifact_folder = None
 
         # Fixed test samples drawn at every evaluation, chosen once from the classes of the test samples so that the
         # same samples are followed over the training and its resumptions
@@ -537,11 +552,33 @@ class BaseTrainer(ABC):
         """
 
     @abstractmethod
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
+        """
+        Draws one sample as the network receives it, for the windows of the input viewer ('view_input_images',
+        show_input_samples) and the images of the input samples written at the start of every training launch
+        (save_input_samples): the image with its target drawn on it (boxes, mask, keypoints, frame grid...), next to
+        an information panel holding its target and its augmentations (describe_input_augmentations). One window for
+        most tasks, one per view for the self-supervised task.
+
+        Args:
+            batch (Dict[str, Any]): The batch holding the sample, augmented for an augmented split, on the CPU.
+            sample_index (int): The index of the sample in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window.
+
+        Returns:
+            List[ViewerWindow]: The windows of the sample.
+        """
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Optional hooks: the default behaviour suits most tasks
+    # ------------------------------------------------------------------------------------------------------------------
+
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
         Displays one training sample (augmented) next to one validation sample for the 'view_input_images' diagnosis
-        mode, each next to an information panel with its targets and its augmentations (describe_input_augmentations).
+        mode, each drawn by build_input_windows next to an information panel with its targets and its augmentations.
+        The self-supervised trainer shows the two views of the training image only.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -551,10 +588,10 @@ class BaseTrainer(ABC):
         Returns:
             bool: True if the user asked to stop viewing.
         """
-
-    # ------------------------------------------------------------------------------------------------------------------
-    # Optional hooks: the default behaviour suits most tasks
-    # ------------------------------------------------------------------------------------------------------------------
+        windows = [window for split_name, batch in [("Training", training_batch), ("Validation", validation_batch)]
+                   for window in self.build_input_windows(batch=batch, sample_index=sample_index,
+                                                          split_name=split_name)]
+        return view_input_data(windows=windows)
 
     def get_run_name(self) -> str:
         """
@@ -761,6 +798,21 @@ class BaseTrainer(ABC):
         augmented_images, _, _, _, _, _, augmentation_reports = self.data_augmenter.augment_batch(
             images=batch["images"])
         return {**batch, "images": augmented_images, "augmentation_reports": augmentation_reports}
+
+    def augment_input_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Augments a batch shown by the input viewer ('view_input_images') or drawn as the input samples of a training
+        launch (save_input_samples) as the network receives it: through augment_batch, as the training step does. The
+        self-supervised trainer, whose augment_batch leaves the batch unchanged, draws the two views of its images
+        instead, as its forward pass does.
+
+        Args:
+            batch (Dict[str, Any]): The batch of an augmented split (AUGMENTED_INPUT_SPLITS).
+
+        Returns:
+            Dict[str, Any]: The augmented batch, with the augmentation reports of its samples.
+        """
+        return self.augment_batch(batch=batch)
 
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
@@ -1370,8 +1422,9 @@ class BaseTrainer(ABC):
                 return
 
             # Augment the training batch exactly as during training, so the viewer shows what the network receives
-            training_batch = self.augment_batch(batch={**training_batch,
-                                                       "images": training_batch["images"].to(dtype=torch.float32)})
+            training_batch = self.augment_input_batch(batch={**training_batch,
+                                                             "images": training_batch["images"].to(
+                                                                 dtype=torch.float32)})
 
             # Display the training and validation samples at the same batch index next to each other
             for sample_index in range(number_samples):
@@ -1379,18 +1432,19 @@ class BaseTrainer(ABC):
                                            sample_index=sample_index):
                     return
 
-    def describe_input_augmentations(self, batch: Dict[str, Any], sample_index: int,
+    def describe_input_augmentations(self, batch: Dict[str, Any], sample_index: int, split_name: str,
                                      label_names: Optional[Dict[int, str]] = None,
                                      real_frames: Optional[List[int]] = None) -> List[str]:
         """
-        Writes the augmentation section of the information panel of a sample in the input viewer ('view_input_images'),
-        placed by every show_input_samples under the target of the sample: the augmentations drawn for a training
-        sample with their values, read from the 'augmentation_reports' stored in the batch by augment_batch, or a note
-        for a validation sample, which is never augmented.
+        Writes the augmentation section of the information panel of a sample in the input viewer ('view_input_images')
+        and the input samples of a training launch, placed by every build_input_windows under the target of the
+        sample: the augmentations drawn for a training sample with their values, read from the 'augmentation_reports'
+        stored in the batch by augment_batch, or a note for a validation or test sample, which is never augmented.
 
         Args:
-            batch (Dict[str, Any]): The augmented training batch, or the validation batch.
+            batch (Dict[str, Any]): The augmented training batch, or the validation or test batch.
             sample_index (int): The index of the displayed sample in its batch.
+            split_name (str): "Training", "Validation" or "Test", named in the note of a sample without augmentation.
             label_names (Optional[Dict[int, str]]): The class name of every label index, to name the objects removed
                 by the geometric augmentations. Defaults to None, in which case the label indices are written.
             real_frames (Optional[List[int]]): The indices of the real frames of a sequence, the only ones written in
@@ -1399,11 +1453,123 @@ class BaseTrainer(ABC):
         Returns:
             List[str]: The lines of the section, starting with an empty line that separates it from the target.
         """
-        # Validation batches never go through augment_batch, so they carry no augmentation report
+        # Validation and test batches never go through augment_batch, so they carry no augmentation report
         if "augmentation_reports" not in batch:
-            return ["", "Augmentations : none (validation sample)"]
+            return ["", f"Augmentations : none ({split_name.lower()} sample)"]
         return ["", "Augmentations"] + self.data_augmenter.describe_report(
             report=batch["augmentation_reports"][sample_index], label_names=label_names, real_frames=real_frames)
+
+    def save_input_samples(self) -> None:
+        """
+        Writes the input samples of a training launch before its first iteration (trainers/input_samples.py): the
+        first NUMBER_INPUT_SAMPLES samples by identifier of the training, validation and test splits, the same at every
+        launch, drawn as the input viewer draws them (build_input_windows) into 'Input_Samples/Training/sample_00.png'
+        and on, with their record 'samples.json'. The training samples are augmented on the device as by the training
+        step (draw_input_split), on copies of the random states, so that the training draws what it would have drawn
+        without them. Written for a new run, for a run started before the folder existed, and for a resumed run whose
+        configuration or data changed, its previous folder being kept as 'Input_Samples_until_iteration_<n>'; a resumed
+        run with the same configuration and data keeps its folder. A training without validation loader has no
+        Validation folder, which the record and the console say. A split that cannot be drawn is reported with its
+        traceback and recorded, the training going on.
+        """
+        # The decisions of the configuration and data record comparisons of the launch (setup_training_paths,
+        # save_data_record), a resumed run writing its samples again only when one of them changed
+        resumed_iteration = self.start_iteration - 1 if self.start_iteration > 1 else None
+        launch_changed = ((self.configuration_changes is not None and bool(self.configuration_changes[
+            "changed_settings"])) or (self.data_record_changes is not None and bool(self.data_record_changes[
+                "changed_splits"])))
+        input_samples_folder = self.experiment_folder / INPUT_SAMPLES_FOLDER_NAME
+        writes_samples, archived_folder = prepare_input_samples_folder(run_folder=self.experiment_folder,
+                                                                       resumed_iteration=resumed_iteration,
+                                                                       launch_changed=launch_changed)
+        if not writes_samples:
+            print_color(color="blue", output=f"- Input Samples           : "
+                                             f"{format_path_link(path=input_samples_folder)} (kept, configuration "
+                                             f"and data unchanged since iteration {resumed_iteration})")
+            return
+
+        # Every split drawn on copies of the random states, a split without loader or failing being recorded as such
+        start_time = time.perf_counter()
+        split_records, sample_records = {}, []
+        with fork_random_state(device=self.device):
+            for split_name, dataloader in [("Training", self.train_dataloader),
+                                           ("Validation", self.validation_dataloader), ("Test", self.test_dataloader)]:
+                if dataloader is None:
+                    split_records[split_name] = {"written_samples": 0, "augmented": False,
+                                                 "note": "No validation loader: 'ExperimentConfiguration."
+                                                         "validation_iteration_ratio' is 0."}
+                    print_color(color="blue", output=f"- Input Samples           : No {split_name} Images, "
+                                                     f"'validation_iteration_ratio' Is 0 (No Validation Loader)")
+                    continue
+                try:
+                    split_records[split_name], split_sample_records = self.draw_input_split(
+                        split_name=split_name, dataloader=dataloader, split_folder=input_samples_folder / split_name)
+                except Exception as error:
+                    print_color(color="red", output=f"- Input Samples Of The {split_name} Split Not Drawn : "
+                                                    f"{type(error).__name__}: {error}")
+                    print("".join(traceback.format_exception(error)), end="")
+                    split_records[split_name] = {"written_samples": 0,
+                                                 "augmented": split_name in self.AUGMENTED_INPUT_SPLITS,
+                                                 "error": f"{type(error).__name__}: {error}"}
+                    split_sample_records = []
+                sample_records += split_sample_records
+
+        # Record of the samples, then one line with the folder, the images written and the time taken
+        input_samples_folder.mkdir(parents=True, exist_ok=True)
+        write_input_samples_record(input_samples_folder=input_samples_folder, first_iteration=self.start_iteration,
+                                   split_records=split_records, sample_records=sample_records)
+        self.input_samples_artifact_folder = INPUT_SAMPLES_FOLDER_NAME if resumed_iteration is None else \
+            f"{INPUT_SAMPLES_FOLDER_NAME}_resume_{resumed_iteration}"
+        number_images = sum(split_record["written_samples"] for split_record in split_records.values())
+        archive_description = "" if archived_folder is None else \
+            f", the previous ones kept in {format_path_link(path=archived_folder)}"
+        print_color(color="blue", output=f"- Input Samples           : {format_path_link(path=input_samples_folder)} "
+                                         f"({number_images} images written in {time.perf_counter() - start_time:.2f} "
+                                         f"seconds{archive_description})")
+
+    def draw_input_split(self, split_name: str, dataloader: DataLoader,
+                         split_folder: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Draws the input samples of one split for save_input_samples: its first samples by identifier, each read in the
+        main process as a batch of its own (read_input_samples), augmented for an augmented split
+        (AUGMENTED_INPUT_SPLITS) on the device exactly as by the training step (prepare_batch then augment_input_batch)
+        and brought back to the CPU, then drawn by build_input_windows into its 'sample_<position>.png', a sample that
+        could not be read being recorded with its error.
+
+        Args:
+            split_name (str): "Training", "Validation" or "Test".
+            dataloader (DataLoader): The loader of the split, giving its dataset and collate function.
+            split_folder (Path): The folder of the images of the split, created with the first image.
+
+        Returns:
+            Tuple[Dict[str, Any], List[Dict[str, Any]]]: The summary of the split (images written, whether they are
+                augmented) and the record of every listed sample.
+        """
+        augmented = split_name in self.AUGMENTED_INPUT_SPLITS
+        sample_records = []
+        for position, input_sample in enumerate(read_input_samples(dataloader=dataloader,
+                                                                   number_samples=NUMBER_INPUT_SAMPLES)):
+            sample_record = {"split": split_name, "file": None, "sample_identifier": input_sample.sample_identifier,
+                             "source": input_sample.source}
+            sample_records.append(sample_record)
+            if input_sample.error is not None:
+                sample_record["error"] = input_sample.error
+                print_color(color="yellow", output=f"- Input Sample Not Read   : {split_name} sample {position:02d} "
+                                                   f"{input_sample.source} : {input_sample.error}")
+                continue
+
+            # Augmented as by the training step, on the device of the model, then drawn on the CPU
+            batch = input_sample.batch
+            if augmented:
+                batch = move_batch(batch=self.augment_input_batch(batch=self.prepare_batch(batch=batch)),
+                                   device=torch.device("cpu"), pin_memory=False)
+            image_path = split_folder / f"sample_{position:02d}.png"
+            windows = self.build_input_windows(batch=batch, sample_index=0, split_name=split_name)
+            sample_record.update(write_input_sample_image(windows=windows, image_path=image_path))
+            sample_record["file"] = image_path.relative_to(split_folder.parent).as_posix()
+            sample_record["image_size"] = list(batch["images"][0].shape[-2:])
+        number_written_samples = sum(sample_record["file"] is not None for sample_record in sample_records)
+        return {"written_samples": number_written_samples, "augmented": augmented}, sample_records
 
     def benchmark_speed(self) -> None:
         """
@@ -2100,6 +2266,9 @@ class BaseTrainer(ABC):
                                f"Total Of The Run. Raise 'number_iterations' To Train It Further.", add_separators=True)
             return FINISHED_STATUS
 
+        # First samples of every split drawn as the network receives them, before the loader workers start
+        self.save_input_samples()
+
         # Initialize tensorboard writers right before training starts
         self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
 
@@ -2285,7 +2454,8 @@ class BaseTrainer(ABC):
         Opens the MLflow run of the training when 'tracking.activated' is True, at the start of the training loop: a
         resumed training continues the MLflow run recorded in its run folder ('mlflow_run.json'). The configuration of
         the run is sent as an artifact, under its own name at every resumption since its settings may have changed, and
-        so are the files of the analysis of the training data (analyse_training_data), under 'analysis'.
+        so are the files of the analysis of the training data (analyse_training_data), under 'analysis'. The record of
+        the data and the input samples (save_input_samples) are sent when this start wrote them.
         """
         # MLflow tracker of the run, a DisabledTracker when the tracking is off or unavailable
         self.experiment_tracker = create_experiment_tracker(
@@ -2316,6 +2486,14 @@ class BaseTrainer(ABC):
                 f"data_resume_{self.data_record_changes['resumed_iteration']}.json"
             self.experiment_tracker.log_artifact(file_path=self.data_record_path, artifact_folder="data",
                                                  artifact_name=data_record_name)
+
+        # The input samples are sent when this start wrote them (save_input_samples), their split folders kept under
+        # 'Input_Samples', or 'Input_Samples_resume_<n>' at a resumption
+        if self.input_samples_artifact_folder is not None:
+            for file_path, artifact_folder in list_input_sample_artifacts(
+                    input_samples_folder=self.experiment_folder / INPUT_SAMPLES_FOLDER_NAME,
+                    artifact_folder=self.input_samples_artifact_folder):
+                self.experiment_tracker.log_artifact(file_path=file_path, artifact_folder=artifact_folder)
 
     def log_interval_metrics(self, iteration: int, training_trackers: Dict[str, Any],
                              validation_trackers: Optional[Dict[str, Any]]) -> None:

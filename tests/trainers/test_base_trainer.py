@@ -27,6 +27,7 @@ from tests.fixtures.evaluation_checks import read_results_blocks
 from vision_training.core.contracts import EvaluationResults
 from vision_training.data.label_mapping import RUN_LABEL_DICTIONARY_FILE_NAME
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION, EXPONENTIAL_MOVING_AVERAGE_STATE_KEY
+from vision_training.trainers.input_samples import NUMBER_INPUT_SAMPLES
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY
 from vision_training.utilities.os_utilities import format_path_link
 
@@ -541,8 +542,9 @@ def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path,
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
     """
-    # 20 batches of 2 samples per pass, the first 3 readable
-    training_dataset = VanishingDataset(sample_identifiers=list(range(40)), seed=0, readable_samples=6)
+    # 20 batches of 2 samples per pass, the first 3 readable once the input samples of the launch were read
+    training_dataset = VanishingDataset(sample_identifiers=list(range(40)), seed=0,
+                                        readable_samples=NUMBER_INPUT_SAMPLES + 6)
     trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=20, view_input_images=False,
                                   number_sample_images=0, training_dataset=training_dataset)
     trainer.run_training_loop()

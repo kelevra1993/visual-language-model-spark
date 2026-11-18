@@ -6,8 +6,8 @@ boxes, labels, instance masks (or one instance index map per image, 'Data.instan
 masks and boxes of the objects at the original image resolution for the evaluation of the instance segmentation at that
 resolution, and the regions of the objects without labelled keypoint that the keypoint heatmap loss leaves out. The
 parsed manifest is packed into one NumPy buffer of per-image records (data/serialized_records.py), which the loader
-workers read without copying the memory of the main process. Used by get_detection_dataloader and
-get_keypoint_dataloaders of data/loaders.py.
+workers read without copying the memory of the main process, every record found by the COCO identifier of its image.
+Used by get_detection_dataloader and get_keypoint_dataloaders of data/loaders.py.
 """
 
 import random
@@ -69,6 +69,21 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
         if key in batch[0]:
             batched_samples[key] = torch.stack(tensors=[item[key] for item in batch])
     return batched_samples
+
+
+def get_image_record_identifier(image_record: Tuple[Dict[str, Any], List[Dict[str, Any]]]) -> int:
+    """
+    Reads the COCO identifier of the image of a record of CocoDetectionDataset (its manifest entry and its
+    annotations), by which SerializedRecords sorts the records, so that the dataset finds an image by the identifier
+    given in its batches and lists the images of the smallest identifiers, the input samples of every training launch.
+
+    Args:
+        image_record (Tuple[Dict[str, Any], List[Dict[str, Any]]]): The image entry of labels.json and its annotations.
+
+    Returns:
+        int: The 'id' of the image entry.
+    """
+    return image_record[0]['id']
 
 
 def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str, label_dictionary: Dict[str, Any],
@@ -256,10 +271,12 @@ class CocoDetectionDataset(Dataset):
 
         # Every image entry and its annotations packed as one pickled record of a NumPy byte buffer, in the shuffled
         # order: the loader workers never touch, hence never copy, Python objects of the main process (0.05 GB copied
-        # instead of 0.64 GB by a worker reading the 50,000 validation images of the hard instance segmentation dataset)
+        # instead of 0.64 GB by a worker reading the 50,000 validation images of the hard instance segmentation
+        # dataset), every record being found by the COCO identifier of its image
         self.image_records = SerializedRecords(records=((image_information,
                                                           image_to_annotations.pop(image_information['id'], []))
-                                                         for image_information in images))
+                                                         for image_information in images),
+                                               identifier_key=get_image_record_identifier)
         del images, image_to_annotations
         release_freed_heap_memory()
 
@@ -286,6 +303,33 @@ class CocoDetectionDataset(Dataset):
                 'height', ...) and its annotations, an empty list for an image without any.
         """
         return self.image_records[image_index]
+
+    def describe_sample(self, sample_identifier: int) -> Dict[str, str]:
+        """
+        Names an image in the record of the input samples written at the start of every training launch
+        (trainers/input_samples.py), from its identifier in the batches.
+
+        Args:
+            sample_identifier (int): The COCO identifier of the image, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            Dict[str, str]: The 'image' entry, the file name of the image relative to the 'data' folder.
+        """
+        image_information, _ = self.image_records.find_record(identifier=sample_identifier)
+        return {"image": image_information['file_name']}
+
+    def list_first_samples(self, number_samples: int) -> List[Tuple[int, int]]:
+        """
+        Lists the images of the smallest COCO identifiers, the input samples of the split written at the start of every
+        training launch (trainers/input_samples.py), the same at every launch whatever the shuffled order.
+
+        Args:
+            number_samples (int): The number of images listed, all of them when the split holds fewer.
+
+        Returns:
+            List[Tuple[int, int]]: The index in the dataset and the COCO identifier of every listed image.
+        """
+        return self.image_records.list_first_records(number_records=number_samples)
 
     def __getitem__(self, _index: int) -> dict:
         """

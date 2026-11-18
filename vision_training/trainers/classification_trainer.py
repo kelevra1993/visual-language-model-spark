@@ -47,7 +47,7 @@ from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
 from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR,
-                                                     add_caption_bar, convert_image_to_array, view_input_data)
+                                                     ViewerWindow, add_caption_bar, convert_image_to_array)
 
 # Probability from which a class is predicted in multi-label mode
 MULTI_LABEL_THRESHOLD = 0.5
@@ -787,25 +787,23 @@ class ClassificationTrainer(BaseTrainer):
         class_indices = torch.nonzero(input=label >= 0.5).flatten().tolist()
         return ", ".join(self.class_names[class_index] for class_index in class_indices) or "none"
 
-    def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
-                           sample_index: int) -> bool:
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
         """
-        Displays an augmented training image next to a validation image, each with an information panel holding its
-        class and its augmentations.
+        Draws one image for the input viewer and the input samples of a training launch: the image as the network
+        receives it, next to an information panel holding its class and its augmentations.
 
         Args:
-            training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
-            validation_batch (Dict[str, Any]): The validation batch, on the CPU.
-            sample_index (int): The index of the displayed images in their batches.
+            batch (Dict[str, Any]): The batch holding the image, augmented for the training split, on the CPU.
+            sample_index (int): The index of the image in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window.
 
         Returns:
-            bool: True if the user asked to stop viewing.
+            List[ViewerWindow]: The window of the image.
         """
-        # The class of every image, followed by the augmentations drawn for it
-        panel_lines = [[f"Class : {self.get_label_caption(label=batch['labels'][sample_index])}"] +
-                       self.describe_input_augmentations(batch=batch, sample_index=sample_index)
-                       for batch in [training_batch, validation_batch]]
-        return view_input_data(
-            images=[training_batch["images"][sample_index], validation_batch["images"][sample_index]],
-            bounding_boxes=None, labels=None, window_titles=["Training", "Validation"],
-            display_input_size=self.input_image_size, panel_lines=panel_lines)
+        # The class of the image, followed by the augmentations drawn for it
+        class_line = f"Class : {self.get_label_caption(label=batch['labels'][sample_index])}"
+        augmentation_lines = self.describe_input_augmentations(batch=batch, sample_index=sample_index,
+                                                               split_name=split_name)
+        return [ViewerWindow(image=batch["images"][sample_index], bounding_boxes=None, labels=None, label_names=None,
+                             title=split_name, target_lines=[class_line], augmentation_lines=augmentation_lines,
+                             display_input_size=self.input_image_size)]

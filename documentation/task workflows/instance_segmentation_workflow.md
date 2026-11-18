@@ -188,8 +188,8 @@ main()
 │           ├── get_loss_weights() / get_tracked_metrics()           5 losses + Total Loss
 │           ├── print_experiment_information() / print_summary()     backbone, neck, RPN, detection, mask, receptive field,
 │           │                                                        model size panels
-│           ├── view_input_batches() -> show_input_samples() -> get_input_sample_image() -> overlay_instance_masks()
-│           │                                                        (only with view_input_images)
+│           ├── view_input_batches() -> show_input_samples() -> build_input_windows() -> get_input_sample_image() ->
+│           │   overlay_instance_masks()                             (only with view_input_images)
 │           ├── analyse_training_data()                              anchor recall on the boxes of the segmentations
 │           │   └── gather_object_boxes() -> select_image_objects(boxes_from_segmentation=True) ->
 │           │       compute_segmentation_bounding_box()              the box of every object read from its polygons
@@ -656,7 +656,7 @@ The panels of the detection (backbone, region proposal, detection, receptive fie
 ```
 
 ### Step 2.17 — `view_input_batches()` → `get_input_sample_image()` → `overlay_instance_masks()`
-With `diagnosis_modes.view_input_images` on, the input viewer of the detection (`show_input_samples()`, see `object_detection_workflow.md`, Step 2.20) draws the boxes over the masks of the objects, every mask filled with the colour of its class by `overlay_instance_masks()` (`view_input_data()` of `vision_training/utilities/visualization.py` showing the windows). Its batches come from the loaders without `prepare_batch()`: `augment_batch()` expands the maps of the training batch, and `get_input_sample_image()` the map of the validation image. The configuration turns it off.
+With `diagnosis_modes.view_input_images` on, the input viewer of the detection (`build_input_windows()` of `DetectionTrainer`, see `object_detection_workflow.md`, Step 2.20) draws the boxes over the masks of the objects, every mask filled with the colour of its class by `overlay_instance_masks()` (`view_input_data()` of `vision_training/utilities/visualization.py` showing the windows). The input samples written at the start of every training launch (`Input_Samples/`) are drawn the same way. Its batches come from the loaders without `prepare_batch()`: `augment_batch()` expands the maps of the training batch, and `get_input_sample_image()` the map of the validation image. The configuration turns it off.
 
 ### Step 2.18 — `analyse_training_data()` → anchor recall
 The anchor recall of the detection (see `object_detection_workflow.md`, Step 2.21), on the boxes of the segmentations, the boxes the detector learns: `gather_object_boxes()` reads them with `select_image_objects(boxes_from_segmentation=True)`, since the dataset loads the instance masks. It reads the manifest only, so the 358 objects are measured without decoding any mask.

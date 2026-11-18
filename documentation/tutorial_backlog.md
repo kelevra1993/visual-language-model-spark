@@ -8,6 +8,7 @@ Before rebuilding or extending the tutorials, this list tells which implemented 
 To find your way in the backlog, the sections are:
 
 - [Adding An Entry](#adding-an-entry)
+- [Input Samples Of Every Launch](#input-samples-of-every-launch)
 - [Speed Benchmark Diagnosis Mode](#speed-benchmark-diagnosis-mode)
 - [Report Figures Of A Kept Classifier](#report-figures-of-a-kept-classifier)
 - [Results Of The Finer Inputs Of The Mask Heads](#results-of-the-finer-inputs-of-the-mask-heads)
@@ -21,6 +22,14 @@ Whenever a change lands on `main` with a behaviour the tutorials do not show, ad
 - **Documented in**: the README section and the reference document describing it.
 - **Tutorial status**: what the storyboards and the built videos say about it today.
 - **Where it would fit**: the series and chapter that could show it, and what the scene needs (a real run, a figure, an idle GPU).
+
+## Input Samples Of Every Launch
+Suppose a run has to be checked against what it was fed, on a machine without display: every launch that trains writes `Input_Samples/` in the run folder before its first iteration, the first 10 training, validation and test samples drawn as the `view_input_images` windows (the training ones augmented as by the training step) with `samples.json`, kept as `Input_Samples_until_iteration_<n>` by a resume whose configuration or data changed (`vision_training/trainers/input_samples.py`, `BaseTrainer.save_input_samples`).
+
+- **Added**: `main` <merge hash>, 2026-11-19.
+- **Documented in**: [README, Run Folder](../README.md#run-folder) and [training reference, Run Folder](reference/training_reference.md#run-folder).
+- **Tutorial status**: not mentioned in any storyboard; the run folder scene of `01_foundations/01_repository_and_first_run.yaml` lists the snapshot of a run trained before the folder existed, and `01_foundations/03_data_pipeline.yaml` shows the samples only through the `view_input_images` viewer.
+- **Where it would fit**: one sentence and one sample image after the viewer scene of `01_foundations/03_data_pipeline.yaml`, taken from a 1-iteration tiny run, then the folder in the run folder scene once the classification tutorial run trains again (a complete run launched again trains nothing and writes no samples).
 
 ## Speed Benchmark Diagnosis Mode
 To be able to compare the training and inference speeds of a configuration before a long run, `ExperimentConfiguration.diagnosis_modes.benchmark_speed: True` times the inference of every format (PyTorch evaluation, PyTorch inference model, TorchScript, ONNX Runtime CUDA, ONNX Runtime TensorRT FP32 and FP16) and the training step on one training batch tiled to any batch size, searches the largest batch sizes that fit up to 2048 while keeping a margin of memory free (40 GB on the integrated GPU of the DGX Spark, 2 GB on a discrete GPU), prints the report and exits without training (`vision_training/trainers/speed_benchmark.py`, `BaseTrainer.benchmark_speed`).

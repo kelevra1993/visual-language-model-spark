@@ -187,6 +187,19 @@ class SequencePairDataset(Dataset):
         """
         return self.pairs.find_record(identifier=sample_identifier)["name"].replace("/", "_")
 
+    def list_first_samples(self, number_samples: int) -> List[Tuple[int, int]]:
+        """
+        Lists the pairs of the smallest identifiers, the input samples of the split written at the start of
+        every training launch (trainers/input_samples.py), the same at every launch whatever the shuffled order.
+
+        Args:
+            number_samples (int): The number of pairs listed, all of them when the split holds fewer.
+
+        Returns:
+            List[Tuple[int, int]]: The index in the dataset and the identifier of every listed pair.
+        """
+        return self.pairs.list_first_records(number_records=number_samples)
+
     def get_sample_class_indices(self) -> Dict[int, List[int]]:
         """
         Lists the class of every pair, from which the sequence comparison trainer spreads the fixed test pairs drawn

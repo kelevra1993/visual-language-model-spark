@@ -411,6 +411,19 @@ class SequenceDataset(Dataset):
         """
         return self.sequences.find_record(identifier=sample_identifier)["sequence_name"].replace("/", "_")
 
+    def list_first_samples(self, number_samples: int) -> List[Tuple[int, int]]:
+        """
+        Lists the sequences of the smallest identifiers, the input samples of the split written at the start of
+        every training launch (trainers/input_samples.py), the same at every launch whatever the shuffled order.
+
+        Args:
+            number_samples (int): The number of sequences listed, all of them when the split holds fewer.
+
+        Returns:
+            List[Tuple[int, int]]: The index in the dataset and the identifier of every listed sequence.
+        """
+        return self.sequences.list_first_records(number_records=number_samples)
+
     def get_sequence_frame_names(self, sample_identifier: int) -> List[str]:
         """
         Lists the frames of an evaluated sequence, in order, so that the predictions of the sequence labelling and

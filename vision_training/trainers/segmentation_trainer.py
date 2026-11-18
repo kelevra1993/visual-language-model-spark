@@ -49,9 +49,9 @@ from vision_training.models.segmentation.sliding_window import segment_image_by_
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.utilities.os_utilities import format_path_link, print_color
-from vision_training.utilities.visualization import (build_class_colours, build_segmentation_sample_grid,
-                                                     convert_image_to_array, overlay_segmentation_mask,
-                                                     view_input_data)
+from vision_training.utilities.visualization import (ViewerWindow, build_class_colours,
+                                                     build_segmentation_sample_grid, convert_image_to_array,
+                                                     overlay_segmentation_mask)
 
 # File of the run folder caching the pixels of every class in the training masks, read back when the run resumes
 CLASS_PIXEL_COUNTS_FILE_NAME = "class_pixel_counts.json"
@@ -610,32 +610,30 @@ class SegmentationTrainer(BaseTrainer):
         class_indices = torch.unique(input=mask[mask > 0]).tolist()
         return ", ".join(self.class_names[class_index] for class_index in class_indices) or "background only"
 
-    def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
-                           sample_index: int) -> bool:
+    def build_input_windows(self, batch: Dict[str, Any], sample_index: int, split_name: str) -> List[ViewerWindow]:
         """
-        Displays an augmented training image next to a validation image, each with its mask painted over it and an
+        Draws one image for the input viewer and the input samples of a training launch: the image as the network
+        receives it with its mask painted over it, so that the classes can be checked against the pixels, next to an
         information panel holding the classes of the mask and the augmentations of the image.
 
         Args:
-            training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
-            validation_batch (Dict[str, Any]): The validation batch, on the CPU.
-            sample_index (int): The index of the displayed images in their batches.
+            batch (Dict[str, Any]): The batch holding the image, augmented for the training split, on the CPU.
+            sample_index (int): The index of the image in the batch.
+            split_name (str): "Training", "Validation" or "Test", the title of the window.
 
         Returns:
-            bool: True if the user asked to stop viewing.
+            List[ViewerWindow]: The window of the image.
         """
-        painted_images, panel_lines = [], []
-        for batch in [training_batch, validation_batch]:
-            # Paint the mask over the image so that the classes can be checked against the pixels
-            image = convert_image_to_array(image=batch["images"][sample_index])
-            mask = batch["masks"][sample_index].detach().cpu()
-            painted_image = overlay_segmentation_mask(image=image, class_map=mask.numpy(),
-                                                      class_colours=self.class_colours)
-            painted_images.append(torch.from_numpy(painted_image).permute(2, 0, 1))
+        # Paint the mask over the image so that the classes can be checked against the pixels
+        image = convert_image_to_array(image=batch["images"][sample_index])
+        mask = batch["masks"][sample_index].detach().cpu()
+        painted_image = overlay_segmentation_mask(image=image, class_map=mask.numpy(),
+                                                  class_colours=self.class_colours)
 
-            # The classes of the mask, followed by the augmentations drawn for the image
-            panel_lines.append([f"Classes : {self.describe_mask_classes(mask=mask)}"] +
-                               self.describe_input_augmentations(batch=batch, sample_index=sample_index))
-        return view_input_data(images=painted_images, bounding_boxes=None, labels=None,
-                               window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
-                               panel_lines=panel_lines)
+        # The classes of the mask, followed by the augmentations drawn for the image
+        augmentation_lines = self.describe_input_augmentations(batch=batch, sample_index=sample_index,
+                                                               split_name=split_name)
+        return [ViewerWindow(image=torch.from_numpy(painted_image).permute(2, 0, 1), bounding_boxes=None, labels=None,
+                             label_names=None, title=split_name,
+                             target_lines=[f"Classes : {self.describe_mask_classes(mask=mask)}"],
+                             augmentation_lines=augmentation_lines, display_input_size=self.input_image_size)]
