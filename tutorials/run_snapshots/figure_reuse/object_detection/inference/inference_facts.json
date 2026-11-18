@@ -1,0 +1,565 @@
+{
+  "facts": {
+    "inference.anchor_labels.background": 487,
+    "inference.anchor_labels.fallback_foreground": 3,
+    "inference.anchor_labels.foreground": 20,
+    "inference.anchor_labels.foreground_level_5": 4,
+    "inference.anchor_labels.foreground_level_6": 9,
+    "inference.anchor_labels.foreground_level_7": 7,
+    "inference.anchor_labels.ignored": 1797,
+    "inference.anchor_labels.ignored_band": 97,
+    "inference.anchor_labels.ignored_low": 1700,
+    "inference.anchor_labels.overlap_foreground": 17,
+    "inference.anchor_labels.panel_1_box": [
+      0,
+      64,
+      552,
+      616
+    ],
+    "inference.anchor_labels.panel_2_box": [
+      584,
+      64,
+      1136,
+      616
+    ],
+    "inference.anchor_labels.panel_3_box": [
+      1168,
+      64,
+      1720,
+      616
+    ],
+    "inference.anchor_labels.panel_boxes": [
+      [
+        0,
+        64,
+        552,
+        616
+      ],
+      [
+        584,
+        64,
+        1136,
+        616
+      ],
+      [
+        1168,
+        64,
+        1720,
+        616
+      ]
+    ],
+    "inference.anchor_labels.sampled_negatives": 236,
+    "inference.anchor_labels.sampled_positives": 20,
+    "inference.anchor_page": {
+      "image": "figures:object_detection/inference/test_014285.png",
+      "image_size": 512,
+      "levels": [
+        {
+          "anchor_count": 1536,
+          "anchors": [
+            {
+              "box": [
+                393.373,
+                212.686,
+                438.627,
+                235.314
+              ],
+              "ratio": 0.5,
+              "scale": 32.0
+            },
+            {
+              "box": [
+                370.745,
+                201.373,
+                461.255,
+                246.627
+              ],
+              "ratio": 0.5,
+              "scale": 64.0
+            },
+            {
+              "box": [
+                400.0,
+                208.0,
+                432.0,
+                240.0
+              ],
+              "ratio": 1.0,
+              "scale": 32.0
+            },
+            {
+              "box": [
+                384.0,
+                192.0,
+                448.0,
+                256.0
+              ],
+              "ratio": 1.0,
+              "scale": 64.0
+            },
+            {
+              "box": [
+                404.686,
+                201.373,
+                427.314,
+                246.627
+              ],
+              "ratio": 2.0,
+              "scale": 32.0
+            },
+            {
+              "box": [
+                393.373,
+                178.745,
+                438.627,
+                269.255
+              ],
+              "ratio": 2.0,
+              "scale": 64.0
+            }
+          ],
+          "anchors_per_cell": 6,
+          "cell": [
+            13,
+            7
+          ],
+          "cells": 16,
+          "name": "5",
+          "ratio_count": 3,
+          "scale_count": 2,
+          "scales": [
+            32.0,
+            64.0
+          ],
+          "stride": 32
+        },
+        {
+          "anchor_count": 384,
+          "anchors": [
+            {
+              "box": [
+                402.745,
+                169.373,
+                493.255,
+                214.627
+              ],
+              "ratio": 0.5,
+              "scale": 64.0
+            },
+            {
+              "box": [
+                357.49,
+                146.745,
+                538.51,
+                237.255
+              ],
+              "ratio": 0.5,
+              "scale": 128.0
+            },
+            {
+              "box": [
+                416.0,
+                160.0,
+                480.0,
+                224.0
+              ],
+              "ratio": 1.0,
+              "scale": 64.0
+            },
+            {
+              "box": [
+                384.0,
+                128.0,
+                512.0,
+                256.0
+              ],
+              "ratio": 1.0,
+              "scale": 128.0
+            },
+            {
+              "box": [
+                425.373,
+                146.745,
+                470.627,
+                237.255
+              ],
+              "ratio": 2.0,
+              "scale": 64.0
+            },
+            {
+              "box": [
+                402.745,
+                101.49,
+                493.255,
+                282.51
+              ],
+              "ratio": 2.0,
+              "scale": 128.0
+            }
+          ],
+          "anchors_per_cell": 6,
+          "cell": [
+            7,
+            3
+          ],
+          "cells": 8,
+          "name": "6",
+          "ratio_count": 3,
+          "scale_count": 2,
+          "scales": [
+            64.0,
+            128.0
+          ],
+          "stride": 64
+        },
+        {
+          "anchor_count": 384,
+          "anchors": [
+            {
+              "box": [
+                357.49,
+                146.745,
+                538.51,
+                237.255
+              ],
+              "ratio": 0.5,
+              "scale": 128.0
+            },
+            {
+              "box": [
+                266.981,
+                101.49,
+                629.019,
+                282.51
+              ],
+              "ratio": 0.5,
+              "scale": 256.0
+            },
+            {
+              "box": [
+                384.0,
+                128.0,
+                512.0,
+                256.0
+              ],
+              "ratio": 1.0,
+              "scale": 128.0
+            },
+            {
+              "box": [
+                320.0,
+                64.0,
+                576.0,
+                320.0
+              ],
+              "ratio": 1.0,
+              "scale": 256.0
+            },
+            {
+              "box": [
+                402.745,
+                101.49,
+                493.255,
+                282.51
+              ],
+              "ratio": 2.0,
+              "scale": 128.0
+            },
+            {
+              "box": [
+                357.49,
+                10.9807,
+                538.51,
+                373.019
+              ],
+              "ratio": 2.0,
+              "scale": 256.0
+            }
+          ],
+          "anchors_per_cell": 6,
+          "cell": [
+            7,
+            3
+          ],
+          "cells": 8,
+          "name": "7",
+          "ratio_count": 3,
+          "scale_count": 2,
+          "scales": [
+            128.0,
+            256.0
+          ],
+          "stride": 64
+        }
+      ],
+      "objects": [
+        {
+          "best_anchor": [
+            101.49,
+            146.745,
+            282.51,
+            237.255
+          ],
+          "best_iou": 0.485877,
+          "best_level": "6",
+          "box": [
+            154.0,
+            154.0,
+            291.0,
+            218.0
+          ],
+          "foreground": false,
+          "level_iou": {
+            "5": 0.467153,
+            "6": 0.485877,
+            "7": 0.485877
+          },
+          "name": "triangle"
+        },
+        {
+          "best_anchor": [
+            384.0,
+            192.0,
+            448.0,
+            256.0
+          ],
+          "best_iou": 0.47884,
+          "best_level": "5",
+          "box": [
+            378.0,
+            171.0,
+            469.0,
+            265.0
+          ],
+          "foreground": false,
+          "level_iou": {
+            "5": 0.47884,
+            "6": 0.407892,
+            "7": 0.407892
+          },
+          "name": "star"
+        },
+        {
+          "best_anchor": [
+            0.0,
+            416.0,
+            64.0,
+            480.0
+          ],
+          "best_iou": 0.557396,
+          "best_level": "5",
+          "box": [
+            24.0,
+            417.0,
+            63.0,
+            488.0
+          ],
+          "foreground": true,
+          "level_iou": {
+            "5": 0.557396,
+            "6": 0.397598,
+            "7": 0.169006
+          },
+          "name": "parallelogram"
+        },
+        {
+          "best_anchor": [
+            297.373,
+            210.745,
+            342.627,
+            301.255
+          ],
+          "best_iou": 0.546195,
+          "best_level": "5",
+          "box": [
+            271.0,
+            211.0,
+            343.0,
+            284.0
+          ],
+          "foreground": true,
+          "level_iou": {
+            "5": 0.546195,
+            "6": 0.546195,
+            "7": 0.320801
+          },
+          "name": "nonagon"
+        },
+        {
+          "best_anchor": [
+            338.745,
+            293.49,
+            429.255,
+            474.51
+          ],
+          "best_iou": 0.522924,
+          "best_level": "6",
+          "box": [
+            340.0,
+            335.0,
+            482.0,
+            475.0
+          ],
+          "foreground": true,
+          "level_iou": {
+            "5": 0.206036,
+            "6": 0.522924,
+            "7": 0.522924
+          },
+          "name": "nonagon"
+        },
+        {
+          "best_anchor": [
+            320.0,
+            0.0,
+            448.0,
+            128.0
+          ],
+          "best_iou": 0.741457,
+          "best_level": "6",
+          "box": [
+            302.0,
+            0.0,
+            429.0,
+            127.0
+          ],
+          "foreground": true,
+          "level_iou": {
+            "5": 0.253953,
+            "6": 0.741457,
+            "7": 0.741457
+          },
+          "name": "square"
+        }
+      ]
+    },
+    "inference.anchor_total": 2304,
+    "inference.checkpoint_fingerprint": "model_002000.pt:11265633:1794756803847875323",
+    "inference.checkpoint_name": "DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Iteration_2000",
+    "inference.detection_1.name": "square",
+    "inference.detection_1.score": 0.947555,
+    "inference.detection_2.name": "star",
+    "inference.detection_2.score": 0.930916,
+    "inference.detection_3.name": "parallelogram",
+    "inference.detection_3.score": 0.753126,
+    "inference.detection_4.name": "triangle",
+    "inference.detection_4.score": 0.705313,
+    "inference.detection_count": 4,
+    "inference.detector_targets.positives": 44,
+    "inference.detector_targets.proposal_count": 500,
+    "inference.detector_targets.sampled_level_5": 93,
+    "inference.detector_targets.sampled_level_6": 23,
+    "inference.detector_targets.sampled_level_7": 12,
+    "inference.detector_targets.sampled_negatives": 84,
+    "inference.detector_targets.sampled_positives": 44,
+    "inference.detector_targets.written_ground_truths": 6,
+    "inference.evaluation_filter.kept_level_5": 212,
+    "inference.evaluation_filter.kept_level_6": 26,
+    "inference.evaluation_filter.kept_level_7": 12,
+    "inference.evaluation_filter.survivor_count": 874,
+    "inference.evaluation_filter.top_count": 1268,
+    "inference.evaluation_filter.top_level_5": 500,
+    "inference.evaluation_filter.top_level_6": 384,
+    "inference.evaluation_filter.top_level_7": 384,
+    "inference.evaluation_filter.valid_count": 250,
+    "inference.facts_version": 4,
+    "inference.fallback_count": 2,
+    "inference.fallback_objects": [
+      "triangle",
+      "star"
+    ],
+    "inference.found_object_count": 4,
+    "inference.image_name": "test_014285.png",
+    "inference.level_5.anchor_count": 1536,
+    "inference.level_5.anchors_per_cell": 6,
+    "inference.level_5.cells": 16,
+    "inference.level_5.ratio_count": 3,
+    "inference.level_5.scale_count": 2,
+    "inference.level_5.stride": 32,
+    "inference.level_6.anchor_count": 384,
+    "inference.level_6.anchors_per_cell": 6,
+    "inference.level_6.cells": 8,
+    "inference.level_6.ratio_count": 3,
+    "inference.level_6.scale_count": 2,
+    "inference.level_6.stride": 64,
+    "inference.level_7.anchor_count": 384,
+    "inference.level_7.anchors_per_cell": 6,
+    "inference.level_7.cells": 8,
+    "inference.level_7.ratio_count": 3,
+    "inference.level_7.scale_count": 2,
+    "inference.level_7.stride": 64,
+    "inference.level_count": 3,
+    "inference.object_1.best_iou": 0.485877,
+    "inference.object_1.best_level": "6",
+    "inference.object_1.name": "triangle",
+    "inference.object_2.best_iou": 0.47884,
+    "inference.object_2.best_level": "5",
+    "inference.object_2.name": "star",
+    "inference.object_3.best_iou": 0.557396,
+    "inference.object_3.best_level": "5",
+    "inference.object_3.name": "parallelogram",
+    "inference.object_4.best_iou": 0.546195,
+    "inference.object_4.best_level": "5",
+    "inference.object_4.name": "nonagon",
+    "inference.object_5.best_iou": 0.522924,
+    "inference.object_5.best_level": "6",
+    "inference.object_5.name": "nonagon",
+    "inference.object_6.best_iou": 0.741457,
+    "inference.object_6.best_level": "6",
+    "inference.object_6.name": "square",
+    "inference.object_count": 6,
+    "inference.overlap_object_count": 4,
+    "inference.proposal_filter.panel_1_box": [
+      0,
+      64,
+      552,
+      616
+    ],
+    "inference.proposal_filter.panel_2_box": [
+      584,
+      64,
+      1136,
+      616
+    ],
+    "inference.proposal_filter.panel_3_box": [
+      1168,
+      64,
+      1720,
+      616
+    ],
+    "inference.proposal_filter.panel_boxes": [
+      [
+        0,
+        64,
+        552,
+        616
+      ],
+      [
+        584,
+        64,
+        1136,
+        616
+      ],
+      [
+        1168,
+        64,
+        1720,
+        616
+      ]
+    ],
+    "inference.training_filter.kept_level_5": 430,
+    "inference.training_filter.kept_level_6": 50,
+    "inference.training_filter.kept_level_7": 20,
+    "inference.training_filter.survivor_count": 1342,
+    "inference.training_filter.top_count": 1768,
+    "inference.training_filter.top_level_5": 1000,
+    "inference.training_filter.top_level_6": 384,
+    "inference.training_filter.top_level_7": 384,
+    "inference.training_filter.valid_count": 500
+  },
+  "figures": [
+    "anchor_labels.png",
+    "proposal_filter.png",
+    "test_014285.png"
+  ]
+}

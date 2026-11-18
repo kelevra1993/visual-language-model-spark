@@ -1,7 +1,9 @@
 """
 Sources shared by the figure families of the object detection and instance segmentation series of the tutorial videos
 (tutorials/figures/object_detection/figures.py and tutorials/figures/instance_segmentation/figures.py): the trained
-models of the DET and INS runs of tutorials/tutorial_sources.yaml rebuilt on the CPU from their run folders, the test
+models of the DET and INS runs of tutorials/tutorial_sources.yaml rebuilt on the CPU from their run folders, the same
+models built untrained from their saved configuration for the facts of the architecture (no checkpoint needed, so that
+those facts also come out of the run snapshots of tutorials/run_snapshots), the test
 image both series follow (test_014285.png, six shapes of the synthetic shapes test split, one of the eight sample
 images of both runs) with its objects read from the test labels.json, the TensorBoard scalars, the blocks of
 Results.txt (their table values read whether the report wrote the rates as percentages, "78.64 %", or with the
@@ -28,7 +30,9 @@ from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.preprocessing import read_image
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.report_formatting import PERCENT_SIGN
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.models.model_loading import load_trained_model
+from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_checkpoint_path
 
@@ -172,6 +176,29 @@ def load_run_model(run_folder: Path, iteration: int) -> TaskModel:
     checkpoint_path = get_checkpoint_path(experiment_folder=run_folder, iteration=iteration)
     return load_trained_model(configuration_path=run_folder / "training_configuration.yaml",
                               checkpoint_path=checkpoint_path, device=torch.device("cpu"), use_averaged_weights=False)
+
+
+def load_untrained_run_model(run_folder: Path) -> TaskModel:
+    """
+    Builds the model of a run from its saved configuration only, untrained, on the CPU and in evaluation mode, for the
+    facts that depend on its architecture and not on its weights (parameter counts, kernels, strides, anchors of every
+    level, mask head geometry), so that they need no checkpoint and come out the same from the real runs and from the
+    run snapshots of tutorials/run_snapshots, which hold the configuration and label dictionary but no checkpoint.
+
+    Args:
+        run_folder (Path): The run folder, holding training_configuration.yaml and label_dictionary.json.
+
+    Returns:
+        TaskModel: The TwoStageDetector or InstanceSegmenter of the run, with randomly initialised weights.
+    """
+    torch.set_num_threads(read_thread_count())
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=run_folder / "training_configuration.yaml")
+
+    # Model class of the task of the run, built as load_trained_model builds it, without loading any weights
+    model_class = TASK_MODEL_CLASSES[experiment_configuration["task"]]
+    model = model_class(configuration=model_configuration, device=torch.device("cpu"), dtype=MODEL_DTYPE)
+    return model.eval()
 
 
 def read_scalar_series(log_folder: Path, tag: str) -> Tuple[numpy.ndarray, numpy.ndarray]:

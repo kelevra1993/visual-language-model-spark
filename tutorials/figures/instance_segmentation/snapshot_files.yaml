@@ -1,0 +1,44 @@
+# Files of the run the instance segmentation figures read, copied into tutorials/run_snapshots by
+# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The series reads no checkpoint from
+# the snapshots: the geometry of the mask heads comes from the instance segmenter built untrained from the
+# configuration, and the inference of the INS run on the test image (mask target, predicted and pasted masks,
+# parameter counts) is committed under figure_reuse/instance_segmentation/masks by a build from the real runs.
+runs:
+  # INS run of the series (the synthetic configuration, 2000 iterations resumed to 5000)
+  - run: instance_segmentation
+    files:
+      # Settings, test folder and score threshold of the run, and the model built untrained from them
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
+      # Confusion matrix notes of the evaluations made during the training (iterations 1000, 2000, 2500 and 5000)
+      - path: Results.txt
+      # Losses (Train), mask mAP and the tag count (Test, Test_EMA) of both legs of the run, without the sample images
+      - path: Tensorboard/*/events.out.tfevents.*
+        reduction: tensorboard_scalars
+      # Sample image of the test image of the series at the three compared evaluations; the one of 5000 is also shown
+      # directly by the first chapter (runs: path of its storyboard)
+      - path: Evaluation/Iteration_1000/Samples/test_014285.png
+      - path: Evaluation/Iteration_2000/Samples/test_014285.png
+      - path: Evaluation/Iteration_5000/Samples/test_014285.png
+      # Last checkpoint evaluated again with the current code: report tables, classes and proposal recall
+      - path: Checkpoint_Evaluation/Results.txt
+      - path: Checkpoint_Evaluation/Iteration_5000/class_metrics.csv
+      - path: Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv
+      # Console logs of the two legs next to the run folder, whose summaries of iterations 1000 and 5000 are read
+      - path: ../instance_segmentation.log
+      - path: ../instance_segmentation_extended.log
+
+# Dataset files of the INS run, relative to the recorded data root: the same test manifest entry as the object
+# detection series (the two images the figures follow kept whole), the test image of the series and the image of the
+# first annotation, whose run length encoding the first chapter decodes
+datasets:
+  - path: instance_segmentation_data/synthetic_shapes/test/labels.json
+    reduction: manifest_subset
+    images: [test_000000.png, test_014285.png]
+  - path: instance_segmentation_data/synthetic_shapes/test/data/test_014285.png
+  - path: instance_segmentation_data/synthetic_shapes/test/data/test_000000.png
+
+# Outputs of the inference of the INS checkpoint on the test image, reused by a build without the checkpoint
+# (make_mask_figures of mask_figures.py)
+figure_reuse:
+  - family: masks
