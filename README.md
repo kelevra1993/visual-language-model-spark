@@ -209,6 +209,7 @@ At every evaluation it prints the report appended to `Results.txt` (with `evalua
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
 </p>
+<p align="center"><em>The report of the synthetic shapes classifier of the README screenshots at iteration 2000, up to its per-class table of the 35 classes; the recall table with its intervals and the links to the files of the evaluation follow it.</em></p>
 
 TensorBoard holds `Train` and `Validation` (every iteration), `Test` (scalars and sample images at every evaluation) and `Test_EMA` (the averaged weights); open http://localhost:6006 after:
 
@@ -753,7 +754,7 @@ To find where a classifier fails, read its confusion matrix (percent of every tr
 <p align="center">
   <img src="README/evaluation_error_images.png" width="100%" />
 </p>
-<p align="center"><em>The confusion matrix and three error folders of the synthetic shapes classifier of the README screenshots, evaluated at iteration 1500.</em></p>
+<p align="center"><em>The confusion matrix of the 35 classes of the synthetic shapes classifier of the README screenshots, evaluated at iteration 2000 (accuracy 81.76 %), and the error folders of its three largest confusions: hollow parallelograms read as hollow trapezoids, trapezoids as parallelograms and rectangles as squares.</em></p>
 
 Should a research report need the figures of its kept classifier again, set the run, iteration and weights of the main block of `scripts/evaluation/draw_report_figures.py`, then run the command below. It writes into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` the confusion matrix, the precision-recall curves at the temperature saved from the temperature explorer with the threshold of every target precision, the training curves with the kept checkpoint and, given a manifest of the group of every image (such as the camera or vehicle it comes from) and the `predictions.csv` of the evaluation, the balanced accuracy on the groups seen and never seen in training, with `report_values.json`, the numbers they show. Details: [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report).
 
@@ -768,7 +769,7 @@ uv run python -m scripts.evaluation.draw_report_figures
 <p align="center">
   <img src="README/report_training_curves.png" width="80%" />
 </p>
-<p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 1500: a dot marks the threshold reaching 99 % precision (none for rectangle, which never reaches it), at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
+<p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
 
 ## Comparing Launches
 After the launches of a hyperparameter stage have trained, three scripts of `scripts/evaluation/` compare them:
@@ -804,7 +805,7 @@ uv run python -m scripts.embedding.cluster_image_embeddings
 <p align="center">
   <img src="README/embedding_clusters.png" width="100%" />
 </p>
-<p align="center"><em>A run on 720 synthetic shapes, one folder per shape: the clusters follow what the layer of the classifier separates, squares with rectangles and the four round shapes together.</em></p>
+<p align="center"><em>A run on 720 synthetic shapes, one folder for each of nine of the 35 classes: the clusters follow what the layer of the classifier separates, one cluster for each of six shapes, the stars split in two and the rectangles shared between a cluster of their own and the cluster of the squares.</em></p>
 
 Its settings and outputs: [tools reference](documentation/reference/tools_reference.md#clustering-image-embeddings).
 
