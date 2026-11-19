@@ -44,7 +44,7 @@ scenes:
     title: "Rows, models and loads"
     code_reference: "documentation/architecture_benchmarking/serving_benchmark_plan.md"
     elements:
-      - {type: box, box: [20, 20, 570, 250], text: "CLS · README classifier\n{{deployment.models.CLS.image_size}} pixels, {{deployment.models.CLS.class_count}} classes\na plain classifier\n{{deployment.metric.CLS.evaluated}}", font: diagram_small, outline: blue, highlight: [0]}
+      - {type: box, box: [20, 20, 570, 250], text: "CLS · shapes classifier\n{{deployment.models.CLS.image_size}} pixels, {{deployment.models.CLS.class_count}} classes\na plain classifier\n{{deployment.metric.CLS.evaluated}}", font: diagram_small, outline: blue, highlight: [0]}
       - {type: box, box: [605, 20, 1155, 250], text: "DET · detection benchmark\n{{deployment.models.DET.image_size}} pixels, {{deployment.models.DET.class_count}} classes\nNMS inside the model\n{{deployment.metric.DET.evaluated}}", font: diagram_small, outline: blue, highlight: [0]}
       - {type: box, box: [1190, 20, 1740, 250], text: "M2M · sequence labeller\n{{deployment.models.M2M.image_size}} pixels, {{deployment.models.M2M.class_count}} classes\nbidirectional LSTM\n{{deployment.metric.M2M.evaluated}}", font: diagram_small, outline: blue, highlight: [0]}
       - {type: box, box: [20, 290, 860, 520], text: "rows: eager and TorchScript in the process\nTriton: TorchScript, ONNX Runtime CUDA,\nTensorRT FP32, TensorRT FP16\nas exported: batching on, one instance", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
@@ -53,7 +53,7 @@ scenes:
     # The three TensorRT FP16 server settings measured besides the exported one
     literal_numbers: [three]
     narration:
-      - "The benchmark covers the three kinds of graphs TensorRT meets in the repository: the README classifier, the reference detector of the detection benchmark with its NMS inside the model, and the bidirectional LSTM of the sequence labelling tutorial."
+      - "The benchmark covers the three kinds of graphs TensorRT meets in the repository: a classifier of the synthetic shapes, trained on a {{deployment.models.CLS.class_count:words}}-class version of the data set, the reference detector of the detection benchmark with its NMS inside the model, and the bidirectional LSTM of the sequence labelling tutorial."
       - "Each model runs eager and as TorchScript in the process, then through Triton in the {{deployment.sweep.served_row_count:words}} served formats, with the configuration the export writes."
       - "Every served row is measured over shared memory with perf analyzer and over gRPC with the client of the repository, at every batch size and number of requests in flight; TensorRT FP16 also gets the other three server settings."
       - "The sweep made {{deployment.sweep.measurement_count}} measurements, {{deployment.sweep.failed_count:words}} failed, the driver waiting before each one until no other process used the GPU."

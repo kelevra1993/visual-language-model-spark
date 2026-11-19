@@ -3,7 +3,7 @@
 <p align="center">
   <img src="README/tasks_overview.png" width="100%" />
 </p>
-<p align="center"><em>One evaluation sample image of every supervised task, from short runs on the synthetic datasets.</em></p>
+<p align="center"><em>One evaluation sample image of every supervised task, from short runs on the synthetic datasets; the semantic segmentation (9 classes) and sequence labelling samples come from runs trained on 2026-10-21 and 2026-11-15, on the datasets of those days.</em></p>
 
 ## Table Of Content
 - [Description](#description)

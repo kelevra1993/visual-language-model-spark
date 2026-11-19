@@ -14,13 +14,12 @@
     },
     {
       "options": {
-        "first_samples": 3,
-        "reference_samples_per_category": 50
+        "first_samples": 3
       },
       "reduction": "tutorials.figures.classification.snapshot_reductions:reduce_sample_manifest",
-      "snapshot_bytes": 108999,
+      "snapshot_bytes": 1371,
       "snapshot_path": "datasets/classifier_data/synthetic_shapes/train/labels.json",
-      "snapshot_sha256": "b02727d26b233f3927890985388bf8b6467007eece6b1284b3f227a7004168d4",
+      "snapshot_sha256": "1f302270f6d263ae73c3d3a6b818184886684ba7139bb78e24305d4869c964d7",
       "source_bytes": 33761401,
       "source_kind": "dataset",
       "source_path": "classifier_data/synthetic_shapes/train/labels.json",
@@ -667,5 +666,5 @@
     }
   ],
   "series": "classification",
-  "snapshot_bytes": 4452442
+  "snapshot_bytes": 4344814
 }
