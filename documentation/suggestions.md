@@ -512,9 +512,11 @@ committed): every image can be taken again from them without training, except wh
     name examples of the README (Run Names) have rows that no configuration gives any more (`CLS_..._HAVG.128_MC4`,
     the `T8` of M2O and CMP).
 34. **A frame selection sample with a wrong choice** (`README/frame_selection_sample.png`): its description asks for
-    one wrong choice if possible, but the run selects every frame right (1.000 at 2000 iterations), so the sample shows
-    three right choices. The weights of an earlier iteration (`Weights/Iteration_500` of the run) or a harder sequence
-    could show one.
+    one wrong choice if possible, but the eight fixed test sequences of the evaluation samples are all chosen right at
+    2000 iterations, the run's 11 wrong picks out of 600 (Hungarian selection accuracy 98.17 %, 191 of the 200 test
+    sequences fully right) falling in other sequences, so the sample,
+    `test_000000` of 12 frames, shows three right choices (star, triangle, circle). The weights of iteration 500
+    (`Weights/Iteration_500` of the run) or one of the 9 test sequences not fully right could show one.
 35. **Parameter columns of the MLflow table** (`README/mlflow_runs.png`): the parameters are logged under the path of
     their setting (`ExperimentConfiguration.learning_rate`), which the narrow columns of the MLflow interface cut to
     `ExperimentCon`, so the table shows the learning rate logged with the metrics instead. Logging a few short
