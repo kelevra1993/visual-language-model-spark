@@ -189,13 +189,13 @@ scenes:
     code_reference: "vision_training/losses/keypoint_losses.py · compute_tag_losses"
     data: "figures:keypoint_detection/network/tags.json"
     steps: {dots: 0, pull: 1, push: 2}
-    # A push loss just below its maximum of one, which two decimals would round to it
+    # A push loss just below its maximum of one, which two or three decimals would round to it
     exact_facts: [keypoint_detection.tags_push_loss]
     narration:
       - "The tags have no target: every labelled key point takes the tag of its channel at its cell, and only the distances between tags are trained."
       - "The pull loss is the mean squared distance of the tags of an object to their mean, which gathers its key points around one value."
       - "The push loss averages e to the minus squared difference of the mean tags, over the pairs of objects of the same class only, the only ones that share channels; both losses are weighted by {{keypoint_detection.tag_loss_weight}}."
-      - "Here the mean tags of the {{keypoint_detection.grouping_capsule_objects:words}} capsules end only {{keypoint_detection.tags_same_class_distance:.2f}} apart, so the push loss of this image is {{keypoint_detection.tags_push_loss:.3f}}, its maximum being one: the {{keypoint_detection.grouping_capsule_objects:words}} objects of one class were not separated."
+      - "Here the mean tags of the {{keypoint_detection.pair_object_count:words}} {{keypoint_detection.pair_class_plural}} end only {{keypoint_detection.tags_pair_distance:.2f}} apart, so the push loss of this image is {{keypoint_detection.tags_push_loss:.4f}}, its maximum being one: the {{keypoint_detection.pair_object_count:words}} objects of one class were not separated."
 
   - kind: image
     title: "Training curves of the synthetic run"
@@ -208,12 +208,15 @@ scenes:
     highlights:
       - {box: "{{keypoint_detection.curves_loss_panel_box}}", sentences: [1]}
       - {box: "{{keypoint_detection.curves_tag_panel_box}}", sentences: [2]}
-    # Tag losses below a hundredth, which two decimals would read as zero
-    exact_facts: [keypoint_detection.curves_tag_pull_loss_last_smoothed, keypoint_detection.curves_tag_push_loss_last_smoothed]
+    # Tag losses of a few thousandths, which two decimals would read as zero or one hundredth
+    exact_facts: [keypoint_detection.curves_tag_pull_loss_first_window_mean,
+                  keypoint_detection.curves_tag_pull_loss_last_window_mean,
+                  keypoint_detection.curves_tag_push_loss_first_window_mean,
+                  keypoint_detection.curves_tag_push_loss_last_window_mean]
     narration:
-      - "The run trained {{keypoint_detection.run_iterations}} iterations of {{keypoint_detection.run_batch_size}} images on the GPU at about {{keypoint_detection.training_throughput:.0f}} images per second, with a cosine decay after {{keypoint_detection.run_warmup_iterations}} warm-up iterations."
+      - "The run trained {{keypoint_detection.run_iterations}} iterations of {{keypoint_detection.run_batch_size}} images on a GPU shared with other trainings, at about {{keypoint_detection.training_throughput:.0f}} images per second, with a cosine decay after {{keypoint_detection.run_warmup_iterations}} warm-up iterations."
       - "The total loss starts at {{keypoint_detection.curves_total_loss_first:.1f}} and ends near {{keypoint_detection.curves_total_loss_last_smoothed:.2f}}, almost all of it heat map loss."
-      - "The weighted pull loss settles near {{keypoint_detection.curves_tag_pull_loss_last_smoothed:.4f}}, but the push loss stays near {{keypoint_detection.curves_tag_push_loss_last_smoothed:.3f}} from start to end: it does not fall."
+      - "Over the first and the last {{keypoint_detection.curves_window_iterations}} iterations, the weighted pull loss averages {{keypoint_detection.curves_tag_pull_loss_first_window_mean:.4f}} then {{keypoint_detection.curves_tag_pull_loss_last_window_mean:.4f}}, but the push loss {{keypoint_detection.curves_tag_push_loss_first_window_mean:.4f}} then {{keypoint_detection.curves_tag_push_loss_last_window_mean:.4f}}: it barely falls."
       - "Take a run like this one, with a validation iteration ratio of {{keypoint_detection.run_validation_iteration_ratio:words}}: it logs no validation curve, and the test evaluations every {{keypoint_detection.run_evaluation_interval}} iterations take its place."
 
   - kind: summary

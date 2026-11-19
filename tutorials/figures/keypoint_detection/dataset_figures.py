@@ -1,10 +1,11 @@
 """
 Figures of the first chapter of the keypoint detection series of the tutorial videos (labels, channels and targets),
-made by tutorials/figures/keypoint_detection/figures.py from the test image of the chapters: its records of the COCO
-labels.json written as a listing, the image with its labelled keypoints, the heatmap channels of every class read from
-the channel table of the trained detector (the data of the channel table animation), and the targets that
-build_keypoint_targets draws for the image at the strides 4 and 2, with the values of the cells around one keypoint
-for the grid of the storyboard.
+made by tutorials/figures/keypoint_detection/figures.py from the test image of the chapters: the records of its single
+object (select_story_objects of keypoint_sources.py, the object alone in its class cut by the border) and of its
+distractor in the COCO labels.json written as a listing, the image with its labelled keypoints, the heatmap channels
+of every class read from the channel table of the trained detector (the data of the channel table animation), and the
+targets that build_keypoint_targets draws for the image at the strides 4 and 2, with the values of the cells around
+one keypoint of the single object for the grid of the storyboard.
 """
 
 import json
@@ -21,7 +22,8 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR,
                                                 register_fonts, round_fact, save_figure)
 from tutorials.figures.keypoint_detection.keypoint_inference import build_sample_targets
-from tutorials.figures.keypoint_detection.keypoint_sources import OBJECT_COLOURS, write_json
+from tutorials.figures.keypoint_detection.keypoint_sources import (OBJECT_COLOURS, find_labelled_positions,
+                                                                  format_class_label, write_json)
 from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.models.keypoints.hrnet import BRANCH_SCALE_FACTOR
 from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE
@@ -29,12 +31,28 @@ from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE
 # Size of the labelled test image of the labels.json scene, the image element of the diagram
 LABELLED_IMAGE_SIZE = 660
 
-# Half side of the window of target cells shown by the grid of the storyboard, around the cell of one keypoint
+# Texts drawn on the labelled test image: on a background of the card colour, so that they read on the textured and
+# light backgrounds of the synthetic images, and aligned on the side of the image when nearer to it than this margin
+# (image pixels)
+LABEL_BACKGROUND = {"boxstyle": "round,pad=0.25", "facecolor": SURFACE_COLOUR, "edgecolor": "none", "alpha": 0.8}
+LABEL_SIDE_MARGIN = 60
+
+# Keypoint names closer than this along x (image pixels) on the same side of their keypoints are drawn one line apart,
+# a line being this many pixels
+LABEL_MINIMUM_SPACING = 150
+LABEL_LINE_HEIGHT = 30
+
+# Room (image pixels) the two lines of the distractor name need under its box, the name going above the box otherwise
+DISTRACTOR_LABEL_ROOM = 60
+
+# Half side of the window of target cells shown by the grid of the storyboard, around the cell of one keypoint of the
+# single object, the first one whose window lies inside the heatmap and whose left and upper neighbours are higher than
+# their opposite ones, as the narration says
 GRID_HALF_SIDE = 4
 
-# Class and keypoint whose target cells the grid shows
-GRID_CLASS_NAME = "trapezoid"
-GRID_KEYPOINT_NAME = "top_left"
+# Largest distance between a keypoint of an annotation of labels.json and the same keypoint of the dataset sample, in
+# pixels, the sample being the image at its own size
+ANNOTATION_MATCH_TOLERANCE = 0.01
 
 # Side of the three square panels of the targets figure, and the gap between them
 TARGET_PANEL_SIDE = 560
@@ -85,28 +103,77 @@ def wrap_json_list(prefix: str, values: List[Any], values_per_line: int, indenta
     return lines
 
 
-def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any]) -> Dict[str, Any]:
+def find_object_annotation(sample_record: Dict[str, Any], sample_object: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Writes the records of the test image in labels.json as the listing of the first chapter: the image, the trapezoid
-    with its keypoint triplets, the circle distractor without keypoints, and the trapezoid category with its keypoint
-    names, skeleton and extra field, all read from the manifest.
+    Finds the labels.json annotation of an object of the dataset sample of the test image, the one of its class whose
+    keypoint triplets are those of the object, so that the listing shows the records of the object the chapters follow.
+
+    Args:
+        sample_record (Dict[str, Any]): The test image of load_test_sample.
+        sample_object (Dict[str, Any]): An object of describe_sample_objects.
+
+    Returns:
+        Dict[str, Any]: The annotation of the object.
+
+    Raises:
+        ValueError: If no annotation, or several, match the object.
+    """
+    categories = {category["id"]: category for category in sample_record["categories"]}
+    object_keypoints = numpy.concatenate([numpy.array(sample_object["positions"]),
+                                          numpy.array(sample_object["visibilities"])[:, None]], axis=1)
+    matches = [annotation for annotation in sample_record["annotations"]
+               if categories[annotation["category_id"]]["name"] == sample_object["class_name"]
+               and len(annotation["keypoints"]) == object_keypoints.size
+               and numpy.allclose(numpy.array(annotation["keypoints"]).reshape(-1, 3), object_keypoints,
+                                  atol=ANNOTATION_MATCH_TOLERANCE)]
+    if len(matches) != 1:
+        raise ValueError(f"{len(matches)} annotations of {sample_record['image_record']['file_name']} match the "
+                         f"{sample_object['class_name']} of the dataset sample, instead of one.")
+    return matches[0]
+
+
+def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any], objects: List[Dict[str, Any]],
+                         story_objects: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Writes the records of the test image in labels.json as the listing of the first chapter: the image, the single
+    object (the object alone in its class cut by the border) with its keypoint triplets, the first distractor without
+    keypoints, and the category of the single object with its keypoint names, skeleton and any extra field, all read
+    from the manifest. The chapter says that a keypoint of the single object outside the image is the triplet of three
+    zeros, which is checked.
 
     Args:
         output_folder (Path): The figures folder of the series.
         sample_record (Dict[str, Any]): The test image of load_test_sample.
+        objects (List[Dict[str, Any]]): The objects of describe_sample_objects.
+        story_objects (Dict[str, Any]): The objects named by their role, from select_story_objects.
 
     Returns:
-        Dict[str, Any]: The facts of the listing: the counts of the annotations of the image, the extra field and the
-            number of distractor categories (without keypoints) of the manifest.
+        Dict[str, Any]: The facts of the listing: the counts of the annotations of the image, the distractor, the
+            extra field and the number of distractor categories (without keypoints) of the manifest.
+
+    Raises:
+        ValueError: If the image holds no distractor, or if the unlabelled keypoint of the single object is not the
+            triplet of zeros of labels.json.
     """
     categories = {category["id"]: category for category in sample_record["categories"]}
     annotations = sample_record["annotations"]
-    trapezoid = next(annotation for annotation in annotations if categories[annotation["category_id"]]["name"] ==
-                     GRID_CLASS_NAME)
-    distractor = next(annotation for annotation in annotations if not annotation["keypoints"])
-    trapezoid_category = categories[trapezoid["category_id"]]
-    extra_fields = [key for key in trapezoid_category if key not in ("id", "name", "keypoints", "skeleton",
-                                                                       "supercategory")]
+    single_annotation = find_object_annotation(sample_record=sample_record,
+                                               sample_object=objects[story_objects["single"]])
+    distractors = [annotation for annotation in annotations if not annotation["keypoints"]]
+    if not distractors:
+        raise ValueError(f"No distractor in {sample_record['image_record']['file_name']}, whose records the listing "
+                         f"and the narration show.")
+    distractor = distractors[0]
+    single_category = categories[single_annotation["category_id"]]
+    extra_fields = [key for key in single_category if key not in ("id", "name", "keypoints", "skeleton",
+                                                                    "supercategory")]
+
+    # Keypoints of the single object outside the image, written as three zeros (not labelled)
+    triplets = numpy.array(single_annotation["keypoints"]).reshape(-1, 3)
+    unlabelled_triplets = triplets[triplets[:, 2] == 0]
+    if not len(unlabelled_triplets) or numpy.any(unlabelled_triplets != 0):
+        raise ValueError(f"The unlabelled keypoints of the {single_category['name']} of the listing are "
+                         f"{unlabelled_triplets.tolist()}, but the narration says they are triplets of zeros.")
 
     # Image record, then the two annotations, then the category, every record with its own fields
     image_record = sample_record["image_record"]
@@ -114,21 +181,23 @@ def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any]) -> 
              f'  {{"id": {image_record["id"]}, "file_name": {format_json_value(value=image_record["file_name"])},',
              f'   "width": {image_record["width"]}, "height": {image_record["height"]}}}, ...],',
              '"annotations": [',
-             f'  {{"id": {trapezoid["id"]}, "image_id": {trapezoid["image_id"]}, '
-             f'"category_id": {trapezoid["category_id"]},',
-             f'   "bbox": {format_json_value(value=trapezoid["bbox"])}, "area": {trapezoid["area"]},']
-    lines += wrap_json_list(prefix='"keypoints": ', values=trapezoid["keypoints"], values_per_line=6, indentation=3)
-    lines += [f'   "num_keypoints": {trapezoid["num_keypoints"]}, "iscrowd": {trapezoid["iscrowd"]}}},',
+             f'  {{"id": {single_annotation["id"]}, "image_id": {single_annotation["image_id"]}, '
+             f'"category_id": {single_annotation["category_id"]},',
+             f'   "bbox": {format_json_value(value=single_annotation["bbox"])}, "area": {single_annotation["area"]},']
+    lines += wrap_json_list(prefix='"keypoints": ', values=single_annotation["keypoints"], values_per_line=6,
+                            indentation=3)
+    lines += [f'   "num_keypoints": {single_annotation["num_keypoints"]}, '
+              f'"iscrowd": {single_annotation["iscrowd"]}}},',
               f'  {{"id": {distractor["id"]}, "image_id": {distractor["image_id"]}, '
               f'"category_id": {distractor["category_id"]},',
               f'   "keypoints": [], "num_keypoints": {distractor["num_keypoints"]}, ...}}, ...],',
               '"categories": [',
-              f'  {{"id": {trapezoid_category["id"]}, "name": {format_json_value(value=trapezoid_category["name"])},']
-    lines += wrap_json_list(prefix='"keypoints": ', values=trapezoid_category["keypoints"], values_per_line=2,
+              f'  {{"id": {single_category["id"]}, "name": {format_json_value(value=single_category["name"])},']
+    lines += wrap_json_list(prefix='"keypoints": ', values=single_category["keypoints"], values_per_line=2,
                             indentation=3)
-    field_lines = [f'   "skeleton": {format_json_value(value=trapezoid_category["skeleton"])}']
+    field_lines = [f'   "skeleton": {format_json_value(value=single_category["skeleton"])}']
     field_lines += [f'   {format_json_value(value=field_name)}: '
-                    f'{format_json_value(value=trapezoid_category[field_name])}' for field_name in extra_fields]
+                    f'{format_json_value(value=single_category[field_name])}' for field_name in extra_fields]
 
     # Every field line but the last ends with a comma, the last one closing the category and the list
     lines += [field_line + "," for field_line in field_lines[:-1]] + [field_lines[-1] + "}, ...]"]
@@ -139,21 +208,26 @@ def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any]) -> 
     listing_path.write_text(data="\n".join(lines) + "\n", encoding="utf-8")
     return {"labels_image_annotations": len(annotations),
             "labels_image_objects_with_keypoints": sum(1 for annotation in annotations if annotation["keypoints"]),
-            "labels_distractor_name": categories[distractor["category_id"]]["name"],
+            "labels_distractor_name": format_class_label(class_name=categories[distractor["category_id"]]["name"]),
             "labels_distractor_count": sum(1 for category in categories.values() if not category["keypoints"]),
             "labels_extra_field": extra_fields[0] if extra_fields else "none",
-            "labels_trapezoid_category_id": trapezoid["category_id"]}
+            "labels_single_category_id": single_annotation["category_id"],
+            "labels_single_keypoint_count": len(single_category["keypoints"]),
+            "labels_single_labelled_keypoints": single_annotation["num_keypoints"]}
 
 
-def draw_labelled_image(output_folder: Path, sample_record: Dict[str, Any], objects: List[Dict[str, Any]]) -> None:
+def draw_labelled_image(output_folder: Path, sample_record: Dict[str, Any], objects: List[Dict[str, Any]],
+                        story_objects: Dict[str, Any]) -> None:
     """
-    Draws the test image with the labelled keypoints of its objects, every object in its colour and the keypoints of
-    the trapezoid named, next to the listing of its labels.json records.
+    Draws the test image with the labelled keypoints of its objects, every object in its colour and the labelled
+    keypoints of the single object named, next to the listing of its labels.json records; the keypoints outside the
+    image, not labelled, are not drawn.
 
     Args:
         output_folder (Path): The figures folder of the series.
         sample_record (Dict[str, Any]): The test image of load_test_sample.
         objects (List[Dict[str, Any]]): The objects of describe_sample_objects.
+        story_objects (Dict[str, Any]): The objects named by their role, from select_story_objects.
     """
     register_fonts()
     image = sample_record["sample"]["images"].permute(1, 2, 0).numpy()[..., ::-1]
@@ -163,48 +237,66 @@ def draw_labelled_image(output_folder: Path, sample_record: Dict[str, Any], obje
     axes.imshow(X=image, interpolation="lanczos")
     axes.set_axis_off()
 
-    # Keypoints of every object in its colour, the names of the trapezoid corners next to them
+    # Labelled keypoints of every object in its colour, the names of those of the single object next to them
     for object_index, sample_object in enumerate(objects):
-        positions = numpy.array(sample_object["positions"])
+        positions = find_labelled_positions(sample_object=sample_object)
         axes.scatter(positions[:, 0], positions[:, 1], s=(9 * POINTS_PER_PIXEL) ** 2,
                      color=OBJECT_COLOURS[object_index], edgecolors=TEXT_PRIMARY_COLOUR,
                      linewidths=1.5 * POINTS_PER_PIXEL, zorder=3)
-        if sample_object["class_name"] == GRID_CLASS_NAME:
-            for keypoint_name, (position_x, position_y) in zip(sample_object["keypoint_names"], positions):
+        if object_index == story_objects["single"]:
+            labelled_names = [name for name, visibility in zip(sample_object["keypoint_names"],
+                                                               sample_object["visibilities"]) if visibility > 0]
+            placed_labels = []
+            for keypoint_name, (position_x, position_y) in zip(labelled_names, positions):
                 is_top = keypoint_name.startswith("top")
+                # Names near a side of the image aligned on that side, so that they stay inside it, and a name moved
+                # one line further from its keypoint when a name already placed on the same side is too close
+                alignment = ("left" if position_x < LABEL_SIDE_MARGIN else
+                             "right" if position_x > image.shape[1] - LABEL_SIDE_MARGIN else "center")
+                line = sum(1 for placed_x, placed_y, placed_top in placed_labels
+                           if placed_top == is_top and abs(placed_x - position_x) < LABEL_MINIMUM_SPACING
+                           and abs(placed_y - position_y) < LABEL_LINE_HEIGHT)
+                placed_labels.append((position_x, position_y, is_top))
+                label_offset = 14 + line * LABEL_LINE_HEIGHT
                 axes.annotate(text=keypoint_name, xy=(position_x, position_y),
-                              xytext=(0, 14 if is_top else -14), textcoords="offset pixels",
-                              ha="center", va="bottom" if is_top else "top", color=TEXT_PRIMARY_COLOUR,
-                              fontsize=17 * POINTS_PER_PIXEL)
+                              xytext=(0, label_offset if is_top else -label_offset), textcoords="offset pixels",
+                              ha=alignment, va="bottom" if is_top else "top", color=TEXT_PRIMARY_COLOUR,
+                              fontsize=17 * POINTS_PER_PIXEL, bbox=LABEL_BACKGROUND)
 
-    # The distractor named on its box, without any keypoint
+    # The distractor named under its box, without any keypoint, or above it when the box ends near the bottom border,
+    # so that the name leaves the shape visible
     categories = {category["id"]: category["name"] for category in sample_record["categories"]}
     for annotation in sample_record["annotations"]:
         if not annotation["keypoints"]:
             box_left, box_top, box_width, box_height = annotation["bbox"]
-            axes.text(x=box_left + box_width / 2, y=box_top + box_height / 2,
-                      s=f"{categories[annotation['category_id']]}\nno key points", ha="center", va="center",
-                      color=TEXT_PRIMARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
+            is_below = box_top + box_height + DISTRACTOR_LABEL_ROOM < image.shape[0]
+            axes.annotate(text=f"{format_class_label(class_name=categories[annotation['category_id']])}\nno key points",
+                          xy=(box_left + box_width / 2, box_top + box_height if is_below else box_top),
+                          xytext=(0, -8 if is_below else 8), textcoords="offset pixels", ha="center",
+                          va="top" if is_below else "bottom", color=TEXT_PRIMARY_COLOUR,
+                          fontsize=17 * POINTS_PER_PIXEL, bbox=LABEL_BACKGROUND)
     save_figure(figure=figure, output_path=output_folder / "dataset" / "labelled_image.png")
     pyplot.close(fig=figure)
 
 
 def write_channel_table(output_folder: Path, channel_table: numpy.ndarray,
-                        keypoint_categories: Dict[int, Dict[str, Any]],
-                        objects: List[Dict[str, Any]]) -> Dict[str, Any]:
+                        keypoint_categories: Dict[int, Dict[str, Any]], objects: List[Dict[str, Any]],
+                        story_objects: Dict[str, Any]) -> Dict[str, Any]:
     """
     Writes the data of the channel table animation: the first channel and keypoint count of every class, from the
-    channel table of the trained detector, and the classes of the test image highlighted by the storyboard.
+    channel table of the trained detector, and the classes of the single object and of the pair of the test image,
+    highlighted by the storyboard, which names their channels.
 
     Args:
         output_folder (Path): The figures folder of the series.
         channel_table (numpy.ndarray): The channel of every keypoint of every class.
         keypoint_categories (Dict[int, Dict[str, Any]]): The keypoint definition of every class.
         objects (List[Dict[str, Any]]): The objects of describe_sample_objects.
+        story_objects (Dict[str, Any]): The objects named by their role, from select_story_objects.
 
     Returns:
         Dict[str, Any]: The facts of the channels: their number, the classes, the most keypoints of a class and the
-            channels of the classes of the test image.
+            channels of the classes of the single object and of the pair.
     """
     classes = []
     for class_index in sorted(keypoint_categories):
@@ -213,21 +305,23 @@ def write_channel_table(output_folder: Path, channel_table: numpy.ndarray,
                         "first_channel": int(class_channels[0]), "count": int(len(class_channels))})
     total_channels = int(channel_table.max()) + 1
     largest_class = max(classes, key=operator.itemgetter("count"))
-    image_classes = sorted({sample_object["class_name"] for sample_object in objects})
+    role_classes = {"single": objects[story_objects["single"]]["class_name"],
+                    "pair": objects[story_objects["pair"][0]]["class_name"]}
     write_json(data={"classes": classes, "total_channels": total_channels, "table_rows": int(channel_table.shape[0]),
-                     "table_columns": int(channel_table.shape[1]), "highlighted_classes": image_classes},
+                     "table_columns": int(channel_table.shape[1]),
+                     "highlighted_classes": sorted(role_classes.values())},
                output_path=output_folder / "dataset" / "channel_table.json")
 
-    # Facts of the channels of every class of the image, by class name
+    # Facts of the channels of the classes of the single object and of the pair, by role
     facts = {"channels_total": total_channels, "channels_classes": len(classes),
              "channels_table_rows": int(channel_table.shape[0]), "channels_table_columns": int(channel_table.shape[1]),
-             "channels_largest_class": largest_class["name"].replace("_", " "),
+             "channels_largest_class": format_class_label(class_name=largest_class["name"]),
              "channels_largest_count": largest_class["count"]}
-    for class_record in classes:
-        if class_record["name"] in image_classes or class_record["name"] in ("square", "house"):
-            facts[f"channels_{class_record['name']}_first"] = class_record["first_channel"]
-            facts[f"channels_{class_record['name']}_last"] = class_record["first_channel"] + class_record["count"] - 1
-            facts[f"channels_{class_record['name']}_count"] = class_record["count"]
+    for role, class_name in role_classes.items():
+        class_record = next(record for record in classes if record["name"] == class_name)
+        facts[f"channels_{role}_first"] = class_record["first_channel"]
+        facts[f"channels_{role}_last"] = class_record["first_channel"] + class_record["count"] - 1
+        facts[f"channels_{role}_count"] = class_record["count"]
     return facts
 
 
@@ -267,20 +361,60 @@ def draw_heatmap_panel(figure: matplotlib.figure.Figure, left: int, image: numpy
     return axes
 
 
+def find_grid_keypoint(objects: List[Dict[str, Any]], story_objects: Dict[str, Any],
+                       stride_4_heatmaps: numpy.ndarray) -> int:
+    """
+    Chooses the keypoint of the single object whose target cells the grid of the storyboard shows: the first labelled
+    one whose window of GRID_HALF_SIDE cells around its cell lies inside the heatmap, and whose left and upper
+    neighbours are higher than its right and lower ones, as the narration says (the keypoint left of and above the
+    centre of its cell).
+
+    Args:
+        objects (List[Dict[str, Any]]): The objects of describe_sample_objects.
+        story_objects (Dict[str, Any]): The objects named by their role, from select_story_objects.
+        stride_4_heatmaps (numpy.ndarray): The [C, h, w] targets of the image at HEATMAP_STRIDE.
+
+    Returns:
+        int: The index of the keypoint in its class.
+
+    Raises:
+        ValueError: If no keypoint of the single object meets these conditions.
+    """
+    single_object = objects[story_objects["single"]]
+    heatmap_height, heatmap_width = stride_4_heatmaps.shape[1:]
+    for keypoint_index, ((position_x, position_y), visibility) in enumerate(zip(single_object["positions"],
+                                                                                 single_object["visibilities"])):
+        cell_column, cell_row = int(position_x // HEATMAP_STRIDE), int(position_y // HEATMAP_STRIDE)
+        window_inside = (GRID_HALF_SIDE <= cell_column < heatmap_width - GRID_HALF_SIDE and
+                         GRID_HALF_SIDE <= cell_row < heatmap_height - GRID_HALF_SIDE)
+        if visibility == 0 or not window_inside:
+            continue
+        channel_map = stride_4_heatmaps[single_object["channels"][keypoint_index]]
+        left_higher = channel_map[cell_row, cell_column - 1] > channel_map[cell_row, cell_column + 1]
+        upper_higher = channel_map[cell_row - 1, cell_column] > channel_map[cell_row + 1, cell_column]
+        if left_higher and upper_higher:
+            return keypoint_index
+    raise ValueError(f"No labelled keypoint of the {single_object['class_name']} of the test image lies left of and "
+                     f"above the centre of its cell, {GRID_HALF_SIDE} cells inside the heatmap, as the grid scene "
+                     f"says.")
+
+
 def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], channel_table: numpy.ndarray,
-                        objects: List[Dict[str, Any]], heatmap_sigma: float) -> Dict[str, Any]:
+                        objects: List[Dict[str, Any]], story_objects: Dict[str, Any],
+                        heatmap_sigma: float) -> Dict[str, Any]:
     """
     Builds the targets of the test image with build_keypoint_targets and draws them next to the image at both
-    strides (the maximum over the channels, every peak cell at 1), and gives the values of the cells around the top
-    left corner of the trapezoid at HEATMAP_STRIDE for the grid of the storyboard, with the counts of positive and
-    non-zero cells. The facts of the two strides keep the names stride_4 and stride_2 of the other figure families,
-    their strides being HEATMAP_STRIDE and BRANCH_SCALE_FACTOR finer.
+    strides (the maximum over the channels, every peak cell at 1), and gives the values of the cells around one
+    keypoint of the single object at HEATMAP_STRIDE (find_grid_keypoint) for the grid of the storyboard, with the
+    counts of positive and non-zero cells. The facts of the two strides keep the names stride_4 and stride_2 of the
+    other figure families, their strides being HEATMAP_STRIDE and BRANCH_SCALE_FACTOR finer.
 
     Args:
         output_folder (Path): The figures folder of the series.
         sample_record (Dict[str, Any]): The test image of load_test_sample.
         channel_table (numpy.ndarray): The channel of every keypoint of every class.
         objects (List[Dict[str, Any]]): The objects of describe_sample_objects.
+        story_objects (Dict[str, Any]): The objects named by their role, from select_story_objects.
         heatmap_sigma (float): 'KeypointHead.heatmap_sigma' of the run.
 
     Returns:
@@ -305,15 +439,19 @@ def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], chan
         facts[f"targets_{stride_name}_positive_share"] = round_fact(value=(heatmaps == 1.0).mean())
     facts["targets_trained_keypoints"] = int(targets["tag_valid"].sum())
 
-    # Window of cells around the top left corner of the trapezoid at HEATMAP_STRIDE, its keypoint in its cell
-    trapezoid = next(sample_object for sample_object in objects if sample_object["class_name"] == GRID_CLASS_NAME)
-    keypoint_index = trapezoid["keypoint_names"].index(GRID_KEYPOINT_NAME)
-    position_x, position_y = trapezoid["positions"][keypoint_index]
-    channel = trapezoid["channels"][keypoint_index]
+    # Window of cells around one keypoint of the single object at HEATMAP_STRIDE, its keypoint in its cell
+    single_object = objects[story_objects["single"]]
+    keypoint_index = find_grid_keypoint(objects=objects, story_objects=story_objects,
+                                        stride_4_heatmaps=stride_heatmaps["stride_4"][1])
+    position_x, position_y = single_object["positions"][keypoint_index]
+    channel = single_object["channels"][keypoint_index]
     cell_column, cell_row = int(position_x // HEATMAP_STRIDE), int(position_y // HEATMAP_STRIDE)
     window = stride_heatmaps["stride_4"][1][channel, cell_row - GRID_HALF_SIDE:cell_row + GRID_HALF_SIDE + 1,
                                             cell_column - GRID_HALF_SIDE:cell_column + GRID_HALF_SIDE + 1]
-    facts.update({"grid_values": [[round(float(value), 2) for value in row] for row in window],
+    facts.update({"grid_class_name": single_object["class_name"],
+                  "grid_keypoint_name": single_object["keypoint_names"][keypoint_index],
+                  "grid_keypoint_label": format_class_label(class_name=single_object["keypoint_names"][keypoint_index]),
+                  "grid_values": [[round(float(value), 2) for value in row] for row in window],
                   "grid_column_labels": [str(column) for column in range(cell_column - GRID_HALF_SIDE,
                                                                          cell_column + GRID_HALF_SIDE + 1)],
                   "grid_row_labels": [str(row) for row in range(cell_row - GRID_HALF_SIDE,
@@ -337,7 +475,7 @@ def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], chan
                                     subtitle=f"{facts['targets_trained_keypoints']} labelled key points, "
                                              f"{image.shape[1]} x {image.shape[0]}")
     for object_index, sample_object in enumerate(objects):
-        positions = numpy.array(sample_object["positions"])
+        positions = find_labelled_positions(sample_object=sample_object)
         image_axes.scatter(positions[:, 0], positions[:, 1], s=(6 * POINTS_PER_PIXEL) ** 2,
                            color=OBJECT_COLOURS[object_index], edgecolors=TEXT_PRIMARY_COLOUR,
                            linewidths=POINTS_PER_PIXEL, zorder=3)
@@ -351,16 +489,17 @@ def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], chan
     save_figure(figure=figure, output_path=output_folder / "dataset" / "targets.png")
     pyplot.close(fig=figure)
 
-    # Boxes of the panels and of the trapezoid in every panel, in pixels of the figure, for the storyboard
-    categories = {category["id"]: category["name"] for category in sample_record["categories"]}
-    box_left, box_top, box_width, box_height = next(annotation["bbox"] for annotation in sample_record["annotations"]
-                                                    if categories[annotation["category_id"]] == GRID_CLASS_NAME)
-    pixel_scale = TARGET_PANEL_SIDE / sample["images"].shape[2]
+    # Boxes of the panels and of the single object in every panel, in pixels of the figure, for the storyboard, the box
+    # of the object kept inside its panel
+    box_left, box_top, box_right, box_bottom = sample["bounding_boxes"][story_objects["single"]].tolist()
+    image_size = sample["images"].shape[2]
+    pixel_scale = TARGET_PANEL_SIDE / image_size
     for panel_name, panel_left in zip(["image", "stride_4", "stride_2"], panel_lefts):
         facts[f"targets_{panel_name}_panel_box"] = [panel_left, TARGET_PANEL_TOP, panel_left + TARGET_PANEL_SIDE,
                                                     TARGET_PANEL_TOP + TARGET_PANEL_SIDE]
-        facts[f"targets_{panel_name}_trapezoid_box"] = [
-            round(panel_left + (box_left - 8) * pixel_scale), round(TARGET_PANEL_TOP + (box_top - 8) * pixel_scale),
-            round(panel_left + (box_left + box_width + 8) * pixel_scale),
-            round(TARGET_PANEL_TOP + (box_top + box_height + 8) * pixel_scale)]
+        facts[f"targets_{panel_name}_single_box"] = [
+            round(panel_left + max(box_left - 8, 0) * pixel_scale),
+            round(TARGET_PANEL_TOP + max(box_top - 8, 0) * pixel_scale),
+            round(panel_left + min(box_right + 8, image_size) * pixel_scale),
+            round(TARGET_PANEL_TOP + min(box_bottom + 8, image_size) * pixel_scale)]
     return facts

@@ -5,8 +5,8 @@ resolution network and of both heads, recorded on the test image by the inferenc
 parameters of every component (the labels of the architecture diagrams and the data of the exchange animation); the
 heatmap loss of the test image split into the part of the keypoint cells and of the other cells, with every cell at the
 prior probability of the untrained heads and with the trained weights; the tags of the trained detector at the
-keypoints of the three objects (the data of the tag animation); and the training curves of the run read from its
-TensorBoard logs.
+keypoints of the objects of the image (the data of the tag animation), with the distance of the mean tags of its two
+objects of one class; and the training curves of the run read from its TensorBoard logs.
 """
 
 import math
@@ -41,8 +41,22 @@ LOSS_CURVES = {"Total Loss": SERIES_COLOURS[0]}
 TAG_CURVES = {"Tag Pull Loss": SERIES_COLOURS[2], "Tag Push Loss": SERIES_COLOURS[3]}
 FACT_ONLY_CURVES = ["Heatmap Loss"]
 
-# Iterations between two labelled ticks of the training curves
+# Iterations between two labelled ticks of the training curves, also the window of the mean tag losses the narration
+# compares at the start and at the end of the run
 ITERATION_TICK_STEP = 1000
+
+# Top of the total loss panel (log scale), above the first losses of a run, the lowest top of the tag loss panel, and
+# the iterations after which the smoothed tag losses must stay inside their panel
+LOSS_PANEL_TOP = 20.0
+TAG_PANEL_TOP = 0.02
+SMOOTHING_SETTLED_ITERATIONS = 100
+
+# Shares the narration of the training curves states: the heatmap loss is almost all of the last smoothed total loss,
+# the pull loss of the last window is less than half the one of the first window ("falls"), the push loss of the last
+# window more than this share of the one of the first window ("barely falls")
+HEATMAP_LOSS_SHARE = 0.9
+PULL_LOSS_FALL_SHARE = 0.5
+PUSH_LOSS_KEPT_SHARE = 0.8
 
 
 def format_shape(shape: List[int]) -> str:
@@ -218,17 +232,23 @@ def describe_heatmap_losses(inference_facts: Dict[str, Any], sample_record: Dict
     return facts
 
 
-def describe_tags(inference_facts: Dict[str, Any], output_folder: Path) -> Dict[str, Any]:
+def describe_tags(inference_facts: Dict[str, Any], story_objects: Dict[str, Any],
+                  output_folder: Path) -> Dict[str, Any]:
     """
     Writes the data of the tag animation, the tags of the trained detector at the labelled keypoints of every object
-    of the test image, and gives the facts of the tag losses of the image.
+    of the test image, and gives the facts of the tag losses of the image, with the distance of the mean tags of the
+    pair (its two objects of one class), which the chapters say the training did not separate.
 
     Args:
         inference_facts (Dict[str, Any]): The facts of run_keypoint_inference.
+        story_objects (Dict[str, Any]): The objects named by their role, from select_story_objects.
         output_folder (Path): The figures folder of the series.
 
     Returns:
         Dict[str, Any]: The flat facts of the tags.
+
+    Raises:
+        ValueError: If the mean tags of the pair are half a unit apart or more, the grouping then telling them apart.
     """
     objects = []
     facts = {}
@@ -242,15 +262,18 @@ def describe_tags(inference_facts: Dict[str, Any], output_folder: Path) -> Dict[
         facts[f"tags_object_{object_index + 1}_spread"] = round_fact(value=numpy.abs(tags - tags.mean()).max())
         facts[f"tags_object_{object_index + 1}_name"] = sample_object["class_name"].replace("_", " ")
 
-    # Pairs of objects of the same class, the only ones the push loss compares
-    same_class_distances = [abs(first["mean"] - second["mean"]) for first_index, first in enumerate(objects)
-                            for second in objects[first_index + 1:] if first["class_index"] == second["class_index"]]
+    # The pair, the only objects the push loss compares, not separated when their mean tags round to the same unit
+    first_index, second_index = story_objects["pair"]
+    pair_distance = abs(objects[first_index]["mean"] - objects[second_index]["mean"])
+    if pair_distance >= 0.5:
+        raise ValueError(f"The mean tags of the two {objects[first_index]['name']} objects are {pair_distance:.3f} "
+                         f"apart, so the trained detector separates them: reword the tag and grouping scenes, which "
+                         f"say it does not.")
     facts.update({"tags_pull_loss": inference_facts["inference_tag_pull_loss"],
                   "tags_push_loss": inference_facts["inference_tag_push_loss"],
                   "tags_weighted_pull_loss": inference_facts["inference_weighted_tag_pull_loss"],
                   "tags_weighted_push_loss": inference_facts["inference_weighted_tag_push_loss"],
-                  "tags_same_class_distance": round_fact(value=same_class_distances[0])
-                  if same_class_distances else 0.0,
+                  "tags_pair_distance": round_fact(value=pair_distance),
                   "tags_minimum": round_fact(value=min(min(item["tags"]) for item in objects)),
                   "tags_maximum": round_fact(value=max(max(item["tags"]) for item in objects))})
     write_json(data={"objects": objects, "pull_loss": facts["tags_pull_loss"], "push_loss": facts["tags_push_loss"]},
@@ -280,7 +303,9 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     """
     Draws the training curves of the keypoint run, its total and heatmap losses (log scale) and its weighted tag
     losses, read from Tensorboard/Train: the empty axes for the base image of the scene, or the whole chart for its
-    overlay, whose curves the scene uncovers.
+    overlay, whose curves the scene uncovers. The facts give the first, last and last smoothed value of every loss and
+    the mean of every loss over the first and the last ITERATION_TICK_STEP iterations, and the shares the narration
+    states are checked.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -291,6 +316,10 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
 
     Returns:
         Dict[str, Any]: The facts of the curves and the boxes of the panels.
+
+    Raises:
+        ValueError: If the total loss leaves its panel, or if the losses no longer behave as the narration says (the
+            heatmap loss almost all of the total, the pull loss falling, the push loss barely falling).
     """
     register_fonts()
     log_folder = run_folder / "Tensorboard" / "Train"
@@ -304,9 +333,18 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     style_curve_panel(axes=loss_axes, title="Total loss (log scale)", last_iteration=last_iteration, y_label="Loss")
     style_curve_panel(axes=tag_axes, title=f"Tag losses, weighted by {tag_loss_weight:g}",
                       last_iteration=last_iteration, y_label="Loss")
+
+    # Total loss panel from the power of ten below its lowest raw value, tag panel above the highest smoothed value
+    # once the smoothing has settled (the first smoothed values, of a few batches, may leave the panel)
+    total_values = curves["Total Loss"][1]
+    if total_values.max() > LOSS_PANEL_TOP:
+        raise ValueError(f"The total loss of the run reaches {total_values.max():.2f}, above the top {LOSS_PANEL_TOP} "
+                         f"of its panel.")
     loss_axes.set_yscale(value="log")
-    loss_axes.set_ylim(bottom=0.2, top=20.0)
-    tag_axes.set_ylim(bottom=0.0, top=0.02)
+    loss_axes.set_ylim(bottom=10.0 ** math.floor(math.log10(total_values.min())), top=LOSS_PANEL_TOP)
+    largest_tag_loss = max(smooth_values(values=curves[tag][1], weight=SMOOTHING_WEIGHT)[
+        curves[tag][0] > SMOOTHING_SETTLED_ITERATIONS].max() for tag in TAG_CURVES)
+    tag_axes.set_ylim(bottom=0.0, top=max(TAG_PANEL_TOP, math.ceil(1.25 * largest_tag_loss / 0.005) * 0.005))
 
     # Curves of both panels, smoothed like TensorBoard, with their legend
     facts = {"curves_last_iteration": last_iteration}
@@ -335,6 +373,26 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
         facts[f"curves_{fact_name}_last"] = round_fact(value=values[-1])
         facts[f"curves_{fact_name}_last_smoothed"] = round_fact(value=smooth_values(values=values,
                                                                                     weight=SMOOTHING_WEIGHT)[-1])
+
+    # Mean of every loss over the first and the last window of iterations, steadier than the smoothed curves for the
+    # tag losses, which jump between 0 and their maximum from one batch to the next
+    for tag, (iterations, values) in curves.items():
+        fact_name = tag.lower().replace(" ", "_")
+        facts[f"curves_{fact_name}_first_window_mean"] = round_fact(
+            value=values[iterations <= ITERATION_TICK_STEP].mean())
+        facts[f"curves_{fact_name}_last_window_mean"] = round_fact(
+            value=values[iterations > last_iteration - ITERATION_TICK_STEP].mean())
+    facts["curves_window_iterations"] = ITERATION_TICK_STEP
+
+    # The shares the narration states
+    heatmap_share = facts["curves_heatmap_loss_last_smoothed"] / facts["curves_total_loss_last_smoothed"]
+    pull_share = facts["curves_tag_pull_loss_last_window_mean"] / facts["curves_tag_pull_loss_first_window_mean"]
+    push_share = facts["curves_tag_push_loss_last_window_mean"] / facts["curves_tag_push_loss_first_window_mean"]
+    if heatmap_share < HEATMAP_LOSS_SHARE or pull_share > PULL_LOSS_FALL_SHARE or push_share < PUSH_LOSS_KEPT_SHARE:
+        raise ValueError(f"The training curves no longer behave as the narration says: heatmap share of the total "
+                         f"{heatmap_share:.3f} (at least {HEATMAP_LOSS_SHARE}), pull loss of the last window "
+                         f"{pull_share:.3f} of the first (at most {PULL_LOSS_FALL_SHARE}), push loss {push_share:.3f} "
+                         f"(at least {PUSH_LOSS_KEPT_SHARE}).")
     figure.canvas.draw()
     facts["curves_loss_panel_box"] = compute_pixel_box(figure=figure, axes=loss_axes, with_labels=True, margin=6)
     facts["curves_tag_panel_box"] = compute_pixel_box(figure=figure, axes=tag_axes, with_labels=True, margin=6)

@@ -1,8 +1,9 @@
 """
 Reading and drawing of the TensorBoard scalars of a real run for the training curve figures of the task series of the
-tutorial videos (keypoint detection and semantic segmentation): every value of a scalar read with tensorboard's
-EventAccumulator, the TensorBoard smoothing of a curve, and the drawing of one curve as its faint raw values under its
-smoothed line, in the anatomy of the charts of figure_utilities.py.
+tutorial videos (keypoint detection and semantic segmentation): the value of a scalar at every iteration read with
+tensorboard's EventAccumulator (the last written one when a relaunched run logged an iteration twice), the TensorBoard
+smoothing of a curve, and the drawing of one curve as its faint raw values under its smoothed line, in the anatomy of
+the charts of figure_utilities.py.
 """
 
 import matplotlib
@@ -20,7 +21,10 @@ SMOOTHING_WEIGHT = 0.95
 
 def read_scalars(log_folder: Path, tag: str) -> Tuple[numpy.ndarray, numpy.ndarray]:
     """
-    Reads every value of one scalar of a TensorBoard log folder of a run, the curve TensorBoard draws.
+    Reads every value of one scalar of a TensorBoard log folder of a run, one value per iteration in the order of the
+    iterations: when several event files log the same iteration (a launch stopped early and started again from the
+    same iteration, which writes a new file), the value written last is kept, so that the curve is the one of the
+    launch that went on.
 
     Args:
         log_folder (Path): The Train, Validation, Test or Test_EMA folder of the run.
@@ -39,7 +43,13 @@ def read_scalars(log_folder: Path, tag: str) -> Tuple[numpy.ndarray, numpy.ndarr
     accumulator.Reload()
     if tag not in accumulator.Tags()["scalars"]:
         raise KeyError(f"No scalar {tag!r} in {log_folder}, whose scalars are {accumulator.Tags()['scalars'][:20]}.")
-    events = accumulator.Scalars(tag)
+
+    # The last written value of every iteration, by wall time, then the iterations in order
+    latest_events = {}
+    for event in accumulator.Scalars(tag):
+        if event.step not in latest_events or event.wall_time >= latest_events[event.step].wall_time:
+            latest_events[event.step] = event
+    events = [latest_events[step] for step in sorted(latest_events)]
     return numpy.array([event.step for event in events]), numpy.array([event.value for event in events])
 
 
