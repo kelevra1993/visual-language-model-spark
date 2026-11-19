@@ -5,7 +5,7 @@
 </div>
 <div class="split">
 <div class="figure" style="flex:0 0 680px">
-<img src="/_blob/3db0e61c930577b91f3bf8dc5b3fd50c" alt="Console report of a synthetic shapes classifier at iteration 1500: global metrics, per-class metrics, then the classes worst first with their recall and its 95 % interval" style="width:680px; height:603px; object-fit:contain">
+<img src="/_blob/a7086e1e27f77420ebeb93d283f205db" alt="Console report of the synthetic shapes classifier at iteration 2000: global metrics, then the per-class metrics of its 35 classes, worst F1 first" style="width:680px; height:603px; object-fit:contain">
 </div>
 <div style="flex:1; display:flex; flex-direction:column; gap:24px">
 <ul class="points">
@@ -14,9 +14,9 @@
 <li>TensorBoard: Train, Validation, Test, Test_EMA.</li>
 </ul>
 <div class="figure">
-<img src="/_blob/b5103c5f4c2263c601a6ec0c63e277b8" alt="TensorBoard scalars of the same run: accuracy, balanced accuracy and total loss for the Train, Validation and Test runs" style="width:828px; height:429px; object-fit:contain">
+<img src="/_blob/4a9f3754db1dac8881490b2711c81fdc" alt="TensorBoard scalars of the same run: accuracy, balanced accuracy and total loss for the Train, Validation and Test runs" style="width:828px; height:429px; object-fit:contain">
 </div>
 </div>
 </div>
-<aside>At every evaluation the run prints this report and appends it to Results.txt: the global metrics, the per-class metrics and, with evaluation.per_class_report, the classes worst first with their recall and its 95 % confidence interval. Rates are written as percentages (“94.03 %”) and their changes in points (“+0.52 points”), while the files, TensorBoard and MLflow keep the values from 0 to 1. TensorBoard holds Train and Validation at every iteration, Test with sample images at every evaluation, and Test_EMA for the averaged weights. The screenshot is the synthetic shapes classifier at iteration 1500, scored on 50,000 test images: the weak classes (square, pentagon, circle) are visible at a glance.</aside>
+<aside>At every evaluation the run prints this report and appends it to Results.txt: the global metrics, the per-class metrics and, with evaluation.per_class_report, the classes worst first with their recall and its 95 % confidence interval. Rates are written as percentages (“94.03 %”) and their changes in points (“+0.52 points”), while the files, TensorBoard and MLflow keep the values from 0 to 1. TensorBoard holds Train and Validation at every iteration, Test with sample images at every evaluation, and Test_EMA for the averaged weights. The screenshot is the synthetic shapes classifier at iteration 2000, scored on 50,000 test images, up to its per-class table of the 35 classes: the weak classes (trapezoid, rhombus, hollow trapezoid) are visible at a glance at the top.</aside>
 </section>

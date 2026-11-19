@@ -484,14 +484,15 @@ committed): every image can be taken again from them without training, except wh
     classification run into `vision_training/deployment/triton/served_models` with `helpers/export_and_measure.py
     --step=export`, start Triton from that folder (`docker compose up -d`), run the same helper with `--step=measure`,
     keep the final line of every progress bar and render them with `helpers/render_console_capture.py`.
-29. **Sequence labelling that learns** (`README/sequence_labelling_sample.png`): the synthetic configuration
-    (`sequence_labelling/configuration_synthetic_sequences.yaml`) predicts `no_change` for every frame after its 2000
-    iterations (balanced accuracy 0.014, the share of one class out of 71, the loss stopping at about 2.85), so the
-    sample shows the captions and the X of the wrong frames but its right frames are all `no_change`. The run has no
-    class weights: the sequence labelling experiment plan saw a launch without them stay at the score of a model
-    predicting only no_change, and kept balanced class weights at this run's own learning rate, 1e-3
-    (`configuration_example.yaml`). The task needs balanced class weights and a longer training before its sample is
-    taken again.
+29. **Sequence labelling that learns** (`README/sequence_labelling_sample.png`): the sample is `test_000001` of the
+    sequence labelling tutorial run of 2026-11-15 (pretrained backbone, bidirectional LSTM 2x96, flatten, balanced class
+    weights, 2000 iterations: accuracy 77.16 %, balanced accuracy 72.17 % on the 10,000 test sequences of that day),
+    enlarged twice: 2 of its 5 labelled frames right (`no_change` and `disappearing_hollow_heptagon`) and 3 marked X,
+    such as `4 X disappearing_kite/disappearing_parallelogram`. The synthetic configuration
+    (`sequence_labelling/configuration_synthetic_sequences.yaml`) keeps a GRU and `class_weighting: "none"`: run as it
+    is for 2000 iterations on 2026-10-23, it predicted `no_change` for every frame (balanced accuracy 0.014, the share of
+    one class out of 71). The sequence labelling experiment plan kept balanced class weights at its learning rate, 1e-3
+    (`configuration_example.yaml`); the synthetic configuration could take them too.
 30. **Synthetic detection runs long enough for their samples**: the detection and instance segmentation configurations
     stop at 2000 iterations, where their detections rarely reach the 0.50 score threshold of the sample images
     (mAP@0.5 of 0.31 and 0.40), the samples showing empty predictions. The README samples come from the same runs
