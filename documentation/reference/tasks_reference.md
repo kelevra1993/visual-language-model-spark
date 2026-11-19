@@ -122,12 +122,12 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 ## Object Detection (DET)
 A two-stage detector. Every entry of `DetectionLevels` is a backbone level with its own anchors, region proposal head and detection head, which read the block directly or through a neck merging the levels. In training, the ground truth boxes are added to the proposals, so every object gives a positive proposal even when the region proposal network misses it.
 
-**Data.** A COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels of the original image. The crowd annotations (`"iscrowd": 1`) are ordinary objects.
+**Data.** A COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels of the original image. The other keys of a COCO export, such as `area` and `iscrowd`, are not read.
 
 ```json
 {
   "images": [{"id": 1, "file_name": "000001.png", "width": 1024, "height": 1024}],
-  "annotations": [{"id": 1, "image_id": 1, "category_id": 5, "bbox": [120, 340, 64, 48], "area": 3072, "iscrowd": 0}],
+  "annotations": [{"id": 1, "image_id": 1, "category_id": 5, "bbox": [120, 340, 64, 48]}],
   "categories": [{"id": 5, "name": "triangle"}]
 }
 ```
@@ -182,7 +182,7 @@ The detector of DET with one mask head per detection level, as in Mask R-CNN ([H
 **Data.** The COCO `labels.json` of DET, every object having a `segmentation`: polygons (flat `[x1, y1, x2, y2, ...]` lists in pixels of the original image) or a run length encoding `{"size": [height, width], "counts": ...}`, compressed or not.
 
 ```json
-{"id": 1, "image_id": 1, "category_id": 3, "iscrowd": 0, "segmentation": [[120, 388, 152, 340, 184, 388]]}
+{"id": 1, "image_id": 1, "category_id": 5, "segmentation": [[120, 388, 152, 340, 184, 388]]}
 ```
 
 - The masks are built at the network resolution. The box of every object is the tight box of its mask, so no `bbox` is needed.
@@ -227,7 +227,7 @@ A bottom-up keypoint detector, as in HigherHRNet ([Cheng et al., 2020](https://a
 
 ```json
 {
-  "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0, "bbox": [120, 40, 80, 200],
+  "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [120, 40, 80, 200],
                    "keypoints": [160, 60, 2, 140, 120, 2, 180, 120, 1], "num_keypoints": 3}],
   "categories": [{"id": 1, "name": "person", "keypoints": ["head", "left_hand", "right_hand"], "skeleton": [[1, 2], [1, 3]]}]
 }

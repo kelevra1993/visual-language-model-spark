@@ -93,11 +93,11 @@ def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str, lab
     Selects the objects of one image the object detection and instance segmentation networks learn from its COCO
     annotations, shared by CocoDetectionDataset, which loads them with the image, and by the anchor recall of the
     detection trainer at launch, which measures how well the anchors fit them without loading any image. Every
-    category is mapped to its class, a category mapped to the background (0) being left out, and the crowd annotations
-    (iscrowd 1) are objects like the others. The object detection reads the 'bbox' of every object; the instance
-    segmentation reads its box from its 'segmentation' instead (compute_segmentation_bounding_box), so that its
-    annotations need no 'bbox' and its boxes always follow its masks, an object whose segmentation has no usable part
-    being left out.
+    category is mapped to its class, a category mapped to the background (0) being left out, and the other keys of an
+    annotation are not read (a COCO crowd is an object like the others). The object detection reads the 'bbox' of
+    every object; the instance segmentation reads its box from its 'segmentation' instead
+    (compute_segmentation_bounding_box), so that its annotations need no 'bbox' and its boxes always follow its masks,
+    an object whose segmentation has no usable part being left out.
 
     Args:
         annotations (List[Dict[str, Any]]): The COCO annotations of the image.
@@ -173,8 +173,7 @@ class CocoDetectionDataset(Dataset):
             label_mode (str): Mode for class assignment ("binary" or "multi_class").
             label_dictionary (Dict[str, Any]): Dictionary to map raw classes.
             load_instance_masks (bool): Whether to return the binary mask of every object (instance segmentation).
-                Defaults to False (object detection). The crowd annotations are objects like the others in both
-                tasks.
+                Defaults to False (object detection).
             load_instance_index_maps (bool): Whether the masks of the objects of an image come as one [S, S] uint8
                 instance index map (k on the pixels of the k-th object) instead of [N, S, S] binary masks
                 ('Data.instance_index_maps'), for run length encodings whose masks never overlap. Needs

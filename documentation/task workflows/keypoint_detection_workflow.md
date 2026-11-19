@@ -415,12 +415,12 @@ The sample holds the resized image, the boxes in `[x1, y1, x2, y2]` resized imag
 **Example: the test image 25, `test_000024.png`, and its records in `labels.json`** (the keypoint lists shortened)
 ```text
 image record {'id': 25, 'file_name': 'test_000024.png', 'width': 512, 'height': 512}
-annotation {'id': 82, 'image_id': 25, 'category_id': 11, 'bbox': [44, 274, 79, 29], 'area': 2291, 'iscrowd': 0,
+annotation {'id': 82, 'image_id': 25, 'category_id': 11, 'bbox': [44, 274, 79, 29],
             'keypoints': [44.5, 274.5, 2, 107.5, 274.5, 2, 122.5, 302.5, 2, 59.5, 302.5, 2], 'num_keypoints': 4}
-annotation {'id': 83, 'image_id': 25, 'category_id': 27, 'bbox': [68, 191, 67, 37], 'area': 2479, 'iscrowd': 0,
+annotation {'id': 83, 'image_id': 25, 'category_id': 27, 'bbox': [68, 191, 67, 37],
             'keypoints': [101.5, 191.5, 2, 134.5, 209.5, 2, 101.5, 227.5, 2, 68.5, 209.5, 2, 101.5, 201.77, 2, ...], ...}
 annotation {'id': 84, 'image_id': 25, 'category_id': 28, 'bbox': [242, 247, 67, 21], ...}
-annotation {'id': 85, 'image_id': 25, 'category_id': 17, 'bbox': [176, 31, 121, 61], 'area': 7381, 'iscrowd': 0,
+annotation {'id': 85, 'image_id': 25, 'category_id': 17, 'bbox': [176, 31, 121, 61],
             'keypoints': [236.5, 31.0, 2, 236.5, 92.0, 2, 176.0, 92.0, 2, 297.0, 92.0, 2], 'num_keypoints': 4}
   images               (3, 512, 512) torch.uint8
   bounding_boxes       (4, 4) torch.float32 [[44.0, 274.0, 123.0, 303.0], [68.0, 191.0, 135.0, 228.0], [242.0, 247.0, 309.0, 268.0],

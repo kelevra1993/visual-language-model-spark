@@ -52,7 +52,7 @@ def format_annotation(annotation: Dict[str, Any]) -> List[str]:
     shown_counts = ", ".join(str(value) for value in counts[:RUN_LENGTH_VALUES_SHOWN])
     return ["annotations[0]",
             f"  id {annotation['id']}   image_id {annotation['image_id']}   category_id {annotation['category_id']}",
-            f"  bbox {annotation['bbox']}   area {annotation['area']}   iscrowd {annotation['iscrowd']}",
+            f"  bbox {annotation['bbox']}",
             f"  segmentation size {annotation['segmentation']['size']}",
             f"    counts [{shown_counts}, ...]   {len(counts)} values, sum {sum(counts):,}"]
 

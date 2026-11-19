@@ -183,11 +183,10 @@ def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any], obj
              '"annotations": [',
              f'  {{"id": {single_annotation["id"]}, "image_id": {single_annotation["image_id"]}, '
              f'"category_id": {single_annotation["category_id"]},',
-             f'   "bbox": {format_json_value(value=single_annotation["bbox"])}, "area": {single_annotation["area"]},']
+             f'   "bbox": {format_json_value(value=single_annotation["bbox"])},']
     lines += wrap_json_list(prefix='"keypoints": ', values=single_annotation["keypoints"], values_per_line=6,
                             indentation=3)
-    lines += [f'   "num_keypoints": {single_annotation["num_keypoints"]}, '
-              f'"iscrowd": {single_annotation["iscrowd"]}}},',
+    lines += [f'   "num_keypoints": {single_annotation["num_keypoints"]}}},',
               f'  {{"id": {distractor["id"]}, "image_id": {distractor["image_id"]}, '
               f'"category_id": {distractor["category_id"]},',
               f'   "keypoints": [], "num_keypoints": {distractor["num_keypoints"]}, ...}}, ...],',

@@ -323,20 +323,22 @@ Before a first launch on your own data, every split needs a `labels.json` listin
 To turn the categories into classes, `label_mapping.json` (`Data.label_mapping.mapping_file_path`, `mode: "multi_class"`) gives every category identifier of `labels.json`, written as a string, its class index. The classes start at 0 for CLS, M2O, M2M, CMP and SEL, and at 1 for DET, INS, KPT and SEG, whose class 0 is the background; they must have no gaps.
 
 ```jsonc
-{                // CLS, M2O, M2M, CMP, SEL: classes from 0
-  "1": 0,        // category 1 (circle)    -> class 0
-  "2": 1,        // category 2 (square)    -> class 1
-  "4": 1,        // category 4 (rectangle) -> class 1 too: merged with the squares, the class named square+rectangle
-  "5": 2         // category 5 (triangle)  -> class 2; category 3, not written, is left out
-}
+{                 // CLS, M2O, M2M, CMP, SEL: classes from 0
+  "1": 0,         // circle    -> class 0
+  "2": 1,         // square    -> class 1
+  "4": 1,         // rectangle -> class 1 too: merged with the
+                  //   squares, the class named square+rectangle
+  "5": 2          // triangle  -> class 2
+}                 // star (3), not written, is left out
 ```
 
 ```jsonc
-{                // DET, INS, KPT, SEG: classes from 1, class 0 being the background
-  "1": 1,        // category 1 (circle) -> class 1
-  "2": 2,        // category 2 (square) -> class 2
-  "3": 0         // category 3 (star)   -> 0: left out like a category not written
-}
+{                 // DET, INS, KPT, SEG: classes from 1,
+                  //   class 0 being the background
+  "1": 1,         // circle -> class 1
+  "2": 2,         // square -> class 2
+  "3": 0          // star   -> 0: left out like a category
+}                 //   not written
 ```
 
 A category left out skips its samples (CLS, M2O, CMP), leaves the classes of its multi-label samples, makes its frames ignored (M2M) or unselected (SEL), its objects ignored (DET, INS, KPT) and its pixels background (SEG). DET, INS and SEG also accept `mode: "binary"`, every category becoming class 1 without a mapping file.
@@ -345,15 +347,27 @@ If each image shows one class (CLS, and SSL, whose categories only serve its k-N
 
 ```jsonc
 {
-  "categories": [                                                       // every category, with an integer identifier
-    {"id": 1, "name": "circle"},
+  "categories": [                     // every category,
+    {"id": 1, "name": "circle"},      //   with an integer identifier
     {"id": 2, "name": "square"},
     {"id": 3, "name": "star"}
   ],
-  "samples": [                                                          // one entry per image
-    {"id": 1, "file_name": "image_0001.png", "category_id": 2},        // data/image_0001.png shows a square
-    {"id": 2, "file_name": "image_0002.png", "category_id": 1},
-    {"id": 3, "file_name": "night/image_0003.png", "category_id": 3}   // a subfolder of data/ stays in the name
+  "samples": [                        // one entry per image
+    {
+      "id": 1,
+      "file_name": "image_0001.png",  // data/image_0001.png
+      "category_id": 2                // shows a square
+    },
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "category_id": 1
+    },
+    {
+      "id": 3,
+      "file_name": "night/image_0003.png",  // a subfolder of data/
+      "category_id": 3                      //   stays in the name
+    }
   ]
 }
 ```
@@ -362,9 +376,21 @@ Should an image hold several classes at once (`ClassificationHead.output_mode: "
 
 ```jsonc
   "samples": [
-    {"id": 1, "file_name": "image_0001.png", "category_ids": [1, 3]},   // a circle and a star
-    {"id": 2, "file_name": "image_0002.png", "category_ids": [2]},      // a square only
-    {"id": 3, "file_name": "image_0003.png", "category_ids": [1, 2, 3]}
+    {
+      "id": 1,
+      "file_name": "image_0001.png",
+      "category_ids": [1, 3]          // a circle and a star
+    },
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "category_ids": [2]             // a square only
+    },
+    {
+      "id": 3,
+      "file_name": "image_0003.png",
+      "category_ids": [1, 2, 3]
+    }
   ]
 ```
 
@@ -372,32 +398,72 @@ For a segmentation (SEG), every image comes with its mask in `masks/`, a single-
 
 ```jsonc
 {
-  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "star"}],
+  "categories": [
+    {"id": 1, "name": "circle"},
+    {"id": 2, "name": "square"},
+    {"id": 3, "name": "star"}
+  ],
   "samples": [
-    {"id": 1, "file_name": "image_0001.png", "mask_file_name": "image_0001.png",   // masks/image_0001.png
-     "category_ids": [1, 3]},                                                     // optional, for the class counts
-    {"id": 2, "file_name": "image_0002.png", "mask_file_name": "image_0002.png", "category_ids": [2]}
+    {
+      "id": 1,
+      "file_name": "image_0001.png",
+      "mask_file_name": "image_0001.png",  // masks/image_0001.png
+      "category_ids": [1, 3]               // optional, for the
+    },                                     //   class counts
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "mask_file_name": "image_0002.png",
+      "category_ids": [2]
+    }
   ]
 }
 ```
 
-Whenever objects are located by boxes (DET), `labels.json` is a COCO file: the images, one annotation per object, and the categories:
+Whenever objects are located by boxes (DET), `labels.json` is a COCO file: the images, one annotation per object, and the categories; the other keys of a COCO export, such as `area` and `iscrowd`, are not read:
 
 ```jsonc
 {
-  "images": [                                                                     // one entry per image
-    {"id": 1, "file_name": "image_0001.png", "width": 512, "height": 512},
-    {"id": 2, "file_name": "image_0002.png", "width": 640, "height": 480}
+  "images": [                         // one entry per image
+    {
+      "id": 1,
+      "file_name": "image_0001.png",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "width": 640,
+      "height": 480
+    }
   ],
-  "annotations": [                                                                // one entry per object
-    {"id": 1, "image_id": 1, "category_id": 2, "bbox": [120, 340, 64, 48],      // [x, y, width, height] in pixels
-     "area": 3072, "iscrowd": 0},
-    {"id": 2, "image_id": 1, "category_id": 1, "bbox": [300, 80, 90, 90],       // a second object of image 1
-     "area": 8100, "iscrowd": 0},
-    {"id": 3, "image_id": 2, "category_id": 3, "bbox": [10, 200, 150, 120], "area": 18000, "iscrowd": 0}
+  "annotations": [                    // one entry per object
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 2,
+      "bbox": [120, 340, 64, 48]      // [x, y, width, height]
+    },                                //   in pixels
+    {
+      "id": 2,
+      "image_id": 1,                  // a second object of image 1
+      "category_id": 1,
+      "bbox": [300, 80, 90, 90]
+    },
+    {
+      "id": 3,
+      "image_id": 2,
+      "category_id": 3,
+      "bbox": [10, 200, 150, 120]
+    }
   ],
-  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "star"},
-                 {"id": 5, "name": "triangle"}]                                // identifiers may have gaps
+  "categories": [                     // identifiers may have gaps
+    {"id": 1, "name": "circle"},
+    {"id": 2, "name": "square"},
+    {"id": 3, "name": "star"},
+    {"id": 5, "name": "triangle"}
+  ]
 }
 ```
 
@@ -405,27 +471,91 @@ In order to train masks (INS), every annotation also gives its `segmentation`, t
 
 ```jsonc
   "annotations": [
-    {"id": 1, "image_id": 1, "category_id": 5, "iscrowd": 0,             // a triangle
-     "segmentation": [[120, 388, 152, 340, 184, 388]]},                  // polygons, flat [x1, y1, x2, y2, ...] in pixels
-    {"id": 2, "image_id": 1, "category_id": 2, "iscrowd": 0,
-     "segmentation": {"size": [512, 512], "counts": "f\\i01o?1O001..."}} // or a run length encoding, compressed or not
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 5,               // a triangle
+      "segmentation": [               // polygons, each a flat
+        [120, 388, 152, 340, 184, 388]  // [x1, y1, x2, y2, ...]
+      ]                               //   list in pixels
+    },
+    {
+      "id": 2,
+      "image_id": 1,
+      "category_id": 2,
+      "segmentation": {               // or a run length encoding,
+        "size": [512, 512],           //   compressed or not
+        "counts": "f\\i01o?1O001..."
+      }
+    }
   ]
 ```
 
-Suppose the objects have named points (KPT): every annotation lists its `keypoints` as `[x, y, v]` triples in pixels, v being 2 (visible), 1 (hidden) or 0 (not labelled), and every category names its keypoints and the pairs drawn as lines:
+Suppose the objects have named points (KPT). Every category lists the names of its keypoints, and every annotation gives one `x, y, v` triple per name, in the same order, so that the place of a triple in the list says which point it is. The flag `v` says what is known of the point:
+
+- 2, visible: the point is seen in the image.
+- 1, hidden: the point is in the image but covered, by another object for instance, and its position is still known; it is learned and scored like a visible point.
+- 0, not labelled: the position is unknown (outside the image, or never annotated); the triple stays, written `0, 0, 0`, so that the next points keep their places, and the point is neither learned nor scored.
+
+The `skeleton` of a category is optional and only draws lines between its points in the sample images; each pair gives the places of two names in its `keypoints` list, counted from 1:
 
 ```jsonc
   "annotations": [
-    {"id": 1, "image_id": 1, "category_id": 2, "bbox": [65, 228, 206, 206], "iscrowd": 0, "num_keypoints": 4,
-     "keypoints": [65, 228, 2, 271, 228, 2, 271, 434, 2, 65, 434, 1]},    // 4 corners, the last one hidden
-    {"id": 2, "image_id": 1, "category_id": 5, "bbox": [300, 40, 120, 100], "iscrowd": 0, "num_keypoints": 2,
-     "keypoints": [360, 40, 2, 420, 140, 2, 0, 0, 0]}                      // its third keypoint not labelled
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 2,               // a square: 4 named points
+      "bbox": [65, 228, 206, 206],
+      "keypoints": [                  // x, y, v of every name
+        65, 228, 2,                   // top_left: visible
+        271, 228, 2,                  // top_right: visible
+        271, 434, 2,                  // bottom_right: visible
+        65, 434, 1                    // bottom_left: hidden under
+      ]                               //   another object, still learned
+    },
+    {
+      "id": 2,
+      "image_id": 1,
+      "category_id": 5,               // a triangle: 3 named points
+      "bbox": [300, 40, 120, 100],
+      "keypoints": [
+        360, 40, 2,                   // top: visible
+        420, 140, 2,                  // bottom_right: visible
+        0, 0, 0                       // bottom_left: not labelled,
+      ]                               //   0, 0, 0 keeps its place
+    }
   ],
   "categories": [
-    {"id": 2, "name": "square", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"],
-     "skeleton": [[1, 2], [2, 3], [3, 4], [4, 1]]},                        // 1-based keypoint pairs
-    {"id": 5, "name": "triangle", "keypoints": ["top", "bottom_right", "bottom_left"],
-     "skeleton": [[1, 2], [2, 3], [3, 1]]}
+    {
+      "id": 2,
+      "name": "square",
+      "keypoints": [                  // the names, in triple order
+        "top_left",                   // 1
+        "top_right",                  // 2
+        "bottom_right",               // 3
+        "bottom_left"                 // 4
+      ],
+      "skeleton": [                   // lines drawn between points:
+        [1, 2],                       //   top_left to top_right
+        [2, 3],                       //   top_right to bottom_right
+        [3, 4],                       //   bottom_right to bottom_left
+        [4, 1]                        //   bottom_left to top_left
+      ]
+    },
+    {
+      "id": 5,
+      "name": "triangle",
+      "keypoints": [
+        "top",                        // 1
+        "bottom_right",               // 2
+        "bottom_left"                 // 3
+      ],
+      "skeleton": [
+        [1, 2],                       // top to bottom_right
+        [2, 3],                       // bottom_right to bottom_left
+        [3, 1]                        // bottom_left to top
+      ]
+    }
   ]
 ```
 
@@ -433,12 +563,30 @@ Say a whole sequence has one class (M2O): its frames sit in `data/<sequence name
 
 ```jsonc
 {
-  "categories": [{"id": 1, "name": "moving_left"}, {"id": 2, "name": "moving_right"}],
-  "sequences": [                                                        // one entry per sequence
-    {"id": 1, "name": "sequence_0001", "category_id": 1,
-     "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png"]},
-    {"id": 2, "name": "sequence_0002", "category_id": 2,
-     "frames": ["sequence_0002/000000.png", "sequence_0002/000001.png"]}
+  "categories": [
+    {"id": 1, "name": "moving_left"},
+    {"id": 2, "name": "moving_right"}
+  ],
+  "sequences": [                      // one entry per sequence
+    {
+      "id": 1,
+      "name": "sequence_0001",
+      "category_id": 1,
+      "frames": [                     // in order
+        "sequence_0001/000000.png",
+        "sequence_0001/000001.png",
+        "sequence_0001/000002.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sequence_0002",
+      "category_id": 2,
+      "frames": [                     // another length
+        "sequence_0002/000000.png",
+        "sequence_0002/000001.png"
+      ]
+    }
   ]
 }
 ```
@@ -447,13 +595,31 @@ If every frame has its own class (M2M), `frame_category_ids` gives one category 
 
 ```jsonc
 {
-  "categories": [{"id": 1, "name": "no_change"}, {"id": 2, "name": "appearing_circle"},
-                 {"id": 3, "name": "disappearing_circle"}],
+  "categories": [
+    {"id": 1, "name": "no_change"},
+    {"id": 2, "name": "appearing_circle"},
+    {"id": 3, "name": "disappearing_circle"}
+  ],
   "sequences": [
-    {"id": 1, "name": "sequence_0001", "frame_category_ids": [1, 2, 1],    // a circle appears on the second frame
-     "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png"]},
-    {"id": 2, "name": "sequence_0002", "frame_category_ids": [1, 3],
-     "frames": ["sequence_0002/000000.png", "sequence_0002/000001.png"]}
+    {
+      "id": 1,
+      "name": "sequence_0001",
+      "frame_category_ids": [1, 2, 1],  // a circle appears
+      "frames": [                       //   on the second frame
+        "sequence_0001/000000.png",
+        "sequence_0001/000001.png",
+        "sequence_0001/000002.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sequence_0002",
+      "frame_category_ids": [1, 3],
+      "frames": [
+        "sequence_0002/000000.png",
+        "sequence_0002/000001.png"
+      ]
+    }
   ]
 }
 ```
@@ -462,13 +628,33 @@ So that the frame selection (SEL) knows which frames to choose, it reads the lay
 
 ```jsonc
 {
-  "categories": [{"id": 1, "name": "circle"}, {"id": 3, "name": "star"}, {"id": 6, "name": "unselected"}],
+  "categories": [
+    {"id": 1, "name": "circle"},
+    {"id": 3, "name": "star"},
+    {"id": 6, "name": "unselected"}
+  ],
   "sequences": [
-    {"id": 1, "name": "sequence_0001", "frame_category_ids": [6, 3, 6, 1],  // frames_per_class 1: the star, then the circle
-     "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png",
-                "sequence_0001/000003.png"]},
-    {"id": 2, "name": "sequence_0002", "frame_category_ids": [1, 3, 6],
-     "frames": ["sequence_0002/000000.png", "sequence_0002/000001.png", "sequence_0002/000002.png"]}
+    {
+      "id": 1,
+      "name": "sequence_0001",
+      "frame_category_ids": [6, 3, 6, 1],  // frames_per_class 1:
+      "frames": [                          //   the star, then
+        "sequence_0001/000000.png",        //   the circle
+        "sequence_0001/000001.png",
+        "sequence_0001/000002.png",
+        "sequence_0001/000003.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sequence_0002",
+      "frame_category_ids": [1, 3, 6],
+      "frames": [
+        "sequence_0002/000000.png",
+        "sequence_0002/000001.png",
+        "sequence_0002/000002.png"
+      ]
+    }
   ]
 }
 ```
@@ -477,14 +663,35 @@ To compare a before and an after sequence (CMP), every pair has one category and
 
 ```jsonc
 {
-  "categories": [{"id": 1, "name": "loss_of_object"}, {"id": 2, "name": "same_number_of_objects"}],
-  "pairs": [                                                              // one entry per pair
-    {"id": 1, "name": "pair_0001", "category_id": 1,
-     "before": ["pair_0001/before/000000.png", "pair_0001/before/000001.png"],
-     "after": ["pair_0001/after/000000.png"]},
-    {"id": 2, "name": "pair_0002", "category_id": 2,
-     "before": ["pair_0002/before/000000.png"],
-     "after": ["pair_0002/after/000000.png", "pair_0002/after/000001.png"]}
+  "categories": [
+    {"id": 1, "name": "loss_of_object"},
+    {"id": 2, "name": "same_number_of_objects"}
+  ],
+  "pairs": [                          // one entry per pair
+    {
+      "id": 1,
+      "name": "pair_0001",
+      "category_id": 1,
+      "before": [
+        "pair_0001/before/000000.png",
+        "pair_0001/before/000001.png"
+      ],
+      "after": [                      // may differ in length
+        "pair_0001/after/000000.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "pair_0002",
+      "category_id": 2,
+      "before": [
+        "pair_0002/before/000000.png"
+      ],
+      "after": [
+        "pair_0002/after/000000.png",
+        "pair_0002/after/000001.png"
+      ]
+    }
   ]
 }
 ```
