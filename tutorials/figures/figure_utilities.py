@@ -72,8 +72,10 @@ MONOSPACE_FONT_FAMILY = "Hack"
 REVEAL_MARGIN = 14
 
 # Test image of the model figures of the foundations and classification series, a star of the synthetic shapes test
-# split read from the test folder of the classification run
-STAR_IMAGE_NAME = "test_005452.png"
+# split read from the test folder of the classification run (a cyan star of about 140 pixels inside a flat magenta
+# image, predicted star by the last checkpoint of the run), and the category find_star_image checks it holds
+STAR_IMAGE_NAME = "test_007279.png"
+STAR_CATEGORY_NAME = "star"
 
 # Significant digits kept in the facts, so that a change of a fact shows in a diff of facts.json without the noise of
 # the last digits of a float
@@ -679,7 +681,9 @@ def has_last_checkpoint(run_folder: Path) -> bool:
 def find_star_image(run_configuration: Dict[str, Any]) -> Path:
     """
     Finds the test star of the model figures in the test split of the classification run, the image whose feature
-    maps, gates, logits and probabilities the videos show.
+    maps, gates, logits and probabilities the videos show, and checks in the labels.json of that split that it is a
+    star, so that a dataset generated again (its images drawn without a seed, the same file names holding other shapes)
+    stops the build instead of narrating another shape as the test star.
 
     Args:
         run_configuration (Dict[str, Any]): The saved configuration of the classification run.
@@ -689,10 +693,21 @@ def find_star_image(run_configuration: Dict[str, Any]) -> Path:
 
     Raises:
         FileNotFoundError: If the image is not in the test split of the run.
+        ValueError: If the labels of the test split do not list the image, or list it under another category.
     """
-    image_path = Path(run_configuration["ExperimentConfiguration"]["test_data_folder"]) / "data" / STAR_IMAGE_NAME
+    test_folder = Path(run_configuration["ExperimentConfiguration"]["test_data_folder"])
+    image_path = test_folder / "data" / STAR_IMAGE_NAME
     if not image_path.exists():
         raise FileNotFoundError(f"No test star {image_path} in the test split of the classification run.")
+
+    # Category of the image in the manifest of the test split, which must be the star
+    manifest = json.loads((test_folder / "labels.json").read_text(encoding="utf-8"))
+    category_names = {category["id"]: category["name"] for category in manifest["categories"]}
+    image_categories = [category_names[sample["category_id"]] for sample in manifest["samples"]
+                        if sample["file_name"] == STAR_IMAGE_NAME]
+    if image_categories != [STAR_CATEGORY_NAME]:
+        raise ValueError(f"The test star {STAR_IMAGE_NAME} is labelled {image_categories} in {test_folder}/labels.json, "
+                         f"expected [{STAR_CATEGORY_NAME!r}]: pick STAR_IMAGE_NAME again among the stars of that split.")
     return image_path
 
 
