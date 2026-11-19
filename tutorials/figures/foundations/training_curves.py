@@ -2,12 +2,15 @@
 Training curves of the classification run for the foundations tutorials (the training loop and TensorBoard chapters),
 made at every build by tutorials/figures/foundations/figures.py: the training and validation total loss and accuracy of
 every iteration, read from the TensorBoard logs of the run, with the test accuracy of every evaluated checkpoint, on
-two panels, the raw values drawn faintly under their curve smoothed like TensorBoard. Two PNG files are written: the
+two panels, the raw values drawn faintly under their curve smoothed like TensorBoard, the loss axis reaching above the
+highest loss of the run (its first losses grow with the number of classes). Two PNG files are written: the
 empty axes with the legend, the base image of the scene, and the whole chart, its overlay, whose curves the scene
 uncovers while they are explained; the boxes of the panels (highlights and reveal regions) and the values of the
 curves are the facts of the storyboards. The accuracies are written as the percentages of the reports of the
 repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
+
+import math
 
 import matplotlib
 import numpy
@@ -17,7 +20,7 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
                                                 POINTS_PER_PIXEL, REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR,
@@ -37,6 +40,10 @@ SMOOTHING_WEIGHT = 0.95
 
 # Iterations between two labelled ticks of the horizontal axis, which runs from 0 to the last iteration of the run
 ITERATION_TICK_STEP = 250
+
+# Step the top of the loss axis is rounded up to, above the highest loss of the training and validation batches, so
+# that the first losses of a run of any number of classes (about the logarithm of the class count) stay on the panel
+LOSS_AXIS_STEP = 0.5
 
 
 def read_scalars(log_folder: Path, tag: str) -> Tuple[numpy.ndarray, numpy.ndarray]:
@@ -79,6 +86,29 @@ def smooth_values(values: numpy.ndarray, weight: float) -> numpy.ndarray:
         running_average = running_average * weight + (1.0 - weight) * value
         smoothed_values[value_index] = running_average / (1.0 - weight ** (value_index + 1))
     return smoothed_values
+
+
+def compute_loss_axis_top(loss_curves: List[numpy.ndarray]) -> float:
+    """
+    Gives the top of the value axis of the loss panel of the training curves from the losses of the run, so that every
+    raw loss of the training and validation batches, the first ones quoted by the narration included, stays on the
+    panel whatever the number of classes of the run: the highest loss rounded up to the next multiple of LOSS_AXIS_STEP.
+
+    Args:
+        loss_curves (List[numpy.ndarray]): The raw total losses of every split drawn on the panel.
+
+    Returns:
+        float: The top of the loss axis.
+
+    Raises:
+        ValueError: If a curve is empty or holds a loss that is not finite.
+    """
+    if any(len(loss_values) == 0 for loss_values in loss_curves):
+        raise ValueError("A total loss curve of the classification run has no value.")
+    highest_loss = max(float(loss_values.max()) for loss_values in loss_curves)
+    if not math.isfinite(highest_loss):
+        raise ValueError(f"The total loss of the classification run reaches {highest_loss}, expected finite values.")
+    return (math.floor(highest_loss / LOSS_AXIS_STEP) + 1) * LOSS_AXIS_STEP
 
 
 def style_panel(axes: matplotlib.axes.Axes, title: str, last_iteration: int, y_limit: Tuple[float, float],
@@ -159,7 +189,11 @@ def make_training_curves_figure(output_folder: Path, run_folder: Path, run_label
     figure.legend(handles=legend_handles, labels=["Training batches", "Validation batches", "Test split"],
                   loc="center right", bbox_to_anchor=(0.985, 0.905), ncols=3, frameon=False,
                   labelcolor=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL, handlelength=1.6)
-    style_panel(axes=loss_axes, title="Total loss", last_iteration=last_iteration, y_limit=(0.0, 2.6), y_label="Loss")
+    # Loss axis from zero to above the highest loss of the batches, taken from the run
+    loss_curves = [curves[(split, "Total Loss")][1] for split in ["Train", "Validation"]]
+    loss_axis_top = compute_loss_axis_top(loss_curves=loss_curves)
+    style_panel(axes=loss_axes, title="Total loss", last_iteration=last_iteration, y_limit=(0.0, loss_axis_top),
+                y_label="Loss")
     style_panel(axes=accuracy_axes, title="Accuracy", last_iteration=last_iteration, y_limit=(0.0, 1.0),
                 y_label="Accuracy")
     # Accuracy ticks written as the percentages of the reports of the repository
@@ -195,6 +229,7 @@ def make_training_curves_figure(output_folder: Path, run_folder: Path, run_label
 
     # Values of every curve and the test accuracy of every evaluation
     facts["training_curves.smoothing_weight"] = SMOOTHING_WEIGHT
+    facts["training_curves.loss_axis_top"] = loss_axis_top
     for (split, tag), (iterations, values) in curves.items():
         curve_name = f"training_curves.{split.lower()}_{tag.lower().replace(' ', '_')}"
         facts[f"{curve_name}.iteration_count"] = len(values)
