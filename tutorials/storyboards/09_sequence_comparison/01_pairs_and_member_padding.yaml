@@ -32,44 +32,32 @@ scenes:
     page: diagram
     title: "When to choose it"
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · generate_object_loss_pair"
-    # The largest number of objects of the dataset on this machine, generated before the generator drew up to six,
-    # which neither the dataset nor the code records
-    literal_numbers: [four]
     elements:
-      - {type: text, position: [40, 14], text: "train_000000 · {{sequence_comparison.dataset.train_000000.class}}", font: diagram_bold}
-      - {type: text, position: [40, 74], text: "before", font: diagram_small, colour: aqua}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_00.png", box: [130, 58, 240, 168], border: aqua}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_01.png", box: [250, 58, 360, 168], border: aqua}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_02.png", box: [370, 58, 480, 168], border: aqua}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_03.png", box: [490, 58, 600, 168], border: aqua}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_before_04.png", box: [610, 58, 720, 168], border: aqua}
-      - {type: text, position: [40, 200], text: "after", font: diagram_small, colour: magenta}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_00.png", box: [130, 184, 240, 294], border: magenta}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_01.png", box: [250, 184, 360, 294], border: magenta}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_02.png", box: [370, 184, 480, 294], border: magenta}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_03.png", box: [490, 184, 600, 294], border: magenta}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_04.png", box: [610, 184, 720, 294], border: magenta}
-      - {type: image, path: "figures:sequence_comparison/frames/train_000000_after_05.png", box: [730, 184, 840, 294], border: magenta}
-      - {type: text, position: [920, 14], text: "test_000003 · {{sequence_comparison.dataset.test_000003.class}}", font: diagram_bold, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_00.png", box: [920, 58, 1030, 168], border: aqua, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_01.png", box: [1040, 58, 1150, 168], border: aqua, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_02.png", box: [1160, 58, 1270, 168], border: aqua, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_03.png", box: [1280, 58, 1390, 168], border: aqua, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_04.png", box: [1400, 58, 1510, 168], border: aqua, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_before_05.png", box: [1520, 58, 1630, 168], border: aqua, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_00.png", box: [920, 184, 1030, 294], border: magenta, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_01.png", box: [1040, 184, 1150, 294], border: magenta, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_02.png", box: [1160, 184, 1270, 294], border: magenta, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_03.png", box: [1280, 184, 1390, 294], border: magenta, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_04.png", box: [1400, 184, 1510, 294], border: magenta, appear: 1}
-      - {type: image, path: "figures:sequence_comparison/frames/test_000003_after_05.png", box: [1520, 184, 1630, 294], border: magenta, appear: 1}
-      - {type: box, box: [40, 380, 560, 520], text: "M2O\none sequence, one class", font: diagram_small, outline: blue, appear: 2}
-      - {type: box, box: [620, 380, 1140, 520], text: "CMP\ntwo sequences of their own lengths,\none class for their comparison", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
-      - {type: box, box: [1200, 380, 1720, 520], text: "M2M · SEL\na class or a choice per frame", font: diagram_small, outline: violet, appear: 2}
-      - {type: box, box: [40, 580, 1720, 700], text: "SequenceComparisonTrainer: the SequenceClassificationTrainer with LABEL_TYPE \"{{constant:vision_training/trainers/sequence_comparison_trainer.py#SequenceComparisonTrainer.LABEL_TYPE}}\", MEMBERS_PER_SAMPLE {{sequence_comparison.code.members_per_sample}}", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
+      # The first frames of both members of the shown training pair (left) and test pair (right), named by their role
+      # by tutorials/figures/sequence_comparison/pair_dataset_figures.py, until the comparison with the other tasks
+      - {type: text, position: [154, 4], text: "{{sequence_comparison.dataset.shown_training.name}} · {{sequence_comparison.dataset.shown_training.class}}", font: diagram_bold, until: 2}
+      - {type: text, position: [154, 40], text: "before · {{sequence_comparison.dataset.shown_frames_per_member}} of {{sequence_comparison.dataset.shown_training.before_frames}} frames", font: diagram_small, colour: aqua, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_training_before_00.png", box: [154, 74, 434, 354], border: aqua, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_training_before_01.png", box: [446, 74, 726, 354], border: aqua, until: 2}
+      - {type: text, position: [154, 366], text: "after · {{sequence_comparison.dataset.shown_frames_per_member}} of {{sequence_comparison.dataset.shown_training.after_frames}} frames", font: diagram_small, colour: magenta, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_training_after_00.png", box: [154, 400, 434, 680], border: magenta, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_training_after_01.png", box: [446, 400, 726, 680], border: magenta, until: 2}
+      - {type: text, position: [1034, 4], text: "{{sequence_comparison.dataset.shown_test.name}} · {{sequence_comparison.dataset.shown_test.class}}", font: diagram_bold, appear: 2, until: 2}
+      - {type: text, position: [1034, 40], text: "before · {{sequence_comparison.dataset.shown_frames_per_member}} of {{sequence_comparison.dataset.shown_test.before_frames}} frames", font: diagram_small, colour: aqua, appear: 2, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_test_before_00.png", box: [1034, 74, 1314, 354], border: aqua, appear: 2, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_test_before_01.png", box: [1326, 74, 1606, 354], border: aqua, appear: 2, until: 2}
+      - {type: text, position: [1034, 366], text: "after · {{sequence_comparison.dataset.shown_frames_per_member}} of {{sequence_comparison.dataset.shown_test.after_frames}} frames", font: diagram_small, colour: magenta, appear: 2, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_test_after_00.png", box: [1034, 400, 1314, 680], border: magenta, appear: 2, until: 2}
+      - {type: image, path: "figures:sequence_comparison/frames/shown_test_after_01.png", box: [1326, 400, 1606, 680], border: magenta, appear: 2, until: 2}
+      - {type: text, position: [880, 698], text: "the first {{sequence_comparison.dataset.shown_frames_per_member}} frames of every member, each frame showing every object of its member", font: diagram_small, colour: dim, anchor: ma, until: 2}
+      - {type: box, box: [40, 200, 560, 340], text: "M2O\none sequence, one class", font: diagram_small, outline: blue, appear: 3}
+      - {type: box, box: [620, 200, 1140, 340], text: "CMP\ntwo sequences of their own lengths,\none class for their comparison", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [1200, 200, 1720, 340], text: "M2M · SEL\na class or a choice per frame", font: diagram_small, outline: violet, appear: 3}
+      - {type: box, box: [40, 420, 1720, 540], text: "SequenceComparisonTrainer: the SequenceClassificationTrainer with LABEL_TYPE \"{{constant:vision_training/trainers/sequence_comparison_trainer.py#SequenceComparisonTrainer.LABEL_TYPE}}\", MEMBERS_PER_SAMPLE {{sequence_comparison.code.members_per_sample}}", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
     narration:
-      - "In the synthetic object loss pairs, the before member shows {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#PAIR_MINIMUM_OBJECTS:words}} to four objects in independent views, up to {{sequence_comparison.generator.maximum_objects_words}} with the generator now, and the after member shows the same objects, or loses one of them."
-      - "No single member gives the class, only their comparison: here a pair keeping its objects, and a test pair that lost its small dark rectangle."
+      - "In the synthetic object loss pairs, the before member shows {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#PAIR_MINIMUM_OBJECTS:words}} to {{sequence_comparison.generator.maximum_objects_words}} objects in independent views over a background shared by the pair, and the after member shows the same objects, or loses one of them."
+      - "{{constant:vision_training/data/synthetic/create_synthetic_dataset.py#TEXTURED_BACKGROUND_PROBABILITY:percent_label}} of the pairs have a textured background, and objects may overlap or be cut by the border, each keeping at least {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SHAPE_MINIMUM_VISIBLE_FRACTION:percent_label}} of its pixels, so that every frame still shows all of them."
+      - "No single member gives the class, only their comparison: here a training pair keeping its objects, and a test pair that lost its dark purple hollow semicircle."
       - "Think of a case where the class compares two separately recorded sequences, each with its own length: choose it rather than the sequence classifier."
       - "Its trainer is the sequence classification trainer with pairs: {{sequence_comparison.code.members_per_sample_words}} members per sample, and the loss and evaluation of the classification, computed per pair."
 
@@ -96,7 +84,7 @@ scenes:
     narration:
       - "Every pair folder holds a before and an after folder of frames, and the labels file lists, for every pair, the frames of both members in order and one category."
       - "The label mapping turns the {{sequence_comparison.run.class_count_words}} categories, loss of object and same number of objects, into the class indices {{sequence_comparison.dataset.class_index.loss_of_object_words}} and {{sequence_comparison.dataset.class_index.same_number_of_objects_words}}."
-      - "The data set on this machine has {{sequence_comparison.dataset.train_pairs:,}} training, {{sequence_comparison.dataset.validation_pairs}} validation and {{sequence_comparison.dataset.test_pairs}} test pairs, with members of {{sequence_comparison.lengths.minimum_member_words}} to {{sequence_comparison.lengths.maximum_member_words}} frames, and {{sequence_comparison.dataset.test.loss_of_object}} loss pairs against {{sequence_comparison.dataset.test.same_number_of_objects}} in its test split."
+      - "The data set has {{sequence_comparison.dataset.train_pairs:,}} training, {{sequence_comparison.dataset.validation_pairs}} validation and {{sequence_comparison.dataset.test_pairs}} test pairs, with members of {{sequence_comparison.lengths.minimum_member_words}} to {{sequence_comparison.lengths.maximum_member_words}} frames, and {{sequence_comparison.dataset.test.loss_of_object}} loss pairs against {{sequence_comparison.dataset.test.same_number_of_objects}} in its test split."
 
   - kind: terminal
     title: "Generate, convert, train"
@@ -109,7 +97,7 @@ scenes:
       - {role: comment, text: "# The training"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml\""}
     narration:
-      - "The generator writes such pairs with the comparison task in its main block, now with members of {{sequence_comparison.generator.minimum_frames_words}} to {{sequence_comparison.generator.maximum_frames_words}} frames of {{sequence_comparison.generator.image_size}} pixels."
+      - "The generator writes such pairs with the comparison task in its main block, with members of {{sequence_comparison.generator.minimum_frames_words}} to {{sequence_comparison.generator.maximum_frames_words}} frames of {{sequence_comparison.generator.image_size}} pixels."
       - "Real pairs described by pair list files are converted by the pair list manifests script, its data folder a link to the source frames, and the training takes the synthetic pairs configuration."
 
   - kind: yaml
@@ -188,7 +176,7 @@ scenes:
       - {box: "{{sequence_comparison.lengths.panel_0_box}}", sentences: [0]}
       - {box: "{{sequence_comparison.lengths.panel_1_box}}", sentences: [0]}
     narration:
-      - "Both classes draw their member lengths alike: the after member is longer than the before member by {{sequence_comparison.lengths.loss_of_object.mean_difference:.2f}} frames on average for the loss pairs, and by {{sequence_comparison.lengths.same_number_of_objects.mean_difference:.2f}} for the others."
+      - "Both classes draw their member lengths alike: the before and after members hold {{sequence_comparison.lengths.loss_of_object.mean_before:.2f}} and {{sequence_comparison.lengths.loss_of_object.mean_after:.2f}} frames on average for the loss pairs, and {{sequence_comparison.lengths.same_number_of_objects.mean_before:.2f}} and {{sequence_comparison.lengths.same_number_of_objects.mean_after:.2f}} for the others."
       - "So the padding, which follows the lengths, carries nothing of the class, and the model has to count the objects."
 
   - kind: summary

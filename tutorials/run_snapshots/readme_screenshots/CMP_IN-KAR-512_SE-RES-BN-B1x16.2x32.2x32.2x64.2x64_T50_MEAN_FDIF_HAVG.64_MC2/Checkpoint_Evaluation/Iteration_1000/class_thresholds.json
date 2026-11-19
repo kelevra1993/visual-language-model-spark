@@ -3,12 +3,12 @@
     "target_precision": 0.99,
     "classes": {
         "loss_of_object": {
-            "threshold": 0.29117467999458313,
-            "recall": 0.9814814814814815
+            "threshold": 0.48811250925064087,
+            "recall": 0.9081632653061225
         },
         "same_number_of_objects": {
-            "threshold": 0.9879810214042664,
-            "recall": 0.6847826086956522
+            "threshold": 0.9862233996391296,
+            "recall": 0.2647058823529412
         }
     }
 }

@@ -80,7 +80,7 @@ scenes:
       - "The batch of the first chapter, split into its before and after members of {{sequence_comparison.batch.pair_count_words}} by {{sequence_comparison.batch.longest_member_words}} frames."
       - "Stacked along the batch axis, they form {{sequence_comparison.batch.stacked_count_words}} sequences of {{sequence_comparison.batch.longest_member_words}} frames, for one call to encode frames."
       - "Its {{sequence_comparison.batch.real_frames}} real frames go through the backbone at {{sequence_comparison.run.image_size}} pixels, {{sequence_comparison.backbone.channels}} channels at {{sequence_comparison.backbone.map_size}} by {{sequence_comparison.backbone.map_size}} after the last block, and the average pooling gives {{sequence_comparison.batch.frame_features}} features per frame: these squares are their real vectors."
-      - "The padding frames, {{sequence_comparison.batch.padding_frames_words}} of them here, get vectors of zeros without reaching the backbone."
+      - "The padding frames, {{sequence_comparison.batch.padding_frames:words}} of them here, get vectors of zeros without reaching the backbone."
 
   - kind: code
     title: "One temporal module for both members"

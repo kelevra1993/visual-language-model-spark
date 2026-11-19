@@ -6,13 +6,10 @@ listings, the animated pair batch encoded by the trained comparator on the CPU, 
 comparator, and the training and evaluation figures. Every figure family is a module of this folder writing into a
 subfolder of the output folder (dataset/, batch/, evaluation/, ...), its facts gathered here into the facts.json the
 storyboards quote as {{sequence_comparison.<name>}}, with the settings the run was trained with, the counts of fusion
-and temporal module types of the code, the settings of the generator and the throughput of the sequence classification
-run the console chapter compares with. The helpers are those of the sequence classification series. A build from the
-committed snapshots (tutorials/run_snapshots, without the checkpoint) counts the components on the comparator built
-from its configuration and reuses the committed outputs of the animated batch.
+and temporal module types of the code and the settings of the generator. The helpers are those of the sequence
+classification series. A build from the committed snapshots (tutorials/run_snapshots, without the checkpoint) counts
+the components on the comparator built from its configuration and reuses the committed outputs of the animated batch.
 """
-
-import math
 
 import torch
 
@@ -21,29 +18,29 @@ from typing import Any, Dict
 
 from tutorials.figures.figure_utilities import find_run_folder, merge_facts, read_run_configuration
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (add_number_words, find_console_log,
-                                                                                 load_sequence_model,
-                                                                                 read_interval_summaries)
+                                                                                 load_sequence_model)
 from tutorials.figures.sequence_comparison.pair_batch_animation import make_pair_batch_animation
 from tutorials.figures.sequence_comparison.pair_dataset_figures import make_pair_dataset_figures
 from tutorials.figures.sequence_comparison.pair_evaluation_figures import make_pair_evaluation_figures
 from tutorials.figures.sequence_labelling.sequence_utilities import read_main_block_settings
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.data.augmentations import GEOMETRIC_AUGMENTATION_TYPES
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, MemberFusion
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_checkpoint_file, get_last_checkpoint_iteration
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 
-# Run of the series in tutorial_sources.yaml, and the sequence classification run the console chapter compares with
+# Run of the series in tutorial_sources.yaml
 RUN_KEY = "sequence_comparison"
-CLASSIFIER_RUN_KEY = "sequence_classification"
 
-# Generator whose main block settings the narration quotes (what a new dataset would hold), and its task
+# Generator whose main block settings the narration quotes (what a dataset generated with it holds), and its task
 GENERATOR_SCRIPT = "vision_training/data/synthetic/create_synthetic_dataset.py"
 GENERATOR_TASK = "sequence_comparison"
 
-# Step the throughput of the classifier is rounded down to, the narration saying "more than" that bound
-THROUGHPUT_BOUND_STEP = 10
+# Only geometric augmentation of the run, as the pitfalls of the third chapter say: the crops, zooms, shifts and
+# rotations can cut or push out a border object and change the count, the mirrored pair keeping its objects
+NARRATED_GEOMETRIC_AUGMENTATIONS = ["random_left_right_flip"]
 
 
 def count_component_parameters(model: TaskModel, image_size: int, input_channels: int) -> Dict[str, Any]:
@@ -92,7 +89,7 @@ def read_run_setting_facts(run_configuration: Dict[str, Any], label_dictionary: 
     Reads the settings the comparison run was trained with from its saved training configuration, those the narration
     quotes for the README run (batch, frame and sequence sizes, the intervals of its console summary and of its
     evaluations, its head and its fusion), so that the narration describes that run even when the shipped
-    configuration changes.
+    configuration changes, and checks that its only geometric augmentation is the one the pitfalls name.
 
     Args:
         run_configuration (Dict[str, Any]): The saved training configuration of the run.
@@ -103,6 +100,15 @@ def read_run_setting_facts(run_configuration: Dict[str, Any], label_dictionary: 
     """
     experiment_configuration = run_configuration["ExperimentConfiguration"]
     head_configuration = run_configuration["ClassificationHead"]
+
+    # Geometric augmentations of the run, the left-right flip alone as the narration says
+    augmentation_configuration = run_configuration["Data"]["data_augmentation"]
+    activated_geometric_types = [augmentation_type for augmentation_type in GEOMETRIC_AUGMENTATION_TYPES
+                                 if augmentation_configuration["activated"]
+                                 and augmentation_configuration["types"][augmentation_type]["activated"]]
+    if activated_geometric_types != NARRATED_GEOMETRIC_AUGMENTATIONS:
+        raise ValueError(f"The geometric augmentations of the run are {activated_geometric_types}, the narration says "
+                         f"{NARRATED_GEOMETRIC_AUGMENTATIONS}: update the pitfalls of the third chapter.")
     return {"run.information_dump": experiment_configuration["information_dump"],
             "run.weight_saving_iterations": experiment_configuration["weight_saving_iterations"],
             "run.maximum_sequence_length": run_configuration["Data"]["sequence_settings"]["maximum_sequence_length"],
@@ -116,8 +122,8 @@ def read_run_setting_facts(run_configuration: Dict[str, Any], label_dictionary: 
 def read_code_facts() -> Dict[str, Any]:
     """
     Counts what the code of the comparison offers and imposes: the members of a sample of its trainer, the fusion types
-    and the temporal modules, and reads from the main block of the synthetic dataset generator the members it now
-    writes (frame range, frame size, objects of the before member), which differ from the dataset of this machine.
+    and the temporal modules, and reads from the main block of the synthetic dataset generator the members it writes
+    (frame range, frame size, objects of the before member), the settings the dataset of the run was generated with.
 
     Returns:
         Dict[str, Any]: The facts, named code.* and generator.*.
@@ -131,29 +137,6 @@ def read_code_facts() -> Dict[str, Any]:
             "generator.maximum_frames": generator_settings["maximum_frames"][GENERATOR_TASK],
             "generator.image_size": generator_settings["image_sizes"][GENERATOR_TASK],
             "generator.maximum_objects": generator_settings["maximum_objects"][GENERATOR_TASK]}
-
-
-def read_classifier_facts(experiments_folder: Path) -> Dict[str, Any]:
-    """
-    Reads the frame size and the slowest interval of the console log of the sequence classification run, which the
-    console chapter of the comparison compares a pair with, the throughput rounded down to THROUGHPUT_BOUND_STEP
-    sequences per second so that the narration can say it ran at more than that.
-
-    Args:
-        experiments_folder (Path): The folder of the real runs, or the committed snapshots.
-
-    Returns:
-        Dict[str, Any]: The facts, named classifier.*.
-    """
-    classifier_folder = find_run_folder(experiments_folder=experiments_folder, run_key=CLASSIFIER_RUN_KEY)
-    summaries = read_interval_summaries(log_path=find_console_log(experiments_folder=experiments_folder,
-                                                                  run_key=CLASSIFIER_RUN_KEY, comparison_key=None))
-    minimum_throughput = min(summary["throughput"] for summary in summaries)
-    return {"classifier.image_size": read_run_configuration(run_folder=classifier_folder)["Data"]["image_settings"][
-                "size"],
-            "classifier.minimum_throughput": minimum_throughput,
-            "classifier.throughput_bound": int(math.floor(minimum_throughput / THROUGHPUT_BOUND_STEP) *
-                                               THROUGHPUT_BOUND_STEP)}
 
 
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:
@@ -175,6 +158,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     iteration = get_last_checkpoint_iteration(weights_directory=run_folder / "Weights")
     run_configuration = read_run_configuration(run_folder=run_folder)
     experiment_configuration = run_configuration["ExperimentConfiguration"]
+    evaluation_configuration = experiment_configuration["evaluation"]
     _, model_configuration = load_experiment_configuration(configuration_path=run_folder /
                                                            "training_configuration.yaml")
     label_dictionary = model_configuration["Data"]["label_dictionary"]
@@ -192,7 +176,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         facts, count_component_parameters(model=model, image_size=image_size,
                                           input_channels=run_configuration["Backbone"]["input_channels"]),
         read_run_setting_facts(run_configuration=run_configuration, label_dictionary=label_dictionary),
-        read_code_facts(), read_classifier_facts(experiments_folder=experiments_folder),
+        read_code_facts(),
         make_pair_dataset_figures(output_folder=output_folder, train_folder=train_folder,
                                   label_dictionary=label_dictionary, batch_size=experiment_configuration["batch_size"]),
         make_pair_batch_animation(output_folder=output_folder, model=model, train_folder=train_folder,
@@ -202,4 +186,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_pair_evaluation_figures(output_folder=output_folder, run_folder=run_folder, log_path=log_path,
                                      iteration=iteration, class_count=len(set(label_dictionary.values())),
                                      test_folder=Path(experiment_configuration["test_data_folder"]),
-                                     information_dump=experiment_configuration["information_dump"])]))
+                                     information_dump=experiment_configuration["information_dump"],
+                                     image_settings=image_settings,
+                                     sequence_settings=run_configuration["Data"]["sequence_settings"],
+                                     label_dictionary=label_dictionary,
+                                     number_sample_images=evaluation_configuration["number_sample_images"])]))
