@@ -873,7 +873,7 @@ If you would rather watch than read, narrated tutorial videos (the 13 series of 
 <p align="center">
   <img src="README/tutorial_scenes.gif" width="100%" />
 </p>
-<p align="center"><em>Three scenes of the built videos: the receptive field of the backbone (Foundations), the anchors of two detection levels (Object Detection) and the Hungarian decoding (Frame Selection), each naming the file and function it shows.</em></p>
+<p align="center"><em>Three scenes of the built videos: the receptive field of the backbone (Foundations), the anchors of block 5 then of blocks 6 and 7 (Object Detection) and the Hungarian decoding (Frame Selection), each naming the file and function it shows.</em></p>
 
 `tutorials/README.md` describes the build and how to write a chapter:
 
