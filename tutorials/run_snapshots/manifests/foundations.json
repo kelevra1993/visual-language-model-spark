@@ -59,57 +59,57 @@
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 8506,
-      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Tensorboard/Test/events.out.tfevents.1792714465.spark-c6e9.1590294.2",
-      "snapshot_sha256": "92e39faed420cc32abee66f8fa1ecb98b1b7d4be10b273d72fe738b0d69550a3",
-      "source_bytes": 1310112,
+      "snapshot_bytes": 42536,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Tensorboard/Test/events.out.tfevents.1795113284.spark-c6e9.23340.2",
+      "snapshot_sha256": "ffeaf5db8d6e8b4f40fc87679070874811855c03789fcfedd48ce215017424cb",
+      "source_bytes": 6453455,
       "source_kind": "run",
-      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Tensorboard/Test/events.out.tfevents.1792714465.spark-c6e9.1590294.2",
-      "source_sha256": "1d31bdec8a7c0587dfd77396c15985b34bc4d9368e755d9de22a68895df5a6fd"
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Tensorboard/Test/events.out.tfevents.1795113284.spark-c6e9.23340.2",
+      "source_sha256": "ad85c065212164cc0e26bd3ba2cf7988223dbe2d8e28c168101b02e657d1ee8a"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 308580,
-      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Tensorboard/Train/events.out.tfevents.1792713727.spark-c6e9.1590294.0",
-      "snapshot_sha256": "e374d7a227d4a69eaed57b3f0823f7ef74895a7bfb5d2b43d00ac8fd92584d06",
-      "source_bytes": 308580,
+      "snapshot_bytes": 411580,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Tensorboard/Train/events.out.tfevents.1795112604.spark-c6e9.23340.0",
+      "snapshot_sha256": "4616b29005c1701dc4b34589b5242403ca26e087679d2e14dbfde38cb8fa7b59",
+      "source_bytes": 411580,
       "source_kind": "run",
-      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Tensorboard/Train/events.out.tfevents.1792713727.spark-c6e9.1590294.0",
-      "source_sha256": "e374d7a227d4a69eaed57b3f0823f7ef74895a7bfb5d2b43d00ac8fd92584d06"
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Tensorboard/Train/events.out.tfevents.1795112604.spark-c6e9.23340.0",
+      "source_sha256": "4616b29005c1701dc4b34589b5242403ca26e087679d2e14dbfde38cb8fa7b59"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 230707,
-      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Tensorboard/Validation/events.out.tfevents.1792713727.spark-c6e9.1590294.1",
-      "snapshot_sha256": "9f31c1fbe8c7a4bca15ff14dc7fc3e2133eb6e456fc16cf4c3332093a5e51813",
-      "source_bytes": 230707,
+      "snapshot_bytes": 307707,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Tensorboard/Validation/events.out.tfevents.1795112604.spark-c6e9.23340.1",
+      "snapshot_sha256": "d71b14f538de38458972db276504134d06f0481925226aabc784d02aa8b472d7",
+      "source_bytes": 307707,
       "source_kind": "run",
-      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Tensorboard/Validation/events.out.tfevents.1792713727.spark-c6e9.1590294.1",
-      "source_sha256": "9f31c1fbe8c7a4bca15ff14dc7fc3e2133eb6e456fc16cf4c3332093a5e51813"
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Tensorboard/Validation/events.out.tfevents.1795112604.spark-c6e9.23340.1",
+      "source_sha256": "d71b14f538de38458972db276504134d06f0481925226aabc784d02aa8b472d7"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 307,
-      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Weights/full-checkpoint",
-      "snapshot_sha256": "eb5b2f3e667565190283415710c6ab762c5e8ab185ad7fc645a040aff34669ed",
-      "source_bytes": 307,
+      "snapshot_bytes": 397,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Weights/full-checkpoint",
+      "snapshot_sha256": "2897b6151d3cb848cbc9b5daed1801ca1b173c975abfd541b2c4e6c2f866884e",
+      "source_bytes": 397,
       "source_kind": "run",
-      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Weights/full-checkpoint",
-      "source_sha256": "eb5b2f3e667565190283415710c6ab762c5e8ab185ad7fc645a040aff34669ed"
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Weights/full-checkpoint",
+      "source_sha256": "2897b6151d3cb848cbc9b5daed1801ca1b173c975abfd541b2c4e6c2f866884e"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 110,
-      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/label_dictionary.json",
-      "snapshot_sha256": "79e94c4f4b9996a798fe3f98e36d1cc282fc693cc8de924545e6ee4ad31ec5f4",
-      "source_bytes": 110,
+      "snapshot_bytes": 473,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/label_dictionary.json",
+      "snapshot_sha256": "1e5cb2d9df56f0ed789df329b218128d66644d532f8192f771c1bb3d4549e943",
+      "source_bytes": 473,
       "source_kind": "run",
-      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/label_dictionary.json",
-      "source_sha256": "79e94c4f4b9996a798fe3f98e36d1cc282fc693cc8de924545e6ee4ad31ec5f4"
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/label_dictionary.json",
+      "source_sha256": "1e5cb2d9df56f0ed789df329b218128d66644d532f8192f771c1bb3d4549e943"
     },
     {
       "options": {
@@ -119,26 +119,26 @@
         "output": "run_folder_listing.tsv"
       },
       "reduction": "folder_listing",
-      "snapshot_bytes": 4115,
-      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/run_folder_listing.tsv",
-      "snapshot_sha256": "72a25eb1e62bc6eccb38dad888c8b04dc4653cff91a03582e16d30e716c3a130",
+      "snapshot_bytes": 7502,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/run_folder_listing.tsv",
+      "snapshot_sha256": "fb3f19d5d2d5120d26273c41a136dbd5be825a11f7f01aa82e3df93f0c2ec2fd",
       "source_bytes": null,
       "source_kind": "run",
-      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/run_folder_listing.tsv",
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/run_folder_listing.tsv",
       "source_sha256": null
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 4961,
-      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/training_configuration.yaml",
-      "snapshot_sha256": "66c96aaa8f9bdfa032d9aad30e2c28b4436403f574b1a263137f3480e73598e4",
-      "source_bytes": 4961,
+      "snapshot_bytes": 16641,
+      "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
+      "snapshot_sha256": "915a0a1f13067b8fbced456f38ac166df0b05b228d259920d74a5054ee46a917",
+      "source_bytes": 16641,
       "source_kind": "run",
-      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/training_configuration.yaml",
-      "source_sha256": "66c96aaa8f9bdfa032d9aad30e2c28b4436403f574b1a263137f3480e73598e4"
+      "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
+      "source_sha256": "915a0a1f13067b8fbced456f38ac166df0b05b228d259920d74a5054ee46a917"
     }
   ],
   "series": "foundations",
-  "snapshot_bytes": 738847
+  "snapshot_bytes": 968397
 }

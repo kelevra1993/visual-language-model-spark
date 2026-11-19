@@ -1,13 +1,18 @@
 """
 Learning rate figure of the classification tutorials (the chapter from labels to logits), made at every build by
-tutorials/figures/classification/figures.py from the TensorBoard logs of the classification run and of its three
-learning rate variants (classification and classification_learning_rates of tutorials/tutorial_sources.yaml, the
-same configuration at four learning rates told apart by their run name suffix): the validation accuracy of every
-iteration of the first 600 iterations of the four runs, smoothed like TensorBoard, and their mean validation accuracy over the last 50 of these iterations next to
-the test accuracy of their first evaluation (600 for the variants, 500 for the run). The facts give these numbers with
-the learning rate of every run, read from its saved configuration. The accuracies are written as the percentages of
-the reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
+tutorials/figures/classification/figures.py from the TensorBoard logs of four runs of the synthetic classification
+configuration trained on a 9-class version of the synthetic shapes data set (classification_nine_classes and its three
+learning rate variants classification_learning_rates of tutorials/tutorial_sources.yaml, the same configuration at
+four learning rates told apart by their run name suffix): the validation accuracy of every iteration of the first 600
+iterations of the four runs, smoothed like TensorBoard, over the chance line of their classes, and their mean
+validation accuracy over the last 50 of these iterations next to the test accuracy of their first evaluation (600 for
+the variants, 500 for the run they vary). The facts give these numbers with the learning rate of every run, read from
+its saved configuration, their class count, and the learning rate of the classification run of the tutorials. The
+accuracies are written as the percentages of the reports of the repository ("94.03 %", ticks "20 %"), the facts
+keeping them between 0 and 1.
 """
+
+import json
 
 import numpy
 
@@ -18,8 +23,9 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                compute_pixel_box, read_run_configuration, read_tutorial_sources,
-                                                register_fonts, round_fact, save_figure, style_chart_panel)
+                                                compute_pixel_box, find_run_folder, read_run_configuration,
+                                                read_tutorial_sources, register_fonts, round_fact, save_figure,
+                                                style_chart_panel)
 from tutorials.figures.foundations.training_curves import read_scalars, smooth_values
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
@@ -33,29 +39,55 @@ SMOOTHING_WEIGHT = 0.95
 # Name of the figure file
 FIGURE_NAME = "learning_rates_validation_accuracy.png"
 
+# Runs of tutorial_sources.yaml compared: the 9-class classification run and its learning rate variants
+BASE_RUN_KEY = "classification_nine_classes"
+VARIANTS_RUN_KEY = "classification_learning_rates"
 
-def list_learning_rate_runs(experiments_folder: Path, run_folder: Path) -> List[Path]:
+
+def list_learning_rate_runs(experiments_folder: Path) -> List[Path]:
     """
-    Lists the classification run and its learning rate variants of tutorial_sources.yaml, refusing a missing variant
-    with what it takes to train it again.
+    Lists the compared runs of tutorial_sources.yaml, the 9-class classification run and its learning rate variants,
+    refusing a missing variant with what it takes to train it again.
 
     Args:
         experiments_folder (Path): The folder of the real runs.
-        run_folder (Path): The folder of the classification run.
 
     Returns:
-        List[Path]: The run folders, the classification run first.
+        List[Path]: The run folders, the run the variants vary first.
 
     Raises:
         FileNotFoundError: If a variant folder is missing.
     """
-    variants = read_tutorial_sources()["runs"]["classification_learning_rates"]
+    base_folder = find_run_folder(experiments_folder=experiments_folder, run_key=BASE_RUN_KEY)
+    variants = read_tutorial_sources()["runs"][VARIANTS_RUN_KEY]
     variant_folders = [experiments_folder / folder for folder in variants["folders"]]
     missing_folders = [str(folder) for folder in variant_folders if not folder.is_dir()]
     if missing_folders:
         raise FileNotFoundError(f"Missing learning rate variants {missing_folders}: train them with "
                                 f"{variants['trained_with']}.")
-    return [run_folder] + variant_folders
+    return [base_folder] + variant_folders
+
+
+def count_compared_classes(run_folders: List[Path]) -> int:
+    """
+    Gives the number of classes of the compared runs, from their label dictionaries, which sets the chance line of the
+    accuracy curves, refusing runs trained on different classes.
+
+    Args:
+        run_folders (List[Path]): The compared run folders.
+
+    Returns:
+        int: The number of classes of every run.
+
+    Raises:
+        ValueError: If two runs have different numbers of classes.
+    """
+    class_counts = {len(set(json.loads((folder / "label_dictionary.json").read_text(encoding="utf-8")).values()))
+                    for folder in run_folders}
+    if len(class_counts) != 1:
+        raise ValueError(f"The compared runs {run_folders} have {sorted(class_counts)} classes: compare runs of the "
+                         f"same classes.")
+    return class_counts.pop()
 
 
 def describe_run(run_folder: Path) -> Dict[str, Any]:
@@ -90,9 +122,10 @@ def describe_run(run_folder: Path) -> Dict[str, Any]:
 
 def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run_folder: Path) -> Dict[str, Any]:
     """
-    Draws the learning rate figure and gives its facts: the number of runs compared and, for every learning rate, its
-    value, the mean validation accuracy of the last iterations, the test accuracy of the first evaluation and its
-    iteration, and the boxes of both panels.
+    Draws the learning rate figure and gives its facts: the number of runs compared and their class count and, for
+    every learning rate, its value, the mean validation accuracy of the last iterations, the test accuracy of the first
+    evaluation and its iteration, the boxes of both panels, and the learning rate of the classification run of the
+    tutorials.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -102,9 +135,9 @@ def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run
     Returns:
         Dict[str, Any]: The facts, named learning_rates.*.
     """
-    runs = sorted([describe_run(run_folder=folder) for folder in
-                   list_learning_rate_runs(experiments_folder=experiments_folder, run_folder=run_folder)],
-                  key=read_learning_rate)
+    run_folders = list_learning_rate_runs(experiments_folder=experiments_folder)
+    class_count = count_compared_classes(run_folders=run_folders)
+    runs = sorted([describe_run(run_folder=folder) for folder in run_folders], key=read_learning_rate)
 
     # Curve panel on the left, the bars of the two accuracies on the right, wide enough for their percentage labels
     register_fonts()
@@ -123,9 +156,11 @@ def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run
                         color=colour, linewidth=3 * POINTS_PER_PIXEL, label=f"{run['learning_rate']:g}")
     curve_axes.set_xlim(left=0, right=COMPARED_ITERATIONS)
     curve_axes.set_ylim(bottom=0, top=1)
-    curve_axes.axhline(y=1 / 9, color=TEXT_PRIMARY_COLOUR, linestyle=":", linewidth=1.5 * POINTS_PER_PIXEL, alpha=0.6)
-    curve_axes.text(x=COMPARED_ITERATIONS - 8, y=1 / 9 - 0.045, s="chance, 1 / 9", color=TEXT_PRIMARY_COLOUR,
-                    alpha=0.7, ha="right", fontsize=16 * POINTS_PER_PIXEL)
+    # Chance line: one class in the number of classes of the compared runs
+    curve_axes.axhline(y=1 / class_count, color=TEXT_PRIMARY_COLOUR, linestyle=":", linewidth=1.5 * POINTS_PER_PIXEL,
+                       alpha=0.6)
+    curve_axes.text(x=COMPARED_ITERATIONS - 8, y=1 / class_count - 0.045, s=f"chance, 1 / {class_count}",
+                    color=TEXT_PRIMARY_COLOUR, alpha=0.7, ha="right", fontsize=16 * POINTS_PER_PIXEL)
     curve_axes.legend(loc="upper left", frameon=False, labelcolor=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL,
                       title="learning rate", title_fontsize=16 * POINTS_PER_PIXEL)
     curve_axes.get_legend().get_title().set_color(TEXT_PRIMARY_COLOUR)
@@ -166,7 +201,9 @@ def make_learning_rate_figure(output_folder: Path, experiments_folder: Path, run
                                                                margin=8),
              "learning_rates.compared_iterations": COMPARED_ITERATIONS,
              "learning_rates.averaged_last_iterations": AVERAGED_LAST_ITERATIONS,
-             "learning_rates.run_count": len(runs)}
+             "learning_rates.run_count": len(runs), "learning_rates.class_count": class_count,
+             "learning_rates.tutorial_run_learning_rate": float(read_run_configuration(run_folder=run_folder)[
+                 "ExperimentConfiguration"]["learning_rate"])}
     pyplot.close(fig=figure)
 
     # Numbers of every run, named after its learning rate (0.0002 -> lr_0_0002)
