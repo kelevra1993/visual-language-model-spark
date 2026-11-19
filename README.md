@@ -24,20 +24,20 @@
 - [Evaluating Checkpoints](#evaluating-checkpoints)
 - [Comparing Launches](#comparing-launches)
 - [Clustering Image Embeddings](#clustering-image-embeddings)
+- [Configurations](#configurations)
+- [Run Names](#run-names)
+- [MLflow Tracking](#mlflow-tracking)
+- [Tutorials](#tutorials)
 - [Deployment](#deployment)
   - [Export](#export)
   - [Input Contract](#input-contract)
   - [Triton Server](#triton-server)
   - [Serving Formats And Precision](#serving-formats-and-precision)
-- [Configurations](#configurations)
-- [Run Names](#run-names)
-- [MLflow Tracking](#mlflow-tracking)
 - [Tests](#tests)
 - [Docker Image](#docker-image)
   - [Building The Image](#building-the-image)
   - [Running A Training](#running-a-training)
   - [Kubernetes Pods](#kubernetes-pods)
-- [Tutorials](#tutorials)
 - [Repository Structure](#repository-structure)
 - [TODO](#todo)
 
@@ -799,6 +799,92 @@ uv run python -m scripts.embedding.cluster_image_embeddings
 
 Its settings and outputs: [tools reference](documentation/reference/tools_reference.md#clustering-image-embeddings).
 
+## Configurations
+Before writing a configuration of your own, start from a copy of the files of its task: every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` in `vision_training/configurations/<task>/`, holding only, and all, the keys the task reads, each explained by its comment. Four sections are shared by every task, the others belong to the task:
+
+<p align="center">
+  <img src="README/configuration_sections.png" width="100%" />
+</p>
+
+`Data.image_settings.size` must be even and a multiple of 2 to the power of the number of max poolings of `Backbone`, so that no pooling drops a row or a column: with 5 poolings, 96, 224, 384 and 512 are accepted. Should a file break such a rule, the launch prints every problem at once and stops, here for a negative learning rate and a size of 500:
+
+<p align="center">
+  <img src="README/configuration_rejected.png" width="100%" />
+</p>
+
+For a pipeline to refuse a file before it launches a training, `vision_training/check_configuration.py` loads and checks one or several files as a training does, without training: an invalid file prints the list above, a valid one a green line with its run name, and the command exits with 0 when every file is valid, 1 otherwise. `--check_paths` also requires the data folders, the label mapping file and the pretrained runs a new training reads, not `experiment_folder`, which the training creates:
+
+```bash
+uv run python -m vision_training.check_configuration --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml" --check_paths
+```
+
+The keys and values of every task, and what the check reads, are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
+
+## Run Names
+To keep runs of different settings apart, `vision_training/configuration_processing/run_name.py` builds the run name from the configuration, so that the same settings resume in the same folder and changed settings start a new one. Sections are joined with `_` and their tokens with `-`; `ExperimentConfiguration.run_name_suffix` accepts letters, digits, `-` and `.`.
+
+<p align="center">
+  <img src="README/run_name_decoded.png" width="100%" />
+</p>
+<p align="center"><em>A classification run whose backbone starts from another run, decoded token by token with the setting each token comes from.</em></p>
+
+| Task | Run name |
+|---|---|
+| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
+| DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567-NFPN64BN_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
+| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HFLAT.64_MC4` |
+
+Every token and an example of every task are in the [configuration reference](documentation/reference/configuration_reference.md#run-names).
+
+## MLflow Tracking
+If you are looking for one table of every run, sorted and filtered by any setting, turn on `ExperimentConfiguration.tracking.activated`: each training is recorded in `<experiment_folder>/mlflow.db`, its files in `<experiment_folder>/mlartifacts/`, with its configuration, git commit, curves averaged every `information_dump` iterations and test metrics, a resumed training continuing its MLflow run. Open http://localhost:5000 after:
+
+```bash
+uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db
+```
+
+<p align="center">
+  <img src="README/mlflow_runs.png" width="100%" />
+</p>
+
+Whenever a result needs explaining, open its run: the page keeps the last value of every metric and the tags of the run, among them its folder, its transferred components, the git commit, whether the tree held uncommitted changes and the best iteration.
+
+<p align="center">
+  <img src="README/mlflow_run_page.png" width="100%" />
+</p>
+
+The per-iteration curves stay in TensorBoard, and the checkpoints and the sample and error images of the evaluations are not sent, unlike the input samples of a launch. The metrics and files of every task are in the [configuration reference](documentation/reference/configuration_reference.md#mlflow-tracking).
+
+## Tutorials
+If you would rather watch than read, narrated tutorial videos (the 13 series of `tutorials/storyboards/series.yaml`: an overview, a foundations series, one series per task and a deployment series) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default).
+
+<p align="center">
+  <img src="README/tutorial_scenes.gif" width="100%" />
+</p>
+<p align="center"><em>Three scenes of the built videos: the receptive field of the backbone (Foundations), the anchors of two detection levels (Object Detection) and the Hungarian decoding (Frame Selection), each naming the file and function it shows.</em></p>
+
+`tutorials/README.md` describes the build and how to write a chapter:
+
+```bash
+# Rebuild every series, or one, or only check the storyboards against the repository
+tutorials/build_tutorials.sh
+tutorials/build_tutorials.sh --series object_detection
+tutorials/build_tutorials.sh --check-references
+
+# On a machine without the runs: build from their committed snapshots
+tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots
+```
+
+Before creating, updating or rebuilding a chapter, read `tutorials/MAINTAINING.md`: the writing rules, the review workflow, and how `tutorials/run_snapshots/` (small copies of the runs, their dataset files and the figures that need a checkpoint, at most 5 MB per file) keeps everything a rebuild needs in the repository.
+
+Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
+
+<p align="center">
+  <img src="README/tutorial_index_page.png" width="100%" />
+</p>
+
+Should you look for what the videos do not show yet, `documentation/tutorial_backlog.md` lists implemented features the built videos leave out or show only in part, where each one is documented and which chapter could take it; the list is not exhaustive.
+
 ## Deployment
 
 ### Export
@@ -985,62 +1071,6 @@ The plan gives the gRPC loads, the four server settings and the queue and comput
 - **The exported dynamic batching suits none of these models**: CLS and M2M serve more with it off and two instances, DET as much or more with it off since the NMS fix (166 against 153 images per second at 16 requests in flight), and over gRPC a client sending batches of large float32 images is bound by the request (CLS 109 images per second at batch 16 against 1,215 over shared memory).
 - **The eager and TorchScript DET do not gain from batches** (16 milliseconds for one image, 1.4 seconds for 16), unlike its TensorRT engines.
 
-## Configurations
-Before writing a configuration of your own, start from a copy of the files of its task: every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` in `vision_training/configurations/<task>/`, holding only, and all, the keys the task reads, each explained by its comment. Four sections are shared by every task, the others belong to the task:
-
-<p align="center">
-  <img src="README/configuration_sections.png" width="100%" />
-</p>
-
-`Data.image_settings.size` must be even and a multiple of 2 to the power of the number of max poolings of `Backbone`, so that no pooling drops a row or a column: with 5 poolings, 96, 224, 384 and 512 are accepted. Should a file break such a rule, the launch prints every problem at once and stops, here for a negative learning rate and a size of 500:
-
-<p align="center">
-  <img src="README/configuration_rejected.png" width="100%" />
-</p>
-
-For a pipeline to refuse a file before it launches a training, `vision_training/check_configuration.py` loads and checks one or several files as a training does, without training: an invalid file prints the list above, a valid one a green line with its run name, and the command exits with 0 when every file is valid, 1 otherwise. `--check_paths` also requires the data folders, the label mapping file and the pretrained runs a new training reads, not `experiment_folder`, which the training creates:
-
-```bash
-uv run python -m vision_training.check_configuration --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml" --check_paths
-```
-
-The keys and values of every task, and what the check reads, are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
-
-## Run Names
-To keep runs of different settings apart, `vision_training/configuration_processing/run_name.py` builds the run name from the configuration, so that the same settings resume in the same folder and changed settings start a new one. Sections are joined with `_` and their tokens with `-`; `ExperimentConfiguration.run_name_suffix` accepts letters, digits, `-` and `.`.
-
-<p align="center">
-  <img src="README/run_name_decoded.png" width="100%" />
-</p>
-<p align="center"><em>A classification run whose backbone starts from another run, decoded token by token with the setting each token comes from.</em></p>
-
-| Task | Run name |
-|---|---|
-| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
-| DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567-NFPN64BN_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
-| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HFLAT.64_MC4` |
-
-Every token and an example of every task are in the [configuration reference](documentation/reference/configuration_reference.md#run-names).
-
-## MLflow Tracking
-If you are looking for one table of every run, sorted and filtered by any setting, turn on `ExperimentConfiguration.tracking.activated`: each training is recorded in `<experiment_folder>/mlflow.db`, its files in `<experiment_folder>/mlartifacts/`, with its configuration, git commit, curves averaged every `information_dump` iterations and test metrics, a resumed training continuing its MLflow run. Open http://localhost:5000 after:
-
-```bash
-uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db
-```
-
-<p align="center">
-  <img src="README/mlflow_runs.png" width="100%" />
-</p>
-
-Whenever a result needs explaining, open its run: the page keeps the last value of every metric and the tags of the run, among them its folder, its transferred components, the git commit, whether the tree held uncommitted changes and the best iteration.
-
-<p align="center">
-  <img src="README/mlflow_run_page.png" width="100%" />
-</p>
-
-The per-iteration curves stay in TensorBoard, and the checkpoints and the sample and error images of the evaluations are not sent, unlike the input samples of a launch. The metrics and files of every task are in the [configuration reference](documentation/reference/configuration_reference.md#mlflow-tracking).
-
 ## Tests
 After a change to the code, run the tests of `tests/`, whose folders mirror `vision_training/` and `scripts/` and include short trainings of every task on tiny synthetic datasets:
 
@@ -1108,36 +1138,6 @@ For a pod to train as the Spark does, its specification sets:
 - An `emptyDir` volume with `medium: Memory` mounted at `/dev/shm`, the loader workers passing their batches through it.
 - `terminationGracePeriodSeconds` long enough for the final checkpoint, the stop of the pod sending SIGINT.
 - `securityContext` with `runAsNonRoot: true`, `runAsUser: 10001` and `fsGroup: 10001`, so that the user of the image writes into the mounted volumes of the datasets and run folders, at the paths of the configuration (given by a `ConfigMap`).
-
-## Tutorials
-If you would rather watch than read, narrated tutorial videos (the 13 series of `tutorials/storyboards/series.yaml`: an overview, a foundations series, one series per task and a deployment series) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default).
-
-<p align="center">
-  <img src="README/tutorial_scenes.gif" width="100%" />
-</p>
-<p align="center"><em>Three scenes of the built videos: the receptive field of the backbone (Foundations), the anchors of two detection levels (Object Detection) and the Hungarian decoding (Frame Selection), each naming the file and function it shows.</em></p>
-
-`tutorials/README.md` describes the build and how to write a chapter:
-
-```bash
-# Rebuild every series, or one, or only check the storyboards against the repository
-tutorials/build_tutorials.sh
-tutorials/build_tutorials.sh --series object_detection
-tutorials/build_tutorials.sh --check-references
-
-# On a machine without the runs: build from their committed snapshots
-tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots
-```
-
-Before creating, updating or rebuilding a chapter, read `tutorials/MAINTAINING.md`: the writing rules, the review workflow, and how `tutorials/run_snapshots/` (small copies of the runs, their dataset files and the figures that need a checkpoint, at most 5 MB per file) keeps everything a rebuild needs in the repository.
-
-Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
-
-<p align="center">
-  <img src="README/tutorial_index_page.png" width="100%" />
-</p>
-
-Should you look for what the videos do not show yet, `documentation/tutorial_backlog.md` lists implemented features the built videos leave out or show only in part, where each one is documented and which chapter could take it; the list is not exhaustive.
 
 ## Repository Structure
 To find your way in the code, the diagram follows the packages along the path of a training and the tools reading its run folder, and the tree lists where each part lives:
