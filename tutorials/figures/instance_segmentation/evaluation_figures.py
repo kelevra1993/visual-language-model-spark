@@ -21,9 +21,8 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL, SERIES_COLOURS,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, register_fonts, round_fact,
                                                 save_figure, style_chart_panel)
-from tutorials.figures.instance_segmentation.mask_figures import describe_class_name
-from tutorials.figures.object_detection.detection_sources import (extract_table, parse_table_rows,
-                                                                  read_results_block, write_listing)
+from tutorials.figures.object_detection.detection_sources import (describe_class_name, extract_table,
+                                                                  parse_table_rows, read_results_block, write_listing)
 from tutorials.figures.object_detection.evaluation_figures import convert_report_value, read_class_metrics
 from vision_training.evaluation.report_formatting import format_percentage_tick
 

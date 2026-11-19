@@ -1,19 +1,22 @@
 """
-Inference figures of the object detection tutorials (the chapters on the anchors and proposals and on the training
-targets), made by tutorials/figures/object_detection/figures.py from the trained detector of the DET run of
-tutorials/tutorial_sources.yaml, run on the CPU on the test image the series follows (test_014285.png): the anchors of
-one cell of every detection level and the best anchor of every object (the data of the animated page
+Inference figures of the object detection tutorials (the chapters on the anchors and proposals, on the training targets
+and on the evaluation), made by tutorials/figures/object_detection/figures.py from the trained detector of the DET run
+of tutorials/tutorial_sources.yaml, run on the CPU on the test image the series follows (SAMPLE_IMAGE_NAME of
+detection_sources.py): the anchors of one cell of every detection level, the levels sharing a stride drawn on the same
+cell, and the best anchor of every object (the data of the animated page
 animations/03_object_detection/anchor_grid.html), the proposals of the image before and after the non-maximum
 suppression of the proposal filter with the final detections, the labels the anchors of the image get for the region
 proposal loss, and the proposals the detection heads are trained on, every count by level, with the objects the final
-detections find; and, outside the reused inference, the architecture facts of the detector (parameters, layers of the
-region proposal heads the diagrams draw), read from the model built untrained from the configuration of the run
-(describe_model). The functions of the repository do the work (forward_detection_stages, select_best_proposals,
-batch_assign_targets_to_anchors, add_ground_truth_proposals, batch_assign_targets_to_proposals,
-sample_positive_and_negative_training_targets), so that the figures show what the code computes. The inference is
-reused from the previous build unless forced, or unless that build ran another run, another checkpoint or a checkpoint
-file replaced since; a run read from the run snapshots (tutorials/run_snapshots, no checkpoint) takes the inference
-committed under figure_reuse/object_detection/inference of the snapshots by a build from the real runs.
+detections find, take for another class or miss, at the last checkpoint and at every compared evaluation; and, outside
+the reused inference, the architecture facts of the detector (parameters, layers of the region proposal heads the
+diagrams draw), read from the model built untrained from the configuration of the run (describe_model). The functions of
+the repository do the work (forward_detection_stages, select_best_proposals, batch_assign_targets_to_anchors,
+add_ground_truth_proposals, batch_assign_targets_to_proposals, sample_positive_and_negative_training_targets), so that
+the figures show what the code computes. The inference is reused from the previous build unless forced, or unless that
+build ran another run, other checkpoints, checkpoint files replaced since or another test image; a run read from the run
+snapshots (tutorials/run_snapshots, no checkpoint) takes the inference committed under
+figure_reuse/object_detection/inference of the snapshots by a build from the real runs, after checking its checkpoint
+and test image.
 """
 
 import json
@@ -28,11 +31,12 @@ from typing import Any, Dict, List, Tuple
 from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fingerprint, read_reused_facts,
                                                 read_run_configuration, restore_committed_figures, round_fact,
                                                 write_reused_facts)
-from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, SAMPLE_IMAGE_NAME, draw_box,
-                                                                  find_test_folder,
-                                                                  hexadecimal_to_rgb, load_caption_fonts,
-                                                                  load_run_model, read_category_names,
-                                                                  read_image_annotations, read_network_image)
+from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, DETECTION_SAMPLE_ITERATIONS,
+                                                                  SAMPLE_IMAGE_NAME, describe_class_name, draw_box,
+                                                                  find_test_folder, hexadecimal_to_rgb, join_words,
+                                                                  load_caption_fonts, load_run_model,
+                                                                  read_category_names, read_image_annotations,
+                                                                  read_network_image)
 from tutorial_builder.layout import BACKGROUND_COLOUR as FRAME_BACKGROUND_COLOUR
 from tutorial_builder.layout import CARD_COLOUR, DIM_TEXT_COLOUR, TEXT_COLOUR
 from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
@@ -47,18 +51,19 @@ from vision_training.models.detection.target_assignment import (add_ground_truth
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.checkpointing import get_checkpoint_file
 
-# Object whose best anchor of every level gives the cell whose anchors the animated page draws, the star in the middle
-# of the image
-ANCHOR_CELL_OBJECT = "star"
-
 # Seed of the random sampling of the anchors and proposals of the training targets, so that the counts of the figures
 # stay the same from one build to the next
 SAMPLING_SEED = 0
 
 # Version of the facts of the inference, raised whenever a fact is added or removed, so that a build reusing the
-# inference of an older build (inference_facts.json) makes it again instead of missing the new facts; 4 since the
-# architecture facts (describe_model) left the reused inference for the untrained model of the configuration
-INFERENCE_FACTS_VERSION = 4
+# inference of an older build (inference_facts.json) makes it again instead of missing the new facts; 5 since the cell
+# of the anchor scene follows the object nearest the image centre, the levels sharing a stride share their cell, and
+# the objects found, taken for another class or missed are named at the last checkpoint and at every compared
+# evaluation
+INFERENCE_FACTS_VERSION = 5
+
+# Objects of the line of the best anchor overlaps on the anchor scene, the rest going to a second line
+OBJECT_LINE_LENGTH = 3
 
 # Folder of the inference figures in the figures folder of the series, also the family committed under figure_reuse/
 # of the run snapshots for the builds without the checkpoint
@@ -73,11 +78,12 @@ NOTE_HEIGHT = 84
 FIGURE_WIDTH = 1720
 FIGURE_HEIGHT = 700
 
-# Colour of the proposals of every detection level, the order of the levels of the diagrams
-LEVEL_COLOURS = {5: SERIES_COLOURS[0], 6: SERIES_COLOURS[1], 7: SERIES_COLOURS[3]}
+# Colour of the proposals of every detection level, the order of the levels of the diagrams (violet, blue, aqua and
+# magenta, the colours of their bars in the storyboards)
+LEVEL_COLOURS = {4: SERIES_COLOURS[4], 5: SERIES_COLOURS[0], 6: SERIES_COLOURS[1], 7: SERIES_COLOURS[3]}
 
-# Colours of the labels of the anchors, readable on the green of the synthetic images: foreground, ignored and the
-# sampled background
+# Colours of the labels of the anchors, drawn over the flat or textured backgrounds of the synthetic images:
+# foreground, ignored and the sampled background
 FOREGROUND_COLOUR = SERIES_COLOURS[0]
 IGNORED_COLOUR = SERIES_COLOURS[2]
 BACKGROUND_COLOUR = "#%02x%02x%02x" % FRAME_BACKGROUND_COLOUR
@@ -105,15 +111,35 @@ def read_image_objects(test_folder: Path, category_names: Dict[int, str]) -> Tup
     return boxes, classes, [category_names[class_index] for class_index in classes]
 
 
+def choose_anchor_cell_object(object_boxes: torch.Tensor, image_size: int) -> int:
+    """
+    Chooses the object of the test image whose best anchors give the cells the animated page of the anchors draws: the
+    object whose box centre lies nearest the centre of the image, so that the anchors of every level grow from a cell
+    in the middle of the image whatever the image shows, rather than from an object named by its class.
+
+    Args:
+        object_boxes (torch.Tensor): The [N, 4] boxes of the objects of the image.
+        image_size (int): The side of the network input.
+
+    Returns:
+        int: The index of the chosen object.
+    """
+    box_centres = (object_boxes[:, :2] + object_boxes[:, 2:]) / 2.0
+    distances = torch.linalg.vector_norm(input=box_centres - image_size / 2.0, dim=1)
+    return int(distances.argmin())
+
+
 def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
-                           object_names: List[str]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                           object_names: List[str]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int]:
     """
     Describes the anchors of every detection level for the animated page of the anchors: the stride, cells, scales and
     anchor count of the level, with its anchors per cell and its numbers of scales and of aspect ratios that the
-    narration counts, the six anchors of the cell of the best anchor of ANCHOR_CELL_OBJECT, in the order the
-    anchors are stored (ratio by ratio, every scale within a ratio), and for every object of the image its best anchor
-    over the levels with its overlap, the foreground threshold of 0.5 telling whether it gets a foreground anchor by
-    overlap or only through the fallback of the assignment.
+    narration counts, the anchors of one cell in the order they are stored (ratio by ratio, every scale within a
+    ratio), and for every object of the image its best anchor over the levels with its overlap, the foreground
+    threshold telling whether it gets a foreground anchor by overlap or only through the fallback of the assignment.
+    The cell is that of the best anchor of the object nearest the image centre (choose_anchor_cell_object) in the first
+    level of every stride, the following levels of the same stride (blocks 6 and 7 without the last max pooling)
+    drawing their anchors on that same cell, as the page shows them; every level gets the index of its stride group.
 
     Args:
         model (TwoStageDetector): The trained detector.
@@ -121,12 +147,14 @@ def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
         object_names (List[str]): Their class names.
 
     Returns:
-        Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]: The description of every level and of every object.
+        Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int]: The description of every level and of every object,
+            and the index of the object whose cell is drawn.
     """
     level_anchors = model.get_level_anchors()
-    cell_object_index = object_names.index(ANCHOR_CELL_OBJECT)
+    cell_object_index = choose_anchor_cell_object(object_boxes=object_boxes, image_size=model.input_image_size)
     level_descriptions = []
     best_overlaps = {}
+    stride_cells = {}
     for level, anchors in level_anchors.items():
         region_proposer = model.region_proposer_dictionary[str(level)]
         feature_map_size = region_proposer.feature_map_size
@@ -135,15 +163,18 @@ def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
         overlaps = get_intersection_over_union(boxes_1=object_boxes, boxes_2=anchors)
         best_overlaps[level] = overlaps.max(dim=1)
 
-        # Cell of the best anchor of the chosen object, the anchors of a cell being consecutive
-        cell_index = int(overlaps[cell_object_index].argmax()) // anchors_per_cell
+        # Cell of the best anchor of the chosen object in the first level of the stride, the anchors of a cell being
+        # consecutive, kept for the following levels of the same stride
+        if stride not in stride_cells:
+            stride_cells[stride] = int(overlaps[cell_object_index].argmax()) // anchors_per_cell
+        cell_index = stride_cells[stride]
         cell_anchors = anchors[cell_index * anchors_per_cell:(cell_index + 1) * anchors_per_cell]
         ratios = [float(ratio) for ratio in region_proposer.aspect_ratios for _ in region_proposer.scales]
         scales = [float(scale) for _ in region_proposer.aspect_ratios for scale in region_proposer.scales]
         level_descriptions.append({
             "name": str(level), "stride": stride, "cells": feature_map_size, "anchor_count": int(anchors.shape[0]),
             "anchors_per_cell": anchors_per_cell, "scale_count": len(region_proposer.scales),
-            "ratio_count": len(region_proposer.aspect_ratios),
+            "ratio_count": len(region_proposer.aspect_ratios), "group": list(stride_cells).index(stride),
             "scales": [float(scale) for scale in region_proposer.scales],
             "cell": [cell_index % feature_map_size, cell_index // feature_map_size],
             "anchors": [{"box": [round_fact(value=coordinate) for coordinate in box.tolist()], "scale": scale,
@@ -164,7 +195,7 @@ def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
             "foreground": best_value >= model.region_proposal_configuration["foreground_iou_threshold"]["min"],
             "level_iou": {str(level): round_fact(value=float(best_overlaps[level].values[object_index]))
                           for level in level_anchors}})
-    return level_descriptions, object_descriptions
+    return level_descriptions, object_descriptions, cell_object_index
 
 
 def count_by_level(levels: torch.Tensor) -> Dict[str, int]:
@@ -181,12 +212,14 @@ def count_by_level(levels: torch.Tensor) -> Dict[str, int]:
     return {str(level): int((levels == level).sum()) for level in sorted(LEVEL_COLOURS)}
 
 
-def count_found_objects(object_boxes: torch.Tensor, object_classes: List[int], detection_boxes: torch.Tensor,
-                        detection_labels: torch.Tensor) -> int:
+def classify_image_objects(object_boxes: torch.Tensor, object_classes: List[int], detection_boxes: torch.Tensor,
+                           detection_labels: torch.Tensor) -> List[Dict[str, Any]]:
     """
-    Counts the objects of the test image that the detections reaching the deployment threshold find, the shapes the
-    evaluation chapter says the sample image of the last checkpoint finds: an object is found when a detection of its
-    class overlaps it by the matching overlap of the confusion matrix (MATCHING_INTERSECTION_OVER_UNION_THRESHOLD).
+    Tells for every object of the test image what the detections reaching the deployment threshold make of it, the
+    outcomes the chapters name on the sample images and on the proposal figure, matched at the overlap of the confusion
+    matrix (MATCHING_INTERSECTION_OVER_UNION_THRESHOLD): found when a detection of its class overlaps it that much,
+    taken for another class when only detections of other classes do (the class of the most overlapping one given), and
+    missed otherwise.
 
     Args:
         object_boxes (torch.Tensor): The [N, 4] boxes of the objects.
@@ -195,18 +228,84 @@ def count_found_objects(object_boxes: torch.Tensor, object_classes: List[int], d
         detection_labels (torch.Tensor): Their [D] classes.
 
     Returns:
-        int: The number of objects found.
+        List[Dict[str, Any]]: For every object, its 'outcome' ("found", "wrong_class" or "missed") and, for a wrong
+            class, the 'detected_class' of its most overlapping detection.
     """
-    # No detection finds no object, the overlap of an empty set of boxes having no maximum
+    # No detection misses every object, the overlap of an empty set of boxes having no maximum
     if detection_boxes.shape[0] == 0:
-        return 0
+        return [{"outcome": "missed"} for _ in object_classes]
 
-    # Overlap of every object with every detection, kept only for the detections of the class of the object
+    # Overlap of every object with every detection, those of the class of the object and those of the other classes
     overlaps = get_intersection_over_union(boxes_1=object_boxes, boxes_2=detection_boxes)
     same_class = torch.tensor(data=object_classes, dtype=torch.int64).unsqueeze(dim=1) == detection_labels.unsqueeze(
         dim=0)
     matched_overlaps = torch.where(same_class, overlaps, torch.zeros_like(input=overlaps))
-    return int((matched_overlaps.max(dim=1).values >= MATCHING_INTERSECTION_OVER_UNION_THRESHOLD).sum())
+    other_overlaps = torch.where(same_class, torch.zeros_like(input=overlaps), overlaps)
+    outcomes = []
+    for object_index in range(len(object_classes)):
+        if float(matched_overlaps[object_index].max()) >= MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:
+            outcomes.append({"outcome": "found"})
+        elif float(other_overlaps[object_index].max()) >= MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:
+            outcomes.append({"outcome": "wrong_class", "detected_class": int(
+                detection_labels[int(other_overlaps[object_index].argmax())])})
+        else:
+            outcomes.append({"outcome": "missed"})
+    return outcomes
+
+
+def run_detections(model: TwoStageDetector, input_tensor: torch.Tensor) -> Tuple[Dict[str, Any], int]:
+    """
+    Runs every stage of a detector in evaluation mode on the test image and gives the outputs with the number of
+    detections reaching the deployment threshold, the detections the sample images of the evaluations draw.
+
+    Args:
+        model (TwoStageDetector): The detector of a checkpoint (load_run_model).
+        input_tensor (torch.Tensor): The [1, 3, H, W] input of the image (read_network_image).
+
+    Returns:
+        Tuple[Dict[str, Any], int]: The stages of forward_detection_stages and the number of detections.
+    """
+    with torch.no_grad():
+        stages = model.forward_detection_stages(input_tensor=input_tensor)
+    return stages, int(stages["model_output_dictionary"]["number_detections"][0])
+
+
+def describe_sample_iterations(run_folder: Path, input_tensor: torch.Tensor, object_boxes: torch.Tensor,
+                               object_classes: List[int], category_names: Dict[int, str]) -> Dict[str, Any]:
+    """
+    Runs the trained detector of every compared evaluation (DETECTION_SAMPLE_ITERATIONS of detection_sources.py) on the
+    test image, as the sample images of those evaluations draw it, and gives the number of its detections reaching the
+    deployment threshold and the objects they find, in the order of the iterations, so that the evaluation chapter
+    names the shapes found at every compared iteration.
+
+    Args:
+        run_folder (Path): The folder of the DET run.
+        input_tensor (torch.Tensor): The input of the test image.
+        object_boxes (torch.Tensor): The [N, 4] boxes of its objects.
+        object_classes (List[int]): Their classes.
+        category_names (Dict[int, str]): The name of every category identifier.
+
+    Returns:
+        Dict[str, Any]: The facts, named inference.samples.*: the detection count, the found object count and the found
+            objects as said (describe_class_name, joined), "none" when no object is found.
+    """
+    detection_counts, found_counts, found_texts = [], [], []
+    for iteration in DETECTION_SAMPLE_ITERATIONS:
+        stages, detection_count = run_detections(model=load_run_model(run_folder=run_folder, iteration=iteration),
+                                                 input_tensor=input_tensor)
+        outputs = stages["model_output_dictionary"]
+        outcomes = classify_image_objects(
+            object_boxes=object_boxes, object_classes=object_classes,
+            detection_boxes=outputs["final_detection_boxes"][0][:detection_count].float(),
+            detection_labels=outputs["final_detection_labels"][0][:detection_count])
+        found_names = [describe_class_name(class_name=category_names[object_class]) for object_class, outcome in
+                       zip(object_classes, outcomes) if outcome["outcome"] == "found"]
+        detection_counts.append(detection_count)
+        found_counts.append(len(found_names))
+        found_texts.append(join_words(words=found_names) if found_names else "none")
+    return {"inference.samples.iterations": list(DETECTION_SAMPLE_ITERATIONS),
+            "inference.samples.detection_counts": detection_counts, "inference.samples.found_counts": found_counts,
+            "inference.samples.found_texts": found_texts}
 
 
 def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nms_proposals: int,
@@ -426,7 +525,8 @@ def draw_panel_figure(image: Image.Image, panels: List[Dict[str, Any]], output_p
 
 def format_level_counts(counts: Dict[str, int]) -> str:
     """
-    Writes the counts of the levels as the note of a figure panel, e.g. "block 5: 149 · block 6: 65 · block 7: 36".
+    Writes the counts of the levels as the note of a figure panel, short enough for four levels under a panel, e.g.
+    "blocks 4/5/6/7: 1000 / 1000 / 384 / 576".
 
     Args:
         counts (Dict[str, int]): The count of every level.
@@ -434,7 +534,7 @@ def format_level_counts(counts: Dict[str, int]) -> str:
     Returns:
         str: The note.
     """
-    return " · ".join(f"block {level}: {count}" for level, count in counts.items())
+    return f"blocks {'/'.join(counts)}: {' / '.join(str(count) for count in counts.values())}"
 
 
 def count_parameters(module: torch.nn.Module) -> int:
@@ -506,17 +606,18 @@ def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
     facts["inference.model.neck_type"] = model.neck.neck_type
     facts["inference.model.neck_parameters"] = count_parameters(module=model.neck)
 
-    # Spatial scale of the RoIAlign of every level, the feature map side over the input side, and the channels of the
-    # map the heads of the level read, after the neck (those of the backbone block without neck)
+    # Spatial scale and pool of the RoIAlign of every level, the feature map side over the input side, and the channels
+    # of the map the heads of the level read, after the neck (those of the backbone block without neck)
     for level, head in model.detector_heads_dictionary.items():
         facts[f"inference.model.level_{level}.spatial_scale"] = round_fact(value=head.spatial_scale)
+        facts[f"inference.model.level_{level}.roi_align_pool_size"] = head.roi_align_pool_size
         facts[f"inference.model.level_{level}.feature_map_size"] = head.feature_map_size
         facts[f"inference.model.level_{level}.head_input_channels"] = model.detection_input_information[level][
             "number_channels"]
     return facts
 
 
-def read_committed_inference_facts(output_folder: Path, facts_path: Path) -> Dict[str, Any]:
+def read_committed_inference_facts(output_folder: Path, facts_path: Path, checkpoint_name: str) -> Dict[str, Any]:
     """
     Gives the inference of the DET run for a build without its checkpoint (a build from the run snapshots of
     tutorials/run_snapshots): the inference figures and facts committed under figure_reuse/object_detection/inference
@@ -526,13 +627,16 @@ def read_committed_inference_facts(output_folder: Path, facts_path: Path) -> Dic
     Args:
         output_folder (Path): The figures folder of the series.
         facts_path (Path): The inference_facts.json of the inference figures in it.
+        checkpoint_name (str): The run folder name and checkpoint iteration the build reads, as
+            <run name>/Iteration_<iteration>.
 
     Returns:
         Dict[str, Any]: The facts of the inference, named inference.*.
 
     Raises:
         FileNotFoundError: If no committed inference is found, or one of the figures it lists is missing.
-        ValueError: If the inference found was written by another version of the facts than INFERENCE_FACTS_VERSION.
+        ValueError: If the inference found was written by another version of the facts than INFERENCE_FACTS_VERSION,
+            from another checkpoint or on another test image than SAMPLE_IMAGE_NAME.
     """
     restore_committed_figures(output_folder=output_folder, family_folder=INFERENCE_FAMILY_FOLDER)
     reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=False)
@@ -546,6 +650,13 @@ def read_committed_inference_facts(output_folder: Path, facts_path: Path) -> Dic
         raise ValueError(f"The inference of {facts_path} has facts version {reused_facts['inference.facts_version']}, "
                          f"not {INFERENCE_FACTS_VERSION}: empty the figures folder of the build, or build the "
                          f"object_detection figures from the real runs and write the snapshots again.")
+
+    # A committed inference of another checkpoint or test image would describe what the chapters no longer show
+    if (reused_facts["inference.checkpoint_name"] != checkpoint_name
+            or reused_facts["inference.image_name"] != SAMPLE_IMAGE_NAME):
+        raise ValueError(f"The inference of {facts_path} was made from {reused_facts['inference.checkpoint_name']} on "
+                         f"{reused_facts['inference.image_name']}, not from {checkpoint_name} on {SAMPLE_IMAGE_NAME}: "
+                         f"build the object_detection figures from the real runs and write the snapshots again.")
     return reused_facts
 
 
@@ -553,14 +664,15 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
                                     force: bool) -> Dict[str, Any]:
     """
     Runs the trained detector of the DET run on the CPU on the test image of the series, draws the proposal filter and
-    anchor label figures, writes the image the animated page of the anchors shows, and gives their facts, reused from
-    the previous build unless forced; a run without its checkpoint (read from the run snapshots) gives the inference
-    committed in the snapshots instead (read_committed_inference_facts).
+    anchor label figures, writes the image the animated page of the anchors shows, names the objects the detections
+    find, take for another class or miss (at the checkpoint and at every compared evaluation), and gives their facts,
+    reused from the previous build unless forced; a run without its checkpoint (read from the run snapshots) gives the
+    inference committed in the snapshots instead (read_committed_inference_facts).
 
     Args:
         output_folder (Path): The figures folder of the series.
         run_folder (Path): The folder of the DET run of tutorial_sources.yaml.
-        iteration (int): The checkpoint whose trained weights are run, the last one of the run.
+        iteration (int): The checkpoint whose trained weights are run, the last evaluated one of the run.
         force (bool): Whether the inference is run again even when the previous build left its figures.
 
     Returns:
@@ -572,18 +684,23 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     # A run without the checkpoint (read from the run snapshots) takes the inference committed by a build from the
     # real runs, whose facts keep the fingerprint of the real checkpoint
     checkpoint_path = get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=iteration)
+    checkpoint_name = f"{run_folder.name}/Iteration_{iteration}"
     if not checkpoint_path.exists():
         if force:
             print(f"No checkpoint {checkpoint_path}: --force cannot run the detector again, the committed inference "
                   f"of the run snapshots is reused")
-        return read_committed_inference_facts(output_folder=output_folder, facts_path=facts_path)
+        return read_committed_inference_facts(output_folder=output_folder, facts_path=facts_path,
+                                              checkpoint_name=checkpoint_name)
 
-    # An inference left by a build writing an older version of the facts, or made from another run, another checkpoint
-    # or a checkpoint file replaced since (a run trained again under the same name), is made again, as when forced
-    checkpoint_name = f"{run_folder.name}/Iteration_{iteration}"
-    checkpoint_fingerprint = compute_file_fingerprint(file_paths=[checkpoint_path])
+    # An inference left by a build writing an older version of the facts, or made from another run, another checkpoint,
+    # checkpoint files replaced since (a run trained again under the same name) or another test image, is made again,
+    # as when forced; the checkpoints of the compared evaluations are run too
+    checkpoint_fingerprint = compute_file_fingerprint(file_paths=[checkpoint_path] + [
+        get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=sample_iteration)
+        for sample_iteration in DETECTION_SAMPLE_ITERATIONS])
     inference_key = {"inference.facts_version": INFERENCE_FACTS_VERSION, "inference.checkpoint_name": checkpoint_name,
-                     "inference.checkpoint_fingerprint": checkpoint_fingerprint}
+                     "inference.checkpoint_fingerprint": checkpoint_fingerprint,
+                     "inference.image_name": SAMPLE_IMAGE_NAME}
     previous_facts = json.loads(facts_path.read_text(encoding="utf-8"))["facts"] if facts_path.exists() else {}
     outdated = facts_path.exists() and any(previous_facts.get(fact_name) != value
                                            for fact_name, value in inference_key.items())
@@ -604,8 +721,8 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     rgb_image.save(fp=image_path)
 
     # Every stage of the detector in evaluation mode, then the proposals of all the levels of the image
+    stages, detection_count = run_detections(model=model, input_tensor=input_tensor)
     with torch.no_grad():
-        stages = model.forward_detection_stages(input_tensor=input_tensor)
         aggregated_proposals = model.aggregate_proposals_and_anchors(
             region_proposal_output_tensor_dictionary=model._forward_region_proposals(
                 backbone_output_tensor_dictionary=stages["backbone_output_tensor_dictionary"]))
@@ -628,20 +745,19 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
         proposal_selection=proposal_selection, level_sizes=level_sizes)
 
     # Anchors of the levels, labels of the anchors and targets of the detection heads
-    level_descriptions, object_descriptions = describe_level_anchors(model=model, object_boxes=object_boxes,
-                                                                     object_names=object_names)
+    level_descriptions, object_descriptions, cell_object_index = describe_level_anchors(
+        model=model, object_boxes=object_boxes, object_names=object_names)
     anchor_labels = compute_anchor_labels(model=model, aggregated_proposals=aggregated_proposals,
                                           object_boxes=object_boxes)
     detector_targets = compute_detector_targets(model=model, training_filter=training_filter,
                                                 object_boxes=object_boxes, object_classes=object_classes)
 
-    # Final detections reaching the deployment threshold
-    detection_count = int(outputs["number_detections"][0])
+    # Final detections reaching the deployment threshold, and what they make of every object
     detections = [{"name": category_names[int(label)], "score": float(score), "box": box.tolist()}
                   for box, score, label in zip(outputs["final_detection_boxes"][0][:detection_count],
                                                outputs["final_detection_scores"][0][:detection_count],
                                                outputs["final_detection_labels"][0][:detection_count])]
-    found_object_count = count_found_objects(
+    object_outcomes = classify_image_objects(
         object_boxes=object_boxes, object_classes=object_classes,
         detection_boxes=outputs["final_detection_boxes"][0][:detection_count].float(),
         detection_labels=outputs["final_detection_labels"][0][:detection_count])
@@ -704,7 +820,7 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
         output_path=figure_folder / "anchor_labels.png")
 
     # Facts of the anchors, the proposal filter, the targets and the detections
-    facts = {"inference.image_name": SAMPLE_IMAGE_NAME, "inference.object_count": len(object_names),
+    facts = {"inference.object_count": len(object_names),
              "inference.anchor_total": int(anchors.shape[0]),
              "inference.anchor_page": {"image": f"figures:object_detection/inference/{SAMPLE_IMAGE_NAME}",
                                        "image_size": model.input_image_size, "levels": level_descriptions,
@@ -712,8 +828,12 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
              "inference.fallback_objects": [entry["name"] for entry in object_descriptions if not entry["foreground"]],
              "inference.proposal_filter.panel_boxes": proposal_panel_boxes,
              "inference.anchor_labels.panel_boxes": label_panel_boxes,
-             "inference.detection_count": detection_count, "inference.found_object_count": found_object_count,
-             "inference.level_count": len(level_descriptions), **inference_key}
+             "inference.detection_count": detection_count,
+             "inference.found_object_count": sum(outcome["outcome"] == "found" for outcome in object_outcomes),
+             "inference.level_count": len(level_descriptions),
+             "inference.level_names_text": join_words(words=[entry["name"] for entry in level_descriptions]),
+             "inference.anchor_cell_object_text": describe_class_name(class_name=object_names[cell_object_index]),
+             **inference_key}
     facts["inference.fallback_count"] = len(facts["inference.fallback_objects"])
     facts["inference.overlap_object_count"] = len(object_descriptions) - facts["inference.fallback_count"]
     for panel_index, (proposal_box, label_box) in enumerate(zip(proposal_panel_boxes, label_panel_boxes)):
@@ -722,10 +842,37 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     for level_description in level_descriptions:
         for key in ["stride", "cells", "anchor_count", "anchors_per_cell", "scale_count", "ratio_count"]:
             facts[f"inference.level_{level_description['name']}.{key}"] = level_description[key]
+
+    # Every object with its best anchor overlap, on the lines of the anchor scene, and the objects of the fallback in
+    # the order of the manifest, as said
+    object_texts = [f"{describe_class_name(class_name=entry['name'])} {entry['best_iou']:.2f}"
+                    for entry in object_descriptions]
+    facts["inference.object_lines"] = "\n".join(" · ".join(object_texts[start:start + OBJECT_LINE_LENGTH])
+                                                for start in range(0, len(object_texts), OBJECT_LINE_LENGTH))
     for object_index, object_description in enumerate(object_descriptions):
         prefix = f"inference.object_{object_index + 1}"
         facts.update({f"{prefix}.name": object_description["name"], f"{prefix}.best_iou": object_description[
             "best_iou"], f"{prefix}.best_level": object_description["best_level"]})
+    fallback_descriptions = [entry for entry in object_descriptions if not entry["foreground"]]
+    for fallback_index, fallback_description in enumerate(fallback_descriptions):
+        facts[f"inference.fallback_{fallback_index + 1}.name_text"] = describe_class_name(
+            class_name=fallback_description["name"])
+        facts[f"inference.fallback_{fallback_index + 1}.best_iou"] = fallback_description["best_iou"]
+
+    # Objects found, taken for another class and missed by the detections of the checkpoint, as said
+    for outcome_name in ["found", "wrong_class", "missed"]:
+        outcome_indices = [index for index, outcome in enumerate(object_outcomes) if outcome["outcome"] == outcome_name]
+        facts[f"inference.{outcome_name}_count"] = len(outcome_indices)
+        outcome_object_names = [describe_class_name(class_name=object_names[index]) for index in outcome_indices]
+        facts[f"inference.{outcome_name}_text"] = join_words(words=outcome_object_names) if outcome_object_names else ""
+    facts["inference.wrong_class_detected_text"] = join_words(words=[
+        describe_class_name(class_name=category_names[outcome["detected_class"]]) for outcome in object_outcomes
+        if outcome["outcome"] == "wrong_class"]) if facts["inference.wrong_class_count"] else ""
+
+    # Objects found at every compared evaluation, each checkpoint run on the image
+    facts.update(describe_sample_iterations(run_folder=run_folder, input_tensor=input_tensor,
+                                            object_boxes=object_boxes, object_classes=object_classes,
+                                            category_names=category_names))
     for mode_name, mode_filter in [("evaluation", evaluation_filter), ("training", training_filter)]:
         facts[f"inference.{mode_name}_filter.top_count"] = int(mode_filter["top_boxes"].shape[0])
         facts[f"inference.{mode_name}_filter.survivor_count"] = mode_filter["survivor_count"]

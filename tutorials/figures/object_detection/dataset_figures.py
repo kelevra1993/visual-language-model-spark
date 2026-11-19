@@ -1,13 +1,13 @@
 """
 Data figures of the object detection tutorials (the chapter on the data, the levels and the anchors), made at every
 build by tutorials/figures/object_detection/figures.py from the DET run of tutorials/tutorial_sources.yaml: the
-listing of the COCO manifest of its test split (the first image, the first annotation with its run length encoding
-shortened, the first and last categories) next to the label mapping file and the label dictionary saved in the run
-folder, which adds the background, with the classes, the image side and the most objects of an image that the
-narration quotes; the counts of the splits from the data record of the run (data.json); and the anchor recall of the
-training objects the trainer wrote at launch (anchor_recall.csv), by object size and detection level, the values of
-the grid of the anchor recall scene, written in its cells as the percentages of the reports of the repository and
-kept between 0 and 1 in the facts the narration quotes.
+listing of the COCO manifest of its test split (the first image, the first annotation with the start of its compressed
+run length encoding and the runs it stands for, the first and last categories) next to the label mapping file and the
+label dictionary saved in the run folder, which adds the background, with the classes, the image side and the fewest
+and most objects of an image that the narration quotes; the counts of the splits from the data record of the run
+(data.json); and the anchor recall of the training objects the trainer wrote at launch (anchor_recall.csv), by object
+size and detection level, the values of the grid of the anchor recall scene, written in its cells as the percentages of
+the reports of the repository and kept between 0 and 1 in the facts the narration quotes.
 """
 
 import collections
@@ -20,41 +20,64 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import read_run_configuration, round_fact
 from tutorials.figures.object_detection.detection_sources import find_test_folder, read_test_manifest, write_listing
-from vision_training.data.synthetic.create_synthetic_dataset import TASK_CATEGORIES
+from vision_training.data.detection.coco_masks import decode_compressed_counts
 from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_RANGES
 from vision_training.evaluation.report_formatting import round_percentage
 
-# Values of the run length encoding of the first annotation kept in the listing, the rest being counted
-RUN_LENGTH_VALUES_SHOWN = 6
+# Characters of the compressed run length encoding of the first annotation kept in the listing (or values of an
+# uncompressed one), the runs it stands for being counted
+RUN_LENGTH_CHARACTERS_SHOWN = 12
 
-# Task of the synthetic data set script that drew the data set of the run, whose number of categories a data set drawn
-# today has
-GENERATED_TASK = "instance_segmentation"
-
-# Rows of anchor_recall.csv in the order of the grid of the scene, with the names of the object sizes of the evaluation
+# Rows of anchor_recall.csv in the order of the grid of the scene, with the names of the object sizes of the evaluation;
+# its columns are those of the file, one per detection level of the run, then all the levels together
 ANCHOR_RECALL_ROWS = [("small", "Small < 32²"), ("medium", "Medium 32² to 96²"), ("large", "Large >= 96²"),
                       ("all", "All objects")]
-ANCHOR_RECALL_COLUMNS = ["recall_block_5", "recall_block_6", "recall_block_7", "recall_all_levels"]
+ANCHOR_RECALL_LEVEL_PREFIX = "recall_block_"
+ANCHOR_RECALL_ALL_LEVELS_COLUMN = "recall_all_levels"
+
+
+def decode_annotation_counts(annotation: Dict[str, Any]) -> List[int]:
+    """
+    Gives the run lengths of the run length encoding of an annotation, decoded from the compressed string the synthetic
+    generator writes (decode_compressed_counts, as the loader decodes it), or read as they are from an uncompressed
+    list, so that the listing and the facts of the first annotation count the runs and pixels the masks are built from.
+
+    Args:
+        annotation (Dict[str, Any]): The COCO annotation, with its run length encoded segmentation.
+
+    Returns:
+        List[int]: The run lengths, alternating background and object pixels, starting with background.
+    """
+    counts = annotation["segmentation"]["counts"]
+    if isinstance(counts, str):
+        return decode_compressed_counts(compressed_counts=counts).tolist()
+    return list(counts)
 
 
 def format_annotation(annotation: Dict[str, Any]) -> List[str]:
     """
-    Writes the first annotation of the manifest on the lines of the listing, its run length encoding shortened to its
-    first values followed by the number of values and their sum, the pixels of the image.
+    Writes the first annotation of the manifest on the lines of the listing: its identifiers, its bbox, and its run
+    length encoding, the start of its compressed counts string (or the first values of an uncompressed list) followed
+    by the number of runs it stands for and their sum, the pixels of the image.
 
     Args:
-        annotation (Dict[str, Any]): The COCO annotation, with its bbox and its uncompressed segmentation.
+        annotation (Dict[str, Any]): The COCO annotation, with its bbox and its run length encoded segmentation.
 
     Returns:
         List[str]: The lines of the annotation.
     """
-    counts = annotation["segmentation"]["counts"]
-    shown_counts = ", ".join(str(value) for value in counts[:RUN_LENGTH_VALUES_SHOWN])
+    stored_counts = annotation["segmentation"]["counts"]
+    counts = decode_annotation_counts(annotation=annotation)
+    if isinstance(stored_counts, str):
+        shown_counts = f'"{stored_counts[:RUN_LENGTH_CHARACTERS_SHOWN]}..." compressed'
+    else:
+        shown_values = stored_counts[:RUN_LENGTH_CHARACTERS_SHOWN // 2]
+        shown_counts = "[" + ", ".join(str(value) for value in shown_values) + ", ...]"
     return ["annotations[0]",
             f"  id {annotation['id']}   image_id {annotation['image_id']}   category_id {annotation['category_id']}",
             f"  bbox {annotation['bbox']}",
             f"  segmentation size {annotation['segmentation']['size']}",
-            f"    counts [{shown_counts}, ...]   {len(counts)} values, sum {sum(counts):,}"]
+            f"    counts {shown_counts}   {len(counts)} runs, sum {sum(counts):,}"]
 
 
 def write_manifest_listing(run_folder: Path, output_path: Path) -> Dict[str, Any]:
@@ -62,8 +85,8 @@ def write_manifest_listing(run_folder: Path, output_path: Path) -> Dict[str, Any
     Writes the listing of the COCO data of the run: the first image, annotation and categories of its test manifest,
     then its label mapping file and the label dictionary saved in the run folder, and gives the values the narration
     quotes: the counts of the manifest, the first box, the classes of the mapping and of the background, the side of
-    the images and the most objects of an image of the test split (drawn like the training split), and the number of
-    categories of a data set drawn today by the synthetic data set script.
+    the images, the fewest and most objects of an image of the test split (drawn like the training split) and the runs
+    of the first annotation.
 
     Args:
         run_folder (Path): The folder of the DET run.
@@ -85,7 +108,8 @@ def write_manifest_listing(run_folder: Path, output_path: Path) -> Dict[str, Any
     first_annotation_category = [category for category in categories if
                                  category["id"] == first_annotation["category_id"]][0]
     mapping_items = list(label_mapping.items())
-    lines = [f"test/labels.json   {len(manifest['images']):,} images   {len(manifest['annotations']):,} annotations",
+    lines = [f"{test_folder.name}/labels.json   {len(manifest['images']):,} images   "
+             f"{len(manifest['annotations']):,} annotations",
              f"images[0]       {json.dumps(obj=manifest['images'][0])}"]
     lines += format_annotation(annotation=first_annotation)
     lines += [f"categories      {json.dumps(obj=categories[0])}  ...",
@@ -100,19 +124,22 @@ def write_manifest_listing(run_folder: Path, output_path: Path) -> Dict[str, Any
 
     # Objects of every image of the test split, the images without object counting none
     objects_per_image = collections.Counter(annotation["image_id"] for annotation in manifest["annotations"])
+    image_object_counts = [objects_per_image[image["id"]] for image in manifest["images"]]
+    first_counts = decode_annotation_counts(annotation=first_annotation)
     return {"data.test_images": len(manifest["images"]), "data.test_annotations": len(manifest["annotations"]),
-            "data.maximum_objects_per_image": max(objects_per_image.values()),
+            "data.test_folder_name": test_folder.name,
+            "data.minimum_objects_per_image": min(image_object_counts),
+            "data.maximum_objects_per_image": max(image_object_counts),
             "data.image_size": manifest["images"][0]["width"],
             "data.background_class": label_dictionary["background"],
             "data.first_class": min(label_mapping.values()), "data.last_class": max(label_mapping.values()),
-            "data.generated_category_count": len(TASK_CATEGORIES[GENERATED_TASK]),
             "data.category_count": len(categories), "data.class_count": len(label_dictionary),
             "data.first_bbox": first_annotation["bbox"], "data.first_category": first_annotation_category["name"],
             "data.first_box_corners": [first_annotation["bbox"][0], first_annotation["bbox"][1],
                                        first_annotation["bbox"][0] + first_annotation["bbox"][2],
                                        first_annotation["bbox"][1] + first_annotation["bbox"][3]],
-            "data.run_length_values": len(first_annotation["segmentation"]["counts"]),
-            "data.run_length_sum": sum(first_annotation["segmentation"]["counts"])}
+            "data.run_length_values": len(first_counts), "data.run_length_sum": sum(first_counts),
+            "data.run_length_compressed": isinstance(first_annotation["segmentation"]["counts"], str)}
 
 
 def read_split_counts(run_folder: Path) -> Dict[str, Any]:
@@ -138,29 +165,35 @@ def read_anchor_recall(run_folder: Path) -> Dict[str, Any]:
     """
     Reads the anchor recall of the training objects written by the trainer at launch (anchor_recall.csv): the share
     of the objects of every size whose best anchor of a level reaches the foreground threshold, and of all the levels
-    together, as the rows of the grid of the scene, with the number of objects of every size and the box side from
-    which an object is large (the square root of the smallest large area of OBJECT_SIZE_RANGES).
+    together, as the rows of the grid of the scene, with the number of objects of every size, the block of every level
+    column, and the box side from which an object is large (the square root of the smallest large area of
+    OBJECT_SIZE_RANGES).
 
     Args:
         run_folder (Path): The folder of the DET run.
 
     Returns:
         Dict[str, Any]: The facts, named anchor_recall.*: the grid values as percentages rounded like the reports
-            (rows small, medium, large, all; columns blocks 5, 6, 7 and all the levels), the row labels, every value
-            by name between 0 and 1 and the large object side.
+            (rows small, medium, large, all; a column per level of the run, then all the levels), the row and column
+            labels, every value by name between 0 and 1 and the large object side.
     """
     with open(file=run_folder / "anchor_recall.csv", mode="r", encoding="utf-8") as file_handler:
-        rows = {row["objects"]: row for row in csv.DictReader(f=file_handler)}
+        reader = csv.DictReader(f=file_handler)
+        rows = {row["objects"]: row for row in reader}
+        level_columns = [column for column in reader.fieldnames if column.startswith(ANCHOR_RECALL_LEVEL_PREFIX)]
+    columns = level_columns + [ANCHOR_RECALL_ALL_LEVELS_COLUMN]
 
     # Grid cells as the percentages of the reports, the values quoted by name staying between 0 and 1
     facts = {"anchor_recall.percentages": [[round_percentage(value=float(rows[row_key][column])) for column in
-                                            ANCHOR_RECALL_COLUMNS] for row_key, _ in ANCHOR_RECALL_ROWS],
+                                            columns] for row_key, _ in ANCHOR_RECALL_ROWS],
+             "anchor_recall.column_labels": [f"block {column[len(ANCHOR_RECALL_LEVEL_PREFIX):]}"
+                                             for column in level_columns] + ["all levels"],
              "anchor_recall.row_labels": [f"{label} · {int(rows[row_key]['count']):,}" for row_key, label in
                                           ANCHOR_RECALL_ROWS],
              "anchor_recall.large_minimum_side": round(math.sqrt(OBJECT_SIZE_RANGES["large"][0]))}
     for row_key, _ in ANCHOR_RECALL_ROWS:
         facts[f"anchor_recall.{row_key}.count"] = int(rows[row_key]["count"])
-        for column in ANCHOR_RECALL_COLUMNS:
+        for column in columns:
             facts[f"anchor_recall.{row_key}.{column}"] = round_fact(value=float(rows[row_key][column]))
     return facts
 
