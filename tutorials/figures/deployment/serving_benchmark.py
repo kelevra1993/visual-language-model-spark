@@ -36,9 +36,11 @@ from tutorial_builder.layout import NAMED_COLOURS
 from tutorials.figures.foundations.code_values import read_main_block_value
 
 # Models of the benchmark in the order of the plan, with their short name on the figures and in the facts, and the
-# run of tutorial_sources.yaml every model was exported from
+# run of tutorial_sources.yaml every model was exported from: the classifier measured is the run of the 9-class
+# version of the synthetic shapes (serving_benchmark_plan.md), not the classification run of the tutorials
 MODEL_NAMES = {"classification": "CLS", "object_detection": "DET", "sequence_labelling": "M2M"}
-MODEL_RUN_KEYS = {"CLS": "classification", "DET": "object_detection_benchmark_joint_a", "M2M": "sequence_labelling"}
+MODEL_RUN_KEYS = {"CLS": "classification_nine_classes", "DET": "object_detection_benchmark_joint_a",
+                  "M2M": "sequence_labelling"}
 
 # Driver of the benchmark, whose main block sets the calls of the rows in the process
 BENCHMARK_SCRIPT = Path("scripts") / "deployment" / "benchmark_serving_formats.py"

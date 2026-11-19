@@ -22,11 +22,13 @@ from matplotlib.colors import LinearSegmentedColormap
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import (DOTS_PER_INCH, SERIES_COLOURS, STAR_IMAGE_NAME, SURFACE_COLOUR,
-                                                TEXT_SECONDARY_COLOUR, find_star_image, has_last_checkpoint,
-                                                load_classification_model, read_network_input, read_reused_facts,
-                                                read_run_configuration, register_fonts, restore_committed_figures,
-                                                round_fact, save_figure, write_network_input, write_reused_facts)
+from tutorials.figures.classification.evaluation_tables import format_class_name
+from tutorials.figures.figure_utilities import (DOTS_PER_INCH, SERIES_COLOURS, STAR_CATEGORY_NAME, STAR_IMAGE_NAME,
+                                                SURFACE_COLOUR, TEXT_SECONDARY_COLOUR, find_star_image,
+                                                has_last_checkpoint, load_classification_model, read_network_input,
+                                                read_reused_facts, read_run_configuration, register_fonts,
+                                                restore_committed_figures, round_fact, save_figure,
+                                                write_network_input, write_reused_facts)
 from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.configuration_processing.run_name import build_classification_sections
@@ -56,6 +58,12 @@ UNIT_TICK_STEP = 32
 
 # Correlation above which two hidden units count as strongly correlated in the facts
 STRONG_CORRELATION = 0.5
+
+# Most probable classes of the test star shown by the bars of the logits scene, the other classes summed in one bar
+SHOWN_STAR_CLASSES = 7
+
+# Columns of the grid of the balanced class weights of the loss scene, the classes in class index order row by row
+CLASS_WEIGHT_COLUMNS = 7
 
 # Name of the JSON file keeping the facts of the figures for their reuse, and the folder of the figures in the figures
 # folder of the series, under which the run snapshots commit them
@@ -133,8 +141,11 @@ def draw_correlation_figure(correlation: numpy.ndarray, output_path: Path) -> No
 def describe_star_outputs(class_names: List[str], logits: numpy.ndarray,
                           probabilities: numpy.ndarray) -> Dict[str, Any]:
     """
-    Gives the facts of the class outputs of the test star: the logit and probability of every class, and the classes
-    with their logits and probabilities from the most probable one, the order of the bars of the scene.
+    Gives the facts of the class outputs of the test star: the logit and probability of every class, the
+    SHOWN_STAR_CLASSES most probable classes with their logits and probabilities, the order of the bars of the scene,
+    followed by one bar for all the other classes (their summed probability, and their largest logit in the logit
+    column), the second most probable class with its logit, the lowest logit, and the number of other classes with a
+    positive logit; the star must be predicted as a star, the class the narration reads first.
 
     Args:
         class_names (List[str]): The classes, in the order of the outputs.
@@ -143,23 +154,42 @@ def describe_star_outputs(class_names: List[str], logits: numpy.ndarray,
 
     Returns:
         Dict[str, Any]: The facts, named star_image.*.
+
+    Raises:
+        ValueError: If the test star is predicted as another class.
     """
     facts = {"star_image.file_name": STAR_IMAGE_NAME}
     for class_name, logit, probability in zip(class_names, logits, probabilities):
         facts[f"star_image.logits.{class_name}"] = round_fact(value=logit)
         facts[f"star_image.probabilities.{class_name}"] = round_fact(value=probability)
 
-    # Classes from the most probable one, for the bars of the scene
+    # Classes from the most probable one, the test star first
     class_order = numpy.argsort(-probabilities, kind="stable").tolist()
+    if class_names[class_order[0]] != STAR_CATEGORY_NAME:
+        raise ValueError(f"The test star {STAR_IMAGE_NAME} is predicted {class_names[class_order[0]]}: pick a test star "
+                         f"the run classifies right (STAR_IMAGE_NAME of tutorials/figures/figure_utilities.py).")
+
+    # Bars of the scene: the most probable classes, then one bar for the others with their summed probability
+    shown_order, other_order = class_order[:SHOWN_STAR_CLASSES], class_order[SHOWN_STAR_CLASSES:]
+    others_probability = float(probabilities[other_order].sum())
+    others_name = f"{len(other_order)} others"
     facts.update({"star_image.predicted_class": class_names[class_order[0]],
-                  "star_image.sorted_class_names": [class_names[class_index] for class_index in class_order],
-                  "star_image.sorted_logits": [round_fact(value=logits[class_index]) for class_index in class_order],
-                  "star_image.sorted_probabilities": [round_fact(value=probabilities[class_index])
-                                                      for class_index in class_order],
-                  "star_image.sorted_probability_labels": [f"{probabilities[class_index]:.4f}"
-                                                           for class_index in class_order],
-                  "star_image.sorted_logit_rows": [[round_fact(value=logits[class_index])]
-                                                   for class_index in class_order]})
+                  "star_image.second_class": format_class_name(class_name=class_names[class_order[1]]),
+                  "star_image.second_probability": round_fact(value=probabilities[class_order[1]]),
+                  "star_image.second_logit": round_fact(value=logits[class_order[1]]),
+                  "star_image.lowest_logit": round_fact(value=logits.min()),
+                  "star_image.other_count": len(other_order),
+                  "star_image.others_probability": round_fact(value=others_probability),
+                  "star_image.positive_other_logits": int((numpy.delete(logits, class_order[0]) > 0).sum())})
+
+    # Bars and logit column of the scene, the other classes last as one bar under their largest logit
+    shown_probabilities = [probabilities[class_index] for class_index in shown_order] + [others_probability]
+    facts.update({"star_image.shown_class_names": [format_class_name(class_name=class_names[class_index])
+                                                   for class_index in shown_order] + [others_name],
+                  "star_image.shown_probabilities": [round_fact(value=value) for value in shown_probabilities],
+                  "star_image.shown_probability_labels": [f"{value:.4f}" for value in shown_probabilities],
+                  "star_image.shown_logit_rows": [[round_fact(value=logits[class_index])] for class_index in
+                                                  shown_order] + [[round_fact(value=logits[other_order].max())]]})
     return facts
 
 
@@ -339,7 +369,11 @@ def make_classification_head_figures(output_folder: Path, run_folder: Path, forc
     facts.update({"class_weights.class_names": class_names, "class_weights.training_images": class_counts,
                   "class_weights.weights": class_weights, "class_weights.minimum": min(class_weights),
                   "class_weights.maximum": max(class_weights),
-                  "class_weights.weight_rows": [class_weights]})
+                  "class_weights.first_class": format_class_name(class_name=class_names[0]),
+                  "class_weights.last_class": format_class_name(class_name=class_names[-1]),
+                  "class_weights.weight_rows": [class_weights[row_start:row_start + CLASS_WEIGHT_COLUMNS]
+                                                for row_start in range(0, len(class_weights),
+                                                                       CLASS_WEIGHT_COLUMNS)]})
 
     # Parameters of every block of the backbone, of the backbone, of the head and of the whole model
     block_parameters = [sum(parameter.numel() for parameter in block.parameters())
