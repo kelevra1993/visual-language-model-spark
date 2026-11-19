@@ -188,18 +188,21 @@ scenes:
   - kind: image
     title: "What the launch prints"
     image: "repository:README/experiment_launch_information.png"
+    # Boxes measured on the 1300 x 592 capture, every console line 20 pixels high from y 16: the run name, the folders
+    # and files, the pre-trained backbone block, the splits, the epoch length, then the batch size to the schedule
     views:
-      - {box: [0, 40, 940, 205], from_sentence: 0}
-      - {box: [0, 180, 700, 280], from_sentence: 1}
-      - {box: [0, 270, 620, 500], from_sentence: 2}
+      - {box: [0, 40, 960, 300], from_sentence: 0}
+      - {box: [0, 280, 700, 380], from_sentence: 1}
+      - {box: [0, 362, 620, 592], from_sentence: 2}
     highlights:
-      - {box: [10, 77, 915, 95], sentences: [0]}
-      - {box: [10, 97, 915, 195], sentences: [0]}
-      - {box: [10, 197, 600, 255], sentences: [1]}
-      - {box: [10, 257, 330, 275], sentences: [1]}
-      - {box: [10, 277, 520, 415], sentences: [2]}
+      - {box: [10, 77, 950, 95], sentences: [0]}
+      - {box: [10, 97, 950, 195], sentences: [0]}
+      - {box: [10, 197, 610, 295], sentences: [0]}
+      - {box: [10, 297, 600, 355], sentences: [1]}
+      - {box: [10, 357, 330, 375], sentences: [1]}
+      - {box: [10, 377, 520, 495], sentences: [2]}
     narration:
-      - "At launch, the trainer prints the run name, then its folders and files as clickable links."
+      - "At launch, the trainer prints the run name, then its folders and files as clickable links, and the pre-trained backbone the run starts from."
       - "Then every split with its images and categories, and the length of one epoch in iterations, the only place where epochs appear."
       - "Then the training settings: the batch size, the iterations, how often checkpoints are saved and evaluated, the learning rate and the optimizer."
 
