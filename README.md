@@ -240,7 +240,14 @@ Before a long training, `ExperimentConfiguration.diagnosis_modes.view_input_imag
 </p>
 <p align="center"><em>Draws of the augmentation of <code>object_detection/configuration_example.yaml</code> on one image, as the input viewer draws them: the boxes follow the flips, rotations and zoom-outs (unchanged draws skipped).</em></p>
 
-`diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, per split, level and object size, the share of the objects whose best anchor overlaps them by at least `iou_threshold`.
+Should you change the image size, the detection levels or their anchors, check that the anchors still reach the objects of every split before training: `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, in every level (`Block <n>`, the blocks of `DetectionLevels`) and in all of them (`All Levels`), for all the objects and every object size, by box area in network input pixels. It reads the annotations without loading any image.
+
+<p align="center">
+  <img src="README/anchor_coverage.png" width="100%" />
+</p>
+<p align="center"><em>The console of <code>vision_training.main</code> on a copy of <code>object_detection/configuration_synthetic_shapes.yaml</code> with the mode activated, on its synthetic shapes (512 pixels, shapes of 16 pixels to 80 % of the side, boxes of their visible parts): the anchors of blocks 5, 6 and 7 (strides 32, 64 and 64, scales 32 to 256) cover 64.04 % of the training objects, but 8.11 % of the small ones.</em></p>
+
+Read the `All Levels` column size by size: the region proposal network makes an anchor foreground from `RegionProposal.foreground_iou_threshold.min`, and an object under it in every level only gets its single best anchor as foreground, so a size with a low share is learnt from few anchors. Small objects ask for smaller scales on a finer level (a lower block, of smaller stride), large ones for a larger scale on the last level, elongated ones for other `aspect_ratios`. The three splits should give close shares; a split covered differently holds objects of other sizes or shapes.
 
 Say you have set an architecture and want its training time and serving speed before training it: `diagnosis_modes.benchmark_speed: True` times it on one batch of the training loader kept in memory, its samples repeated to every batch size, so that neither the loader nor the processor slows it down (`vision_training/trainers/speed_benchmark.py`).
 - Inference first, with the weights of the last checkpoint of the run folder when there is one: the test evaluation (`predict_batch`), the inference model, TorchScript, ONNX Runtime CUDA and ONNX Runtime with TensorRT in FP32 and FP16, at a batch of 1, at the configured batch size and at the largest one that fits. The ONNX Runtime formats need the GPU build of ONNX Runtime (`onnxruntime-gpu`); without it they are reported as not available.
