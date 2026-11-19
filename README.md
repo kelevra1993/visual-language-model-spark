@@ -303,10 +303,19 @@ A few behaviours are easy to miss:
 </p>
 <p align="center"><em>Four synthetic moving-shape sequences padded to the longest one by <code>collate_padded_sequences</code>, and the <code>sequence_mask</code> of their real frames.</em></p>
 
+To see why a class given by a motion needs flatten, follow one frame through the network. The backbone turns it into a feature map of C channels on an H × W grid, each cell describing the region of the frame under it, and `ClassificationHead.global_pooling` turns that map into the frame vector the temporal model reads:
+- `average` keeps one mean per channel, which is the same wherever the shape is: the frames of a moving shape become the same vector, so the temporal model cannot tell a move to the left from a move to the right and stays at chance. `max` keeps one maximum per channel and loses the position the same way.
+- `flatten` keeps the C × H × W values in their order, so the cells lit by the shape move from frame to frame and the vectors of frames far apart differ.
+
+<p align="center">
+  <img src="README/sequence_pooling_mechanism.gif" width="100%" />
+</p>
+<p align="center"><em>A triangle moving right over 8 frames of 128 pixels, turned into an 8 × 8 feature map by four fixed edge filters, a ReLU and a 16 × 16 average, as a backbone downsampling 16 times would. Average pooling hands the temporal model the same 4 values in every frame, every similarity being 1.00; flatten hands it 256 values whose lit cells follow the shape, the similarity being 0.42 to 0.57 between neighbouring frames and 0.00 between frames far apart. Drawn by <code>documentation/presentation/figures/draw_pooling_similarity_animation.py</code>.</em></p>
+
 <p align="center">
   <img src="README/sequence_pooling_similarity.png" width="100%" />
 </p>
-<p align="center"><em>Similarity of the frame vectors of one moving-shape sequence: after average pooling every frame looks the same, flatten keeps where the shape is.</em></p>
+<p align="center"><em>The same on the two trained M2O runs of the sequence classification tutorial, on the 8 frames of one test sequence: with average pooling (512 pixels, 64 features) every pair of frames scores 1.00, the frames being indistinguishable; with flatten (128 pixels, 4,096 features) the similarity is 0.92 to 0.95 between neighbouring frames and falls to 0.06 between the first and the last, the frame vector following the shape.</em></p>
 
 ### Label Files
 Before a first launch on your own data, every split needs a `labels.json` listing its images, sequences or pairs with their categories, and the dataset needs one `label_mapping.json` turning these categories into the classes the model predicts. The `//` comments below only explain the examples: the JSON files take none. `class_folder_manifests.py` (one folder per class) and `pair_list_manifests.py` (CMP pair lists) write both files for you.
