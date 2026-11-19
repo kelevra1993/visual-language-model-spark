@@ -714,7 +714,7 @@ class_probabilities   [4, 6, 71] torch.float32
 It keeps the probabilities and the labels of the labelled frames (`labels != -100`), with their sequence and position, and `compute_sequence_exact_matches()` tells for every sequence whether all its labelled frames are right. Then `dump_errors()` runs while the frames are still in the batch.
 
 ### Step 4.5 — `dump_errors()` → `build_frame_prediction_captions()` + `build_frame_grid()`
-Every wrong frame gives one image: the grid of its sequence, every real frame captioned with its number and `true/predicted` (with `X ` before a wrong frame, e.g. `4 X disappearing_kite/no_change` in `README/sequence_labelling_sample.png`, and `none` as the true class of an unlabelled frame), under a caption bar `frame <index> : <true> -> <predicted> <score>` naming the wrong frame, its classes and the probability of its predicted class. It is saved as `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, at most `maximum_per_class_pair` per pair.
+Every wrong frame gives one image: the grid of its sequence, every real frame captioned with its number and `true/predicted` (with `X ` before a wrong frame, e.g. `4 X disappearing_kite/disappearing_parallelogram` in `README/sequence_labelling_sample.png`, and `none` as the true class of an unlabelled frame), under a caption bar `frame <index> : <true> -> <predicted> <score>` naming the wrong frame, its classes and the probability of its predicted class. It is saved as `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, at most `maximum_per_class_pair` per pair.
 
 **Example: the error images of the checkpoint of iteration 12**
 ```text
