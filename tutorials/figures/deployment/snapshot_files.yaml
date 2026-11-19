@@ -8,6 +8,12 @@ runs:
     files:
       - path: training_configuration.yaml
       - path: label_dictionary.json
+  # Classifier of the 9-class version of the synthetic shapes, served by the serving benchmark: image size and class
+  # count of the models scene
+  - run: classification_nine_classes
+    files:
+      - path: training_configuration.yaml
+      - path: label_dictionary.json
   # Reference detector of the detection benchmark (run_9), served by the serving benchmark: image size, maximum
   # detections, classes of the float16 overflow of its group offsets
   - run: object_detection_benchmark_joint_a

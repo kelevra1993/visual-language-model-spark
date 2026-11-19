@@ -4,8 +4,9 @@ tutorials/figures/semantic_segmentation/figures.py from the synthetic segmentati
 curves read from its TensorBoard logs (the losses on one panel, the batch metrics on the other, an empty-axes base image
 and its overlay whose curves the scene uncovers), the values the narration quotes (the first and last values, the
 uniform cross entropy ln K), the share of the test pixels of every class read from its class_metrics.csv, and the
-throughput of its training log. The batch metrics and the pixel shares drawn are written as the percentages of the
-reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
+throughput of its training log (its committed copy when a later training wrote over it). The batch metrics and the
+pixel shares drawn are written as the percentages of the reports of the repository ("94.03 %", ticks "20 %"), the
+facts keeping them between 0 and 1.
 """
 
 import math
@@ -18,10 +19,11 @@ from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
-                                                REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                compute_pixel_box, format_thousands, register_fonts, round_fact,
-                                                save_figure, style_chart_panel)
+from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, CONSOLE_COLOUR_PATTERN, DOTS_PER_INCH,
+                                                POINTS_PER_PIXEL, REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR,
+                                                TEXT_PRIMARY_COLOUR, compute_pixel_box, find_snapshot_root,
+                                                format_thousands, is_snapshot_folder, read_tutorial_sources,
+                                                register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.keypoint_detection.scalar_logs import (SMOOTHING_WEIGHT, draw_smoothed_curve, read_scalars,
                                                              smooth_values)
 from tutorials.figures.semantic_segmentation.segmentation_sources import CHECKPOINT_ITERATION, EVALUATION_FOLDER_NAME
@@ -38,6 +40,10 @@ ITERATION_TICK_STEP = 500
 # fall from its first to its last smoothed value that the smoothed cross entropy has made at the iteration quoted
 PIXEL_ACCURACY_THRESHOLD = 0.9
 LOSS_FALL_SHARE = 0.9
+
+# Console log of the training written next to the run folder, and the line of its banner naming the run it belongs to
+CONSOLE_LOG_NAME = "semantic_segmentation.log"
+RUN_NAME_PATTERN = re.compile(pattern=r"- Run Name\s+: (\S+)")
 
 
 def style_curve_panel(axes: Any, title: str, last_iteration: int, y_label: str) -> None:
@@ -184,24 +190,55 @@ def describe_pixel_shares(run_folder: Path, number_classes: int) -> Dict[str, An
             "shares_uniform_cross_entropy": round_fact(value=math.log(number_classes))}
 
 
+def find_training_log(run_folder: Path) -> Path:
+    """
+    Finds the console log of the training of the segmentation run, whose throughput lines the training scenes quote:
+    CONSOLE_LOG_NAME next to the run folder while the banner of the log names no other run (the copy of the snapshots
+    keeps the throughput lines without the banner), else, for a real run whose log a later training launched in the
+    same experiment folder wrote over, the committed copy of tutorials/run_snapshots.
+
+    Args:
+        run_folder (Path): The folder of the segmentation run.
+
+    Returns:
+        Path: The log to read.
+
+    Raises:
+        FileNotFoundError: If the log is missing.
+        ValueError: If the log of a run read from the snapshots names another run, or the committed copy is missing.
+    """
+    log_path = run_folder.parent / CONSOLE_LOG_NAME
+    if not log_path.exists():
+        raise FileNotFoundError(f"No training log {log_path} of the segmentation run.")
+    logged_run_names = set(RUN_NAME_PATTERN.findall(
+        string=CONSOLE_COLOUR_PATTERN.sub(repl="", string=log_path.read_text(encoding="utf-8"))))
+    if logged_run_names <= {run_folder.name}:
+        return log_path
+
+    # Log written over by another training: the committed throughput lines of the run, at the same place under the
+    # snapshot folder as in the experiments folder
+    committed_path = (find_snapshot_root() / Path(read_tutorial_sources()["runs"]["semantic_segmentation"]["folder"])
+                      .parent / CONSOLE_LOG_NAME)
+    if is_snapshot_folder(folder=run_folder) or not committed_path.exists():
+        raise ValueError(f"The training log {log_path} names the runs {sorted(logged_run_names)}, not "
+                         f"{run_folder.name}, and no committed copy {committed_path} replaces it: restore the log of "
+                         f"tutorials/run_snapshots from git.")
+    print(f"The training log {log_path} belongs to {sorted(logged_run_names)}: the throughput of {run_folder.name} is "
+          f"read from the committed copy {committed_path} instead.")
+    return committed_path
+
+
 def read_training_throughput(run_folder: Path) -> Dict[str, Any]:
     """
-    Reads the throughput of the training of the segmentation run from the summaries of its log, the
-    semantic_segmentation.log written next to its run folder.
+    Reads the throughput of the training of the segmentation run from the summaries of its log (find_training_log).
 
     Args:
         run_folder (Path): The folder of the segmentation run.
 
     Returns:
         Dict[str, Any]: The mean throughput in images per second and the number of summaries.
-
-    Raises:
-        FileNotFoundError: If the log is missing.
     """
-    log_path = run_folder.parent / "semantic_segmentation.log"
-    if not log_path.exists():
-        raise FileNotFoundError(f"No training log {log_path} of the segmentation run.")
-    log_text = log_path.read_text(encoding="utf-8")
+    log_text = find_training_log(run_folder=run_folder).read_text(encoding="utf-8")
     throughputs = [float(value) for value in re.findall(pattern=r"Throughput: ([\d.]+) Images Per Second",
                                                         string=log_text)]
     durations = re.findall(pattern=r"Interval Of (\d+) Iterations Took (\d+):(\d+):(\d+)", string=log_text)

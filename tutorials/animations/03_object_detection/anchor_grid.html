@@ -1,15 +1,17 @@
 <!doctype html>
 <!--
  Anchors of the detector on the test image of the object detection series, for the chapter on the data, the levels and
- the anchors: the grid of the cells of block 5 (stride 32) over the image, the cell of the star with its corner, where
- the six anchors of the cell are centred (the corner being drawn from the cell, not read from the anchors), the
- anchors growing from that corner; then the grid of blocks 6 and 7 (stride 64) with the anchors of both levels at the
- same corner, the 128 pixel anchors of the two levels being the same boxes; then every object with its best anchor
- over the levels and their overlap, in blue when it reaches the
- foreground threshold of 0.5 and in magenta when the object only gets that anchor through the fallback of the assignment.
+ the anchors: the levels grouped by stride in the order of the run (block 4 at stride 16, block 5 at stride 32, blocks
+ 6 and 7 at stride 64 in the run shown), every group drawn from its sentence until the next one: the grid of its cells
+ over the image, the cell of the object nearest the image centre with its corner, where the anchors of the cell are
+ centred (the corner being drawn from the cell, not read from the anchors), and the anchors of every level of the group
+ growing from that corner, those of a second level of the same stride dashed, the anchors of a shared scale being the
+ same boxes; then every object with its best anchor over the levels and their overlap, in blue when it reaches the
+ foreground threshold and in magenta when the object only gets that anchor through the fallback of the assignment.
  The anchors, objects and overlaps are those the trained detector computes (scene data: the anchor_page fact of
- tutorials/figures/object_detection/detector_inference.py, and the sentence of every stage). The elements of the scene
- (the texts on the right) are drawn by the engine of common/tutorial.js.
+ tutorials/figures/object_detection/detector_inference.py, its levels carrying their stride group, and the sentence of
+ every group and of the objects in the stages). The elements of the scene (the texts on the right) are drawn by the
+ engine of common/tutorial.js.
 -->
 <html lang="en">
 <head>
@@ -30,7 +32,7 @@
             const IMAGE_SIDE = 660;
 
             // Colour of the anchors of every scale, and of the objects and their best anchors
-            const SCALE_COLOURS = { 32: "blue", 64: "violet", 128: "yellow", 256: "magenta" };
+            const SCALE_COLOURS = { 16: "aqua", 32: "blue", 64: "violet", 128: "yellow", 256: "magenta", 384: "red" };
             const FOREGROUND_COLOUR = "blue";
             const FALLBACK_COLOUR = "magenta";
 
@@ -116,9 +118,23 @@
                 record.rectangle.setAttribute("height", Math.max(0, (bottom - top) * IMAGE_SIDE / imageSize));
             }
 
-            /* Draws every object with its best anchor and their overlap, coloured by the foreground threshold. */
+            /* Fits the dark band behind every overlap label to the label as drawn, measured again at every frame since
+             * the bold monospace font may only be loaded once the label is first drawn. */
+            function fitLabelBands(labelBands) {
+                labelBands.forEach(({ label, band }) => {
+                    const labelBox = label.getBBox();
+                    band.setAttribute("x", labelBox.x - 4);
+                    band.setAttribute("y", labelBox.y - 2);
+                    band.setAttribute("width", labelBox.width + 8);
+                    band.setAttribute("height", labelBox.height + 4);
+                });
+            }
+
+            /* Draws every object with its best anchor and their overlap, coloured by the foreground threshold, and
+             * gives the group with the labels and their dark bands. */
             function drawObjects(helpers, parent, objects, imageSize) {
                 const group = helpers.createSvgElement("g", { opacity: 0 }, parent);
+                const labelBands = [];
                 objects.forEach((object) => {
                     const [left, top, right, bottom] = object.box;
                     helpers.createSvgElement("rect", { x: toScene(left, IMAGE_LEFT, imageSize),
@@ -146,15 +162,18 @@
                     label.setAttribute("font-weight", "700");
 
                     // Dark band behind the overlap, so that it reads on the colours of the image
-                    const labelBox = label.getBBox();
-                    group.insertBefore(helpers.createSvgElement("rect", {
-                        x: labelBox.x - 4, y: labelBox.y - 2, width: labelBox.width + 8, height: labelBox.height + 4,
-                        rx: 4, fill: helpers.cssColour(helpers.COLOURS.terminal), "fill-opacity": 0.85 }), label);
+                    const band = helpers.createSvgElement("rect", { rx: 4,
+                                                                    fill: helpers.cssColour(helpers.COLOURS.terminal),
+                                                                    "fill-opacity": 0.85 });
+                    group.insertBefore(band, label);
+                    labelBands.push({ label: label, band: band });
                 });
-                return group;
+                fitLabelBands(labelBands);
+                return { group: group, labelBands: labelBands };
             }
 
-            /* Builds the image, the grids, cells and anchors of both levels and the objects, all hidden. */
+            /* Builds the image, the grid, cell and anchors of every stride group of levels and the objects, all
+             * hidden, every group with the sentence it appears at and the sentence it leaves at. */
             function setupAnchorGrid(context) {
                 const helpers = context.helpers;
                 const data = context.scene.data;
@@ -169,20 +188,23 @@
                 helpers.createSvgElement("rect", { x: IMAGE_LEFT, y: IMAGE_TOP, width: IMAGE_SIDE, height: IMAGE_SIDE },
                                          clipPath);
                 const anchorGroup = helpers.createSvgElement("g", { "clip-path": "url(#anchor-image-clip)" }, group);
-                const fineLevel = page.levels[0];
-                const coarseLevels = page.levels.slice(1);
-                const parts = {
-                    helpers: helpers, stages: data.stages, imageSize: imageSize,
-                    fineGrid: drawGrid(helpers, group, fineLevel.cells, imageSize),
-                    fineCell: drawCell(helpers, group, fineLevel, imageSize),
-                    coarseGrid: drawGrid(helpers, group, coarseLevels[0].cells, imageSize),
-                    coarseCell: drawCell(helpers, group, coarseLevels[0], imageSize),
-                    fineAnchors: drawAnchors(helpers, anchorGroup, fineLevel, imageSize, false),
-                    coarseAnchors: coarseLevels.flatMap((level, levelIndex) =>
-                        drawAnchors(helpers, anchorGroup, level, imageSize, levelIndex > 0)),
+                const stages = data.stages;
+                const strideGroups = stages.groups.map((firstSentence, groupIndex) => {
+                    const levels = page.levels.filter((level) => level.group === groupIndex);
+                    const lastSentence = groupIndex + 1 < stages.groups.length ? stages.groups[groupIndex + 1] :
+                        stages.objects;
+                    return {
+                        firstSentence: firstSentence, lastSentence: lastSentence,
+                        grid: drawGrid(helpers, group, levels[0].cells, imageSize),
+                        cell: drawCell(helpers, group, levels[0], imageSize),
+                        anchors: levels.flatMap((level, levelIndex) =>
+                            drawAnchors(helpers, anchorGroup, level, imageSize, levelIndex > 0))
+                    };
+                });
+                return {
+                    helpers: helpers, stages: stages, imageSize: imageSize, strideGroups: strideGroups,
                     objects: drawObjects(helpers, group, page.objects, imageSize)
                 };
-                return parts;
             }
 
             /* Shows the anchors of a cell from a sentence until another, every anchor growing after the previous. */
@@ -200,23 +222,25 @@
                 return moving;
             }
 
-            /* Draws the stages at a time: the fine grid and its anchors, the coarse grid and its anchors, then the
-             * objects with their best anchors. */
+            /* Draws the stages at a time: the grid, cell and anchors of every stride group from its sentence until
+             * the next group, then the objects with their best anchors. */
             function updateAnchorGrid(parts, time) {
                 const helpers = parts.helpers;
-                const stages = parts.stages;
                 let moving = false;
-                [[parts.fineGrid, stages.fine_grid, stages.coarse_grid], [parts.fineCell, stages.fine_grid,
-                 stages.coarse_grid], [parts.coarseGrid, stages.coarse_grid, stages.objects],
-                 [parts.coarseCell, stages.coarse_grid, stages.objects], [parts.objects, stages.objects, null]]
-                    .forEach(([node, firstSentence, lastSentence]) => {
-                        const shown = stageOpacity(helpers, time, firstSentence, lastSentence);
-                        node.setAttribute("opacity", shown.value);
-                        moving = moving || shown.moving;
-                    });
-                moving = updateAnchors(parts, parts.fineAnchors, time, stages.fine_anchors, stages.coarse_grid) ||
-                    moving;
-                moving = updateAnchors(parts, parts.coarseAnchors, time, stages.coarse_grid, stages.objects) || moving;
+                const nodes = parts.strideGroups.flatMap((strideGroup) => [
+                    [strideGroup.grid, strideGroup.firstSentence, strideGroup.lastSentence],
+                    [strideGroup.cell, strideGroup.firstSentence, strideGroup.lastSentence]]);
+                nodes.push([parts.objects.group, parts.stages.objects, null]);
+                fitLabelBands(parts.objects.labelBands);
+                nodes.forEach(([node, firstSentence, lastSentence]) => {
+                    const shown = stageOpacity(helpers, time, firstSentence, lastSentence);
+                    node.setAttribute("opacity", shown.value);
+                    moving = moving || shown.moving;
+                });
+                parts.strideGroups.forEach((strideGroup) => {
+                    moving = updateAnchors(parts, strideGroup.anchors, time, strideGroup.firstSentence,
+                                           strideGroup.lastSentence) || moving;
+                });
                 return moving;
             }
 

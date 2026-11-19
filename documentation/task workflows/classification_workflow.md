@@ -4,7 +4,7 @@ This document follows one classification run from `main()` to the evaluation of 
 
 The examples come from two real runs, both on CPU so that the GPU stayed free for another training (some steps add the outputs of a third one, the README run trained on the GPU, described below):
 - **Stages 1 and 2**: `configurations/classification/configuration_example.yaml` (ImageNet-1k, 1000 classes, 256 pixel images, batch size 256, flattened head), with the run folder redirected to a temporary folder. The file read ImageNet-1k when these outputs were recorded and reads ImageNet-22k (21,841 classes, `MC21841`) since 2026-11-11; the ImageNet-1k examples below are kept as records.
-- **Stages 3, 4 and 5**: `configurations/classification/configuration_synthetic_shapes.yaml` (9 shape classes), shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network is still close to chance (9 classes: 1/9 = 11.11 % accuracy, a loss near ln 9 = 2.197), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-09, with the configuration file and the synthetic dataset of that day: an `average` pooling, plain hidden layers and no class weighting (its run name ends with `HAVG.128_MC9`), a test split of 5,000 images, and an evaluation without the ROC and precision-recall curves. The steps say where the current code prints more; the README run of `experiments/readme_screenshots/` (`CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`, the current synthetic configuration trained for 1,500 iterations with a batch of 64, on the 9-class dataset of 500,000, 50,000 and 50,000 images) gives the current outputs. Both runs were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`. The rates of the recorded console summaries, reports, best checkpoint lines and images are shown as the current code writes them, as percentages with two decimals (`10.96 %`, a change of the console summary in percentage points such as `-3.12 %`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
+- **Stages 3, 4 and 5**: `configurations/classification/configuration_synthetic_shapes.yaml` on the 9-class synthetic dataset of 2026-10-09 (the dataset generated on 2026-11-18 has 35 classes), shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network is still close to chance (9 classes: 1/9 = 11.11 % accuracy, a loss near ln 9 = 2.197), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-09, with the configuration file and the synthetic dataset of that day: an `average` pooling, plain hidden layers and no class weighting (its run name ends with `HAVG.128_MC9`), a test split of 5,000 images, and an evaluation without the ROC and precision-recall curves. The steps say where the current code prints more; the README run of `experiments/readme_screenshots/` (`CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35`, the synthetic configuration trained on 2026-11-19 for 2,000 iterations with a batch of 64 from the shape pre-trained backbone, on the 35-class dataset of 500,000, 50,000 and 50,000 images generated on 2026-11-18: 81.76 % test accuracy, 99.12 % top-5 accuracy at 2000) gives the current outputs (Step 4.18), and the steps quoting the curves, the class metrics and MLflow at iteration 1500 show the 9-class README run of 2026-10-23 (`..._HFLAT.128-HLN-CWB_MC9`, 1,500 iterations from scratch). The CPU run and the 9-class README run were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`. The rates of the recorded console summaries, reports, best checkpoint lines and images are shown as the current code writes them, as percentages with two decimals (`10.96 %`, a change of the console summary in percentage points such as `-3.12 %`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
 
 In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`): it shows the name of the file or folder, underlined, and opens its `file://` URI. The examples of Stages 1 and 2 show these names; those of Stages 3 to 5 write the URI the link opens, as the README does.
 
@@ -19,7 +19,7 @@ The classification task (`task: "classification"`, run name code `CLS`) learns t
 To find your way in the stages below, the whole task fits in one diagram, from the manifest of a split to the exported classifier.
 
 ```text
-<split>/labels.json  {"id": 1, "file_name": "train_000000.png", "category_id": 6}    label_mapping.json {"1": 0, ..}
+<split>/labels.json  {"id": 1, "file_name": "train_000000.png", "category_id": 26}   label_mapping.json {"1": 0, ..}
 <split>/data/train_000000.png ─► ClassificationDataset: read_image (BGR) + preprocess_image (512, keep_ratio)
                                  sample {images [3, 512, 512] uint8, labels: class index, sample_identifiers}
 DataLoader (batch 64) ─► prepare_batch: images [64, 3, 512, 512] float32 in [0, 255], labels [64] int64
@@ -27,8 +27,8 @@ DataLoader (batch 64) ─► prepare_batch: images [64, 3, 512, 512] float32 in 
 ImageClassifier: InputNormalizer x / 255 - 0.5 ─► Backbone, 6 ConvolutionBlocks (SE, shortcuts in blocks 3 and 5)
    B1 [64, 16, 256, 256] B2 [64, 32, 128, 128] B3 [64, 32, 64, 64] B4 [64, 64, 32, 32] B5 [64, 64, 16, 16]
    B6 [64, 128, 16, 16] (no pooling after the last block)
-   ─► flatten [64, 32768] ─► head: Dropout, Linear 128, LayerNorm, ReLU, Dropout, Linear 9
-   ─► class_logits [64, 9] ─► softmax ─► class_probabilities [64, 9]
+   ─► flatten [64, 32768] ─► head: Dropout, Linear 128, LayerNorm, ReLU, Dropout, Linear 35
+   ─► class_logits [64, 35] ─► softmax ─► class_probabilities [64, 35]
 loss: classification_loss = cross entropy (balanced class weights, no label smoothing) = total_loss
 batch metric: accuracy (argmax == label) ─► TensorBoard Train / Validation every iteration, console every 10
 every weight_saving_iterations: test split ─► confusion matrix, accuracy, balanced accuracy, macro F1, top-5,
@@ -39,7 +39,7 @@ every weight_saving_iterations: test split ─► confusion matrix, accuracy, ba
 temperature: serve_temperature_explorer.py, http://127.0.0.1:8091/ ─► a typed T ─► Save Thresholds At This Temperature
    ─► saved_temperature_thresholds.json next to the page ─► Export At T ─► <run>/Exports/Iteration_<n>[_EMA]_T<T>/
 export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► class_logits / logit temperature ─► softmax
-   ─► class_probabilities [B, 9], preprocessing.json (input contract) and the saved thresholds as class_thresholds.json
+   ─► class_probabilities [B, 35], preprocessing.json (input contract) and the saved thresholds as class_thresholds.json
       next to the model
 ```
 
@@ -114,7 +114,7 @@ Before changing the synthetic configuration, these are the keys that change the 
 
 Each time a checkpoint is evaluated, the run folder, TensorBoard and MLflow receive the following.
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95 % confidence interval) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`82.73 %`), the thresholds staying between 0 and 1; the files, TensorBoard and MLflow keep every rate between 0 and 1.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95 % confidence interval) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`81.76 %`), the thresholds staying between 0 and 1; the files, TensorBoard and MLflow keep every rate between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `confusion_matrix.csv` (above 1,000 classes `confusion_cells.csv`, its non-zero cells only, Step 4.12), `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png` (up to 1,000 classes), `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `saved_temperature_thresholds.json` once the thresholds of a temperature are saved from the served page; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
 - `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`.
 - `Exports/Iteration_<n>[_EMA]_T<temperature>/`: one Triton model repository per checkpoint, weights and temperature exported from the served temperature explorer, with `export_record.json` and `export_log.txt` (Step 4.13).
@@ -127,7 +127,7 @@ Should a result of the task look wrong, check these behaviours first.
 - Blocks 2, 4 and 6 of the synthetic configuration (16 to 32, 32 to 64 and 64 to 128 channels, 2 layers each) add no residual shortcut: a block whose first layer changes the channel count starts its pairs at its second layer, so only blocks 3 and 5 add one, and the backbone summary lists `Residual Shortcuts` for them only (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`; `bug_standards.md` H4, dropped).
 - `label_smoothing` above 0 with `class_weighting: "balanced"` trains towards the rare classes: PyTorch also weights the smoothing term, so with the weights [1, 20, 1000] and a smoothing of 0.1 the loss of a class-0 image is lowest at the probabilities [0.027, 0.019, 0.954] (`compute_classification_loss()` of `classification_losses.py`; `suggestions.md` C2, open and latent, every shipped configuration having a smoothing of 0).
 - The `flatten` pooling ties the head to `Data.image_settings.size` and `Backbone.last_max_pooling`: another image size changes the input of the first hidden layer and the run name, and a classification head can only be transferred to a run of the same image size (`compute_pooled_features()` of `classification_head.py`; README, Transfer Between Runs).
-- A synthetic dataset generated now holds the 35 classes of `SHAPE_CATEGORIES`, so the run ends with `MC35`; the README run and the examples of this document use the 9-class dataset generated before the other classes were added (`create_synthetic_dataset.py`; README, Quick Start With Synthetic Data).
+- The synthetic dataset holds the 35 classes of `SHAPE_CATEGORIES`, so the run ends with `MC35`, and is drawn without a seed, so a dataset generated again holds other images; the CPU run of Stages 3 to 5 and the 9-class README run of 2026-10-23 used the 9-class dataset generated before the other classes were added (`create_synthetic_dataset.py`; README, Quick Start With Synthetic Data).
 - `Iterations Per Epoch` and the sample counts sent to MLflow count the samples of the manifests before the label mapping, so they are too high when the mapping leaves categories out (`count_split_samples()` of `split_description.py`; `bug_standards.md` B46, dropped).
 
 ## Table of Contents
@@ -1244,7 +1244,7 @@ The checkpoints written since main 4a76053 (a deeper backbone started from a sho
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of `configurations/classification/configuration_synthetic_shapes.yaml` (9 shape classes) shortened to: 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, the validation every 10 iterations (`validation_iteration_ratio`), with the error images and the MLflow tracking turned on. Its run name is `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9`: the run was recorded on 2026-10-09, when the configuration file had an `average` pooling, plain hidden layers, no class weighting and `learning_rate: 1.0e-3` (2.0e-4 now); the same shortening of the current file gives `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`. Step 3.9 uses real ImageNet images instead, because their sizes show the padding better.
+> The examples below are real outputs from a run on CPU of `configurations/classification/configuration_synthetic_shapes.yaml` on the 9-class synthetic dataset of 2026-10-09, shortened to: 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, the validation every 10 iterations (`validation_iteration_ratio`), with the error images and the MLflow tracking turned on. Its run name is `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9`: the run was recorded on 2026-10-09, when the configuration file had an `average` pooling, plain hidden layers, no class weighting and `learning_rate: 1.0e-3` (2.0e-4 now); the same shortening of the current file gives `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`. Step 3.9 uses real ImageNet images instead, because their sizes show the padding better.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 This is the training itself. `run_training_loop()` runs `run_training_iterations()` and, whatever ends it, closes the MLflow run with its status: `FINISHED`, `KILLED` after a Ctrl+C, `FAILED` after too many errors (or an unexpected error, raised again once the run is closed). `number_iterations` is the total of iterations of the run: the loop runs the iterations from `start_iteration` to `number_iterations`, so that a resumed run only trains the iterations left. A run whose last checkpoint already reaches `number_iterations` trains nothing and prints in green `The Run Is Already Complete: Its Last Checkpoint Is At Iteration <n> And 'number_iterations' Is <N>, The Total Of The Run. Raise 'number_iterations' To Train It Further.`
@@ -1326,7 +1326,7 @@ artifacts:  Results.txt, configuration/training_configuration.yaml, metric_names
             evaluation/iteration_6/ and iteration_12/: class_metrics.csv, class_thresholds.json, confusion_matrix.png
 ```
 
-This run predates the record of the data and the ROC and precision-recall curves. The MLflow run of the README run (`5bcd8d21be0149b6b25b94b04621705c` in `experiments/readme_screenshots/mlflow.db`) shows what the code sent once it had the record of the data and the curves: 158 parameters, the same tags with `best_iteration: '1500'`, the metrics `test/Macro ROC AUC` and `test/Macro Average Precision` next to the four others, 45 `test_class/<metric>/<class>` (5 metrics x 9 classes, `ROC AUC` and `Average Precision` included), and the artifacts `data/data.json` and, for every evaluated iteration, `roc_curves.png` and `precision_recall_curves.png` next to the three files above. Its 158 parameters include settings removed since (`evaluation.top_k`, `resume_training`, `gradient_clipping_norm`, `mixed_precision`, `Data.loading`), and its `test/Top-2 Accuracy` the k of that time: a run of the current code sends fewer parameters, `test/Top-5 Accuracy`, and `precision_recall_thresholds.png` with the curves.
+This run predates the record of the data and the ROC and precision-recall curves. The MLflow run of the 9-class README run of 2026-10-23 (`5bcd8d21be0149b6b25b94b04621705c` in `experiments/readme_screenshots/mlflow.db`) shows what the code sent once it had the record of the data and the curves: 158 parameters, the same tags with `best_iteration: '1500'`, the metrics `test/Macro ROC AUC` and `test/Macro Average Precision` next to the four others, 45 `test_class/<metric>/<class>` (5 metrics x 9 classes, `ROC AUC` and `Average Precision` included), and the artifacts `data/data.json` and, for every evaluated iteration, `roc_curves.png` and `precision_recall_curves.png` next to the three files above. Its 158 parameters include settings removed since (`evaluation.top_k`, `resume_training`, `gradient_clipping_norm`, `mixed_precision`, `Data.loading`), and its `test/Top-2 Accuracy` the k of that time: a run of the current code sends fewer parameters, `test/Top-5 Accuracy`, and `precision_recall_thresholds.png` with the curves.
 
 ### Step 3.6 — `save_model()` → `save_checkpoint()`
 This runs right after the training step (Step 3.22) of an iteration that is a multiple of `weight_saving_iterations` (a checkpoint evaluated at the end of the same iteration, Step 3.7) or of `intermediate_weight_saving_iterations` (a checkpoint only). `save_checkpoint()` writes `Weights/Iteration_N/model_<N on 6 digits>.pt` with the model, the optimizer, the task, the run name, the label dictionary of the run (`label_dictionary`, its keys written as text), the MLflow run (`None` without tracking, or while the background thread is still opening the run), the source run of the transferred components, the number of backbone blocks loaded from a shorter source backbone (`pretrained_backbone_blocks`, `None` otherwise, read back by a resumed run) and, when it is on, the moving average of the weights (`exponential_moving_average_state`: the averaged weights and the number of updates). It writes to a temporary file and renames it, so a checkpoint on disk is complete or absent (a write that fails, e.g. on a full disk, removes the temporary file before raising its error), and it ignores Ctrl+C meanwhile. Then it records the iteration in `Weights/full-checkpoint`, the registry of Step 2.27.
@@ -1655,7 +1655,7 @@ class_scalars     = 27: Precision/square, Recall/square, F1/square, Precision/ci
 tables            = one table: title, columns, rows, sort_column, per_class, legend
 ```
 
-**Example: the same parts with the curves, the README run at iteration 1500** (50,000 test images, error images off)
+**Example: the same parts with the curves, the 9-class README run of 2026-10-23 at iteration 1500** (50,000 test images, error images off)
 ```text
 evaluated_samples = '50000 Test Images'
 metrics           = {'Accuracy': 0.8273, 'Balanced Accuracy': 0.8264, 'Macro F1': 0.8273, 'Top-2 Accuracy': 0.9917,
@@ -1772,7 +1772,7 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 ...
 ```
 
-**Example: `Evaluation/Iteration_1500/class_metrics.csv` of the README run** (first rows)
+**Example: `Evaluation/Iteration_1500/class_metrics.csv` of the 9-class README run of 2026-10-23** (first rows)
 ```text
 class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
 0,square,5543,0.820935,0.621144,0.707199,0.974022,0.823801,0.894590,0.000722
@@ -1799,7 +1799,7 @@ corner:   Accuracy 10.96 %
 colour bar: 0 % to 100 %
 ```
 
-**Example: the curve images of the README run, `Evaluation/Iteration_1500/`** (1125 x 975 pixels each, 9 classes on one plot)
+**Example: the curve images of the 9-class README run of 2026-10-23, `Evaluation/Iteration_1500/`** (1125 x 975 pixels each, 9 classes on one plot)
 ```text
 roc_curves.png               title "ROC Curves · Iteration 1500", "Macro ROC AUC 98.92 %" on its second line, the
                              chance diagonal dashed, legend "Class · ROC AUC": square · 97.40 % ... rectangle · 97.23 %
@@ -1829,7 +1829,7 @@ These prepare what is displayed, without displaying it. `build_class_metrics_tab
 ```text
 Precision/square, Recall/square, F1/square, Precision/circle, ... , F1/octagon       27 scalars (9 classes x 3 metrics)
 ```
-With the curves, the README run writes 45 per-class scalars (9 classes x 5 metrics): `Precision/square`, `Recall/square`, `F1/square`, `ROC AUC/square`, `Average Precision/square`, `Precision/circle`, ...
+With the curves, the 9-class README run of 2026-10-23 writes 45 per-class scalars (9 classes x 5 metrics), the 35-class README run 175: `Precision/square`, `Recall/square`, `F1/square`, `ROC AUC/square`, `Average Precision/square`, `Precision/circle`, ...
 
 ### Step 4.18 — `report_evaluation()` → `report_evaluation_results()`
 This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC, precision-recall and threshold curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. Its global metrics listed in the `percent_metrics` of the results (every headline metric of the classification) and the `percent_columns` of its tables are written as percentages with two decimals (`format_percentage()` of `report_formatting.py`), the other numbers with 4 decimals; the scalars sent to TensorBoard and MLflow stay between 0 and 1. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the tables, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
@@ -1866,29 +1866,35 @@ Iteration 6 · 5000 Test Images · 2026-10-09 09:53 ─────────�
   - Sample Images : file:///.../Evaluation/Iteration_6/Samples
 ```
 
-**Example output: the block of iteration 1500 of the README run**, recorded on 2026-10-23 (its `Results.txt`, then the links the console prints after it, shown by their names; the error images were off). The current evaluation also prints the `Per Class Recall` table after `Per Class Metrics` and the links `Precision Recall Thresholds Image`, `Temperature Explorer` and `Class Logits`.
+**Example output: the block of iteration 2000 of the README run**, recorded on 2026-11-19 (its `Results.txt`, then the links the console prints after it, shown by their names; the error images were off, and the tables of the 35 classes are cut after their first rows).
 ```text
-Iteration 1500 · 50000 Test Images · 2026-10-23 02:38 ──────────────────────────────────────────────────────────────────
-  Accuracy        82.73 %   Balanced Accuracy         82.64 %
-  Macro F1        82.73 %   Top-2 Accuracy            99.17 %
-  Macro ROC AUC   98.92 %   Macro Average Precision   90.74 %
+Iteration 2000 · 50000 Test Images · 2026-11-19 20:20 ──────────────────────────────────────────────────────────────────
+  Accuracy        81.76 %   Balanced Accuracy         81.65 %
+  Macro F1        81.11 %   Top-5 Accuracy            99.12 %
+  Macro ROC AUC   99.42 %   Macro Average Precision   86.51 %
   Sample Images : 8 fixed test images
 
   Per Class Metrics
-                                                                      Average   Threshold    Recall
-   Class       Samples   Precision    Recall        F1    ROC AUC   Precision     @ P99 %   @ P99 %
-  ──────────────────────────────────────────────────────────────────────────────────────────────────
-   square         5543     82.09 %   62.11 %   70.72 %    97.40 %     82.38 %      0.8946    0.07 %
-   octagon        5486     71.62 %   74.12 %   72.85 %    97.22 %     79.13 %      0.7884    2.68 %
-   pentagon       5574     93.84 %   62.81 %   75.25 %    99.38 %     92.96 %      0.8740    0.20 %
-   hexagon        5628     61.27 %   99.29 %   75.77 %    99.24 %     93.51 %      0.8208    2.33 %
-   rectangle      5431     68.24 %   85.99 %   76.10 %    97.23 %     70.23 %           —         —
-   circle         5533     99.23 %   70.23 %   82.25 %    99.83 %     98.69 %      0.4268   77.61 %
-   triangle       5527    100.00 %   89.40 %   94.40 %    99.97 %     99.82 %      0.0553   98.53 %
-   star           5617     95.29 %   99.88 %   97.53 %   100.00 %     99.98 %      0.7614   99.57 %
-   plus_sign      5661     99.44 %   99.95 %   99.69 %   100.00 %    100.00 %      0.2354   99.95 %
+                                                                                 Average   Threshold    Recall
+   Class                  Samples   Precision    Recall        F1    ROC AUC   Precision     @ P99 %   @ P99 %
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   trapezoid                 1387     38.52 %   17.66 %   24.22 %    97.11 %     38.31 %           —         —
+   rhombus                   1425     52.00 %   36.49 %   42.89 %    97.86 %     50.69 %      0.7118    0.14 %
+   hollow_trapezoid          1424     40.88 %   51.76 %   45.68 %    97.67 %     45.51 %      0.7281    0.21 %
+   ...                     (35 rows, worst F1 first)
   Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
   is never reached.
+
+  Per Class Recall
+                                                 95 %      95 %
+   Class                  Samples    Recall     Lower     Upper
+  ──────────────────────────────────────────────────────────────
+   trapezoid                 1387   17.66 %   15.69 %   19.77 %
+   rhombus                   1425   36.49 %   33.99 %   39.05 %
+   hollow_parallelogram      1382   43.85 %   41.21 %   46.51 %
+   ...                     (35 rows, worst recall first)
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
   - Results : Results.txt
   - Confusion Matrix Table : confusion_matrix.csv
   - Class Thresholds : class_thresholds.json
@@ -1896,8 +1902,12 @@ Iteration 1500 · 50000 Test Images · 2026-10-23 02:38 ────────
   - Confusion Matrix Image : confusion_matrix.png
   - ROC Curves Image : roc_curves.png
   - Precision Recall Curves Image : precision_recall_curves.png
+  - Precision Recall Thresholds Image : precision_recall_thresholds.png
+  - Temperature Explorer : temperature_explorer.html
+  - Class Logits : class_logits.npz
   - Predictions : predictions.csv
   - Sample Images : Samples
+  - Evaluation Curves : evaluation_curves.png
 ```
 
 **Example: what the run folder holds after the two evaluations, and the Test curves**
@@ -1915,7 +1925,7 @@ Tensorboard/Test: 31 scalars (4 global + 27 per class), 9 images
     image  Samples/test_000010 ... Samples/test_000006    steps [6, 12]     (the 8 sample images)
     image  Confusion Matrix                               steps [6, 12]
 ```
-The `Tensorboard/Test` of the README run holds 51 scalars (6 global + 45 per class) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`), at the steps 500, 1000 and 1500, and its evaluation folders also hold `roc_curves.png` and `precision_recall_curves.png`.
+The `Tensorboard/Test` of the 9-class README run of 2026-10-23 holds 51 scalars (6 global + 45 per class) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`), at the steps 500, 1000 and 1500, and its evaluation folders also hold `roc_curves.png` and `precision_recall_curves.png`.
 
 ### Step 4.19 — `track_evaluation()`
 With the MLflow tracking on, this sends the evaluation to the MLflow run at the iteration of the checkpoint: the global scalars as `test/<name>`, the per-class scalars as `test_class/<name>` only with `per_class_report` (they would be thousands for 1000 classes), the best value so far of the headline metric as `test/best_<metric>` with the tag `best_iteration` (for the averaged weights `test_ema/best_<metric>` with the tag `best_iteration_test_ema`), and the small evaluation files (`TRACKED_EVALUATION_FILES` of `base_trainer.py`: `class_metrics.csv` and `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png`) under `evaluation/iteration_<n>/` (`evaluation/iteration_<n>/ema/` for the averaged weights). The predictions, the error images and the sample images grow with the test split, so they stay in the run folder only. Without tracking it does nothing. The example below was recorded before the curves.
@@ -2001,7 +2011,7 @@ artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3
 `test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric (`bug_standards.md` B15, dropped). These artifacts also predate the curves, which add `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to every `evaluation/iteration_<n>/` with `per_class_report`, and `evaluation_curves.png` next to `evaluation_summary.csv`.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the headline metric of the results. Every evaluation adds the row of its iteration to `Checkpoint_Evaluation/evaluation_summary.csv`, one column per scalar, the rows in increasing iteration order with those of the earlier launches into the folder, and draws `Checkpoint_Evaluation/evaluation_curves.png` again (`BaseTrainer.update_evaluation_curves`, [training reference, Run Folder](../reference/training_reference.md#run-folder)). After the last checkpoint, the function prints the summary and the curves, then the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value; the value is written like in the report, as a percentage when the headline metric is one of the `percent_metrics` of the results (`Accuracy 82.73 %` for the README run), while `evaluation_summary.csv` keeps every scalar between 0 and 1. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns with their number of updates in `ema_number_updates`, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the headline metric of the results. Every evaluation adds the row of its iteration to `Checkpoint_Evaluation/evaluation_summary.csv`, one column per scalar, the rows in increasing iteration order with those of the earlier launches into the folder, and draws `Checkpoint_Evaluation/evaluation_curves.png` again (`BaseTrainer.update_evaluation_curves`, [training reference, Run Folder](../reference/training_reference.md#run-folder)). After the last checkpoint, the function prints the summary and the curves, then the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value; the value is written like in the report, as a percentage when the headline metric is one of the `percent_metrics` of the results (`Accuracy 81.76 %` for the README run at iteration 2000), while `evaluation_summary.csv` keeps every scalar between 0 and 1. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns with their number of updates in `ema_number_updates`, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
 
 **Example output** (after the four evaluations)
 ```text

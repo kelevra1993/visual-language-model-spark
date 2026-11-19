@@ -6,9 +6,10 @@
 # architecture benchmark, the pitfalls and the export with its temperature, its thresholds, its export folder and its
 # input settings. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left
 # corner); the figures and facts named classification.* are made by tutorials/figures/classification from the synthetic
-# shapes run of tutorial_sources.yaml, the images under runs: are the files its evaluations wrote (the report block, the
-# confusion matrix image and the precision-recall curves those of its standalone evaluation, run again with the current
-# code).
+# shapes run of tutorial_sources.yaml (35 classes, evaluated at 500, 1000, 1500 and 2000), the classes named by their
+# role (the worst F1, the largest confusions, the weakest recalls), and the images under runs: are the files its
+# standalone evaluation of checkpoint 2000 wrote (the report block, the confusion matrix image and the precision-recall
+# curves), their boxes measured on these files.
 series: classification
 series_title: "Image Classification (CLS)"
 chapter: 2
@@ -75,17 +76,22 @@ scenes:
       - type: listing
         box: [20, 24, 1740, 600]
         font: diagram_monospace_small
-        source: {file: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation/Results.txt", start: "^Iteration 1500", end: "is never reached"}
+        # The standalone evaluation of the classification run of tutorial_sources.yaml (classification_evaluation), its
+        # path typed out since file paths take no placeholders: the headline metrics and the first rows of its
+        # per-class table, the worst F1 first
+        source: {file: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Checkpoint_Evaluation/Results.txt", start: "^Iteration {{classification.checkpoint_evaluation.iteration}} ", count: 22}
         highlights:
           - {match: "^  Accuracy|^  Macro F1", sentences: [0]}
-          - {match: "^  Macro ROC AUC|^   (square|octagon|pentagon) ", sentences: [1]}
-          - {match: "Threshold|@ P99 %|^   rectangle ", sentences: [2]}
+          - {match: "Top-", sentences: [1]}
+          - {match: "^  Macro ROC AUC|^   ({{classification.class_metrics.worst_1.report_name}}|{{classification.class_metrics.worst_2.report_name}}|{{classification.class_metrics.worst_3.report_name}}) ", sentences: [2]}
+          - {match: "Threshold|@ P99 %|^   {{classification.class_metrics.first_never_reaching.report_name}} ", sentences: [3]}
       - {type: text, position: [880, 660], text: "Checkpoint_Evaluation/Results.txt: one block per evaluated checkpoint, as in the Results.txt of the training · the console prints it with the links of the files", font: diagram_small, colour: dim, anchor: mm}
-      - {type: text, position: [880, 705], text: "rates in percent · next in the block: a Per Class Recall table with every {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3]}
+      - {type: text, position: [880, 705], text: "rates in percent · next in the block: a Per Class Recall table with every {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval (Clopper-Pearson)", font: diagram_small, colour: dim, anchor: mm, appear: 4, highlight: [4]}
     narration:
-      - "Evaluated again by the evaluate checkpoint script, iteration {{classification.checkpoint_evaluation.iteration}} gives an accuracy of {{classification.checkpoint_evaluation.accuracy:percent}}, the balanced accuracy and macro F1, which do not depend on the class counts, and a top {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} accuracy of {{classification.checkpoint_evaluation.top_k_accuracy:percent}}: the right class is always among the {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} most probable."
-      - "With the per class report, the macro ROC AUC and average precision join them, and every class gets its row, the worst F1 first: square, octagon and pentagon."
-      - "The last two columns give the threshold reaching a precision of {{classification.class_metrics.target_precision:percent_label}} and the recall it keeps, a dash when that precision is never reached, as for rectangle."
+      - "Evaluated again by the evaluate checkpoint script, iteration {{classification.checkpoint_evaluation.iteration}} gives an accuracy of {{classification.checkpoint_evaluation.accuracy:percent}}, with the balanced accuracy and macro F1, which do not depend on the class counts."
+      - "The top {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} accuracy reaches {{classification.checkpoint_evaluation.top_k_accuracy:percent}}: only {{classification.checkpoint_evaluation.top_k_missed_images:,}} test images miss the right class among their {{constant:vision_training/evaluation/classification/classification_metrics.py#TOP_K_ACCURACY_CLASSES:words}} most probable."
+      - "With the per class report, the macro ROC AUC and average precision join them, and every class gets its row, the worst F1 first: {{classification.class_metrics.worst_1.class_name}}, {{classification.class_metrics.worst_2.class_name}} and {{classification.class_metrics.worst_3.class_name}}."
+      - "The last two columns give the threshold reaching a precision of {{classification.class_metrics.target_precision:percent_label}} and the recall it keeps, a dash when that precision is never reached, as for {{classification.class_metrics.first_never_reaching.class_name}}."
       - "Every rate is written as a percentage, and a per class recall table follows in the block, the worst recall first, with the exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval of every recall over the test images of its class."
 
   - kind: html
@@ -95,38 +101,48 @@ scenes:
     # The non-zero cells the sparse matrix keeps above MAXIMUM_DENSE_CONFUSION_CLASSES classes
     literal_numbers: [zero]
     elements:
-      - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_500.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 0, until: 0, marks: [{row: 4, column: 4, sentences: [0]}, {row: 5, column: 5, sentences: [0]}, {row: 8, column: 8, sentences: [0]}]}
-      - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_1000.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 1, until: 1, marks: [{row: 4, column: 4, sentences: [1]}, {row: 5, column: 5, sentences: [1]}, {row: 8, column: 8, sentences: [1]}]}
-      - {type: grid, box: [200, 70, 1100, 680], values: "{{classification.confusion.iteration_1500.row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.class_names}}", column_labels: "{{classification.confusion.short_class_names}}", appear: 2, marks: [{row: 0, column: 3, sentences: [2]}, {row: 3, column: 0, sentences: [2]}, {row: 4, column: 5, sentences: [3]}, {row: 8, column: 5, sentences: [3]}, {row: 1, column: 8, sentences: [3]}]}
+      - {type: grid, box: [300, 70, 1100, 680], values: "{{classification.confusion.iteration_500.focus_row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.focus_class_names}}", column_labels: "{{classification.confusion.focus_short_names}}", appear: 0, until: 0, marks: [{row: "{{classification.confusion.weakest_1.cell}}", column: "{{classification.confusion.weakest_1.cell}}", sentences: [0]}, {row: "{{classification.confusion.weakest_2.cell}}", column: "{{classification.confusion.weakest_2.cell}}", sentences: [0]}, {row: "{{classification.confusion.weakest_3.cell}}", column: "{{classification.confusion.weakest_3.cell}}", sentences: [0]}]}
+      - {type: grid, box: [300, 70, 1100, 680], values: "{{classification.confusion.iteration_1000.focus_row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.focus_class_names}}", column_labels: "{{classification.confusion.focus_short_names}}", appear: 1, until: 1, marks: [{row: "{{classification.confusion.weakest_1.cell}}", column: "{{classification.confusion.weakest_1.cell}}", sentences: [1]}, {row: "{{classification.confusion.weakest_2.cell}}", column: "{{classification.confusion.weakest_2.cell}}", sentences: [1]}, {row: "{{classification.confusion.weakest_3.cell}}", column: "{{classification.confusion.weakest_3.cell}}", sentences: [1]}]}
+      - {type: grid, box: [300, 70, 1100, 680], values: "{{classification.confusion.iteration_2000.focus_row_percentages}}", show_values: true, value_format: integer, minimum: 0, maximum: 100, font: diagram_monospace_small, row_labels: "{{classification.confusion.focus_class_names}}", column_labels: "{{classification.confusion.focus_short_names}}", appear: 2, marks: [{row: "{{classification.confusion.pair_1.row}}", column: "{{classification.confusion.pair_1.column}}", sentences: [2]}, {row: "{{classification.confusion.pair_2.row}}", column: "{{classification.confusion.pair_2.column}}", sentences: [2]}, {row: "{{classification.confusion.pair_3.row}}", column: "{{classification.confusion.pair_3.column}}", sentences: [3]}, {row: "{{classification.confusion.pair_4.row}}", column: "{{classification.confusion.pair_4.column}}", sentences: [3]}]}
       - {type: text, position: [1180, 70], text: "Iteration {{classification.confusion.iterations[0]}}", font: diagram_heading, appear: 0, until: 0}
-      - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_500.accuracy:percent}}\nrecall: hexagon {{classification.confusion.iteration_500.recall.hexagon:percent}}\npentagon {{classification.confusion.iteration_500.recall.pentagon:percent}} · octagon {{classification.confusion.iteration_500.recall.octagon:percent}}", font: diagram_text, appear: 0, until: 0}
+      - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_500.accuracy:percent}}\nrecall: {{classification.confusion.weakest_1.class_name}} {{classification.confusion.weakest_1.iteration_500.recall:percent}}\n{{classification.confusion.weakest_2.class_name}} {{classification.confusion.weakest_2.iteration_500.recall:percent}} · {{classification.confusion.weakest_3.class_name}} {{classification.confusion.weakest_3.iteration_500.recall:percent}}", font: diagram_text, appear: 0, until: 0}
       - {type: text, position: [1180, 70], text: "Iteration {{classification.confusion.iterations[1]}}", font: diagram_heading, appear: 1, until: 1}
-      - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_1000.accuracy:percent}}\nrecall: pentagon {{classification.confusion.iteration_1000.recall.pentagon:percent}}\nhexagon {{classification.confusion.iteration_1000.recall.hexagon:percent}} · octagon {{classification.confusion.iteration_1000.recall.octagon:percent}}", font: diagram_text, appear: 1, until: 1}
+      - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_1000.accuracy:percent}}\nrecall: {{classification.confusion.weakest_1.class_name}} {{classification.confusion.weakest_1.iteration_1000.recall:percent}}\n{{classification.confusion.weakest_2.class_name}} {{classification.confusion.weakest_2.iteration_1000.recall:percent}} · {{classification.confusion.weakest_3.class_name}} {{classification.confusion.weakest_3.iteration_1000.recall:percent}}", font: diagram_text, appear: 1, until: 1}
       - {type: text, position: [1180, 70], text: "Iteration {{classification.confusion.iterations[2]}}", font: diagram_heading, appear: 2}
-      - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_1500.accuracy:percent}}\nsquare → rectangle {{classification.confusion.iteration_1500.square_to_rectangle.count:,}}\nrectangle → square {{classification.confusion.iteration_1500.rectangle_to_square.count:,}}", font: diagram_text, appear: 2}
-      - {type: box, box: [1180, 300, 1740, 480], text: "pentagon → hexagon {{classification.confusion.iteration_1500.pentagon_to_hexagon.count:,}}\noctagon → hexagon {{classification.confusion.iteration_1500.octagon_to_hexagon.count:,}}\ncircle → octagon {{classification.confusion.iteration_1500.circle_to_octagon.count:,}}", font: diagram_small, outline: magenta, appear: 3, highlight: [3]}
+      - {type: text, position: [1180, 140], text: "test accuracy {{classification.headline.iteration_2000.accuracy:percent}}\n{{classification.confusion.pair_1.true_class}} → {{classification.confusion.pair_1.predicted_class}} {{classification.confusion.pair_1.iteration_2000.count:,}}\n{{classification.confusion.pair_2.true_class}} → {{classification.confusion.pair_2.predicted_class}} {{classification.confusion.pair_2.iteration_2000.count:,}}", font: diagram_small, appear: 2}
+      - {type: box, box: [1180, 300, 1740, 480], text: "{{classification.confusion.pair_3.true_class}} → {{classification.confusion.pair_3.predicted_class}} {{classification.confusion.pair_3.iteration_2000.count:,}}\n{{classification.confusion.pair_4.true_class}} → {{classification.confusion.pair_4.predicted_class}} {{classification.confusion.pair_4.iteration_2000.count:,}}\n{{classification.confusion.most_taking.class_name}} takes {{classification.confusion.most_taking.wrong_count:,}}", font: diagram_small, outline: magenta, appear: 3, highlight: [3]}
       - {type: box, box: [1180, 495, 1740, 600], text: "above {{constant:vision_training/evaluation/classification/classification_metrics.py#MAXIMUM_DENSE_CONFUSION_CLASSES:,}} classes: non-zero cells\nin confusion_cells.csv, no image", font: diagram_small, outline: yellow, appear: 4, highlight: [4]}
-      - {type: text, position: [1180, 620], text: "rows: true class · columns: predicted\ncells: % of the images of the true class", font: diagram_small, colour: dim}
+      - {type: text, position: [1180, 615], text: "{{classification.confusion.focus_class_count:words}} of the {{classification.confusion.class_count}} classes\nrows: true class · columns: predicted\ncells: % of the images of the true class", font: diagram_small, colour: dim}
     narration:
-      - "At iteration {{classification.confusion.iterations[0]}}, the test accuracy is {{classification.headline.iteration_500.accuracy:percent}}, and hexagon, pentagon and octagon are found only {{classification.confusion.iteration_500.recall.hexagon:percent}}, {{classification.confusion.iteration_500.recall.pentagon:percent}} and {{classification.confusion.iteration_500.recall.octagon:percent}} of the time."
-      - "At iteration {{classification.confusion.iterations[1]}}, {{classification.confusion.iteration_1000.recall.pentagon:percent}} of the pentagons are found, but only {{classification.confusion.iteration_1000.recall.hexagon:percent}} of the hexagons and {{classification.confusion.iteration_1000.recall.octagon:percent}} of the octagons."
-      - "At iteration {{classification.confusion.iterations[2]}}, the accuracy reaches {{classification.headline.iteration_1500.accuracy:percent}}, and the errors left are pairs of close outlines: {{classification.confusion.iteration_1500.square_to_rectangle.count:,}} squares taken for rectangles, {{classification.confusion.iteration_1500.square_to_rectangle.share:percent}} of them, and {{classification.confusion.iteration_1500.rectangle_to_square.count:,}} rectangles for squares."
-      - "{{classification.confusion.iteration_1500.pentagon_to_hexagon.count:,}} pentagons and {{classification.confusion.iteration_1500.octagon_to_hexagon.count:,}} octagons go to hexagon, which finds {{classification.confusion.iteration_1500.recall.hexagon:percent}} of its images at a precision of only {{classification.confusion.iteration_1500.precision.hexagon:percent}}, and {{classification.confusion.iteration_1500.circle_to_octagon.count:,}} circles are taken for octagons."
+      - "At iteration {{classification.confusion.iterations[0]}}, the test accuracy is {{classification.headline.iteration_500.accuracy:percent}}, and {{classification.confusion.weakest_1.class_name}}, {{classification.confusion.weakest_2.class_name}} and {{classification.confusion.weakest_3.class_name}} are found only {{classification.confusion.weakest_1.iteration_500.recall:percent}}, {{classification.confusion.weakest_2.iteration_500.recall:percent}} and {{classification.confusion.weakest_3.iteration_500.recall:percent}} of the time."
+      - "At iteration {{classification.confusion.iterations[1]}}, the accuracy reaches {{classification.headline.iteration_1000.accuracy:percent}}, but {{classification.confusion.weakest_1.class_name}} is found {{classification.confusion.weakest_1.iteration_1000.recall:percent}} of the time, {{classification.confusion.weakest_2.class_name}} {{classification.confusion.weakest_2.iteration_1000.recall:percent}} and {{classification.confusion.weakest_3.class_name}} {{classification.confusion.weakest_3.iteration_1000.recall:percent}}."
+      - "At iteration {{classification.confusion.iterations[2]}}, the accuracy reaches {{classification.headline.iteration_2000.accuracy:percent}}, and the largest errors left are pairs of close quadrilateral outlines: {{classification.confusion.pair_1.iteration_2000.count:,}} images of {{classification.confusion.pair_1.true_class}} taken for {{classification.confusion.pair_1.predicted_class}}, {{classification.confusion.pair_1.iteration_2000.share:percent}} of them, and {{classification.confusion.pair_2.iteration_2000.count:,}} of {{classification.confusion.pair_2.true_class}} for {{classification.confusion.pair_2.predicted_class}}."
+      - "{{classification.confusion.pair_3.iteration_2000.count:,}} images of {{classification.confusion.pair_3.true_class}} go to {{classification.confusion.pair_3.predicted_class}}, and {{classification.confusion.most_taking.class_name}} takes {{classification.confusion.most_taking.wrong_count:,}} images of other classes, finding {{classification.confusion.most_taking.recall:percent}} of its own at a precision of only {{classification.confusion.most_taking.precision:percent}}."
       - "Should a data set hold more than {{constant:vision_training/evaluation/classification/classification_metrics.py#MAXIMUM_DENSE_CONFUSION_CLASSES:,}} classes, the evaluation keeps only the non-zero cells, in confusion cells csv, with the same metrics and no image."
 
   - kind: image
     title: "The confusion matrix image"
     code_reference: "vision_training/evaluation/classification/confusion_matrix.py · save_confusion_matrix_image"
-    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation/Iteration_1500/confusion_matrix.png"
+    # The image of the standalone evaluation of the classification run (classification_evaluation of
+    # tutorial_sources.yaml), its path typed out since image paths take no placeholders; the views and highlights are
+    # pixels of this 35-class image: the whole matrix, the rows of the filled four-sided shapes, then the bottom with
+    # the recall column, the precision row and the accuracy corner; the highlighted blocks are the square and rectangle
+    # cells, the rhombus to kite cells and the hollow rhombus to hollow kite cells
+    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.png"
     views:
-      - {box: [0, 40, 1470, 630], from_sentence: 0}
-      - {box: [0, 840, 1470, 1432], from_sentence: 1}
+      - {box: [0, 0, 2992, 2955], from_sentence: 0}
+      - {box: [0, 790, 1750, 1500], from_sentence: 1}
+      - {box: [0, 1700, 2992, 2955], from_sentence: 2}
     highlights:
-      - {box: [1174, 157, 1302, 1238], sentences: [1]}
-      - {box: [138, 1261, 1167, 1394], sentences: [1]}
-      - {box: [1174, 1261, 1302, 1394], sentences: [1]}
+      - {box: [190, 189, 473, 484], sentences: [0]}
+      - {box: [825, 854, 1108, 1144], sentences: [0, 1]}
+      - {box: [2024, 2103, 2306, 2395], sentences: [0]}
+      - {box: [2715, 189, 2821, 2762], sentences: [2]}
+      - {box: [190, 2805, 2660, 2914], sentences: [2]}
+      - {box: [2715, 2805, 2821, 2914], sentences: [2]}
     narration:
-      - "With the per class report, every evaluation also draws the matrix as confusion matrix png, every cell with its count and its share of the true class, and sends it to TensorBoard."
+      - "With the per class report, every evaluation also draws the matrix as confusion matrix png and sends it to TensorBoard: here the quadrilaterals stand out as blocks of confusions."
+      - "Above {{constant:vision_training/evaluation/classification/confusion_matrix.py#MAXIMUM_CLASSES_WITH_SHARES:words}} classes, as here, every cell writes its count alone, its colour giving its share of the true class."
       - "Its recall column and its precision row sum it up class by class, and the corner gives the accuracy."
 
   - kind: html
@@ -136,45 +152,52 @@ scenes:
     # The two groups of classes, and the example list of target precisions
     literal_numbers: [two, "0.99", "0.95", "0.9", "0.90"]
     elements:
-      - {type: text, position: [20, 24], text: "F1 · iteration {{classification.class_metrics.iteration}}, worst first", font: diagram_small, colour: dim}
-      - {type: bars, box: [20, 80, 840, 620], orientation: horizontal, maximum: 1, label_width: 150, values: "{{classification.class_metrics.sorted_f1}}", labels: "{{classification.class_metrics.sorted_class_names}}", value_labels: "{{classification.class_metrics.sorted_f1_labels}}", colour: blue, highlight: [0]}
+      - {type: text, position: [20, 24], text: "F1 · iteration {{classification.class_metrics.iteration}}, the {{classification.class_metrics.worst_bar_count:words}} worst and the {{classification.class_metrics.best_bar_count:words}} best", font: diagram_small, colour: dim}
+      - {type: bars, box: [20, 80, 840, 620], orientation: horizontal, maximum: 1, label_width: 240, values: "{{classification.class_metrics.bar_f1}}", labels: "{{classification.class_metrics.bar_class_names}}", value_labels: "{{classification.class_metrics.bar_f1_labels}}", colour: blue, highlight: [0]}
       - {type: text, position: [920, 24], text: "recall at precision {{classification.class_metrics.target_precision:percent_label}} · class_thresholds.json", font: diagram_small, colour: dim, appear: 1}
-      - {type: bars, box: [920, 80, 1740, 620], orientation: horizontal, maximum: 1, label_width: 150, values: "{{classification.class_metrics.sorted_recall_at_target}}", labels: "{{classification.class_metrics.sorted_class_names}}", value_labels: "{{classification.class_metrics.sorted_recall_at_target_labels}}", colour: aqua, appear: 1, highlight: [2]}
-      - {type: text, position: [880, 680], text: "rectangle never reaches the precision: null in class_thresholds.json, a dash in the report", font: diagram_small, colour: dim, anchor: mm, appear: 2, until: 2}
+      - {type: bars, box: [920, 80, 1740, 620], orientation: horizontal, maximum: 1, label_width: 240, values: "{{classification.class_metrics.bar_recall_at_target}}", labels: "{{classification.class_metrics.bar_class_names}}", value_labels: "{{classification.class_metrics.bar_recall_at_target_labels}}", colour: aqua, appear: 1, highlight: [2]}
+      - {type: text, position: [880, 680], text: "never reached by {{classification.class_metrics.never_reaching_text}}: null in class_thresholds.json, a dash", font: diagram_small, colour: dim, anchor: mm, appear: 2, until: 2}
       - {type: text, position: [880, 680], text: "target_precision: [0.99, 0.95, 0.90] → additional_targets, Per Class Thresholds table", font: diagram_small, colour: dim, anchor: mm, appear: 3, highlight: [3, 4]}
     narration:
-      - "Sorted by F1, the classes split in two: plus sign, star and triangle at {{classification.class_metrics.triangle.f1:percent}} and above, the others between {{classification.class_metrics.square.f1:percent}} and {{classification.class_metrics.circle.f1:percent}}."
+      - "Sorted by F1, the {{classification.class_metrics.worst_bar_count:words}} worst classes are all quadrilaterals, {{classification.class_metrics.worst_1.class_name}} last at {{classification.class_metrics.worst_1.f1:percent}}, while {{classification.class_metrics.best.class_name}} leads at {{classification.class_metrics.best.f1:percent}}."
       - "Imagine a deployment where errors are costly: for every class, one against the rest, the evaluation finds the lowest probability threshold whose precision reaches {{classification.class_metrics.target_precision:percent_label}}, and saves it with the recall it keeps in class thresholds json."
-      - "At that precision, plus sign keeps {{classification.class_metrics.plus_sign.recall_at_target_precision:percent}} of its images and circle {{classification.class_metrics.circle.recall_at_target_precision:percent}}, but square keeps {{classification.class_metrics.square.recall_at_target_precision:percent}}, and rectangle never gets there."
+      - "At that precision, {{classification.class_metrics.best.class_name}} keeps {{classification.class_metrics.best.recall_at_target_precision:percent}} of its images, but {{classification.class_metrics.lowest_reaching.class_name}} keeps {{classification.class_metrics.lowest_reaching.recall_at_target_precision:percent}}, and the precision is never reached for {{classification.class_metrics.never_reaching_text}}."
       - "Should you want to choose among several precisions, give target precision a list, such as 0.99, 0.95 and 0.9: every class then gets a threshold and a recall at each, in a per class thresholds table of the report."
       - "The first precision stays the one the deployment reads, the others joining class thresholds json as additional targets."
 
   - kind: image
     title: "Precision-recall curves"
     code_reference: "vision_training/evaluation/classification/score_curves.py · compute_class_score_curves"
-    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/Checkpoint_Evaluation/Iteration_1500/precision_recall_curves.png"
+    # The curves of the standalone evaluation of the classification run (classification_evaluation of
+    # tutorial_sources.yaml), its path typed out since image paths take no placeholders; the views and highlights are
+    # pixels of this 35-class image, one panel per class in class order: the first two rows of panels with the square
+    # panel, then the second and third rows with the rhombus, parallelogram, trapezoid and kite panels
+    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Checkpoint_Evaluation/Iteration_2000/precision_recall_curves.png"
     views:
-      - {box: [0, 0, 1125, 460], from_sentence: 0}
-      - {box: [0, 200, 1125, 660], from_sentence: 1}
+      - {box: [0, 60, 1800, 790], from_sentence: 0}
+      - {box: [0, 350, 1800, 1080], from_sentence: 1}
     highlights:
-      - {box: [154, 86, 975, 114], sentences: [0]}
-      - {box: [154, 280, 975, 360], sentences: [1]}
+      - {box: [90, 75, 325, 350], sentences: [0]}
+      - {box: [955, 360, 1190, 635], sentences: [1]}
+      - {box: [1245, 360, 1480, 635], sentences: [1]}
+      - {box: [1535, 360, 1770, 635], sentences: [1]}
+      - {box: [90, 645, 325, 920], sentences: [1]}
     narration:
       - "The precision recall curve of every class sweeps that threshold; the dotted line is the target precision, and every dot the threshold reaching it."
-      - "The rectangle curve stays near {{classification.confusion.iteration_1500.precision.rectangle:percent}} whatever the threshold, an average precision of {{classification.class_metrics.rectangle.average_precision:percent}}, since the squares taken for rectangles get high rectangle probabilities; the ROC curves, saved next to it, read the same way."
+      - "The curves of the quadrilaterals stay low whatever the threshold, {{classification.class_metrics.worst_1.class_name}} at an average precision of {{classification.class_metrics.worst_1.average_precision:percent}}, since the other quadrilaterals get high probabilities of its class; the ROC curves, saved next to it, read the same way."
       - "The axes, the target precision and the average precisions are written as percentages, and precision recall thresholds png, saved next to these curves, zooms on these dots and writes every threshold in the colour of its curve."
 
   - kind: image
     title: "Probabilities of right and wrong predictions"
     code_reference: "vision_training/trainers/classification_trainer.py · ClassificationTrainer.compute_evaluation_results"
-    image: "figures:classification/evaluation/prediction_confidence_iteration_1500.png"
+    image: "figures:classification/evaluation/prediction_confidence_iteration_2000.png"
     highlights:
       - {box: "{{classification.confidence.confidence_panel_box}}", sentences: [1]}
       - {box: "{{classification.confidence.pair_panel_box}}", sentences: [2]}
     narration:
       - "When the goal is to study the errors and the thresholds again without running the model, the predictions file holds one row per test image, {{classification.confidence.test_images:,}} here, with the probability of every class."
       - "For the {{classification.confidence.wrong_count:,}} wrong predictions, the probability of the predicted class has a median of {{classification.confidence.wrong_median:.2f}}, and only {{classification.confidence.wrong_confident_count}} of them pass {{classification.confidence.confident_probability}}, where {{classification.confidence.correct_confident_share:percent}} of the right ones do."
-      - "The test pentagons show a confusion at work: hexagon takes the probability pentagon loses, and {{classification.confidence.pair_wrong:,}} of the {{classification.confidence.pair_images:,}} pentagons tip over, nearly all to hexagon."
+      - "The test images of {{classification.confidence.pair_true_class}} show the largest confusion at work: {{classification.confidence.pair_predicted_class}} takes the probability {{classification.confidence.pair_true_class}} loses, and {{classification.confidence.pair_wrong:,}} of the {{classification.confidence.pair_images:,}} images tip over, {{classification.confidence.pair_wrong_to_predicted:,}} of them to {{classification.confidence.pair_predicted_class}}."
 
   - kind: html
     page: diagram
@@ -204,30 +227,31 @@ scenes:
   - kind: image
     title: "Sample images"
     code_reference: "vision_training/trainers/classification_trainer.py · ClassificationTrainer.build_sample_image"
-    image: "figures:classification/evaluation/sample_images_iterations_500_1500.png"
+    image: "figures:classification/evaluation/sample_images_iterations_500_2000.png"
     views:
       - {box: "{{classification.evaluation.samples.iteration_500.grid_box}}", from_sentence: 0}
-      - {box: "{{classification.evaluation.samples.iteration_1500.grid_box}}", from_sentence: 2}
+      - {box: "{{classification.evaluation.samples.iteration_2000.grid_box}}", from_sentence: 2}
     highlights:
-      - {box: "{{classification.evaluation.samples.iteration_500.image_3_box}}", sentences: [1]}
-      - {box: "{{classification.evaluation.samples.iteration_500.image_7_box}}", sentences: [1]}
+      - {box: "{{classification.evaluation.samples.iteration_500.wrong_1.box}}", sentences: [1]}
+      - {box: "{{classification.evaluation.samples.iteration_500.wrong_2.box}}", sentences: [1]}
+      - {box: "{{classification.evaluation.samples.iteration_2000.wrong_1.box}}", sentences: [2]}
     narration:
       - "The {{classification.evaluation.samples.image_count:words}} sample images are drawn once, spread over the classes, and captioned at every evaluation with the true class, the predicted class and its probability, green when right and red when wrong."
-      - "At iteration {{classification.evaluation.samples.iterations[0]}}, this hexagon is taken for a circle, and this triangle for a plus sign."
-      - "At iteration {{classification.evaluation.samples.iterations[1]}}, the same {{classification.evaluation.samples.image_count:words}} images are right, and in TensorBoard their slider shows the prediction of every image change over the training."
+      - "At iteration {{classification.evaluation.samples.iterations[0]}}, this {{classification.evaluation.samples.iteration_500.wrong_1.true_class}} goes to {{classification.evaluation.samples.iteration_500.wrong_1.predicted_class}}, and this {{classification.evaluation.samples.iteration_500.wrong_2.true_class}} to {{classification.evaluation.samples.iteration_500.wrong_2.predicted_class}}."
+      - "At iteration {{classification.evaluation.samples.iterations[1]}}, only the {{classification.evaluation.samples.iteration_2000.wrong_1.true_class}} is still taken for {{classification.evaluation.samples.iteration_2000.wrong_1.predicted_class}}, and in TensorBoard their slider shows the prediction of every image change over the training."
 
   - kind: image
     title: "Error images"
     code_reference: "scripts/evaluation/evaluate_checkpoint.py"
-    image: "figures:classification/evaluation/error_images_iteration_1500.png"
+    image: "figures:classification/evaluation/error_images_iteration_2000.png"
     highlights:
       - {box: "{{classification.evaluation.errors.image_1_box}}", sentences: [1]}
       - {box: "{{classification.evaluation.errors.image_2_box}}", sentences: [1]}
     # The probabilities are read as the file names on screen write them, with three decimals
     exact_facts: [classification.evaluation.errors.image_1_probability, classification.evaluation.errors.image_2_probability]
     narration:
-      - "With error images on, every misclassified test image is saved in a folder named after its true and predicted classes, here by the standalone evaluation of iteration {{classification.evaluation.errors.iteration}}: {{classification.evaluation.errors.images}} images in {{classification.evaluation.errors.pair_folders}} folders, at most {{classification.evaluation.errors.largest_pair_images}} per pair."
-      - "The file name ends with the probability of the wrong class: this square went to rectangle at {{classification.evaluation.errors.image_1_probability}}, and this pentagon to hexagon at {{classification.evaluation.errors.image_2_probability}}."
+      - "With error images on, every misclassified test image is saved in a folder named after its true and predicted classes, here by the standalone evaluation of iteration {{classification.evaluation.errors.iteration}}: {{classification.evaluation.errors.images:,}} images in {{classification.evaluation.errors.pair_folders}} folders, at most {{classification.evaluation.errors.per_pair_limit}} per pair."
+      - "The file name ends with the probability of the wrong class: this {{classification.evaluation.errors.image_1_true_class}} went to {{classification.evaluation.errors.image_1_predicted_class}} at {{classification.evaluation.errors.image_1_probability}}, and this {{classification.evaluation.errors.image_2_true_class}} to {{classification.evaluation.errors.image_2_predicted_class}} at {{classification.evaluation.errors.image_2_probability}}."
 
   - kind: html
     page: diagram
@@ -264,8 +288,8 @@ scenes:
           - "  marked Best when it falls, since a fix"
       - heading: "the data and the logs"
         lines:
-          - "a synthetic data set generated now:"
-          - "  {{classification.data.generator_class_count}} classes, the run ends with MC{{classification.data.generator_class_count}}"
+          - "class_thresholds.json: null for a class"
+          - "  never reaching the target precision"
           - ""
           - "Iterations Per Epoch, MLflow counts:"
           - "  unmapped categories included (count_split_samples)"
@@ -276,7 +300,7 @@ scenes:
       - "Here are the pitfalls specific to this task, or that bite it first, and one console marker fixed since."
       - "Label smoothing with balanced weights pulls every image towards the rare classes, and a flattened head only works at the image size and last max pooling it was trained with."
       - "With the decorrelation on, older logs printed a rising hidden feature correlation in green with best, as if it were an accuracy; it is now marked best when it falls, like a loss."
-      - "A synthetic data set generated now has {{classification.data.generator_class_count}} classes, so the numbers of this run do not apply to it; and the iterations per epoch and the sample counts sent to MLflow also count the images of unmapped categories."
+      - "A class that never reaches the target precision gets a null threshold in class thresholds json, {{classification.class_metrics.never_reaching_count:words}} classes in this run, so a server applying the thresholds must decide what to do for them; and the iterations per epoch and the sample counts sent to MLflow also count the images of unmapped categories."
       - "And the residual token does not put a shortcut in every block: blocks {{classification.backbone.blocks_without_shortcut_text}} change the channels with two layers and add none."
 
   - kind: html

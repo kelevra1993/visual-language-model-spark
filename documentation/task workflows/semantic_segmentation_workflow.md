@@ -3,7 +3,7 @@
 This document follows one semantic segmentation run from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The steps shared by every task (configuration loading, checkpoints, training loop, MLflow tracking, standalone evaluation) are explained in detail in `classification_workflow.md`; here they keep a short explanation and the real output of the segmentation run, and the steps specific to the segmentation are explained in full.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
-- **Stages 1 and 2**: `vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml` (synthetic shapes, 9 shape classes plus the background, 512 pixel images, batch size 16), with the run folder redirected to a temporary folder. The dataset of `configuration_example.yaml` is not on this machine. The synthetic dataset of this machine was generated before the 26 other shapes were added and keeps its 9 classes; a dataset generated now holds the 35 shapes, and its runs end with `MC35`.
+- **Stages 1 and 2**: `vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml` (synthetic shapes, 9 shape classes plus the background, 512 pixel images, batch size 16), with the run folder redirected to a temporary folder. The dataset of `configuration_example.yaml` is not on this machine. The examples read the 9-class synthetic dataset generated on 2026-10-21, before the 26 other shapes were added; a dataset generated with the generator of the repository holds the 35 shapes, and its runs end with `MC35`.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel images, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting then, now fixed at 1), with the predicted masks saved and the MLflow tracking turned on. After 12 iterations the network mostly predicts the background, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Read This First
@@ -66,12 +66,13 @@ In order to generate, train, evaluate and export the synthetic shapes segmenter 
 
 ```bash
 # 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
-#    task = "semantic_segmentation" and output_folders["semantic_segmentation"] (2,000 / 200 / 200 images of 512
+#    task = "semantic_segmentation" and output_folders["semantic_segmentation"] (50,000 / 200 / 200 images of 512
 #    pixels with up to 6 shapes and their class masks, the 35 shapes and the background)
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first, and
-#    number_iterations, 1e10 in this file (2000 for the run of experiments/readme_screenshots); Ctrl+C saves a checkpoint
+#    number_iterations, 1e10 in this file (2000 for the 9-class run of experiments/readme_screenshots, trained on
+#    2026-10-21); Ctrl+C saves a checkpoint
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml"
 
 # 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
@@ -86,6 +87,8 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 #    they were
 uv run python -m vision_training.deployment.export_model
 ```
+
+The recipe of this configuration, with batch size 32 and the backbone of a shape pre-trainer, reached a mean IoU of 4.44 % at 1000 iterations on the 35-class dataset generated on 2026-11-19, predicting mostly the background; that run was stopped at about 1100 iterations, and the recipe for the 35 shapes is still to be studied.
 
 ### Configuration Keys To Know First
 
@@ -111,7 +114,7 @@ Whenever you look for a result of the run, these are the files and curves its tr
 - `Results.txt`: one block per evaluated checkpoint with `Mean IoU` (the headline metric), `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`, with `per_class_report` `Macro ROC AUC` and `Macro Average Precision`, the notes (labelled pixels and their resolution, boundary tolerance, predicted masks, sample images) the per-class table sorted by IoU, worst first, and the `Per Class Recall` table (the pixel recall of every class with its 95 % confidence interval, a Korn-Graubard interval from a bootstrap over the test images) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`7.90 %`), the pixel counts keeping their values; the files, TensorBoard and MLflow keep every rate between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `class_metrics.csv` (pixels, IoU, Dice, boundary IoU and F1, precision, recall with the bounds of its 95 % confidence interval, `recall_lower` and `recall_upper`, and with `per_class_report` ROC AUC and average precision) and `confusion_matrix.csv` (pixel counts) at every evaluation; `confusion_matrix.png` (shares of every true class), `roc_curves.png` and `precision_recall_curves.png` with `per_class_report`; `Samples/<image>.png` (Input, Ground Truth, Prediction and Errors panels, 2060x560 for 512 pixel images); `Predicted_Masks/<image>.png` with `save_predicted_masks`. No `EMA/` folder: the moving average of the weights is off in this configuration.
 - `class_pixel_counts.json` in the run folder with `class_weighting: "balanced"`.
-- `Tensorboard/Train` and `Validation`: `Total Loss`, `Cross Entropy Loss`, `Dice Loss`, `Pixel Accuracy`, `Mean IoU` (and `Learning Rate`); `Tensorboard/Test`: 88 scalars in the run of `experiments/readme_screenshots` (the 8 headline metrics and, for each of the 10 classes, `IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`, `ROC AUC` and `Average Precision`) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
+- `Tensorboard/Train` and `Validation`: `Total Loss`, `Cross Entropy Loss`, `Dice Loss`, `Pixel Accuracy`, `Mean IoU` (and `Learning Rate`); `Tensorboard/Test`: 88 scalars in the 9-class run of `experiments/readme_screenshots` trained on 2026-10-21 (the 8 headline metrics and, for each of the 10 classes, `IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`, `ROC AUC` and `Average Precision`) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`).
 - `Weights/Iteration_<n>/model_<n>.pt`: about 9.6 MB, the 3.15 MB of the weights and the two Adam moments, with the source runs of `Backbone` and `SegmentationDecoder`.
 
 ### Pitfalls
