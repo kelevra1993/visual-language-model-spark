@@ -6,7 +6,7 @@
 <div class="split">
 <div class="text narrow">
 <ul class="points">
-<li>A second copy of the weights, averaged over about the last 1,000 iterations.</li>
+<li>A second copy of the weights, averaged over about the last 1 / (1 − decay) iterations: 5,000 at the shipped 0.9998.</li>
 <li>Both copies are scored at every evaluation.</li>
 <li>Switched on or off when a run resumes.</li>
 </ul>
@@ -16,5 +16,5 @@
 <img src="/_blob/6d42cbd240b9efd4ac29a51f8a6579f4" alt="Test mAP@[0.5:0.95] of the reference pair of the object detection benchmark over 15,000 iterations: the averaged weights above the trained ones at every evaluation, 8.01 points ahead at the end" style="width:1078px; height:603px; object-fit:contain">
 </div>
 </div>
-<aside>Optimization.exponential_moving_average keeps a second copy of the weights, moved towards the trained ones after every optimizer step: at a decay of 0.999 it follows about the last 1,000 iterations, and a short run averages fewer because of the warm-up. Every test evaluation scores both copies, in the EMA Weights report and under Test_EMA in TensorBoard, and the export can take either. The figure is the reference pair of the object detection benchmark (run_21 and run_22, the settings shipped in the detection configurations), trained for 15,000 iterations and scored on 10,000 test images every 500 iterations: the averaged weights lead at every evaluation, by up to 12.07 points at iteration 4000, and end at 81.83 % test mAP@[0.5:0.95] against 73.83 % for the trained ones; their curve is also smooth where the trained one jumps from one evaluation to the next. The benchmark therefore compares its settings on the averaged weights. It adds no token to the run name, so it can be switched on or off when a run resumes.</aside>
+<aside>Optimization.exponential_moving_average keeps a second copy of the weights, moved towards the trained ones after every optimizer step: it averages about the last 1 / (1 − decay) iterations, which carry about 63 % of its weight, 5,000 at the decay 0.9998 of the shipped configurations. The warm-up of the decay only reaches 0.9998 after about 45,000 iterations, so the launches of the figure, stopped at 15,000, made their last update with a decay of 0.9994, a window of about 1,670 iterations holding 65 % of their average. Every test evaluation scores both copies, in the EMA Weights report and under Test_EMA in TensorBoard, and the export can take either. The figure is the reference pair of the object detection benchmark (run_21 and run_22, the settings shipped in the detection configurations), trained for 15,000 iterations and scored on 10,000 test images every 500 iterations: the averaged weights lead at every evaluation, by up to 12.07 points at iteration 4000, and end at 81.83 % test mAP@[0.5:0.95] against 73.83 % for the trained ones; their curve is also smooth where the trained one jumps from one evaluation to the next. The benchmark therefore compares its settings on the averaged weights. It adds no token to the run name, so it can be switched on or off when a run resumes.</aside>
 </section>
