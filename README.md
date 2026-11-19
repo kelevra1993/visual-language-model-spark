@@ -900,6 +900,7 @@ Each time a build ends, it writes `index.html` next to the series folders: one p
 Should you look for what the videos do not show yet, `documentation/tutorial_backlog.md` lists implemented features the built videos leave out or show only in part, where each one is documented and which chapter could take it; the list is not exhaustive.
 
 ## Deployment
+In order to serve a trained run to other programs, read the parts below in order: the words of deployment followed on one run ([From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model)), the number formats behind reduced precision ([Number Formats](#number-formats)), then the [export](#export), its [input contract](#input-contract), the [Triton server](#triton-server) and the measured [serving formats](#serving-formats-and-precision).
 
 ### From A Checkpoint To A Served Model
 If words such as eager, ONNX or TensorRT stop you in the Deployment section, this part follows one trained run from its checkpoint to a served model: the 35-class synthetic shapes classifier of the README screenshots (512 pixels, iteration 2000), exported on 2026-11-19, from which every file, output and timing below comes unless the serving benchmark is named. The table gives each word in one line with a comparison, the subsections explain them on that run, and the [glossary](#glossary) defines the other terms.
