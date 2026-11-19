@@ -12,7 +12,7 @@ image size, layers and classes of the benchmark read from the run names of resul
 also used by the classification figures). The moving average chart also shades the iterations the average looks back
 at the last evaluation, 1 / (1 - decay) for the decay of its last update, the decay of the launches being read from
 the section of their stage in experiment_plan.md (the benchmark_plan file of tutorial_sources.yaml) and lowered by the
-warm-up of ExponentialMovingAverage.get_current_decay. The test accuracies are written as the percentages of the
+warm-up of compute_update_decay, the decay every update of the trainer uses. The test accuracies are written as the percentages of the
 reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
 
@@ -27,7 +27,6 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from matplotlib.transforms import Bbox
 from pathlib import Path
-from torch import nn
 from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, GRID_COLOUR,
@@ -36,8 +35,7 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 format_thousands, register_fonts, round_fact, save_figure,
                                                 style_chart_panel)
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
-from vision_training.trainers.weight_averaging import (AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY,
-                                                       ExponentialMovingAverage)
+from vision_training.trainers.weight_averaging import compute_update_decay
 
 # Evaluated iterations of every launch, the columns of results.csv
 EVALUATED_ITERATIONS = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
@@ -503,27 +501,6 @@ def read_moving_average_stage_decay(plan_path: Path) -> float:
     return float(decay_values[0])
 
 
-def compute_last_update_decay(decay: float, number_updates: int) -> float:
-    """
-    Gives the decay of the last update of a moving average after a number of updates, through
-    ExponentialMovingAverage.get_current_decay of the trainer, so that the window the moving average chart shades
-    follows the warm-up of the code: min(decay, (1 + n) / (10 + n)) for the update n, counted from 0.
-
-    Args:
-        decay (float): The configured decay of the average.
-        number_updates (int): The updates made, one per training iteration for a launch keeping its average from its
-            first iteration.
-
-    Returns:
-        float: The decay of the last of these updates.
-    """
-    # An average holding every update but the last one, its next update being the last one of the launch
-    moving_average = ExponentialMovingAverage(model=nn.Identity(), decay=decay)
-    moving_average.load_state_dict(state_dictionary={AVERAGED_MODEL_STATE_KEY: {},
-                                                     NUMBER_UPDATES_KEY: number_updates - 1})
-    return moving_average.get_current_decay()
-
-
 def compute_artist_box(figure: matplotlib.figure.Figure, artists: List[matplotlib.artist.Artist],
                        margin: int) -> List[int]:
     """
@@ -564,7 +541,9 @@ def draw_moving_average_window(axes_list: List[matplotlib.axes.Axes], decay: flo
         Dict[str, Any]: The decay of the last update, the window in iterations and the bracket and labels of the
             labelled panel ("labels"), whose box is the highlight of the window.
     """
-    last_update_decay = compute_last_update_decay(decay=decay, number_updates=last_iteration)
+    # Decay of the last update of the launches, the update of index last_iteration - 1 counted from 0, lowered by the
+    # warm-up of the trainer (compute_update_decay)
+    last_update_decay = compute_update_decay(decay=decay, update_index=last_iteration - 1)
     window_iterations = 1.0 / (1.0 - last_update_decay)
 
     # Window shaded behind the curves of every panel, in the colour of the averaged weights
