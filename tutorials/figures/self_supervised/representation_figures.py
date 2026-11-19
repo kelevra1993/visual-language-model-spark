@@ -12,7 +12,8 @@ untrained and of the trained network on colour and on grayscale views, the cue t
 vote are written as the percentages of the reports of the repository ("45.23 %"), the facts keeping every rate between 0
 and 1. The encoding takes minutes on a shared CPU, so the figures are reused unless forced; a run read from the run
 snapshots, without its checkpoints, reuses the outputs committed in figure_reuse/self_supervised/representations of the
-snapshot folder, the mosaic being drawn again from the reduced manifests and images committed under its datasets/.
+snapshot folder, its mosaic included, since the snapshots hold neither the training manifest that orders the reference
+images of the run nor those images.
 """
 
 import json
@@ -27,8 +28,8 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR,
-                                                read_reused_facts, read_run_configuration, register_fonts,
-                                                restore_committed_figures, round_fact, save_figure,
+                                                is_snapshot_folder, read_reused_facts, read_run_configuration,
+                                                register_fonts, restore_committed_figures, round_fact, save_figure,
                                                 write_reused_facts)
 from tutorials.figures.self_supervised.ssl_sources import (build_view_augmenter, draw_sample_views, encode_images,
                                                           find_sample, list_evaluated_iterations,
@@ -66,6 +67,10 @@ CLASS_COLOURS = ["#3987e5", "#199e70", "#c98500", "#d55181", "#9085e9", "#e66767
 # folder of the series, under which the run snapshots commit them
 FACTS_FILE_NAME = "representation_facts.json"
 REPRESENTATION_FAMILY_FOLDER = "representations"
+
+# Mosaic of the nearest reference images, drawn again from the reused facts for a real run and kept as committed for a
+# run read from the snapshots, which hold neither the training manifest ordering its reference images nor those images
+MOSAIC_FILE_NAME = "neighbour_mosaic.png"
 
 # Fact written only since the neighbourhood is drawn among the reference training images, so that facts kept by a
 # build made when it was drawn among the test images are made again instead of being reused
@@ -214,7 +219,8 @@ def make_neighbour_mosaic(output_folder: Path, run_folder: Path, facts: Dict[str
     """
     Draws the mosaic of the nearest reference images of the query at the first and last evaluated checkpoints from the
     neighbours kept in the facts of the representation figures, so that its layout can change without encoding the
-    images again.
+    images again; the reference images are read from the dataset of a real run, the snapshots keeping the committed
+    mosaic instead.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -228,7 +234,7 @@ def make_neighbour_mosaic(output_folder: Path, run_folder: Path, facts: Dict[str
     rows = [{"iteration": facts[f"knn.{position}_iteration"],
              "neighbours": facts[f"knn.nearest_{facts[f'knn.{position}_iteration']}"]}
             for position in ["first", "last"]]
-    draw_neighbour_mosaic(output_path=output_folder / "representations" / "neighbour_mosaic.png", rows=rows,
+    draw_neighbour_mosaic(output_path=output_folder / REPRESENTATION_FAMILY_FOLDER / MOSAIC_FILE_NAME, rows=rows,
                           query_sample=find_sample(samples=samples, file_name=QUERY_NAME),
                           reference_samples=reference_samples, image_size=image_size, keep_ratio=keep_ratio)
 
@@ -430,7 +436,8 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
     """
     Makes the representation figures of the series from the checkpoints of the run on the CPU and gives their facts,
     the figures of the previous build being reused unless forced or incomplete, or made when the neighbourhood was
-    drawn among the test images; a run without its checkpoints (the run snapshots) reuses the committed ones.
+    drawn among the test images; a run without its checkpoints (the run snapshots) reuses the committed ones, its
+    mosaic included.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -439,6 +446,9 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
 
     Returns:
         Dict[str, Any]: The facts, named knn.*, matrix.*, cue.* and similarity.*.
+
+    Raises:
+        FileNotFoundError: If a run read from the snapshots has no committed mosaic.
     """
     # Figures of the previous build, or those committed in the run snapshots for a run without its checkpoints
     representation_folder = output_folder / REPRESENTATION_FAMILY_FOLDER
@@ -447,7 +457,14 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
         restore_committed_figures(output_folder=output_folder, family_folder=REPRESENTATION_FAMILY_FOLDER)
     reused_facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force)
     if reused_facts is not None and REFERENCE_FACT_NAME in reused_facts:
-        make_neighbour_mosaic(output_folder=output_folder, run_folder=run_folder, facts=reused_facts)
+        # The mosaic of a run read from the snapshots stays the committed one, its reference images not being there
+        if is_snapshot_folder(folder=run_folder):
+            if not (representation_folder / MOSAIC_FILE_NAME).is_file():
+                raise FileNotFoundError(f"No committed mosaic {representation_folder / MOSAIC_FILE_NAME} for the run "
+                                        f"{run_folder} read from the snapshots: write the snapshot of the series from "
+                                        f"a build of the real run.")
+        else:
+            make_neighbour_mosaic(output_folder=output_folder, run_folder=run_folder, facts=reused_facts)
         return add_first_and_last_names(facts=reused_facts)
 
     # Settings of the run, its star and the reference training images of its k-NN evaluation
