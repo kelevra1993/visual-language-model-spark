@@ -3,8 +3,11 @@
 # The representation figures (k-NN neighbourhood, InfoNCE matrix, colour cue, views similarity at every evaluated
 # checkpoint) need the checkpoints of the run, which the snapshots never hold: their outputs are committed under
 # figure_reuse/self_supervised/representations and restored when the checkpoints are absent
-# (representation_figures.py); the mosaic of the nearest reference images is drawn again from the reduced manifests and
-# the images committed under datasets/.
+# (representation_figures.py), the mosaic of the nearest reference images included: the snapshots hold neither the
+# training manifest ordering the reference images of the run nor those images. The run was trained on the 9-class
+# dataset generated on 2026-10-11, replaced in ~/Data/classifier_data/synthetic_shapes by the 35-class dataset generated
+# on 2026-11-18: a make_run_snapshots call writing this series copies its test files from the 35-class dataset, so
+# restore them from git before committing (tutorials/MAINTAINING.md, section Run Snapshots).
 runs:
   - run: self_supervised
     files:
@@ -31,32 +34,15 @@ runs:
       # Console log of the training, next to the run folder: the last console summary and the throughputs
       - path: ../self_supervised_tutorial.log
 datasets:
-  # Label mapping file read by the configuration checks
-  - path: classifier_data/synthetic_shapes/label_mapping.json
-  # Training manifest: the k-NN reference images of the run (select_reference_samples) and the first samples of the
-  # labels listing of the classification series, with the count of the split; the same entry as in that series
-  - path: classifier_data/synthetic_shapes/train/labels.json
-    reduction: tutorials.figures.classification.snapshot_reductions:reduce_sample_manifest
-    first_samples: 3
-    reference_samples_per_category: 50
+  # The label mapping file of the run configuration, which the configuration checks load, is the one the classification
+  # series declares (its 35 classes give the same check listing)
   # Test manifest and images of the four sample images whose views the figures draw (the star is also the k-NN query)
   - path: classifier_data/synthetic_shapes/test/labels.json
     reduction: tutorials.figures.classification.snapshot_reductions:reduce_sample_manifest
     samples: [test_000000.png, test_000006.png, test_000008.png, test_000012.png]
   - path: classifier_data/synthetic_shapes/test/data/test_00000[068].png
   - path: classifier_data/synthetic_shapes/test/data/test_000012.png
-  # Nearest reference images of the star at the first and last evaluated checkpoints, drawn by the mosaic (the
-  # knn.nearest_<iteration> indices of figure_reuse/self_supervised/representations/representation_facts.json)
-  - path: classifier_data/synthetic_shapes/train/data/train_007897.png
-  - path: classifier_data/synthetic_shapes/train/data/train_025801.png
-  - path: classifier_data/synthetic_shapes/train/data/train_032586.png
-  - path: classifier_data/synthetic_shapes/train/data/train_206679.png
-  - path: classifier_data/synthetic_shapes/train/data/train_277854.png
-  - path: classifier_data/synthetic_shapes/train/data/train_280257.png
-  - path: classifier_data/synthetic_shapes/train/data/train_339831.png
-  - path: classifier_data/synthetic_shapes/train/data/train_399014.png
-  - path: classifier_data/synthetic_shapes/train/data/train_422157.png
-  - path: classifier_data/synthetic_shapes/train/data/train_447599.png
 figure_reuse:
-  # Outputs of the checkpoints on the reference images, the star and the views (representation_figures.py)
+  # Outputs of the checkpoints on the reference images, the star and the views, and the mosaic of the nearest reference
+  # images (representation_figures.py)
   - family: representations
