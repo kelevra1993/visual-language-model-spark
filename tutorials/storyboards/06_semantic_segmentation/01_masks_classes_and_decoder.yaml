@@ -68,15 +68,16 @@ scenes:
           - {match: "categories|label_mapping|\"1\": 1", sentences: [2]}
       - {type: box, box: [1180, 60, 1730, 300], text: "mask: one channel, uint8\nthe size of its image\n0 background, the values between: categories\n{{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} unlabelled, ignored", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: box, box: [1180, 340, 1730, 520], text: "class {{semantic_segmentation.mask_background_class}} is the background,\nadded to the mapping;\nseveral categories may share a class", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
-      - {type: text, position: [40, 640], text: "{{semantic_segmentation.manifest_samples}} test samples, {{semantic_segmentation.manifest_categories}} categories: the data set of this machine predates the {{semantic_segmentation.generator_shape_categories}} shapes of the current generator", font: diagram_small, colour: dim, appear: 3}
+      - {type: text, position: [40, 630], text: "{{semantic_segmentation.manifest_samples}} test samples, {{semantic_segmentation.manifest_categories}} categories: the data set of 2026-10-21 the run of these chapters was trained on\nthe generator of the repository draws {{semantic_segmentation.generator_shape_categories}} shapes, and a run on its data set ends in MC{{semantic_segmentation.generator_shape_categories}}", font: diagram_small, colour: dim, appear: 3}
     # The 8-bit masks, and their background value 0, which build_class_lookup_table keeps (lookup_table[0] = 0) without
-    # a constant
-    literal_numbers: ["8-bit", zero, "0"]
+    # a constant; the generation date of the data set of the run, recorded in its trained_with of
+    # tutorials/tutorial_sources.yaml (the data set itself kept only in tutorials/run_snapshots/datasets)
+    literal_numbers: ["8-bit", zero, "0", "2026-10-21", twenty-first]
     narration:
       - "A split holds its images in data, its masks in masks, and a labels file listing every sample with its image and mask files, and the categories."
       - "A mask is a single-channel 8-bit image of the size of its image, every pixel holding its category: zero for the background, {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} for the pixels left out of the losses and the metrics."
       - "The mapping file gives the class of every category, several categories may share one class, and the loader adds the background as class {{semantic_segmentation.mask_background_class:words}}."
-      - "This data set holds {{semantic_segmentation.manifest_categories}} shapes; one generated now holds {{semantic_segmentation.generator_shape_categories}} and its runs end in MC {{semantic_segmentation.generator_shape_categories}}."
+      - "The run of these chapters was trained on a data set of {{semantic_segmentation.manifest_categories:words}} shapes, generated on the twenty-first of October; the generator of the repository draws {{semantic_segmentation.generator_shape_categories:words}}, and a run on such a data set ends in MC {{semantic_segmentation.generator_shape_categories}}."
 
   - kind: image
     title: "From mask values to class indices"
