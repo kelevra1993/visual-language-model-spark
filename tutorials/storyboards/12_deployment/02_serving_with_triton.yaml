@@ -77,7 +77,7 @@ scenes:
       - {type: box, box: [920, 245, 1740, 405], text: "config.pbtxt next to the version folders\nversion_policy: the exported version only", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
       - {type: box, box: [920, 435, 1740, 595], text: "model.onnx: the graph\nmodel.onnx.data: its weights\nmodel.pt: one self-contained file", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
     narration:
-      - "Each exported model is a folder named after the model name of its task and its format, here the README classifier in both formats and the reference detector of the detection benchmark in ONNX."
+      - "Each exported model is a folder named after the model name of its task and its format, here the shapes classifier of the serving benchmark in both formats and the reference detector of the detection benchmark in ONNX."
       - "The folder holds its Triton configuration and one folder per version, and the version policy of the configuration serves only the exported version."
       - "The ONNX export keeps its weights in a model onnx data file next to the graph, which must travel with it, while the TorchScript file holds everything."
       - "Every version folder carries the preprocessing file of the input contract, and a classifier exported with its temperature adds its class thresholds."
