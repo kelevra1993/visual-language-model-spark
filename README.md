@@ -316,7 +316,7 @@ To see why a class given by a motion needs flatten, follow one frame through the
 <p align="center">
   <img src="README/sequence_pooling_similarity.png" width="100%" />
 </p>
-<p align="center"><em>The same on the two trained M2O runs of the sequence classification tutorial, on the 8 frames of one test sequence: with average pooling (512 pixels, 64 features) every pair of frames scores 1.00, the frames being indistinguishable; with flatten (128 pixels, 4,096 features) the similarity is 0.92 to 0.95 between neighbouring frames and falls to 0.06 between the first and the last, the frame vector following the shape.</em></p>
+<p align="center"><em>The same on two trained M2O runs of the sequence classification tutorial, on the 8 frames of one test sequence: with average pooling (512 pixels, 64 features) every pair of frames scores 1.00, the frames being indistinguishable; with flatten (256 pixels, 16,384 features) the similarity is 0.79 to 0.91 between neighbouring frames and falls to 0.00 between the first and the last, the frame vector following the shape.</em></p>
 
 ### Label Files
 Before a first launch on your own data, every split needs a `labels.json` listing its images, sequences or pairs with their categories, and the dataset needs one `label_mapping.json` turning these categories into the classes the model predicts. The `//` comments below only explain the examples: the JSON files take none. `class_folder_manifests.py` (one folder per class) and `pair_list_manifests.py` (CMP pair lists) write both files for you.
