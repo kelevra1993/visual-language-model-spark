@@ -4,9 +4,10 @@ tutorials/figures/foundations/figures.py from the last checkpoint of the classif
 the scenes show what the trained backbone really computes: the input of a test star and the feature maps it gives at
 the output of three blocks, the most active channels of each on a grid of tiles. The facts are the shapes and values of
 those maps, the place of the strongest final feature (the centre of the receptive field squares) and the
-squeeze-and-excitation gates of one layer for the star. The checkpoint inference is reused from the previous build
-unless forced; a build from the committed run snapshots, which hold no checkpoint, reuses the outputs of this family
-committed in figure_reuse/foundations/model/ of the snapshots.
+squeeze-and-excitation gates of one layer for the star; the claims the chapter makes about the star (flat colours, held
+by the final receptive field, every shown final channel peaking on it) are checked on the input and the maps. The
+checkpoint inference is reused from the previous build unless forced; a build from the committed run snapshots, which
+hold no checkpoint, reuses the outputs of this family committed in figure_reuse/foundations/model/ of the snapshots.
 """
 
 import functools
@@ -32,9 +33,20 @@ TILE_SIZE = 256
 TILE_GAP = 8
 
 # Squeeze-and-excitation layer whose gates are given: the second layer of the last block, the layer whose gates spread
-# the most for the test star in this run (the gates of the earlier layers stay near 0.5 after 1500 iterations)
+# the most for the test star in this run (a standard deviation of 0.24 at checkpoint 2000, from 0.04 to 0.16 for the
+# gates of the other layers)
 GATE_BLOCK_NUMBER = 6
 GATE_LAYER_INDEX = 1
+
+# Largest difference, in levels of any channel, between a pixel of the border of the test star image and the median
+# colour of that border, and between a pixel inside the star and the median colour of the star, for the background and
+# the star to count as flat, as the block 1 sentence of the backbone chapter describes them
+FLAT_COLOUR_TOLERANCE = 8
+
+# Difference from the background colour, in levels of any channel, above which a pixel belongs to the star, and the
+# pixels the star mask is eroded by before its colour is measured, its anti-aliased edge left out
+STAR_PIXEL_THRESHOLD = 30
+STAR_EDGE_EROSION = 3
 
 # Sequential ramp of the feature maps, from the card colour for no activation through blue to near white for the
 # strongest activation of a channel, validated against the card
@@ -119,6 +131,69 @@ def draw_feature_map_grid(block_output: numpy.ndarray, output_path: Path) -> Lis
     return shown_channels
 
 
+def check_star_claims(star_image: numpy.ndarray, final_block_output: numpy.ndarray, shown_channels: List[int],
+                      receptive_field: int, centre_x: float, centre_y: float, stride: float) -> None:
+    """
+    Checks on the test star the claims the backbone chapter makes about it, so that another STAR_IMAGE_NAME or a
+    retrained run stops the build instead of narrating a property the image or the model lost: the background and the
+    star are flat colours (the block 1 sentence), the receptive field square of the strongest final value holds the
+    whole star (the receptive field scene), and every shown channel of the last block peaks on or next to the star (the
+    last block sentence).
+
+    Args:
+        star_image (numpy.ndarray): The [H, W, 3] network input of the test star, BGR in [0, 255].
+        final_block_output (numpy.ndarray): The [C, h, w] output of the last shown block.
+        shown_channels (List[int]): The channels of that block drawn by the scene.
+        receptive_field (int): The side of the receptive field after the last convolution of the backbone, in pixels.
+        centre_x (float): The column of the centre of the receptive field squares in the input, in pixels.
+        centre_y (float): The row of that centre, in pixels.
+        stride (float): The input pixels between two neighbouring values of the final map.
+
+    Raises:
+        ValueError: If one of the claims does not hold for the test star.
+    """
+    # Background colour from the border of the image, which must be flat
+    border_pixels = numpy.concatenate([star_image[0], star_image[-1], star_image[:, 0], star_image[:, -1]], axis=0)
+    background_colour = numpy.median(border_pixels, axis=0)
+    if numpy.abs(border_pixels - background_colour).max() > FLAT_COLOUR_TOLERANCE:
+        raise ValueError(f"The border of the test star {STAR_IMAGE_NAME} is not a flat colour, while the backbone "
+                         f"chapter says that block 1 responds to the flat colours of the star and of the background.")
+
+    # Star pixels, those far from the background colour, whose core must be flat too
+    star_mask = numpy.abs(star_image - background_colour).max(axis=2) > STAR_PIXEL_THRESHOLD
+    if not star_mask.any():
+        raise ValueError(f"No pixel of the test star {STAR_IMAGE_NAME} differs from its background.")
+    core_mask = cv2.erode(src=star_mask.astype(numpy.uint8), kernel=numpy.ones((3, 3), dtype=numpy.uint8),
+                          iterations=STAR_EDGE_EROSION).astype(bool)
+    core_pixels = star_image[core_mask]
+    if len(core_pixels) == 0 or numpy.abs(core_pixels - numpy.median(core_pixels, axis=0)).max() > \
+            FLAT_COLOUR_TOLERANCE:
+        raise ValueError(f"The star of {STAR_IMAGE_NAME} is not one flat colour, while the backbone chapter says that "
+                         f"block 1 responds to the flat colours of the star and of the background.")
+
+    # Whole star inside the receptive field square of the strongest final value
+    star_rows, star_columns = numpy.nonzero(star_mask)
+    half_side = receptive_field / 2
+    if star_columns.min() < centre_x - half_side or star_columns.max() > centre_x + half_side or \
+            star_rows.min() < centre_y - half_side or star_rows.max() > centre_y + half_side:
+        raise ValueError(f"The star of {STAR_IMAGE_NAME} (columns {star_columns.min()} to {star_columns.max()}, rows "
+                         f"{star_rows.min()} to {star_rows.max()}) leaves the receptive field square of "
+                         f"{receptive_field} pixels centred on ({centre_x}, {centre_y}), which the receptive field "
+                         f"scene says holds it.")
+
+    # Every shown channel of the last block peaking on the star: the stride square of its strongest final value, grown
+    # by one final value on every side (the tiles show a blob of neighbouring values), touches the star
+    for channel in shown_channels:
+        row, column = numpy.unravel_index(indices=int(final_block_output[channel].argmax()),
+                                          shape=final_block_output[channel].shape)
+        square = star_mask[max(int((row - 1) * stride), 0):int((row + 2) * stride),
+                           max(int((column - 1) * stride), 0):int((column + 2) * stride)]
+        if not square.any():
+            raise ValueError(f"Channel {channel} of the last shown block peaks at row {row}, column {column}, away "
+                             f"from the star of {STAR_IMAGE_NAME}, while the backbone chapter says every channel "
+                             f"lights up where the star is.")
+
+
 def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:
     """
     Runs the backbone of the last checkpoint of the classification run on the test star, writes the input and the
@@ -139,6 +214,7 @@ def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) ->
     Raises:
         FileNotFoundError: If the run has no checkpoint and the run snapshots hold no committed outputs of the family.
         RuntimeError: If the squeeze-and-excitation layer is not called once by the forward pass.
+        ValueError: If the test star or the maps lose a property the chapter narrates (check_star_claims).
     """
     model_folder = output_folder / MODEL_FAMILY_FOLDER
     facts_path = model_folder / FACTS_FILE_NAME
@@ -215,6 +291,17 @@ def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) ->
                       value=column * stride + (stride - 1) / 2),
                   "feature_maps.strongest_final_position.receptive_field_centre_y": round_fact(
                       value=row * stride + (stride - 1) / 2)})
+
+    # Claims of the chapter about the star checked on the input and the maps, the receptive field after the last
+    # convolution of the backbone being the side of the largest square of the receptive field scene
+    final_receptive_field = [layer for layer in model.backbone.compute_receptive_field_information()
+                             if not layer["name"].startswith("Max Pooling")][-1]["receptive_field"]
+    final_block_number = SHOWN_BLOCK_NUMBERS[-1]
+    check_star_claims(star_image=star_tensor[0].permute(1, 2, 0).numpy(),
+                      final_block_output=block_outputs[final_block_number],
+                      shown_channels=facts[f"feature_maps.block_{final_block_number}.shown_channels"],
+                      receptive_field=int(final_receptive_field), centre_x=column * stride + (stride - 1) / 2,
+                      centre_y=row * stride + (stride - 1) / 2, stride=stride)
 
     # Squeeze-and-excitation gates of the star, after their sigmoid
     gates = torch.sigmoid(input=gate_logits[0]).numpy()

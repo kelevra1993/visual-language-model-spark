@@ -392,7 +392,7 @@ scenes:
     # The slowdown of the layer normalization, recorded in the prose of experiment_plan.md (stage 4)
     literal_numbers: [three]
     narration:
-      - "The repository was benchmarked on the synthetic shapes, one setting changed at a time with at least {{foundations.benchmark.minimum_launches_per_setting:words}} launches each, on a deeper backbone of {{foundations.benchmark.backbone_layer_count:words}} convolution layers trained for {{foundations.benchmark.last_iteration}} iterations."
+      - "The benchmark used a {{foundations.benchmark.class_count:words}}-class version of the synthetic shapes, one setting changed at a time with at least {{foundations.benchmark.minimum_launches_per_setting:words}} launches each, on a deeper backbone of {{foundations.benchmark.backbone_layer_count:words}} convolution layers trained for {{foundations.benchmark.last_iteration}} iterations."
       - "Without residual shortcuts, this deep backbone never learns: its launches stay at one class in {{foundations.benchmark.class_count:words}}, while the shortcuts reach {{foundations.benchmark.model_settings.residual_on.accuracy_2000:percent}}."
       - "With layer normalization of the feature maps, the network had not learned after {{foundations.benchmark.model_settings.layer_normalization_last_iteration}} iterations either, training about three times slower, so the benchmark kept the batch normalization."
 
