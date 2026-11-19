@@ -12,8 +12,8 @@ image size, layers and classes of the benchmark read from the run names of resul
 also used by the classification figures). The moving average chart also shades the iterations the average looks back
 at the last evaluation, 1 / (1 - decay) for the decay of its last update, the decay of the launches being read from
 the section of their stage in experiment_plan.md (the benchmark_plan file of tutorial_sources.yaml) and lowered by the
-warm-up of compute_update_decay, the decay every update of the trainer uses. The test accuracies are written as the percentages of the
-reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
+warm-up of compute_update_decay, the decay every update of the trainer uses. The test accuracies are written as the
+percentages of the reports of the repository ("94.03 %", ticks "20 %"), the facts keeping them between 0 and 1.
 """
 
 import csv
