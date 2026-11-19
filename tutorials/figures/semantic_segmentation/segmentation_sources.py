@@ -6,7 +6,10 @@ every evaluation of the run: a circle, a rectangle, a pentagon and an octagon), 
 the repository, the label dictionary and class names of the run, and the class colours of its sample images. The saved
 configuration is read with read_run_configuration of figure_utilities.py, which points the dataset paths of a run read
 from the committed snapshots (tutorials/run_snapshots) at the dataset files of the snapshots; such a run has no
-checkpoint (has_checkpoint), its inference outputs being committed with the snapshots.
+checkpoint (has_checkpoint), its inference outputs being committed with the snapshots. The run was trained on the
+9-class data set of 2026-10-21, whose folder holds the 35-class data set generated on 2026-11-19, so the figures read
+the committed copies of its files whenever the dataset folder no longer matches the classes of the run
+(read_run_dataset_configuration).
 """
 
 import json
@@ -16,6 +19,7 @@ import numpy
 from pathlib import Path
 from typing import Any, Dict
 
+from tutorials.figures.figure_utilities import is_snapshot_folder, remap_recorded_dataset_paths
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
@@ -87,6 +91,45 @@ def read_label_dictionary(configuration: Dict[str, Any]) -> Dict[Any, int]:
         Dict[Any, int]: The class index of every category value.
     """
     return build_label_dictionary(label_mapping_configuration=configuration["Data"]["label_mapping"], task=TASK_NAME)
+
+
+def read_run_dataset_configuration(run_folder: Path, configuration: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Gives the configuration whose dataset paths lead to the files the segmentation run was trained on: the configuration
+    itself while the label mapping of its dataset folder gives the classes of the label_dictionary.json of the run,
+    else, for a run read from the real runs whose dataset folder was generated again after the training, the same
+    configuration pointed at the committed copies of the dataset files (datasets/ of tutorials/run_snapshots), so that
+    the data scenes show the categories and the test image the run was evaluated on.
+
+    Args:
+        run_folder (Path): The folder of the segmentation run.
+        configuration (Dict[str, Any]): The configuration of the run, as read_run_configuration gives it.
+
+    Returns:
+        Dict[str, Any]: The configuration whose dataset files match the classes of the run.
+
+    Raises:
+        ValueError: If the dataset files of a run read from the snapshots, or their committed copies, give other
+            classes than the run.
+    """
+    run_classes = json.loads((run_folder / "label_dictionary.json").read_text(encoding="utf-8"))
+    dataset_classes = {str(key): value for key, value in read_label_dictionary(configuration=configuration).items()}
+    if dataset_classes == run_classes:
+        return configuration
+
+    # Dataset folder generated again after the training: the committed copies of the files the figures read
+    committed_configuration = remap_recorded_dataset_paths(value=configuration)
+    committed_classes = {str(key): value for key, value in
+                         read_label_dictionary(configuration=committed_configuration).items()}
+    if is_snapshot_folder(folder=run_folder) or committed_classes != run_classes:
+        raise ValueError(f"The label mapping of the dataset of {run_folder.name} gives {len(dataset_classes)} classes "
+                         f"and its committed copy {len(committed_classes)}, against the {len(run_classes)} of its "
+                         f"label_dictionary.json: restore the dataset files of tutorials/run_snapshots/datasets from "
+                         f"git.")
+    print(f"The dataset folder of {run_folder.name} gives {len(dataset_classes)} classes against the "
+          f"{len(run_classes)} of the run: its figures read the committed dataset files of tutorials/run_snapshots "
+          f"instead.")
+    return committed_configuration
 
 
 def load_test_sample(configuration: Dict[str, Any], test_split: Path,
