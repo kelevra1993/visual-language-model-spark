@@ -513,7 +513,8 @@ committed): every image can be taken again from them without training, except wh
     the `T8` of M2O and CMP).
 34. **A frame selection sample with a wrong choice** (`README/frame_selection_sample.png`): its description asks for
     one wrong choice if possible, but the eight fixed test sequences of the evaluation samples are all chosen right at
-    2000 iterations (Hungarian selection accuracy 98.17 %, 191 of the 200 test sequences fully right), so the sample,
+    2000 iterations, the run's 11 wrong picks out of 600 (Hungarian selection accuracy 98.17 %, 191 of the 200 test
+    sequences fully right) falling in other sequences, so the sample,
     `test_000000` of 12 frames, shows three right choices (star, triangle, circle). The weights of iteration 500
     (`Weights/Iteration_500` of the run) or one of the 9 test sequences not fully right could show one.
 35. **Parameter columns of the MLflow table** (`README/mlflow_runs.png`): the parameters are logged under the path of
