@@ -1,14 +1,16 @@
 """
 Dataset figures of the sequence comparison tutorials (chapter 1), made by tutorials/figures/sequence_comparison/
-figures.py from the object loss pairs dataset the comparison run trained on: the frames of a training pair and of a
-test pair copied for the HTML scenes, the listings of the split layout and of its labels.json entry, the chart of the
-member lengths of every class, the mask of one training batch built by the pair dataset and the collate of the loaders,
-and the share of padding frames in the batches of the run. Its facts are the sizes of the splits, the classes and
-their class indices, the size of the frames on disk, the lengths and the padding the narration quotes.
+figures.py from the object loss pairs dataset the comparison run trained on: the first frames of both members of a
+training pair and of a test pair copied for the HTML scenes under the name of their role, the listings of the split
+layout and of its labels.json entry, the chart of the member lengths of every class, the mask of one training batch
+padded like the pair dataset and batched by the collate of the loaders, and the share of padding frames in the batches
+of the run. Its facts are the sizes of the splits, the classes and their class indices, the shown pairs, the size of
+the frames on disk, the lengths and the padding the narration quotes.
 """
 
 import json
 import random
+import shutil
 
 import numpy
 import torch
@@ -27,9 +29,20 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
 
-# Pairs shown on the scenes: the first training pair, and a test pair of the other class that the run gets wrong
-SHOWN_TRAINING_PAIR = "train_000000"
-SHOWN_TEST_PAIR = "test_000003"
+# Pairs shown on the scenes, chosen by their content, each with the split it comes from and the class the narration
+# gives it: a training pair keeping its objects (a semicircle cut by the border, a heptagon, a rectangle and a small
+# hollow square on a gradient background), and a loss pair of the test split that the run gets wrong, the wrong pair of
+# the evaluation chapter (checked by pair_evaluation_figures.py): its before member shows a hollow octagon, a hollow
+# triangle, a small hollow rectangle, a parallelogram and the dark purple hollow semicircle its after member lost, on
+# a black background crossed by dim lines
+SHOWN_TRAINING_PAIR = "train_000005"
+SHOWN_TEST_PAIR = "test_000154"
+SHOWN_PAIRS = {"shown_training": ("train", SHOWN_TRAINING_PAIR, "same_number_of_objects"),
+               "shown_test": ("test", SHOWN_TEST_PAIR, "loss_of_object")}
+
+# First frames of every member of a shown pair laid out by the scene, which every shown member must hold: every frame
+# of a member shows all of its objects, so its first frames show what the member holds
+SHOWN_FRAMES_PER_MEMBER = 2
 
 # Splits of a dataset, and the seed of the shuffle making the batches of the run
 SPLIT_NAMES = ["train", "validation", "test"]
@@ -157,13 +170,34 @@ def draw_member_length_figure(output_path: Path, pairs: List[Dict[str, Any]],
     return facts
 
 
+def build_member_padded_sample(pair: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+    """
+    Builds the sample of a pair the way SequencePairDataset.__getitem__ pads it, without reading its frames: both
+    members padded to the longer member of the pair (the before member first, the real frames of each member first),
+    every frame a 1 x 1 black image, since the mask of a batch depends on the member lengths only. This keeps the
+    training batch of the mask figure free of the frames of the dataset, which the committed snapshots leave out.
+
+    Args:
+        pair (Dict[str, Any]): A pair of the pair dataset, with its before and after frames and its class index.
+
+    Returns:
+        Dict[str, torch.Tensor]: The uint8 [2T, 3, 1, 1] images, the [2T] boolean sequence mask and the class index of
+            the pair, T being the frames of its longer member.
+    """
+    member_length = max(len(pair[member]) for member in PAIR_MEMBERS)
+    member_masks = [torch.arange(end=member_length) < len(pair[member]) for member in PAIR_MEMBERS]
+    return {"images": torch.zeros(size=(len(PAIR_MEMBERS) * member_length, 3, 1, 1), dtype=torch.uint8),
+            "sequence_mask": torch.cat(tensors=member_masks, dim=0),
+            "labels": torch.tensor(data=pair["label"], dtype=torch.int64)}
+
+
 def build_training_batch_mask(train_folder: Path, label_dictionary: Dict[int, int], batch_size: int,
                               seed: int) -> torch.Tensor:
     """
-    Builds the sequence mask of one training batch with the code of the loaders: the pair dataset (every member read
-    and padded to the longer member of its pair) shuffled with a fixed seed, its first batch_size pairs batched by
-    collate_padded_sequences with two members per sample. The frames are read at a small size, the mask not depending
-    on the frame size.
+    Builds the sequence mask of one training batch with the code of the loaders: the pairs kept by the pair dataset,
+    shuffled with a fixed seed, its first batch_size pairs padded to their longer member as the pair dataset does
+    (build_member_padded_sample, the mask not depending on the frames) and batched by collate_padded_sequences with two
+    members per sample.
 
     Args:
         train_folder (Path): The training split.
@@ -174,6 +208,7 @@ def build_training_batch_mask(train_folder: Path, label_dictionary: Dict[int, in
     Returns:
         torch.Tensor: The [B, 2T] boolean mask, the before member then the after member of every pair.
     """
+    # Pairs kept by the dataset of the run, read from the manifest only
     dataset = SequencePairDataset(data_directory=str(train_folder / "data"),
                                   labels_file=str(train_folder / "labels.json"), image_size=32, keep_ratio=True,
                                   label_dictionary=label_dictionary,
@@ -181,7 +216,10 @@ def build_training_batch_mask(train_folder: Path, label_dictionary: Dict[int, in
                                   shuffle=False)
     pair_indices = list(range(len(dataset)))
     random.Random(seed).shuffle(pair_indices)
-    batch = collate_padded_sequences(samples=[dataset[pair_index] for pair_index in pair_indices[:batch_size]],
+
+    # First batch of the shuffled pairs, padded like the pair dataset and batched by the collate of the loaders
+    batch = collate_padded_sequences(samples=[build_member_padded_sample(pair=dataset.pairs[pair_index])
+                                              for pair_index in pair_indices[:batch_size]],
                                      members_per_sample=len(PAIR_MEMBERS))
     return batch["sequence_mask"]
 
@@ -199,6 +237,10 @@ def make_pair_dataset_figures(output_folder: Path, train_folder: Path, label_dic
 
     Returns:
         Dict[str, Any]: The facts, named dataset.*, lengths.* and mask.*.
+
+    Raises:
+        ValueError: If a shown pair no longer has the class its role gives it, or holds fewer frames in a member than
+            the scene shows.
     """
     dataset_folder = train_folder.parent
     manifests = {split_name: read_pair_manifest(split_folder=dataset_folder / split_name)
@@ -206,25 +248,38 @@ def make_pair_dataset_figures(output_folder: Path, train_folder: Path, label_dic
     label_mapping = json.loads((dataset_folder / "label_mapping.json").read_text(encoding="utf-8"))
     category_names = {category["id"]: category["name"] for category in manifests["train"]["categories"]}
 
-    # Frames of the shown pairs, copied for the HTML scenes, and the listings of the split and its manifest
-    facts = {}
-    for split_name, pair_name in [("train", SHOWN_TRAINING_PAIR), ("test", SHOWN_TEST_PAIR)]:
+    # First frames of every member of the shown pairs, copied for the HTML scenes under the name of their role into a
+    # frames folder emptied first, so that no frame of another shown pair stays behind, then the listings of the split
+    # and its manifest
+    facts = {"dataset.shown_frames_per_member": SHOWN_FRAMES_PER_MEMBER}
+    shutil.rmtree(path=output_folder / "frames", ignore_errors=True)
+    for role, (split_name, pair_name, expected_class) in SHOWN_PAIRS.items():
         pair = next(pair for pair in manifests[split_name]["pairs"] if pair["name"] == pair_name)
+        if category_names[pair["category_id"]] != expected_class:
+            raise ValueError(f"The shown {role} pair {pair_name} is expected {expected_class}, the narration says so, "
+                             f"but is {category_names[pair['category_id']]}: choose another pair.")
         for member in PAIR_MEMBERS:
-            copy_frames(frame_paths=[dataset_folder / split_name / "data" / frame for frame in pair[member]],
-                        series_folder=output_folder, subfolder="frames", name_prefix=f"{pair_name}_{member}")
-            facts[f"dataset.{pair_name}.{member}_frames"] = len(pair[member])
-        facts[f"dataset.{pair_name}.class"] = category_names[pair["category_id"]]
+            if len(pair[member]) < SHOWN_FRAMES_PER_MEMBER:
+                raise ValueError(f"The {member} member of the shown {role} pair {pair_name} holds "
+                                 f"{len(pair[member])} frames, the scene shows {SHOWN_FRAMES_PER_MEMBER}: choose "
+                                 f"another pair.")
+            copy_frames(frame_paths=[dataset_folder / split_name / "data" / frame
+                                     for frame in pair[member][:SHOWN_FRAMES_PER_MEMBER]],
+                        series_folder=output_folder, subfolder="frames", name_prefix=f"{role}_{member}")
+            facts[f"dataset.{role}.{member}_frames"] = len(pair[member])
+        facts[f"dataset.{role}.name"] = pair_name
+        facts[f"dataset.{role}.class"] = expected_class
     write_pair_listings(output_folder=output_folder, train_manifest=manifests["train"], label_mapping=label_mapping)
 
-    # Member lengths of every class, the mask of one training batch and the padding of the batches of the run
+    # Member lengths of every class, their mean length per member, the mask of one training batch and the padding of
+    # the batches of the run
     train_pairs = manifests["train"]["pairs"]
     facts.update(draw_member_length_figure(output_path=output_folder / "dataset" / "member_lengths.png",
                                            pairs=train_pairs, category_names=category_names))
     for category_identifier, category_name in category_names.items():
-        differences = [len(pair["after"]) - len(pair["before"]) for pair in train_pairs
-                       if pair["category_id"] == category_identifier]
-        facts[f"lengths.{category_name}.mean_difference"] = round_fact(value=float(numpy.mean(differences)))
+        for member in PAIR_MEMBERS:
+            facts[f"lengths.{category_name}.mean_{member}"] = round_fact(value=float(numpy.mean(
+                [len(pair[member]) for pair in train_pairs if pair["category_id"] == category_identifier])))
     facts["lengths.equal_members"] = sum(int(len(pair["before"]) == len(pair["after"])) for pair in train_pairs)
     all_lengths = [len(pair[member]) for pair in train_pairs for member in PAIR_MEMBERS]
     facts.update({"lengths.minimum_member": min(all_lengths), "lengths.maximum_member": max(all_lengths),
@@ -236,10 +291,12 @@ def make_pair_dataset_figures(output_folder: Path, train_folder: Path, label_dic
                   "mask.longest_member": int(batch_mask.shape[1]) // 2,
                   "mask.padding_share": round_fact(value=float((~batch_mask).float().mean()))})
 
-    # Class index the label mapping gives every category, and the side of the square frames written on disk
+    # Class index the label mapping gives every category, and the side of the square frames written on disk, read on
+    # the first frame of the shown training pair, whose frames the run snapshot keeps
     for category_identifier, class_index in label_mapping.items():
         facts[f"dataset.class_index.{category_names[int(category_identifier)]}"] = class_index
-    with Image.open(fp=train_folder / "data" / train_pairs[0]["before"][0]) as first_frame:
+    shown_training_pair = next(pair for pair in train_pairs if pair["name"] == SHOWN_TRAINING_PAIR)
+    with Image.open(fp=train_folder / "data" / shown_training_pair["before"][0]) as first_frame:
         frame_width, frame_height = first_frame.size
     if frame_width != frame_height:
         raise ValueError(f"The frames of {train_folder} are expected square, the first one is {frame_width} x "

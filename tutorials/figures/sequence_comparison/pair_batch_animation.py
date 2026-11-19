@@ -22,6 +22,7 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
+from tutorial_builder.layout import CONTENT_WIDTH
 from tutorials.figures.figure_utilities import (read_reused_facts, restore_committed_figures, round_fact,
                                                 write_reused_facts)
 from tutorials.figures.sequence_classification.batch_animation import format_shape
@@ -52,6 +53,11 @@ STACK_TOP = 60
 STACK_ROW_STRIDE = 66
 DELAY_SECONDS = 0.02
 
+# Longest member of the batch whose split phase, the widest one (both members of every pair side by side, SPLIT_GAP
+# apart), still ends inside the content area of the scene, its last tile ending at FRAMES_LEFT + SPLIT_GAP +
+# MEMBER_GAP + TILE_SIDE + (2 x longest member - 1) x TILE_STRIDE: the window of pairs is chosen among those within it
+MAXIMUM_LONGEST_MEMBER = ((CONTENT_WIDTH - FRAMES_LEFT - SPLIT_GAP - MEMBER_GAP - TILE_SIDE) // TILE_STRIDE + 1) // 2
+
 # Phases of the layout in their order, the scenes starting each of them with one of their sentences
 LAYOUT_PHASES = ["members", "pair_padded", "batch", "split", "stack", "encode"]
 
@@ -64,19 +70,27 @@ def choose_pair_window(pairs: List[Dict[str, Any]]) -> int:
     """
     Chooses the first pair of the animated batch: the start of the window of PAIR_COUNT consecutive pairs of the
     manifest, among the first SEARCHED_WINDOWS, whose longer members have the most distinct numbers of frames, the
-    earliest window winning a tie.
+    earliest window winning a tie, among the windows whose longest member fits the scene (MAXIMUM_LONGEST_MEMBER).
 
     Args:
         pairs (List[Dict[str, Any]]): The pairs of the training manifest, in its order.
 
     Returns:
         int: The index of the first pair of the window.
+
+    Raises:
+        ValueError: If no searched window has its longest member within MAXIMUM_LONGEST_MEMBER frames.
     """
     window_scores = []
     for start_index in range(min(SEARCHED_WINDOWS, len(pairs) - PAIR_COUNT + 1)):
         longer_members = {max(len(pairs[index][member]) for member in PAIR_MEMBERS)
                           for index in range(start_index, start_index + PAIR_COUNT)}
-        window_scores.append((-len(longer_members), start_index))
+        if max(longer_members) <= MAXIMUM_LONGEST_MEMBER:
+            window_scores.append((-len(longer_members), start_index))
+    if not window_scores:
+        raise ValueError(f"No window of {PAIR_COUNT} consecutive pairs among the first {SEARCHED_WINDOWS} of the "
+                         f"training manifest has members of at most {MAXIMUM_LONGEST_MEMBER} frames, the longest the "
+                         f"scene holds.")
     return min(window_scores)[1]
 
 

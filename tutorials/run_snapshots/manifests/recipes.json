@@ -125,13 +125,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5459,
+      "snapshot_bytes": 19960,
       "snapshot_path": "readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/training_configuration.yaml",
-      "snapshot_sha256": "dda51b52702cd4ca707e3325ca4f596e33eac577f1a23e8e3a29d51da9464354",
-      "source_bytes": 5459,
+      "snapshot_sha256": "70b43a0d7459af11bd5d93cc26e0b7022106c2bcc929aaa44a6dca8805db8d33",
+      "source_bytes": 19960,
       "source_kind": "run",
       "source_path": "readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/training_configuration.yaml",
-      "source_sha256": "dda51b52702cd4ca707e3325ca4f596e33eac577f1a23e8e3a29d51da9464354"
+      "source_sha256": "70b43a0d7459af11bd5d93cc26e0b7022106c2bcc929aaa44a6dca8805db8d33"
     },
     {
       "options": {},
@@ -256,5 +256,5 @@
     }
   ],
   "series": "recipes",
-  "snapshot_bytes": 316544
+  "snapshot_bytes": 331045
 }

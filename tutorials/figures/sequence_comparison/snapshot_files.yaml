@@ -4,7 +4,9 @@
 # which runs the trained weights, is committed from the build cache under figure_reuse.
 runs:
   # Comparator run: settings, checkpoint registry, training, validation and test curves, evaluation report, figures,
-  # predictions, thresholds and per-class metrics of its last evaluation, two of its sample images and its console log
+  # predictions, thresholds and per-class metrics of its last evaluation, the sample image of the right pair the
+  # evaluation chapter shows (RIGHT_SAMPLE of pair_evaluation_figures.py, which checks its drawing against it) and its
+  # console log
   - run: sequence_comparison
     files:
       - path: training_configuration.yaml
@@ -25,40 +27,20 @@ runs:
       - path: Checkpoint_Evaluation/Iteration_1000/class_thresholds.json
       - path: Checkpoint_Evaluation/Iteration_1000/class_metrics.csv
       - path: Checkpoint_Evaluation/Iteration_1000/Samples/test_000000.png
-      - path: Checkpoint_Evaluation/Iteration_1000/Samples/test_000003.png
       - path: ../sequence_comparison.log
-  # Sequence classification run, shared with sequence_classification: the frame size of the classifier the console
-  # chapter compares with, and its console log
-  - run: sequence_classification
-    files:
-      - path: training_configuration.yaml
-      - path: ../sequence_classification_flatten.log
-# Object loss pairs data set: label mapping and labels of every split, the frames of the test pair shown with its sample
-# image and of the training pairs drawn by the data figures, those of the animated pair batch being committed with its
-# outputs (the generator seeds its chunks from the system, so the data set cannot be made again identically)
+# Object loss pairs data set: label mapping and labels of every split, the first two frames of every member of the shown
+# training pair (SHOWN_PAIRS and SHOWN_FRAMES_PER_MEMBER of pair_dataset_figures.py), and every frame of the shown test
+# pair and of the right pair, whose sample images the evaluation chapter draws (WRONG_SAMPLE and RIGHT_SAMPLE of
+# pair_evaluation_figures.py), those of the animated pair batch being committed with its outputs (the generator seeds
+# its chunks from the system, so the data set cannot be made again identically)
 datasets:
   - path: sequence_data/synthetic_object_loss_pairs/label_mapping.json
   - path: sequence_data/synthetic_object_loss_pairs/train/labels.json
   - path: sequence_data/synthetic_object_loss_pairs/validation/labels.json
   - path: sequence_data/synthetic_object_loss_pairs/test/labels.json
-  - path: sequence_data/synthetic_object_loss_pairs/test/data/test_000003/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000000/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000114/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000155/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000216/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000305/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000381/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000400/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000581/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000865/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000920/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001026/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001274/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001288/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001361/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001449/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001671/**/*.png
-  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_001748/**/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/train/data/train_000005/*/00000[0-1].png
+  - path: sequence_data/synthetic_object_loss_pairs/test/data/test_000154/*/*.png
+  - path: sequence_data/synthetic_object_loss_pairs/test/data/test_000000/*/*.png
 # Family run with the trained weights (the animated pair batch and its layout), reused from these committed outputs
 # when the checkpoint is absent
 figure_reuse:

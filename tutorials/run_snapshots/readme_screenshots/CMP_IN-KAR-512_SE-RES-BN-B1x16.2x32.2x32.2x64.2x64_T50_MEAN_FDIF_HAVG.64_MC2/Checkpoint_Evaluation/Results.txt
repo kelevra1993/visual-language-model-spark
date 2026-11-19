@@ -1,39 +1,39 @@
-Iteration 500 · 200 Test Pairs · 2026-11-15 15:34 ──────────────────────────────────────────────────────────────────────
-  Accuracy        98.50 %   Balanced Accuracy         98.61 %
-  Macro F1        98.49 %   Top-5 Accuracy            100.00 %
-  Macro ROC AUC   99.62 %   Macro Average Precision   99.60 %
+Iteration 500 · 200 Test Pairs · 2026-11-19 21:34 ──────────────────────────────────────────────────────────────────────
+  Accuracy        88.50 %   Balanced Accuracy         88.41 %
+  Macro F1        88.45 %   Top-5 Accuracy            100.00 %
+  Macro ROC AUC   94.22 %   Macro Average Precision   92.26 %
   Sample Images : 8 fixed test pairs
 
   Per Class Metrics
-                                                                                   Average   Threshold    Recall
-   Class                    Samples   Precision     Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %
-  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   same_number_of_objects        92     96.84 %   100.00 %   98.40 %   99.62 %     99.46 %      0.9447   63.04 %
-   loss_of_object               108    100.00 %    97.22 %   98.59 %   99.62 %     99.74 %      0.3798   98.15 %
+                                                                                  Average   Threshold    Recall
+   Class                    Samples   Precision    Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   loss_of_object                98     92.13 %   83.67 %   87.70 %   94.22 %     95.97 %      0.9068   71.43 %
+   same_number_of_objects       102     85.59 %   93.14 %   89.20 %   94.22 %     88.54 %           —         —
   Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
   is never reached.
 
   Per Class Recall
-                                                    95 %       95 %
-   Class                    Samples     Recall     Lower      Upper
-  ──────────────────────────────────────────────────────────────────
-   loss_of_object               108    97.22 %   92.10 %    99.42 %
-   same_number_of_objects        92   100.00 %   96.07 %   100.00 %
+                                                   95 %      95 %
+   Class                    Samples    Recall     Lower     Upper
+  ────────────────────────────────────────────────────────────────
+   loss_of_object                98   83.67 %   74.84 %   90.37 %
+   same_number_of_objects       102   93.14 %   86.37 %   97.20 %
   Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
   being independent. — : no samples of the class.
 
-Iteration 1000 · 200 Test Pairs · 2026-11-15 15:34 ─────────────────────────────────────────────────────────────────────
-  Accuracy        98.50 %   Balanced Accuracy         98.61 %
-  Macro F1        98.49 %   Top-5 Accuracy            100.00 %
-  Macro ROC AUC   99.45 %   Macro Average Precision   99.44 %
+Iteration 1000 · 200 Test Pairs · 2026-11-19 21:34 ─────────────────────────────────────────────────────────────────────
+  Accuracy        95.00 %   Balanced Accuracy         94.90 %
+  Macro F1        94.98 %   Top-5 Accuracy            100.00 %
+  Macro ROC AUC   98.33 %   Macro Average Precision   98.27 %
   Sample Images : 8 fixed test pairs
 
   Per Class Metrics
                                                                                    Average   Threshold    Recall
    Class                    Samples   Precision     Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %
   ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   same_number_of_objects        92     96.84 %   100.00 %   98.40 %   99.45 %     99.25 %      0.9880   68.48 %
-   loss_of_object               108    100.00 %    97.22 %   98.59 %   99.45 %     99.62 %      0.2912   98.15 %
+   loss_of_object                98    100.00 %    89.80 %   94.62 %   98.33 %     98.77 %      0.4881   90.82 %
+   same_number_of_objects       102     91.07 %   100.00 %   95.33 %   98.33 %     97.77 %      0.9862   26.47 %
   Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
   is never reached.
 
@@ -41,8 +41,8 @@ Iteration 1000 · 200 Test Pairs · 2026-11-15 15:34 ─────────
                                                     95 %       95 %
    Class                    Samples     Recall     Lower      Upper
   ──────────────────────────────────────────────────────────────────
-   loss_of_object               108    97.22 %   92.10 %    99.42 %
-   same_number_of_objects        92   100.00 %   96.07 %   100.00 %
+   loss_of_object                98    89.80 %   82.03 %    95.00 %
+   same_number_of_objects       102   100.00 %   96.45 %   100.00 %
   Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
   being independent. — : no samples of the class.
 
