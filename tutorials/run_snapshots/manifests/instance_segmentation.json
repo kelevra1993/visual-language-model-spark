@@ -22,10 +22,10 @@
       "snapshot_bytes": 991350,
       "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test_5000/labels.json",
       "snapshot_sha256": "86d9e7476aecc5fb5f038372dc99c68f0285fb5f41a18c10e0fe67df6414db66",
-      "source_bytes": 15555665,
+      "source_bytes": 14786842,
       "source_kind": "dataset",
       "source_path": "instance_segmentation_data/synthetic_shapes/test_5000/labels.json",
-      "source_sha256": "b384ccde5f061ef1717ffd201ebdef572b807db91ca3b817e3579f9b15cb684b"
+      "source_sha256": "afd587a2fc1fd27e321a96f446913b6eafd0d243013328bef687091a780d31f8"
     },
     {
       "options": {},
